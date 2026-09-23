@@ -1,0 +1,122 @@
+name: Upstream server profile
+description: Propose a profile for a network-device MCP server NetGuard does not front yet.
+title: "profile: <server name>"
+labels: [profile, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A profile maps each of the server's tools to a class and tells the normaliser where the target and command live. Read [docs/specs/profile-schema.md](../../docs/specs/profile-schema.md) before filling this in. Tool and parameter names must come from the server's source code, not only its README.
+  - type: input
+    id: repo
+    attributes:
+      label: Repository URL
+      placeholder: "https://github.com/org/server"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit you checked
+      placeholder: "v1.3.0 or sha"
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      multiple: true
+      options:
+        - stdio
+        - streamable-http
+        - sse (2024-11-05, deprecated)
+    validations:
+      required: true
+  - type: dropdown
+    id: era
+    attributes:
+      label: Protocol era the server speaks
+      options:
+        - 2025 (FastMCP 1.x, python-sdk 1.x, initialize handshake)
+        - 2026 (stateless, go-sdk 1.7, python-sdk 2.x)
+        - Both
+        - Unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: vendors
+    attributes:
+      label: Platforms the server reaches
+      multiple: true
+      options:
+        - ios / iosxe
+        - nxos
+        - iosxr
+        - eos
+        - junos
+        - panos
+        - fortios
+        - srlinux
+        - controller (Meraki, CloudVision, Catalyst Center, SD-WAN, Nexus Dashboard)
+        - source of truth (NetBox, Nautobot)
+        - lab (containerlab)
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: targeting
+    attributes:
+      label: How tools name the target device
+      description: Parameter names for single and multiple targets, and whether a name comes from the server's inventory or is free-form. Note @group tokens, tags, comma-separated strings, or one-device-per-process binding.
+      placeholder: "single: router_name; batch: router_names[]; names come from devices.json"
+    validations:
+      required: true
+  - type: textarea
+    id: tools
+    attributes:
+      label: Tools
+      description: One row per tool. Cite the source file and line where it is registered.
+      value: |
+        | Tool | Parameters | Proposed class | Source | Notes |
+        | --- | --- | --- | --- | --- |
+        | | | | | |
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety features the server has
+      description: Allow-list, blocklist, read-only mode, dry-run parameter, commit timer, confirm and abort tools, redaction, auth on HTTP. Say "none" where that is the answer.
+    validations:
+      required: true
+  - type: textarea
+    id: freeform
+    attributes:
+      label: Free-form command tools
+      description: For each tool that sends an operator-typed command string to the device, say whether the server filters it and how. These are the EXEC_ARBITRARY candidates.
+  - type: textarea
+    id: inventory
+    attributes:
+      label: Inventory tool
+      description: The INVENTORY_READ tool the proxy could call at startup to learn device names, tags and vendors, and the shape of its result.
+  - type: dropdown
+    id: image
+    attributes:
+      label: Can the server run in a container for tier 2 tests?
+      options:
+        - Yes, a Dockerfile or image exists
+        - Yes, I can write a Dockerfile
+        - Only stdio, would need a wrapper
+        - "No"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Tool and parameter names above come from the server's source code
+          required: true
+        - label: I have not pasted credentials, inventory files or device hostnames I would not publish
+          required: true
+        - label: I am willing to open the pull request for profiles/<server>.yaml

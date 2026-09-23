@@ -1,0 +1,86 @@
+# GoReleaser configuration for NetGuard. Runs on tag push via
+# .github/workflows/release.yaml; `make release-snapshot` for a local dry run.
+version: 2
+
+project_name: netguard
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: netguard
+    main: ./cmd/netguard
+    binary: netguard
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE*
+      - README.md
+      - policies/examples/*
+      - profiles/*
+      - inventory.example.yaml
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents: ["{{ .ArtifactName }}.spdx.sbom.json"]
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude: ["^docs:", "^chore:", "^test:"]
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    Verify a download with `sha256sum -c checksums.txt`.
+
+# Homebrew tap placeholder: create joshscott13/homebrew-tap and set
+# HOMEBREW_TAP_GITHUB_TOKEN before the first tagged release.
+brews:
+  - name: netguard
+    repository:
+      owner: joshscott13
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/joshscott13/netguard
+    description: Policy-enforcing MCP proxy for network-device MCP servers
+    license: MIT
+    test: |
+      system "#{bin}/netguard", "version"
+    skip_upload: auto
+
+dockers:
+  - image_templates:
+      - "ghcr.io/joshscott13/netguard:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    goarch: amd64
+    use: buildx
+    build_flag_templates: ["--platform=linux/amd64"]
+    skip_push: auto

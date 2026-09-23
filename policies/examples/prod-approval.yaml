@@ -1,0 +1,35 @@
+# prod-approval: the example from docs/PLAN.md. Reads flow, lab writes are
+# free with dry-run and diff, core and border writes are held for a second
+# person, fan-out above three devices needs a change ticket, and arbitrary
+# commands are denied.
+#
+# Rules evaluate in order and the first match wins. device_roles and
+# device_tags must hold for every target, so a mixed lab-plus-core fan-out
+# falls through to the implicit deny rather than inheriting the lab rule.
+version: 1
+defaults:
+  unknown_target: deny
+  session:
+    max_devices: 5
+    max_pending: 2
+rules:
+  - id: reads-anywhere
+    match: { class: [READ_OPERATIONAL, READ_CONFIG, INVENTORY_READ] }
+    effect: allow
+  - id: lab-writes-free
+    match: { class: [WRITE_CONFIG], device_tags: [lab] }
+    effect: allow
+    obligations: [dry_run, diff]
+  - id: prod-core-needs-approval
+    match: { class: [WRITE_CONFIG], device_roles: [core, border] }
+    effect: hold
+    obligations: [dry_run, diff, timed_rollback]
+    approval: { ttl: 15m, approver_must_differ: true }
+  - id: fleet-cap
+    match: { class: [WRITE_CONFIG] }
+    when: { targets_count: { gt: 3 } }
+    effect: deny
+    reason: "fan-out above 3 devices needs a change ticket"
+  - id: no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny

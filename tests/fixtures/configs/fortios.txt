@@ -1,0 +1,82 @@
+# Sanitised FortiOS "show full-configuration" excerpt. All credentials are FAKE
+# and the trailing "# rule:" annotation names the redaction rule id expected
+# to catch it (see fortios.expect.json).
+#config-version=FGT60F-7.4.4-FW-build2662-240514:opmode=0:vdom=0:user=admin
+config system global
+    set alias "fw-branch-01"
+    set hostname "fw-branch-01"
+    set timezone "US/Central"
+end
+config system admin
+    edit "admin"
+        set accprofile "super_admin"
+        set vdom "root"
+        set password ENC FAKEfortiAdminPasswordBase64AbCdEfGhIjKlMnOpQrStUvWx==          # rule: fortios-enc
+    next
+    edit "netops"
+        set accprofile "prof_read_only"
+        set vdom "root"
+        set password ENC FAKEfortiNetopsPasswordBase64YzAbCdEfGhIjKlMnOpQrSt==          # rule: fortios-enc
+    next
+end
+config system interface
+    edit "wan1"
+        set vdom "root"
+        set ip 203.0.113.30 255.255.255.252
+        set allowaccess ping https ssh
+        set type physical
+        set role wan
+    next
+    edit "internal"
+        set vdom "root"
+        set ip 10.40.0.1 255.255.255.0
+        set allowaccess ping https ssh
+        set type physical
+        set role lan
+    next
+end
+config user local
+    edit "vpnuser"
+        set type password
+        set passwd ENC FAKEfortiVpnUserPasswdBase64ZyXwVuTsRqPoNmLkJiHgFe==             # rule: fortios-enc
+    next
+end
+config user radius
+    edit "RADIUS-PROF"
+        set server "10.20.30.41"
+        set secret ENC FAKEfortiRadiusSecretBase64QwErTyUiOpAsDfGhJkLzXc==              # rule: fortios-enc
+    next
+end
+config vpn ipsec phase1-interface
+    edit "BRANCH-VPN"
+        set interface "wan1"
+        set ike-version 2
+        set peertype any
+        set proposal aes256-sha256
+        set remote-gw 203.0.113.9
+        set psksecret ENC FAKEfortiPskSecretBase64ZxCvBnMaSdFgHjKlQwErTy==              # rule: fortios-enc
+    next
+end
+config router bgp
+    set as 65200
+    set router-id 10.255.200.1
+    config neighbor
+        edit "203.0.113.29"
+            set remote-as 65000
+            set password ENC FAKEfortiBgpPasswordBase64PoIuYtReWqLkJhGfDsAzXc==        # rule: fortios-enc
+        next
+    end
+end
+config firewall policy
+    edit 1
+        set name "lan-to-wan"
+        set srcintf "internal"
+        set dstintf "wan1"
+        set srcaddr "all"
+        set dstaddr "all"
+        set action accept
+        set schedule "always"
+        set service "ALL"
+        set nat enable
+    next
+end

@@ -1,0 +1,138 @@
+# Cases for prod-approval.yaml, run with `netguard policy test` or
+# `make policy-test`. Each case is a normalised, classified, role-resolved
+# request and the decision it must produce. Targets default to known: true;
+# set known: false to model a device no inventory provider resolved.
+policy: prod-approval.yaml
+cases:
+  - name: show on a core router is allowed
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: READ_OPERATIONAL
+      targets: [{name: core-rtr-01, role: core, site: dfw1, tags: [prod]}]
+    expect: {effect: allow, rule: reads-anywhere}
+
+  - name: config read on a border router is allowed
+    request:
+      server: junos-mcp-server
+      tool: get_junos_config
+      class: READ_CONFIG
+      targets: [{name: border-rtr-01, role: border, tags: [prod]}]
+    expect: {effect: allow, rule: reads-anywhere}
+
+  - name: inventory listing with no targets is allowed
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: list_devices
+      class: INVENTORY_READ
+    expect: {effect: allow, rule: reads-anywhere}
+
+  - name: lab write is allowed with dry-run and diff
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: lab-leaf-01, role: leaf, tags: [lab]}]
+    expect: {effect: allow, rule: lab-writes-free, obligations: [dry_run, diff]}
+
+  - name: core write is held for approval
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      class: WRITE_CONFIG
+      targets: [{name: core-rtr-01, role: core, tags: [prod]}]
+    expect: {effect: hold, rule: prod-core-needs-approval, obligations: [dry_run, diff, timed_rollback]}
+
+  - name: border write is held for approval
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      class: WRITE_CONFIG
+      targets: [{name: border-rtr-01, role: border}]
+    expect: {effect: hold, rule: prod-core-needs-approval}
+
+  - name: access-switch write matches no rule and is denied
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config
+      class: WRITE_CONFIG
+      targets: [{name: acc-sw-01, role: access, tags: [prod]}]
+    expect: {effect: deny, rule: default:no-match}
+
+  - name: mixed lab and core fan-out does not inherit the lab rule
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config_parallel
+      class: WRITE_CONFIG
+      targets:
+        - {name: lab-leaf-01, role: leaf, tags: [lab]}
+        - {name: core-rtr-01, role: core, tags: [prod]}
+    expect: {effect: deny, rule: default:no-match}
+
+  - name: fan-out above three devices is denied by fleet-cap
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config_parallel
+      class: WRITE_CONFIG
+      targets:
+        - {name: acc-sw-01, role: access}
+        - {name: acc-sw-02, role: access}
+        - {name: acc-sw-03, role: access}
+        - {name: acc-sw-04, role: access}
+    expect: {effect: deny, rule: fleet-cap}
+
+  - name: four lab devices are still allowed because the lab rule comes first
+    request:
+      server: eos-mcp
+      tool: run_commands_batch
+      class: WRITE_CONFIG
+      targets:
+        - {name: lab-leaf-01, tags: [lab]}
+        - {name: lab-leaf-02, tags: [lab]}
+        - {name: lab-spine-01, tags: [lab]}
+        - {name: lab-spine-02, tags: [lab]}
+    expect: {effect: allow, rule: lab-writes-free}
+
+  - name: reload through a free-form tool is denied by no-exec
+    request:
+      server: eos-mcp
+      tool: run_command
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: unknown host is denied even for a read
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: READ_OPERATIONAL
+      targets: [{name: 10.99.99.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
+
+  - name: one unknown device in a batch denies the batch
+    request:
+      server: junos-mcp-server
+      tool: execute_junos_command_batch
+      class: READ_OPERATIONAL
+      targets:
+        - {name: core-rtr-01, role: core}
+        - {name: mystery-rtr, known: false}
+    expect: {effect: deny, rule: default:unknown_target}
+
+  - name: session device cap is enforced
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: READ_OPERATIONAL
+      targets: [{name: core-rtr-01, role: core}]
+      session: {devices_touched: 5}
+    expect: {effect: deny, rule: default:session.max_devices}
+
+  - name: a third pending hold is refused
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      class: WRITE_CONFIG
+      targets: [{name: core-rtr-02, role: core}]
+      session: {pending_holds: 2}
+    expect: {effect: deny, rule: default:session.max_pending}

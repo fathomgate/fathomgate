@@ -1,0 +1,30 @@
+# lab-open: for a containerlab or EVE-NG environment where every device
+# carries the "lab" tag (statically or via a ^lab- hostname pattern).
+# Writes to lab devices are allowed but still dry-run and diffed so the audit
+# log shows what changed; anything not tagged lab is denied so a stray
+# production hostname in the same inventory stays safe. Arbitrary commands
+# that the classifier could not prove to be reads are denied even in the lab,
+# because "reload" on a lab node still costs an afternoon.
+version: 1
+defaults:
+  unknown_target: deny
+  session:
+    max_devices: 50
+rules:
+  - id: reads-anywhere
+    match: { class: [READ_OPERATIONAL, READ_CONFIG, INVENTORY_READ] }
+    effect: allow
+  - id: lab-writes-free
+    match: { class: [WRITE_CONFIG], device_tags: [lab] }
+    effect: allow
+    obligations: [dry_run, diff]
+  - id: lab-lifecycle
+    match: { class: [LAB_LIFECYCLE], device_tags: [lab] }
+    effect: allow
+  - id: no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny
+    reason: "command did not pass the read allow-list"
+  - id: not-lab
+    effect: deny
+    reason: "only devices tagged lab may be changed through this proxy"

@@ -1,0 +1,25 @@
+{
+  "platform": "junos",
+  "rules": [
+    "junos-encrypted-password",
+    "junos-secret-data",
+    "ike-pre-shared-key",
+    "generic-keyword",
+    "junos-9-hash"
+  ],
+  "secrets": [
+    "$6$FAKEsalt$junosRootSha512HashAbCdEfGhIjKl",
+    "$1$FAKEsalt$junosAdminMd5Hash1234",
+    "$5$FAKEsalt$junosNetopsSha256Hash5678",
+    "$9$FAKEjunosTacplusSecretAbCdEf",
+    "$9$FAKEjunosRadiusSecretGhIjKl",
+    "$9$FAKEjunosNtpKeyMnOpQr",
+    "$9$FAKEjunosBgpKeyStUvWx",
+    "$9$FAKEjunosOspfMd5KeyYzAbCd",
+    "$9$FAKEjunosIkePskEfGhIj",
+    "FAKEjunosRoCommunity",
+    "$5$FAKEsalt$junosSvcBackupHashKlMnOp",
+    "$9$FAKEjunosSetFormatBgpKeyQrSt",
+    "$9$FAKEjunosSetFormatRadiusUvWx"
+  ]
+}

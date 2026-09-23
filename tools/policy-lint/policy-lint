@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Thin launcher for tests/policy_lint so it can run from the repo root."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+
+from policy_lint import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

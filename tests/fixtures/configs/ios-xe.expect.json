@@ -1,0 +1,42 @@
+{
+  "platform": "ios-xe",
+  "rules": [
+    "cisco-password-type",
+    "generic-keyword",
+    "cisco-key-string",
+    "cisco-server-key",
+    "cisco-aaa-server-key",
+    "cisco-isakmp-key",
+    "ike-pre-shared-key",
+    "cisco-ospf-md5",
+    "cisco-ospf-auth-key",
+    "cisco-bgp-neighbor-password",
+    "ntp-authentication-key",
+    "cisco-snmp-community",
+    "cisco-snmp-host"
+  ],
+  "secrets": [
+    "$9$FAKEenableSECRETtype9/AbCdEfGh.1234567890",
+    "0822455D0A16FAKE7",
+    "$1$FAKE$adminSecretType5Hash1234",
+    "$8$FAKEsalt$backupType8HashXYZ",
+    "FAKEplainPassword123",
+    "FAKEtypelessPassword",
+    "FAKEkeyString0123456789",
+    "FAKEtacacsServerBlockKey0987",
+    "FAKElegacyTacacsKey1122",
+    "FAKEradiusPlainKey3344",
+    "FAKEisakmpKey5566",
+    "FAKEikev2LocalPsk7788",
+    "FAKEikev2RemotePsk9900",
+    "FAKEospfMd5Key1357",
+    "FAKEospfAuthKey2468",
+    "FAKEbgpNeighborPassword8642",
+    "FAKEbgpPlainPassword9753",
+    "FAKEntpMd5Key1029",
+    "FAKEsnmpRoCommunity",
+    "FAKEsnmpRwCommunity",
+    "FAKEsnmpHostCommunity",
+    "FAKEvtyLinePassword5150"
+  ]
+}

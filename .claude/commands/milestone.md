@@ -1,0 +1,19 @@
+Kick off or resume a NetGuard milestone: read ROADMAP.md, decompose the milestone into tasks, assign agents, and open the dev-review loop. Usage: `/milestone M1`
+
+Adopt the agent in `.claude/agents/netguard-orchestrator.md` for this conversation.
+
+Milestone argument: `$ARGUMENTS` (one of M0, M1, M2, M3, M4, M5; if empty, use the first open milestone in `ROADMAP.md`).
+
+Do the following, in order, and do not skip a step:
+
+1. Read `ROADMAP.md`, `CHANGELOG.md` (`[Unreleased]`), `ls docs/adr/`, and the matching row of the Milestones table in `docs/PLAN.md`. Quote the exit criteria and the "validated against" servers for this milestone verbatim.
+2. Check the tree is green before assigning work: `go build ./... && go test ./... -race && golangci-lint run && make policy-test`. If anything fails, the first task is "make main green" with the owner from `git log`.
+3. List the unmet exit criteria. For each, write one or more tasks with these fields: id (`M1-03`), title, package (`internal/...`, `profiles/`, `policies/`, `tests/`, `tools/`, `design/`, `console/`, `docs/`), owner agent (MCP Protocol Engineer, Policy Engineer, Network Safety Engineer, Upstream Server Scout, Test Engineer, Docs Writer, Design Guardian, Release Engineer), reviewers (Go Reviewer always for Go; Security Reviewer for `redact/`, `policy/`, `classify/`, `approval/`, `audit/`, elicitation or quarantine; Design Guardian for `console/`, `design/`, CLI or error copy), test-matrix rows from `docs/testing/test-matrix.md` that prove it, docs that change in the same PR, and ADR required (yes with the interface named, or no).
+4. For every task with ADR = yes, open the ADR first via `/adr <title>` and mark the task blocked on its acceptance.
+5. Order the tasks by dependency and write the list to `docs/milestones/<Mn>.md` (create the folder if needed) with a status column (`open`, `in review`, `merged`, `validated`). If the file exists, reconcile it instead of overwriting: keep merged rows, add missing tasks, drop tasks whose criterion is already met.
+6. Dispatch the first unblocked task to its owner with the exact brief (fields above plus the relevant spec path and the `docs/PLAN.md` section). Tell the owner what to report back: branch, files, `go test ./...` output, `make policy-test` output if policies or profiles changed, and matrix rows exercised.
+7. State the pipeline for this milestone in one line: PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release, with the agent names filled in for this milestone's tasks.
+
+Use the project vocabulary exactly: decisions `allow`, `hold`, `deny`, terminal `expired`; classes `READ_OPERATIONAL`, `READ_CONFIG`, `WRITE_CONFIG`, `EXEC_ARBITRARY`, `INVENTORY_READ`, `LAB_LIFECYCLE`, `LOCAL_ADMIN`; obligations `dry_run`, `diff`, `timed_rollback`. Do not write Go, YAML policies, profiles or tests yourself; route them.
+
+Finish by printing the task table and the first dispatched brief.

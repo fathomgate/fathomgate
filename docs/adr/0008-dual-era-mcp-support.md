@@ -1,0 +1,60 @@
+# ADR 0008: Dual-era MCP support
+
+- Status: accepted
+- Date: 2026-09-23
+- Deciders: Josh Scott
+
+## Context
+
+The MCP spec revision 2026-07-28 removed the `initialize` handshake and `Mcp-Session-Id`, made every request self-describing through `_meta`, replaced server-initiated elicitation and sampling with Multi Round-Trip Requests (MRTR), and requires `Mcp-Method` and `Mcp-Name` headers on Streamable HTTP. HTTP+SSE (2024-11-05) is formally deprecated with a 12-month removal window.
+
+Most network MCP servers on GitHub run 2025-era SDKs (FastMCP 1.x, low-level python-sdk 1.x). The clients NetGuard's first users run are a mix. A proxy that speaks only one era is useless on one side. See [research brief 01, section 1](../research/01-mcp-proxy-prior-art.md).
+
+The go-sdk v1.7.0 negotiates the highest mutual version back to 2024-11-05 and exposes `InputRequiredResult` for MRTR.
+
+## Decision
+
+We will speak both the stateful 2025-11-25 era and the stateless 2026-07-28 era on both sides from M0, detect each peer's era per the spec's backward-compatibility fallback, and translate between them.
+
+Translation rules:
+
+- Toward a 2025-era upstream, the proxy performs `initialize` and keeps the session; toward a 2026-era upstream it sends self-describing requests and may call `server/discover`.
+- A hold is returned to a 2026-era client as `input_required` with a signed pending id in `requestState`; to a 2025-era client as a tool error naming the pending id, and the agent may poll `check_approval`.
+- An upstream server-initiated `elicitation/create` (2025 era) is re-labelled with the upstream's name before forwarding, or converted to an `input_required` result for a 2026-era client.
+- Upstream `sampling/createMessage` is blocked and audited, following Docker's gateway.
+- On HTTP, header and body must agree; the proxy validates `Mcp-Method` and `Mcp-Name` against the body and decodes Base64-sentinel tool names before comparing.
+- Tool names from aggregated upstreams are prefixed with the server id, as the spec recommends.
+
+## Consequences
+
+### Positive
+
+- Works today with FastMCP 1.x upstreams and with 2026-era clients such as Claude Code.
+- MRTR gives a clean in-band approval shape for the future without blocking on it.
+
+### Negative
+
+- Two code paths in `internal/proxy` for lifecycle and for holds. Mitigated by the official conformance suite run against the client-facing side in CI, and by tier 2 tests against one upstream per era (netdev-ssh-mcp on go-sdk, upa/mcp-netmiko-server on FastMCP).
+- The 2025-era hold shape depends on the agent noticing a tool error and polling. Accepted; CLI and webhook approval do not depend on the client at all.
+
+### Neutral
+
+- When HTTP+SSE leaves the spec the 2024-11-05 path is dropped in a minor release; 2025-11-25 stateful support stays as long as upstreams need it.
+
+## Alternatives considered
+
+| Alternative | Why not |
+| --- | --- |
+| 2026 era only | Cannot front most existing network servers. |
+| 2025 era only | Cannot use MRTR; will be deprecated. |
+| Separate adapter binaries per era | Two installs, two configs; the translation belongs in one place. |
+
+## References
+
+- [Research brief 01, section 1](../research/01-mcp-proxy-prior-art.md)
+- [MCP 2026-07-28 changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+- [MCP 2026-07-28 release post](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+- [Streamable HTTP, backward compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#backward-compatibility)
+- [Elicitation and MRTR](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation)
+- [go-sdk v1.7.0](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.7.0)
+- [Docker MCP Gateway issue #574](https://github.com/docker/mcp-gateway/issues/574)

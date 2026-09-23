@@ -1,0 +1,19 @@
+{
+  "platform": "panos",
+  "rules": [
+    "panos-phash",
+    "panos-encrypted-value",
+    "ike-pre-shared-key",
+    "panos-snmp-community"
+  ],
+  "secrets": [
+    "$1$FAKEsalt$panosAdminPhashAbCdEfGh",
+    "$5$FAKEsalt$panosNetopsPhashIjKlMnOp",
+    "$1$FAKEsalt$panosVpnUserPhashQrStUvWx",
+    "-AQ==FAKEpanosRadiusSecretBase64AbCdEf",
+    "-AQ==FAKEpanosTacplusSecretBase64GhIjKl",
+    "-AQ==FAKEpanosLdapBindPasswordBase64MnOpQr",
+    "-AQ==FAKEpanosIkePskBase64StUvWxYz",
+    "FAKEpanosSnmpCommunity"
+  ]
+}

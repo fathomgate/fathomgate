@@ -1,0 +1,669 @@
+<title>NetGuard Console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600&family=Figtree:wght@400;500;600&family=Martian+Mono:wght@400;500&display=swap">
+<style>
+/* NetGuard design tokens
+ * Layer 1: Fathom semantic tokens (Midnight Zone dark / Chart Room light), copied
+ *          verbatim from the Fathom design system so NetGuard renders identically
+ *          to TopoForge, ACI Ops Console and Network Change Intelligence.
+ * Layer 2: NetGuard policy tokens — decision states, diff, blast radius, redaction.
+ *          Every policy token aliases a Fathom semantic token; none introduces a new hue.
+ *
+ * Dark-first: tools default to Midnight Zone. Set data-theme="light" for Chart Room.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Fathom raw palette (never used directly by components) ---- */
+  --abyss: #060a12;  --trench: #0e1626;  --slope: #131e31;  --shelf: #1a2539;
+  --hairline: #1d2a40;  --hairline-strong: #5a7099;
+  --starlight: #e4ecf7;  --mist: #8c9bb4;  --dim: #5d6b82;
+  --biolume: #2ee6c9;  --biolume-hover: #5cf0d9;  --biolume-press: #1fc4ab;
+  --on-biolume: #06231f;  --biolume-soft: rgba(46,230,201,0.14);
+  --lure: #ffb547;  --lure-soft: rgba(255,181,71,0.14);
+  --nebula: #9c8cff;  --nebula-soft: rgba(156,140,255,0.16);
+  --coral: #ff6b6b;  --coral-soft: rgba(255,107,107,0.14);  --on-coral: #2a0707;
+  --sonar: #5cb8ff;  --sonar-soft: rgba(92,184,255,0.14);
+  --chart-paper: #eef3f4;  --sheet: #ffffff;  --sheet-tint: #f5f8f9;
+  --sounding: #e3eaed;  --contour: #d3dde2;  --contour-strong: #6b8391;
+  --navy-ink: #0b1b2e;  --slate: #4d6173;  --slate-light: #7d8e9b;
+  --deep-current: #0e5a87;  --current-hover: #0b4a70;  --current-press: #083a58;
+  --on-current: #ffffff;  --current-soft: #dcebf2;
+  --star-gold: #8a5f00;  --gold-soft: #f5ecd6;
+  --compass-red: #b7372b;  --red-soft: #f6e0dd;  --on-compass: #ffffff;
+  --sea-glass: #0b6e6d;  --glass-soft: #d9eeec;
+
+  /* ---- Fathom semantic tokens: Midnight Zone ---- */
+  --bg: var(--abyss);
+  --surface: var(--trench);
+  --surface-raised: var(--slope);
+  --surface-overlay: var(--shelf);
+  --border: var(--hairline);
+  --border-strong: var(--hairline-strong);
+  --text: var(--starlight);
+  --text-muted: var(--mist);
+  --text-disabled: var(--dim);
+  --primary: var(--biolume);
+  --primary-hover: var(--biolume-hover);
+  --primary-press: var(--biolume-press);
+  --on-primary: var(--on-biolume);
+  --primary-soft: var(--biolume-soft);
+  --accent: var(--nebula);
+  --accent-soft: var(--nebula-soft);
+  --success: var(--biolume);
+  --success-soft: var(--biolume-soft);
+  --warning: var(--lure);
+  --warning-soft: var(--lure-soft);
+  --danger: var(--coral);
+  --danger-soft: var(--coral-soft);
+  --on-danger: var(--on-coral);
+  --info: var(--sonar);
+  --info-soft: var(--sonar-soft);
+  --selection: var(--nebula-soft);
+  --focus: var(--biolume);
+  --link: var(--sonar);
+  --scrim: rgba(2,4,9,0.72);
+  --tooltip-bg: var(--starlight);
+  --tooltip-text: var(--abyss);
+  --code-bg: var(--abyss);
+  --skeleton: var(--slope);
+  --skeleton-shine: var(--shelf);
+  --shadow-sm: 0 0 0 1px #1d2a40;
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-overlay: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px #1d2a40;
+  --shadow-glow: 0 0 0 1px rgba(46,230,201,0.45), 0 0 24px rgba(46,230,201,0.22);
+
+  /* ---- Fathom type, space, radius ---- */
+  --font-display: "Unbounded", "Figtree", system-ui, sans-serif;
+  --font-sans: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --space-16: 64px; --space-24: 96px;
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-xl: 16px; --radius-full: 9999px;
+
+  /* ---- NetGuard policy tokens (Layer 2) ----
+   * A decision is one of: allow, hold, deny, expired. Redacted is a token state,
+   * not a decision. Each pair is a foreground + soft ground; text on soft ground
+   * uses --text, the coloured value is for the dot, the word and the stripe only.
+   */
+  --decision-allow: var(--success);
+  --decision-allow-soft: var(--success-soft);
+  --decision-hold: var(--warning);
+  --decision-hold-soft: var(--warning-soft);
+  --decision-deny: var(--danger);
+  --decision-deny-soft: var(--danger-soft);
+  --decision-expired: var(--text-disabled);
+  --decision-expired-soft: rgba(93,107,130,0.16);
+  --redacted: var(--accent);
+  --redacted-soft: var(--accent-soft);
+
+  /* Diff: added lines lean on success, removed on danger, context stays neutral. */
+  --diff-add: var(--success);
+  --diff-add-bg: rgba(46,230,201,0.10);
+  --diff-del: var(--danger);
+  --diff-del-bg: rgba(255,107,107,0.10);
+  --diff-hunk: var(--info);
+  --diff-hunk-bg: var(--info-soft);
+  --diff-gutter: var(--text-disabled);
+
+  /* Blast radius: a meter from calm to hot. Never more than four bands. */
+  --blast-0: var(--success);   /* within policy */
+  --blast-1: var(--info);      /* approaching a cap */
+  --blast-2: var(--warning);   /* at cap; needs approval */
+  --blast-3: var(--danger);    /* over cap; denied */
+  --blast-track: var(--surface-raised);
+
+  /* Command class chips share one neutral ground; the class word carries meaning. */
+  --class-read: var(--text-muted);
+  --class-write: var(--warning);
+  --class-exec: var(--danger);
+  --class-inventory: var(--info);
+}
+
+/* Chart Room (light) — system preference, unless the page pins dark */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: var(--chart-paper);
+    --surface: var(--sheet);
+    --surface-raised: var(--sheet-tint);
+    --surface-overlay: var(--sheet);
+    --border: var(--contour);
+    --border-strong: var(--contour-strong);
+    --text: var(--navy-ink);
+    --text-muted: var(--slate);
+    --text-disabled: var(--slate-light);
+    --primary: var(--deep-current);
+    --primary-hover: var(--current-hover);
+    --primary-press: var(--current-press);
+    --on-primary: var(--on-current);
+    --primary-soft: var(--current-soft);
+    --accent: var(--star-gold);
+    --accent-soft: var(--gold-soft);
+    --success: var(--sea-glass);
+    --success-soft: var(--glass-soft);
+    --warning: var(--star-gold);
+    --warning-soft: var(--gold-soft);
+    --danger: var(--compass-red);
+    --danger-soft: var(--red-soft);
+    --on-danger: var(--on-compass);
+    --info: var(--deep-current);
+    --info-soft: var(--current-soft);
+    --selection: var(--current-soft);
+    --focus: var(--deep-current);
+    --link: var(--deep-current);
+    --scrim: rgba(11,27,46,0.40);
+    --tooltip-bg: var(--navy-ink);
+    --tooltip-text: var(--sheet);
+    --code-bg: var(--sheet-tint);
+    --skeleton: var(--sounding);
+    --skeleton-shine: var(--sheet);
+    --shadow-sm: 0 1px 2px rgba(11,27,46,0.06);
+    --shadow-md: 0 4px 16px rgba(11,27,46,0.08), 0 1px 2px rgba(11,27,46,0.06);
+    --shadow-overlay: 0 16px 40px rgba(11,27,46,0.16), 0 0 0 1px #d3dde2;
+    --shadow-glow: 0 0 0 3px #dcebf2;
+    --decision-expired-soft: rgba(125,142,155,0.16);
+    --redacted: var(--slate);
+    --redacted-soft: rgba(77,97,115,0.12);
+    --diff-add-bg: rgba(11,110,109,0.10);
+    --diff-del-bg: rgba(183,55,43,0.10);
+  }
+}
+
+/* Chart Room (light) — explicit choice */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: var(--chart-paper);
+  --surface: var(--sheet);
+  --surface-raised: var(--sheet-tint);
+  --surface-overlay: var(--sheet);
+  --border: var(--contour);
+  --border-strong: var(--contour-strong);
+  --text: var(--navy-ink);
+  --text-muted: var(--slate);
+  --text-disabled: var(--slate-light);
+  --primary: var(--deep-current);
+  --primary-hover: var(--current-hover);
+  --primary-press: var(--current-press);
+  --on-primary: var(--on-current);
+  --primary-soft: var(--current-soft);
+  --accent: var(--star-gold);
+  --accent-soft: var(--gold-soft);
+  --success: var(--sea-glass);
+  --success-soft: var(--glass-soft);
+  --warning: var(--star-gold);
+  --warning-soft: var(--gold-soft);
+  --danger: var(--compass-red);
+  --danger-soft: var(--red-soft);
+  --on-danger: var(--on-compass);
+  --info: var(--deep-current);
+  --info-soft: var(--current-soft);
+  --selection: var(--current-soft);
+  --focus: var(--deep-current);
+  --link: var(--deep-current);
+  --scrim: rgba(11,27,46,0.40);
+  --tooltip-bg: var(--navy-ink);
+  --tooltip-text: var(--sheet);
+  --code-bg: var(--sheet-tint);
+  --skeleton: var(--sounding);
+  --skeleton-shine: var(--sheet);
+  --shadow-sm: 0 1px 2px rgba(11,27,46,0.06);
+  --shadow-md: 0 4px 16px rgba(11,27,46,0.08), 0 1px 2px rgba(11,27,46,0.06);
+  --shadow-overlay: 0 16px 40px rgba(11,27,46,0.16), 0 0 0 1px #d3dde2;
+  --shadow-glow: 0 0 0 3px #dcebf2;
+  --decision-expired-soft: rgba(125,142,155,0.16);
+  --redacted: var(--slate);
+  --redacted-soft: rgba(77,97,115,0.12);
+  --diff-add-bg: rgba(11,110,109,0.10);
+  --diff-del-bg: rgba(183,55,43,0.10);
+}
+
+/* NetGuard policy components — the layer NetGuard adds on top of Fathom's 23 ds-* components.
+ * Prefix: ng-. Every colour comes from tokens.css; no literal hex here.
+ * Components: decision badge, class chip, redacted token, diff view, approval card,
+ *             TTL bar, audit timeline, blast-radius meter, rule trace.
+ */
+
+.ng-root {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 24px;
+}
+
+/* ---------- Decision badge ----------
+ * A word plus a dot. The word is mandatory (status never relies on colour alone).
+ * Verbs are past tense for what happened, present participle for what is waiting.
+ */
+.ng-decision {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 2px var(--space-3) 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text);
+  background: var(--decision-expired-soft);
+  white-space: nowrap;
+}
+.ng-decision::before {
+  content: ""; width: 8px; height: 8px; border-radius: var(--radius-full);
+  background: var(--decision-expired); flex: none;
+}
+.ng-decision[data-decision="allow"]   { background: var(--decision-allow-soft); }
+.ng-decision[data-decision="allow"]::before   { background: var(--decision-allow); }
+.ng-decision[data-decision="hold"]    { background: var(--decision-hold-soft); }
+.ng-decision[data-decision="hold"]::before    { background: var(--decision-hold); }
+.ng-decision[data-decision="deny"]    { background: var(--decision-deny-soft); }
+.ng-decision[data-decision="deny"]::before    { background: var(--decision-deny); }
+.ng-decision[data-decision="expired"] { color: var(--text-muted); }
+
+/* A held call that is still live pulses its dot once every 2s; reduced motion removes it. */
+.ng-decision[data-decision="hold"][data-live]::before { animation: ng-pulse 2s ease-out infinite; }
+@keyframes ng-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--decision-hold-soft); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}
+
+/* ---------- Command class chip ---------- */
+.ng-class {
+  display: inline-block; padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  font-family: var(--font-mono); font-size: 11px; line-height: 18px; letter-spacing: 0.06em;
+  color: var(--class-read); background: transparent;
+}
+.ng-class[data-class="WRITE_CONFIG"]   { color: var(--class-write); border-color: var(--class-write); }
+.ng-class[data-class="EXEC_ARBITRARY"] { color: var(--class-exec);  border-color: var(--class-exec); }
+.ng-class[data-class="INVENTORY_READ"] { color: var(--class-inventory); border-color: var(--class-inventory); }
+
+/* ---------- Redacted token ----------
+ * Replaces a secret inside mono text. Dashed edge says "something was here";
+ * the hmac prefix says it is comparable, not random. */
+.ng-redacted {
+  display: inline-block; padding: 0 var(--space-1);
+  border: 1px dashed var(--redacted); border-radius: var(--radius-xs);
+  background: var(--redacted-soft); color: var(--redacted);
+  font-family: var(--font-mono); font-size: 12px; line-height: 16px;
+}
+
+/* ---------- Diff view ----------
+ * A <pre class="ng-diff"> of <span class="ng-line" data-kind="add|del|ctx|hunk">. */
+.ng-diff {
+  margin: 0; padding: var(--space-3) 0;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+  font-family: var(--font-mono); font-size: 13px; line-height: 20px;
+  overflow-x: auto; tab-size: 2;
+}
+.ng-diff .ng-line {
+  display: grid; grid-template-columns: 3ch 1.5ch 1fr; column-gap: var(--space-2);
+  padding: 0 var(--space-3); white-space: pre;
+}
+.ng-diff .ng-line > .n { color: var(--diff-gutter); text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
+.ng-diff .ng-line > .s { user-select: none; }
+.ng-diff .ng-line[data-kind="add"]  { background: var(--diff-add-bg); }
+.ng-diff .ng-line[data-kind="add"] > .s { color: var(--diff-add); }
+.ng-diff .ng-line[data-kind="del"]  { background: var(--diff-del-bg); }
+.ng-diff .ng-line[data-kind="del"] > .s { color: var(--diff-del); }
+.ng-diff .ng-line[data-kind="hunk"] { background: var(--diff-hunk-bg); color: var(--diff-hunk); }
+.ng-diff .ng-line[data-kind="ctx"]  { color: var(--text-muted); }
+
+/* ---------- Approval card ----------
+ * The one object on the screen allowed shadow-glow while it is pending. */
+.ng-approval {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid; gap: var(--space-4); padding: var(--space-5);
+}
+.ng-approval[data-state="pending"] { box-shadow: var(--shadow-glow); border-color: transparent; }
+.ng-approval .ng-approval-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+}
+.ng-approval .ng-approval-title {
+  font-family: var(--font-sans); font-size: 16px; line-height: 24px; font-weight: 600; margin: 0;
+}
+.ng-approval .ng-approval-title code { font-size: 14px; font-weight: 500; }
+.ng-approval .ng-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3) var(--space-5);
+}
+.ng-approval .ng-meta dt {
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted); margin: 0 0 var(--space-0-5);
+}
+.ng-approval .ng-meta dd { margin: 0; font-family: var(--font-mono); font-size: 13px; line-height: 20px; }
+.ng-approval .ng-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+/* Buttons reuse Fathom's ds-button contract; only the two verbs are fixed here. */
+.ng-btn {
+  font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 600;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong); background: var(--surface-raised); color: var(--text);
+  cursor: pointer; transition: background 120ms, border-color 120ms;
+}
+.ng-btn:hover { background: var(--surface-overlay); }
+.ng-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ng-btn[data-verb="approve"] { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.ng-btn[data-verb="approve"]:hover { background: var(--primary-hover); }
+.ng-btn[data-verb="deny"] { border-color: var(--danger); color: var(--danger); background: transparent; }
+.ng-btn[data-verb="deny"]:hover { background: var(--danger-soft); }
+
+/* ---------- TTL bar ----------
+ * Time remaining before a hold expires. Fills from the right so the empty part reads as "gone". */
+.ng-ttl { display: grid; gap: var(--space-1); }
+.ng-ttl .ng-ttl-label {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ng-ttl .ng-ttl-track { height: 4px; border-radius: var(--radius-full); background: var(--blast-track); overflow: hidden; }
+.ng-ttl .ng-ttl-fill { height: 100%; background: var(--decision-hold); border-radius: var(--radius-full); transition: width 1s linear; }
+.ng-ttl[data-urgency="low"] .ng-ttl-fill { background: var(--decision-deny); }
+
+/* ---------- Blast-radius meter ----------
+ * Four discrete bands, not a gradient: the reader needs to know which band, not how far. */
+.ng-blast { display: grid; gap: var(--space-2); }
+.ng-blast .ng-blast-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.ng-blast .ng-blast-name { font-size: 13px; line-height: 20px; color: var(--text-muted); }
+.ng-blast .ng-blast-value { font-family: var(--font-mono); font-size: 13px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.ng-blast .ng-blast-bands { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-0-5); }
+.ng-blast .ng-blast-band { height: 6px; border-radius: var(--radius-xs); background: var(--blast-track); }
+.ng-blast[data-band="0"] .ng-blast-band:nth-child(-n+1) { background: var(--blast-0); }
+.ng-blast[data-band="1"] .ng-blast-band:nth-child(-n+2) { background: var(--blast-1); }
+.ng-blast[data-band="2"] .ng-blast-band:nth-child(-n+3) { background: var(--blast-2); }
+.ng-blast[data-band="3"] .ng-blast-band:nth-child(-n+4) { background: var(--blast-3); }
+
+/* ---------- Audit timeline ----------
+ * Newest first. A rail on the left, one dot per event coloured by decision.
+ * Hash shown truncated; the full chain is verified by the CLI, not by eye. */
+.ng-timeline { list-style: none; margin: 0; padding: 0; display: grid; }
+.ng-timeline .ng-event {
+  position: relative; display: grid; grid-template-columns: 20px 1fr; column-gap: var(--space-3);
+  padding-block: var(--space-3);
+}
+.ng-timeline .ng-event + .ng-event { border-top: 1px solid var(--border); }
+.ng-timeline .ng-event::before {
+  content: ""; grid-column: 1; justify-self: center; align-self: start; margin-top: 8px;
+  width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--decision-expired);
+}
+.ng-timeline .ng-event[data-decision="allow"]::before { background: var(--decision-allow); }
+.ng-timeline .ng-event[data-decision="hold"]::before  { background: var(--decision-hold); }
+.ng-timeline .ng-event[data-decision="deny"]::before  { background: var(--decision-deny); }
+.ng-timeline .ng-event-body { grid-column: 2; display: grid; gap: var(--space-1); min-width: 0; }
+.ng-timeline .ng-event-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: 13px; line-height: 20px; }
+.ng-timeline .ng-event-line code { font-family: var(--font-mono); font-size: 12px; background: var(--code-bg); padding: 0 var(--space-1); border-radius: var(--radius-xs); }
+.ng-timeline .ng-event-meta {
+  font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-muted);
+  display: flex; flex-wrap: wrap; gap: var(--space-3); font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Rule trace ----------
+ * Which rules were evaluated, in order, and which one fired. */
+.ng-trace { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); font-family: var(--font-mono); font-size: 12px; line-height: 20px; }
+.ng-trace li { display: flex; gap: var(--space-2); align-items: center; color: var(--text-muted); }
+.ng-trace li[data-fired] { color: var(--text); }
+.ng-trace li::before { content: "·"; width: 1ch; text-align: center; color: var(--text-disabled); }
+.ng-trace li[data-fired]::before { content: "▸"; color: var(--primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ng-decision[data-decision="hold"][data-live]::before { animation: none; }
+  .ng-ttl .ng-ttl-fill, .ng-btn { transition: none; }
+}
+
+
+/* ---- page chrome (preview only; the console uses Fathom's ds-topbar / ds-sidebar) ---- */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 15px; line-height: 24px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: var(--space-6) var(--space-16); padding-inline: var(--space-4); }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border); margin-bottom: var(--space-6); }
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.brand .mark { width: 28px; height: 28px; flex: none; }
+.brand h1 { font-family: var(--font-display); font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+.brand .sub { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 var(--space-2); }
+h2 { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 var(--space-4); text-wrap: balance; }
+.grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: var(--space-6); align-items: start; }
+@media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+.stack { display: grid; gap: var(--space-4); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-sm); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.stat .n { font-family: var(--font-mono); font-size: 22px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.muted { color: var(--text-muted); }
+code, .mono { font-family: var(--font-mono); font-size: 13px; }
+.toggle { font-family: var(--font-sans); font-size: 13px; padding: var(--space-1) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface-raised); color: var(--text); cursor: pointer; }
+.toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+details > summary { cursor: pointer; font-size: 13px; color: var(--text-muted); list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "▸ "; color: var(--primary); }
+details[open] > summary::before { content: "▾ "; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); }
+.swatch { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-raised); }
+.swatch .name { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+footer { margin-top: var(--space-10); font-size: 13px; color: var(--text-muted); }
+.sonar { position: absolute; right: -110px; top: -110px; width: 260px; height: 260px; opacity: 0.35; pointer-events: none; }
+.hero { position: relative; overflow: hidden; }
+</style>
+
+<div class="wrap ng-root">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 28 28" aria-hidden="true">
+        <circle cx="14" cy="14" r="12" fill="none" stroke="var(--border-strong)" stroke-width="1"/>
+        <circle cx="14" cy="14" r="7.5" fill="none" stroke="var(--primary)" stroke-width="1" stroke-dasharray="2 2"/>
+        <circle cx="14" cy="14" r="2.5" fill="var(--primary)"/>
+      </svg>
+      <div>
+        <h1>NetGuard</h1>
+        <div class="sub">Approvals · lab-east · policy v1.3 · 9f2c1a</div>
+      </div>
+    </div>
+    <button class="toggle" id="theme-toggle" type="button" aria-pressed="false">Switch to Chart Room</button>
+  </header>
+
+  <div class="grid">
+    <main class="stack">
+      <p class="eyebrow">Holding · 1 call</p>
+
+      <article class="ng-approval" data-state="pending" aria-labelledby="ap-1-title">
+        <div class="ng-approval-head">
+          <span class="ng-decision" data-decision="hold" data-live>Holding</span>
+          <span class="ng-class" data-class="WRITE_CONFIG">WRITE_CONFIG</span>
+          <h3 class="ng-approval-title" id="ap-1-title"><code>junos.load_and_commit_config</code> on <code>core-rtr-01</code></h3>
+        </div>
+
+        <dl class="ng-meta">
+          <div><dt>Device role</dt><dd>core · site dfw1</dd></div>
+          <div><dt>Requested by</dt><dd>claude-code · josh@lab</dd></div>
+          <div><dt>Rule fired</dt><dd>prod-core-needs-approval</dd></div>
+          <div><dt>Obligations</dt><dd>dry_run ✓ · diff ✓ · commit confirmed 5</dd></div>
+          <div><dt>Pending id</dt><dd>01J8Q4V7X2</dd></div>
+          <div><dt>Diff hash</dt><dd>sha256:4c1e…b90a</dd></div>
+        </dl>
+
+        <pre class="ng-diff" aria-label="Configuration diff"><span class="ng-line" data-kind="hunk"><span class="n"></span><span class="s">@@</span><span>[edit protocols bgp group TRANSIT]</span></span><span class="ng-line" data-kind="ctx"><span class="n">12</span><span class="s"> </span><span>  neighbor 203.0.113.9 {</span></span><span class="ng-line" data-kind="del"><span class="n">13</span><span class="s">-</span><span>    authentication-key <span class="ng-redacted">hmac:3f9a17c2e0b4</span>;</span></span><span class="ng-line" data-kind="add"><span class="n">13</span><span class="s">+</span><span>    authentication-key <span class="ng-redacted">hmac:8d21f0aa6e39</span>;</span></span><span class="ng-line" data-kind="add"><span class="n">14</span><span class="s">+</span><span>    export [ ADVERTISE-AGG DENY-ALL ];</span></span><span class="ng-line" data-kind="ctx"><span class="n">15</span><span class="s"> </span><span>  }</span></span></pre>
+
+        <div class="ng-ttl" data-urgency="normal" id="ttl-1">
+          <div class="ng-ttl-label"><span>Time to decide</span><span id="ttl-1-remaining">11:42 left</span></div>
+          <div class="ng-ttl-track"><div class="ng-ttl-fill" id="ttl-1-fill" style="width: 78%"></div></div>
+        </div>
+
+        <details>
+          <summary>Rule trace (5 evaluated)</summary>
+          <ol class="ng-trace" style="margin-top: var(--space-2)">
+            <li>reads-anywhere · no match (class)</li>
+            <li>lab-writes-free · no match (tag lab absent)</li>
+            <li data-fired>prod-core-needs-approval · hold · ttl 15m · approver_must_differ</li>
+            <li>fleet-cap · not reached (targets 1 ≤ 3)</li>
+            <li>no-exec · no match (class)</li>
+          </ol>
+        </details>
+
+        <div class="ng-actions">
+          <button class="ng-btn" data-verb="approve" type="button" id="btn-approve">Approve and commit confirmed 5</button>
+          <button class="ng-btn" data-verb="deny" type="button" id="btn-deny">Deny</button>
+          <span class="muted" style="font-size:13px; align-self:center">Approver must differ from requester.</span>
+        </div>
+      </article>
+
+      <p class="eyebrow" style="margin-top: var(--space-4)">Decided · last hour</p>
+
+      <article class="ng-approval" data-state="done">
+        <div class="ng-approval-head">
+          <span class="ng-decision" data-decision="deny">Denied</span>
+          <span class="ng-class" data-class="EXEC_ARBITRARY">EXEC_ARBITRARY</span>
+          <h3 class="ng-approval-title"><code>eos.run_command</code> <code>reload now</code> on <code>leaf-03</code></h3>
+        </div>
+        <p style="margin:0; font-size:13px; line-height:20px">Denied by <code>no-exec</code>: free-form <code>reload now</code> is not on the show/get/display allow-list. The agent was told the rule id and did not retry.</p>
+      </article>
+
+      <article class="ng-approval" data-state="done">
+        <div class="ng-approval-head">
+          <span class="ng-decision" data-decision="allow">Allowed</span>
+          <span class="ng-class" data-class="WRITE_CONFIG">WRITE_CONFIG</span>
+          <h3 class="ng-approval-title"><code>eos.push_config</code> on <code>lab-leaf-01</code></h3>
+        </div>
+        <p style="margin:0; font-size:13px; line-height:20px">Allowed by <code>lab-writes-free</code> with dry_run and diff. Session <code>mcp-push</code> committed, timer 00:05:00, confirmed at 23:41:07.</p>
+      </article>
+
+      <article class="ng-approval" data-state="done">
+        <div class="ng-approval-head">
+          <span class="ng-decision" data-decision="expired">Expired</span>
+          <span class="ng-class" data-class="WRITE_CONFIG">WRITE_CONFIG</span>
+          <h3 class="ng-approval-title"><code>netmiko.send_config_parallel</code> on <code>@dfw-edge</code> (3 devices)</h3>
+        </div>
+        <p style="margin:0; font-size:13px; line-height:20px">Held by <code>prod-core-needs-approval</code>; nobody decided within 15:00. Terminal. The agent must resubmit.</p>
+      </article>
+    </main>
+
+    <aside class="stack">
+      <section class="panel hero">
+        <svg class="sonar" viewBox="0 0 220 220" aria-hidden="true">
+          <circle cx="110" cy="110" r="100" fill="none" stroke="var(--border-strong)" stroke-width="1"/>
+          <circle cx="110" cy="110" r="70" fill="none" stroke="var(--border-strong)" stroke-width="1"/>
+          <circle cx="110" cy="110" r="40" fill="none" stroke="var(--primary)" stroke-width="1" stroke-dasharray="3 3"/>
+          <circle cx="110" cy="110" r="3" fill="var(--primary)"/>
+        </svg>
+        <p class="eyebrow">This session</p>
+        <div class="stats">
+          <div class="stat"><div class="n">2</div><div class="l">devices touched</div></div>
+          <div class="stat"><div class="n">1</div><div class="l">holds pending</div></div>
+          <div class="stat"><div class="n">0</div><div class="l">denials retried</div></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Blast radius</p>
+        <div class="stack" style="gap: var(--space-4)">
+          <div class="ng-blast" data-band="1">
+            <div class="ng-blast-row"><span class="ng-blast-name">Devices this session</span><span class="ng-blast-value">2 / 5</span></div>
+            <div class="ng-blast-bands"><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i></div>
+          </div>
+          <div class="ng-blast" data-band="2">
+            <div class="ng-blast-row"><span class="ng-blast-name">Holds pending</span><span class="ng-blast-value">1 / 2</span></div>
+            <div class="ng-blast-bands"><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i></div>
+          </div>
+          <div class="ng-blast" data-band="0">
+            <div class="ng-blast-row"><span class="ng-blast-name">Fan-out in this call</span><span class="ng-blast-value">1 / 3</span></div>
+            <div class="ng-blast-bands"><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i><i class="ng-blast-band"></i></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Audit · newest first</p>
+        <ol class="ng-timeline">
+          <li class="ng-event" data-decision="hold"><div class="ng-event-body">
+            <div class="ng-event-line">Holding <code>junos.load_and_commit_config</code> on <code>core-rtr-01</code></div>
+            <div class="ng-event-meta"><span>23:52:18</span><span>josh@lab</span><span>prod-core-needs-approval</span><span>#a41f…</span></div>
+          </div></li>
+          <li class="ng-event" data-decision="deny"><div class="ng-event-body">
+            <div class="ng-event-line">Denied <code>eos.run_command</code> on <code>leaf-03</code></div>
+            <div class="ng-event-meta"><span>23:47:03</span><span>josh@lab</span><span>no-exec</span><span>#77c0…</span></div>
+          </div></li>
+          <li class="ng-event" data-decision="allow"><div class="ng-event-body">
+            <div class="ng-event-line">Executed <code>eos.push_config</code> on <code>lab-leaf-01</code> · 2 redactions</div>
+            <div class="ng-event-meta"><span>23:41:07</span><span>josh@lab</span><span>lab-writes-free</span><span>#12e9…</span></div>
+          </div></li>
+          <li class="ng-event" data-decision="allow"><div class="ng-event-body">
+            <div class="ng-event-line">Allowed <code>netdev.run_show_command</code> <code>show ip bgp summary</code> on <code>core-rtr-01</code></div>
+            <div class="ng-event-meta"><span>23:39:51</span><span>josh@lab</span><span>reads-anywhere</span><span>#e0b3…</span></div>
+          </div></li>
+          <li class="ng-event" data-decision="expired"><div class="ng-event-body">
+            <div class="ng-event-line">Expired hold <code>netmiko.send_config_parallel</code> on <code>@dfw-edge</code></div>
+            <div class="ng-event-meta"><span>23:12:00</span><span>system</span><span>ttl</span><span>#5a7d…</span></div>
+          </div></li>
+        </ol>
+        <p class="muted" style="font-size:12px; margin: var(--space-3) 0 0">Chain verified 23:52 · <code>netguard audit verify</code></p>
+      </section>
+    </aside>
+  </div>
+
+  <section style="margin-top: var(--space-10)">
+    <p class="eyebrow">Policy layer tokens</p>
+    <h2>Four decisions, one redaction state, no fifth colour</h2>
+    <div class="swatches">
+      <div class="swatch"><span class="ng-decision" data-decision="allow">Allowed</span><span class="name">--decision-allow ← success</span></div>
+      <div class="swatch"><span class="ng-decision" data-decision="hold" data-live>Holding</span><span class="name">--decision-hold ← warning</span></div>
+      <div class="swatch"><span class="ng-decision" data-decision="deny">Denied</span><span class="name">--decision-deny ← danger</span></div>
+      <div class="swatch"><span class="ng-decision" data-decision="expired">Expired</span><span class="name">--decision-expired ← text-disabled</span></div>
+      <div class="swatch"><span><span class="ng-redacted">hmac:3f9a17c2e0b4</span></span><span class="name">--redacted ← accent</span></div>
+      <div class="swatch"><span><span class="ng-class" data-class="READ_OPERATIONAL">READ_OPERATIONAL</span></span><span class="name">--class-read ← text-muted</span></div>
+      <div class="swatch"><span><span class="ng-class" data-class="WRITE_CONFIG">WRITE_CONFIG</span></span><span class="name">--class-write ← warning</span></div>
+      <div class="swatch"><span><span class="ng-class" data-class="EXEC_ARBITRARY">EXEC_ARBITRARY</span></span><span class="name">--class-exec ← danger</span></div>
+    </div>
+  </section>
+
+  <footer>Fathom (Midnight Zone / Chart Room) + NetGuard policy layer. Fonts: Unbounded, Figtree, Martian Mono. Example data; no real devices.</footer>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('theme-toggle');
+  function isDark() {
+    var t = root.getAttribute('data-theme');
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    return !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  }
+  function label() {
+    var dark = isDark();
+    btn.textContent = dark ? 'Switch to Chart Room' : 'Switch to Midnight Zone';
+    btn.setAttribute('aria-pressed', String(!dark));
+  }
+  btn.addEventListener('click', function () {
+    root.setAttribute('data-theme', isDark() ? 'light' : 'dark');
+    label();
+  });
+  label();
+
+  // TTL countdown from 11:42 of a 15:00 hold; example only.
+  var total = 15 * 60, left = 11 * 60 + 42;
+  var rem = document.getElementById('ttl-1-remaining');
+  var fill = document.getElementById('ttl-1-fill');
+  var ttl = document.getElementById('ttl-1');
+  function tick() {
+    if (left <= 0) return;
+    left -= 1;
+    var m = Math.floor(left / 60), s = left % 60;
+    rem.textContent = m + ':' + (s < 10 ? '0' : '') + s + ' left';
+    fill.style.width = Math.round(left / total * 100) + '%';
+    ttl.setAttribute('data-urgency', left < 120 ? 'low' : 'normal');
+  }
+  setInterval(tick, 1000);
+
+  var card = document.querySelector('.ng-approval[data-state="pending"]');
+  function decide(word, decision) {
+    card.setAttribute('data-state', 'done');
+    var badge = card.querySelector('.ng-decision');
+    badge.setAttribute('data-decision', decision);
+    badge.removeAttribute('data-live');
+    badge.textContent = word;
+    card.querySelector('.ng-actions').innerHTML = '<span class="muted" style="font-size:13px">' + word + ' by josh@lab (example; approver check skipped in preview).</span>';
+    card.querySelector('.ng-ttl').hidden = true;
+  }
+  document.getElementById('btn-approve').addEventListener('click', function () { decide('Approved', 'allow'); });
+  document.getElementById('btn-deny').addEventListener('click', function () { decide('Denied', 'deny'); });
+})();
+</script>

@@ -1,0 +1,52 @@
+# Profile for ntunes/netmiko-mcp-server (Python FastMCP 2.x, stdio + streamable-http).
+# Source: docs/research/02-network-mcp-servers.md §1.3b.
+#
+# No server-side command filtering, no read-only mode, no redaction: the proxy
+# adds the most value here. Devices are names or "@group" tokens from the
+# server's devices.yaml; group tokens pass through Normalize unchanged for the
+# inventory layer to expand.
+server: ntunes-netmiko-mcp-server
+source: https://github.com/ntunes/netmiko-mcp-server
+description: Netmiko server with YAML inventory, groups, tags and parallel tools
+tools:
+  send_command:
+    class: EXEC_ARBITRARY
+    target_params: [device]
+    command_params: [command]
+    notes: Unfiltered exec-mode command; downgraded only when the command passes the allow-list.
+  send_command_parallel:
+    class: EXEC_ARBITRARY
+    targets_params: [devices]
+    command_params: [command]
+    notes: devices may contain "@group" tokens; max_concurrent defaults to 10.
+  send_commands_sequence:
+    class: EXEC_ARBITRARY
+    target_params: [device]
+    command_params: [commands]
+    notes: Every command in the sequence must pass for a downgrade.
+  send_config:
+    class: WRITE_CONFIG
+    target_params: [device]
+    config_params: [config_commands]
+    notes: dry_run and save_config flags exist; the proxy forces dry_run first (M3 obligation dry_run).
+  send_config_parallel:
+    class: WRITE_CONFIG
+    targets_params: [devices]
+    config_params: [config_commands]
+    notes: Fleet-wide; rollback_on_error is best effort. Subject to fleet-cap and canary-first rules.
+  list_devices:
+    class: INVENTORY_READ
+  get_device_info:
+    class: INVENTORY_READ
+    target_params: [device]
+  list_groups:
+    class: INVENTORY_READ
+  get_device_types:
+    class: INVENTORY_READ
+  get_tags:
+    class: INVENTORY_READ
+  get_pool_status:
+    class: INVENTORY_READ
+  test_connection:
+    class: READ_OPERATIONAL
+    target_params: [device]

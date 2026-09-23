@@ -1,0 +1,60 @@
+# Example static inventory for NetGuard. Copy to inventory.yaml and edit, or
+# generate one with `netguard inventory import --csv devices.csv --out inventory.yaml`.
+#
+# devices: resolved first, exact (case-insensitive) hostname match.
+# roles:   hostname regexes tried next for anything not listed; first pattern
+#          to set a role wins, tags accumulate.
+devices:
+  - name: core-rtr-01
+    role: core
+    site: dfw1
+    tags: [prod, critical]
+    status: active
+  - name: core-rtr-02
+    role: core
+    site: dfw1
+    tags: [prod, critical]
+    status: active
+  - name: border-rtr-01
+    role: border
+    site: dfw1
+    tags: [prod, internet-edge]
+    status: active
+  - name: dc-spine-01
+    role: spine
+    site: dfw1
+    tags: [prod, fabric]
+    status: active
+  - name: dc-leaf-01
+    role: leaf
+    site: dfw1
+    tags: [prod, fabric]
+    status: active
+  - name: acc-sw-01
+    role: access
+    site: dfw1
+    tags: [prod, campus]
+    status: active
+  - name: fw-edge-01
+    role: firewall
+    site: dfw1
+    tags: [prod, internet-edge]
+    status: active
+  - name: lab-leaf-01
+    role: leaf
+    site: lab
+    tags: [lab]
+    status: active
+  - name: lab-spine-01
+    role: spine
+    site: lab
+    tags: [lab]
+    status: active
+roles:
+  - match: "^core-|^border-"
+    role: core
+  - match: "^lab-"
+    tags: [lab]
+    site: lab
+  - match: "^fw-"
+    role: firewall

@@ -1,0 +1,29 @@
+policy: read-only.yaml
+cases:
+  - name: show is allowed with redaction
+    request:
+      class: READ_OPERATIONAL
+      targets: [{name: core-rtr-01, role: core}]
+    expect: {effect: allow, rule: reads-anywhere, obligations: [redact]}
+  - name: config write is denied
+    request:
+      class: WRITE_CONFIG
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: deny, rule: no-writes}
+  - name: arbitrary command is denied
+    request:
+      class: EXEC_ARBITRARY
+      targets: [{name: core-rtr-01, role: core}]
+    expect: {effect: deny, rule: no-exec}
+  - name: trust_host_key is denied
+    request:
+      server: netdev-ssh-mcp
+      tool: trust_host_key
+      class: LOCAL_ADMIN
+      targets: [{name: core-rtr-01, role: core}]
+    expect: {effect: deny, rule: no-lab-or-admin}
+  - name: unknown host is denied
+    request:
+      class: READ_OPERATIONAL
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}

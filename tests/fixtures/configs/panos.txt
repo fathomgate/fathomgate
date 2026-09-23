@@ -1,0 +1,47 @@
+# Sanitised PAN-OS "show config running format set" excerpt. All credentials are
+# FAKE and the trailing "# rule:" annotation names the redaction rule id
+# expected to catch it (see panos.expect.json).
+set deviceconfig system hostname fw-edge-01
+set deviceconfig system ip-address 10.20.30.70
+set deviceconfig system netmask 255.255.255.0
+set deviceconfig system default-gateway 10.20.30.1
+set deviceconfig system dns-setting servers primary 10.20.30.53
+set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 10.20.30.60
+set deviceconfig system timezone US/Central
+set mgt-config users admin permissions role-based superuser yes
+set mgt-config users admin phash $1$FAKEsalt$panosAdminPhashAbCdEfGh                          # rule: panos-phash
+set mgt-config users netops permissions role-based superreader yes
+set mgt-config users netops phash $5$FAKEsalt$panosNetopsPhashIjKlMnOp                         # rule: panos-phash
+set shared local-user-database user vpnuser phash $1$FAKEsalt$panosVpnUserPhashQrStUvWx        # rule: panos-phash
+set shared server-profile radius RADIUS-PROF server RAD1 ip-address 10.20.30.41
+set shared server-profile radius RADIUS-PROF server RAD1 secret -AQ==FAKEpanosRadiusSecretBase64AbCdEf   # rule: panos-encrypted-value
+set shared server-profile tacplus TAC-PROF server TAC1 address 10.20.30.40
+set shared server-profile tacplus TAC-PROF server TAC1 secret -AQ==FAKEpanosTacplusSecretBase64GhIjKl    # rule: panos-encrypted-value
+set shared server-profile ldap LDAP-PROF bind-dn cn=svc-panos,ou=service,dc=example,dc=com
+set shared server-profile ldap LDAP-PROF bind-password -AQ==FAKEpanosLdapBindPasswordBase64MnOpQr        # rule: panos-encrypted-value
+set network interface ethernet ethernet1/1 layer3 ip 203.0.113.10/30
+set network interface ethernet ethernet1/2 layer3 ip 10.30.0.1/24
+set network virtual-router default interface [ ethernet1/1 ethernet1/2 ]
+set network virtual-router default routing-table ip static-route default destination 0.0.0.0/0 nexthop ip-address 203.0.113.9
+set network ike crypto-profiles ike-crypto-profiles IKE-AES256 hash sha256
+set network ike crypto-profiles ike-crypto-profiles IKE-AES256 dh-group group14
+set network ike crypto-profiles ike-crypto-profiles IKE-AES256 encryption aes-256-cbc
+set network ike gateway GW-BRANCH authentication pre-shared-key key -AQ==FAKEpanosIkePskBase64StUvWxYz    # rule: ike-pre-shared-key
+set network ike gateway GW-BRANCH protocol ikev2 ike-crypto-profile IKE-AES256
+set network ike gateway GW-BRANCH local-address interface ethernet1/1
+set network ike gateway GW-BRANCH peer-address ip 198.51.100.20
+set network tunnel ipsec VPN-BRANCH auto-key ike-gateway GW-BRANCH
+set network tunnel ipsec VPN-BRANCH tunnel-interface tunnel.1
+set deviceconfig system snmp-setting access-setting version v2c snmp-community-string FAKEpanosSnmpCommunity   # rule: panos-snmp-community
+set deviceconfig system snmp-setting snmp-system location dfw1-edge
+set zone untrust network layer3 ethernet1/1
+set zone trust network layer3 ethernet1/2
+set rulebase security rules allow-outbound from trust
+set rulebase security rules allow-outbound to untrust
+set rulebase security rules allow-outbound source any
+set rulebase security rules allow-outbound destination any
+set rulebase security rules allow-outbound application [ ssl web-browsing ]
+set rulebase security rules allow-outbound service application-default
+set rulebase security rules allow-outbound action allow
+set address web-srv-01 ip-netmask 10.30.0.10/32
+set service-group STANDARD-WEB members [ service-http service-https ]

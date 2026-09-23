@@ -1,0 +1,6 @@
+# Used by GoReleaser, which supplies the prebuilt binary in the build context.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY netguard /usr/local/bin/netguard
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/netguard"]
+CMD ["serve"]

@@ -1,0 +1,32 @@
+# Profile for krisiasty/netdev-ssh-mcp (Go, stdio, multi-vendor SSH).
+# Source of tool names and parameters: docs/research/02-network-mcp-servers.md §1.1.
+#
+# The server is read-only by design and already enforces a show/get prefix on
+# run_show_command, redirects config dumps to get_config, and obfuscates
+# secrets. Its `host` parameter is free-form with no inventory, so the
+# proxy's contribution here is the host allow-list (unknown targets) and
+# defence-in-depth command checking.
+server: netdev-ssh-mcp
+source: https://github.com/krisiasty/netdev-ssh-mcp
+description: Read-only multi-vendor SSH server (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS)
+tools:
+  get_config:
+    class: READ_CONFIG
+    target_params: [host]
+    notes: config_type running|startup; output is obfuscated server-side, redacted again by the proxy.
+  run_show_command:
+    class: READ_OPERATIONAL
+    target_params: [host]
+    command_params: [command]
+    notes: Server enforces a show/get prefix; the proxy re-checks and escalates config dumps to READ_CONFIG.
+  run_ping:
+    class: READ_OPERATIONAL
+    target_params: [host]
+    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands.
+  run_traceroute:
+    class: READ_OPERATIONAL
+    target_params: [host]
+  trust_host_key:
+    class: LOCAL_ADMIN
+    target_params: [host]
+    notes: Writes known_hosts on the MCP server host, not on the device. Two-step confirm flow.

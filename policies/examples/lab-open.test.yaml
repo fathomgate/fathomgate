@@ -1,0 +1,27 @@
+policy: lab-open.yaml
+cases:
+  - name: lab write allowed with dry-run and diff
+    request:
+      class: WRITE_CONFIG
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: allow, rule: lab-writes-free, obligations: [dry_run, diff]}
+  - name: lab destroy allowed
+    request:
+      class: LAB_LIFECYCLE
+      targets: [{name: lab-topo-01, tags: [lab]}]
+    expect: {effect: allow, rule: lab-lifecycle}
+  - name: write to an untagged device is denied
+    request:
+      class: WRITE_CONFIG
+      targets: [{name: core-rtr-01, role: core, tags: [prod]}]
+    expect: {effect: deny, rule: not-lab}
+  - name: reload in the lab is still denied
+    request:
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+  - name: reads allowed everywhere
+    request:
+      class: READ_CONFIG
+      targets: [{name: core-rtr-01, role: core}]
+    expect: {effect: allow, rule: reads-anywhere}

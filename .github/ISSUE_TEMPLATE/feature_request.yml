@@ -1,0 +1,61 @@
+name: Feature request
+description: Propose a change to what NetGuard does. Profiles and redaction patterns have their own templates.
+title: "feat: "
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [ROADMAP.md](../../ROADMAP.md) and [docs/PRD.md](../../docs/PRD.md) first; the feature may already be scheduled or listed as a non-goal.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What an agent, operator or approver cannot do today, in one or two sentences. Name the user from the PRD if one fits.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change. Use the vocabulary in docs/glossary.md. If it is a policy change, sketch the YAML.
+      render: yaml
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of change
+      options:
+        - New policy matcher or condition
+        - New obligation
+        - New inventory provider
+        - New approval channel
+        - New vendor driver
+        - New exporter
+        - CLI or console
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: adr
+    attributes:
+      label: Does this change a spec, the class list, a decision word, a trust boundary or a format?
+      description: If yes, the change needs an ADR (see GOVERNANCE.md). Adding a fifth decision word or an eighth class is expected to be refused.
+      options:
+        - "No"
+        - "Yes, and I can draft the ADR"
+        - "Yes, and I need help with the ADR"
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including doing nothing, or doing it in a generic gateway instead.
+  - type: textarea
+    id: validation
+    attributes:
+      label: How it would be tested
+      description: Which tier, and against which real upstream server.

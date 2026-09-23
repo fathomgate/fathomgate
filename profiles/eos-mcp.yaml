@@ -1,0 +1,77 @@
+# Profile for shigechika/eos-mcp (Python FastMCP, stdio, Arista eAPI).
+# Source: docs/research/02-network-mcp-servers.md §1.5.
+#
+# Exemplary two-phase config push (dry-run by default, configure session with
+# commit timer) next to an unrestricted run_command* family that the README
+# itself calls a second write path. Batch tools select devices by hostnames
+# and/or tags; tags become "@tag" group tokens for the inventory to expand.
+server: eos-mcp
+source: https://github.com/shigechika/eos-mcp
+description: Arista EOS server over eAPI with config sessions
+tools:
+  health_check:
+    class: LOCAL_ADMIN
+    notes: Checks the server's own config file, not a device.
+  get_router_list:
+    class: INVENTORY_READ
+    group_params: [tags]
+  get_device_facts:
+    class: READ_OPERATIONAL
+    target_params: [hostname]
+  get_version:
+    class: READ_OPERATIONAL
+    target_params: [hostname]
+  get_device_facts_batch:
+    class: READ_OPERATIONAL
+    targets_params: [hostnames]
+    group_params: [tags]
+  run_command:
+    class: EXEC_ARBITRARY
+    target_params: [hostname]
+    command_params: [command]
+    notes: Verbatim pass-through to eAPI, including configure and reload.
+  run_commands:
+    class: EXEC_ARBITRARY
+    target_params: [hostname]
+    command_params: [commands]
+  run_command_batch:
+    class: EXEC_ARBITRARY
+    targets_params: [hostnames]
+    group_params: [tags]
+    command_params: [command]
+    notes: Fleet-wide; an empty selection means every device in the server's inventory.
+  run_commands_batch:
+    class: EXEC_ARBITRARY
+    targets_params: [hostnames]
+    group_params: [tags]
+    command_params: [commands]
+  get_config:
+    class: READ_CONFIG
+    target_params: [hostname]
+  get_config_diff:
+    class: READ_CONFIG
+    target_params: [hostname]
+  list_config_sessions:
+    class: READ_CONFIG
+    target_params: [hostname]
+  push_config:
+    class: WRITE_CONFIG
+    target_params: [hostname]
+    config_params: [config_lines]
+    notes: dry_run defaults to true; commit_timer (default 300s) requires confirm_config_session.
+  confirm_config_session:
+    class: WRITE_CONFIG
+    target_params: [hostname]
+    notes: Finalises a pending session; treated as a write because it makes the change permanent.
+  abort_config_session:
+    class: WRITE_CONFIG
+    target_params: [hostname]
+    notes: Rollback of a pending session; still a state change on the device.
+  collect_tech_support:
+    class: READ_OPERATIONAL
+    target_params: [hostname]
+    notes: Heavy; output includes running-config and is redacted.
+  daily_brief:
+    class: READ_OPERATIONAL
+    targets_params: [hostnames]
+    group_params: [tags]

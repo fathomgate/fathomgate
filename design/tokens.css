@@ -1,0 +1,218 @@
+/* NetGuard design tokens
+ * Layer 1: Fathom semantic tokens (Midnight Zone dark / Chart Room light), copied
+ *          verbatim from the Fathom design system so NetGuard renders identically
+ *          to TopoForge, ACI Ops Console and Network Change Intelligence.
+ * Layer 2: NetGuard policy tokens — decision states, diff, blast radius, redaction.
+ *          Every policy token aliases a Fathom semantic token; none introduces a new hue.
+ *
+ * Dark-first: tools default to Midnight Zone. Set data-theme="light" for Chart Room.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Fathom raw palette (never used directly by components) ---- */
+  --abyss: #060a12;  --trench: #0e1626;  --slope: #131e31;  --shelf: #1a2539;
+  --hairline: #1d2a40;  --hairline-strong: #5a7099;
+  --starlight: #e4ecf7;  --mist: #8c9bb4;  --dim: #5d6b82;
+  --biolume: #2ee6c9;  --biolume-hover: #5cf0d9;  --biolume-press: #1fc4ab;
+  --on-biolume: #06231f;  --biolume-soft: rgba(46,230,201,0.14);
+  --lure: #ffb547;  --lure-soft: rgba(255,181,71,0.14);
+  --nebula: #9c8cff;  --nebula-soft: rgba(156,140,255,0.16);
+  --coral: #ff6b6b;  --coral-soft: rgba(255,107,107,0.14);  --on-coral: #2a0707;
+  --sonar: #5cb8ff;  --sonar-soft: rgba(92,184,255,0.14);
+  --chart-paper: #eef3f4;  --sheet: #ffffff;  --sheet-tint: #f5f8f9;
+  --sounding: #e3eaed;  --contour: #d3dde2;  --contour-strong: #6b8391;
+  --navy-ink: #0b1b2e;  --slate: #4d6173;  --slate-light: #7d8e9b;
+  --deep-current: #0e5a87;  --current-hover: #0b4a70;  --current-press: #083a58;
+  --on-current: #ffffff;  --current-soft: #dcebf2;
+  --star-gold: #8a5f00;  --gold-soft: #f5ecd6;
+  --compass-red: #b7372b;  --red-soft: #f6e0dd;  --on-compass: #ffffff;
+  --sea-glass: #0b6e6d;  --glass-soft: #d9eeec;
+
+  /* ---- Fathom semantic tokens: Midnight Zone ---- */
+  --bg: var(--abyss);
+  --surface: var(--trench);
+  --surface-raised: var(--slope);
+  --surface-overlay: var(--shelf);
+  --border: var(--hairline);
+  --border-strong: var(--hairline-strong);
+  --text: var(--starlight);
+  --text-muted: var(--mist);
+  --text-disabled: var(--dim);
+  --primary: var(--biolume);
+  --primary-hover: var(--biolume-hover);
+  --primary-press: var(--biolume-press);
+  --on-primary: var(--on-biolume);
+  --primary-soft: var(--biolume-soft);
+  --accent: var(--nebula);
+  --accent-soft: var(--nebula-soft);
+  --success: var(--biolume);
+  --success-soft: var(--biolume-soft);
+  --warning: var(--lure);
+  --warning-soft: var(--lure-soft);
+  --danger: var(--coral);
+  --danger-soft: var(--coral-soft);
+  --on-danger: var(--on-coral);
+  --info: var(--sonar);
+  --info-soft: var(--sonar-soft);
+  --selection: var(--nebula-soft);
+  --focus: var(--biolume);
+  --link: var(--sonar);
+  --scrim: rgba(2,4,9,0.72);
+  --tooltip-bg: var(--starlight);
+  --tooltip-text: var(--abyss);
+  --code-bg: var(--abyss);
+  --skeleton: var(--slope);
+  --skeleton-shine: var(--shelf);
+  --shadow-sm: 0 0 0 1px #1d2a40;
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-overlay: 0 12px 32px rgba(0,0,0,0.55), 0 0 0 1px #1d2a40;
+  --shadow-glow: 0 0 0 1px rgba(46,230,201,0.45), 0 0 24px rgba(46,230,201,0.22);
+
+  /* ---- Fathom type, space, radius ---- */
+  --font-display: "Unbounded", "Figtree", system-ui, sans-serif;
+  --font-sans: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --space-16: 64px; --space-24: 96px;
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-xl: 16px; --radius-full: 9999px;
+
+  /* ---- NetGuard policy tokens (Layer 2) ----
+   * A decision is one of: allow, hold, deny, expired. Redacted is a token state,
+   * not a decision. Each pair is a foreground + soft ground; text on soft ground
+   * uses --text, the coloured value is for the dot, the word and the stripe only.
+   */
+  --decision-allow: var(--success);
+  --decision-allow-soft: var(--success-soft);
+  --decision-hold: var(--warning);
+  --decision-hold-soft: var(--warning-soft);
+  --decision-deny: var(--danger);
+  --decision-deny-soft: var(--danger-soft);
+  --decision-expired: var(--text-disabled);
+  --decision-expired-soft: rgba(93,107,130,0.16);
+  --redacted: var(--accent);
+  --redacted-soft: var(--accent-soft);
+
+  /* Diff: added lines lean on success, removed on danger, context stays neutral. */
+  --diff-add: var(--success);
+  --diff-add-bg: rgba(46,230,201,0.10);
+  --diff-del: var(--danger);
+  --diff-del-bg: rgba(255,107,107,0.10);
+  --diff-hunk: var(--info);
+  --diff-hunk-bg: var(--info-soft);
+  --diff-gutter: var(--text-disabled);
+
+  /* Blast radius: a meter from calm to hot. Never more than four bands. */
+  --blast-0: var(--success);   /* within policy */
+  --blast-1: var(--info);      /* approaching a cap */
+  --blast-2: var(--warning);   /* at cap; needs approval */
+  --blast-3: var(--danger);    /* over cap; denied */
+  --blast-track: var(--surface-raised);
+
+  /* Command class chips share one neutral ground; the class word carries meaning. */
+  --class-read: var(--text-muted);
+  --class-write: var(--warning);
+  --class-exec: var(--danger);
+  --class-inventory: var(--info);
+}
+
+/* Chart Room (light) — system preference, unless the page pins dark */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: var(--chart-paper);
+    --surface: var(--sheet);
+    --surface-raised: var(--sheet-tint);
+    --surface-overlay: var(--sheet);
+    --border: var(--contour);
+    --border-strong: var(--contour-strong);
+    --text: var(--navy-ink);
+    --text-muted: var(--slate);
+    --text-disabled: var(--slate-light);
+    --primary: var(--deep-current);
+    --primary-hover: var(--current-hover);
+    --primary-press: var(--current-press);
+    --on-primary: var(--on-current);
+    --primary-soft: var(--current-soft);
+    --accent: var(--star-gold);
+    --accent-soft: var(--gold-soft);
+    --success: var(--sea-glass);
+    --success-soft: var(--glass-soft);
+    --warning: var(--star-gold);
+    --warning-soft: var(--gold-soft);
+    --danger: var(--compass-red);
+    --danger-soft: var(--red-soft);
+    --on-danger: var(--on-compass);
+    --info: var(--deep-current);
+    --info-soft: var(--current-soft);
+    --selection: var(--current-soft);
+    --focus: var(--deep-current);
+    --link: var(--deep-current);
+    --scrim: rgba(11,27,46,0.40);
+    --tooltip-bg: var(--navy-ink);
+    --tooltip-text: var(--sheet);
+    --code-bg: var(--sheet-tint);
+    --skeleton: var(--sounding);
+    --skeleton-shine: var(--sheet);
+    --shadow-sm: 0 1px 2px rgba(11,27,46,0.06);
+    --shadow-md: 0 4px 16px rgba(11,27,46,0.08), 0 1px 2px rgba(11,27,46,0.06);
+    --shadow-overlay: 0 16px 40px rgba(11,27,46,0.16), 0 0 0 1px #d3dde2;
+    --shadow-glow: 0 0 0 3px #dcebf2;
+    --decision-expired-soft: rgba(125,142,155,0.16);
+    --redacted: var(--slate);
+    --redacted-soft: rgba(77,97,115,0.12);
+    --diff-add-bg: rgba(11,110,109,0.10);
+    --diff-del-bg: rgba(183,55,43,0.10);
+  }
+}
+
+/* Chart Room (light) — explicit choice */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: var(--chart-paper);
+  --surface: var(--sheet);
+  --surface-raised: var(--sheet-tint);
+  --surface-overlay: var(--sheet);
+  --border: var(--contour);
+  --border-strong: var(--contour-strong);
+  --text: var(--navy-ink);
+  --text-muted: var(--slate);
+  --text-disabled: var(--slate-light);
+  --primary: var(--deep-current);
+  --primary-hover: var(--current-hover);
+  --primary-press: var(--current-press);
+  --on-primary: var(--on-current);
+  --primary-soft: var(--current-soft);
+  --accent: var(--star-gold);
+  --accent-soft: var(--gold-soft);
+  --success: var(--sea-glass);
+  --success-soft: var(--glass-soft);
+  --warning: var(--star-gold);
+  --warning-soft: var(--gold-soft);
+  --danger: var(--compass-red);
+  --danger-soft: var(--red-soft);
+  --on-danger: var(--on-compass);
+  --info: var(--deep-current);
+  --info-soft: var(--current-soft);
+  --selection: var(--current-soft);
+  --focus: var(--deep-current);
+  --link: var(--deep-current);
+  --scrim: rgba(11,27,46,0.40);
+  --tooltip-bg: var(--navy-ink);
+  --tooltip-text: var(--sheet);
+  --code-bg: var(--sheet-tint);
+  --skeleton: var(--sounding);
+  --skeleton-shine: var(--sheet);
+  --shadow-sm: 0 1px 2px rgba(11,27,46,0.06);
+  --shadow-md: 0 4px 16px rgba(11,27,46,0.08), 0 1px 2px rgba(11,27,46,0.06);
+  --shadow-overlay: 0 16px 40px rgba(11,27,46,0.16), 0 0 0 1px #d3dde2;
+  --shadow-glow: 0 0 0 3px #dcebf2;
+  --decision-expired-soft: rgba(125,142,155,0.16);
+  --redacted: var(--slate);
+  --redacted-soft: rgba(77,97,115,0.12);
+  --diff-add-bg: rgba(11,110,109,0.10);
+  --diff-del-bg: rgba(183,55,43,0.10);
+}

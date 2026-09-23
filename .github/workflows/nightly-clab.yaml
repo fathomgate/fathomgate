@@ -1,0 +1,40 @@
+# Tier 3 placeholder: real upstream MCP server against real network OS images
+# in containerlab (cEOS needs an Arista account, so this cannot run on hosted
+# runners). Nothing here executes yet; the job is a skeleton for the
+# self-hosted runner that arrives with M3/M5. See docs/PLAN.md "Test matrix".
+name: nightly-clab (tier 3, placeholder)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC daily
+
+permissions:
+  contents: read
+
+jobs:
+  clab:
+    name: containerlab topology (self-hosted)
+    # Change to the real label once a runner with containerlab, docker and
+    # the cEOS / SR Linux images is registered.
+    runs-on: [self-hosted, clab]
+    if: ${{ vars.NETGUARD_CLAB_ENABLED == 'true' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build proxy
+        run: make build
+      - name: deploy topology
+        run: |
+          echo "TODO(M3): containerlab deploy -t tests/clab/topology.clab.yaml"
+          echo "TODO(M3): start eos-mcp / junos-mcp-server containers pointing at the lab"
+      - name: tier 3 assertions
+        run: |
+          echo "TODO(M3): uv run pytest tests/clab -m tier3"
+          echo "cases: timed rollback fires; watchdog rollback; device-tagged-lab write with commit timer"
+      - name: destroy topology
+        if: always()
+        run: echo "TODO(M3): containerlab destroy -t tests/clab/topology.clab.yaml --cleanup"

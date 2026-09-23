@@ -1,0 +1,58 @@
+! Sanitised IOS-XE running-config excerpt. All credentials are FAKE and annotated
+! with the redaction rule id expected to catch it (see ios-xe.expect.json).
+version 17.9
+service password-encryption
+hostname core-rtr-01
+!
+enable secret 9 $9$FAKEenableSECRETtype9/AbCdEfGh.1234567890            ! cisco-password-type
+enable password 7 0822455D0A16FAKE7                                     ! cisco-password-type
+!
+username admin privilege 15 secret 5 $1$FAKE$adminSecretType5Hash1234   ! cisco-password-type
+username backup privilege 15 secret 8 $8$FAKEsalt$backupType8HashXYZ    ! cisco-password-type
+username monitor password 0 FAKEplainPassword123                        ! cisco-password-type
+username legacy privilege 1 password FAKEtypelessPassword               ! generic-keyword
+!
+key chain ISIS-AUTH
+ key 1
+  key-string 7 FAKEkeyString0123456789                                  ! cisco-key-string
+!
+aaa new-model
+aaa group server tacacs+ TACACS-GROUP
+ server name TAC1
+tacacs server TAC1
+ address ipv4 10.20.30.40
+ key 7 FAKEtacacsServerBlockKey0987                                     ! cisco-server-key
+tacacs-server key 7 FAKElegacyTacacsKey1122                             ! cisco-aaa-server-key
+radius-server key FAKEradiusPlainKey3344                                ! cisco-aaa-server-key
+!
+crypto isakmp key FAKEisakmpKey5566 address 203.0.113.1                 ! cisco-isakmp-key
+crypto ikev2 keyring IKEV2-KR
+ peer BRANCH
+  address 203.0.113.2
+  pre-shared-key local FAKEikev2LocalPsk7788                            ! ike-pre-shared-key
+  pre-shared-key remote FAKEikev2RemotePsk9900                          ! ike-pre-shared-key
+!
+interface GigabitEthernet0/0/0
+ description uplink to border-rtr-01
+ ip address 192.0.2.1 255.255.255.252
+ ip ospf message-digest-key 1 md5 7 FAKEospfMd5Key1357                  ! cisco-ospf-md5
+ ip ospf authentication-key 7 FAKEospfAuthKey2468                       ! cisco-ospf-auth-key
+!
+router bgp 65000
+ neighbor 192.0.2.2 remote-as 65001
+ neighbor 192.0.2.2 password 7 FAKEbgpNeighborPassword8642              ! cisco-bgp-neighbor-password
+ neighbor 192.0.2.6 remote-as 65002
+ neighbor 192.0.2.6 password FAKEbgpPlainPassword9753                   ! cisco-bgp-neighbor-password
+!
+ntp authentication-key 1 md5 FAKEntpMd5Key1029 7                        ! ntp-authentication-key
+ntp trusted-key 1
+!
+snmp-server community FAKEsnmpRoCommunity RO                            ! cisco-snmp-community
+snmp-server community FAKEsnmpRwCommunity RW ACL-SNMP                   ! cisco-snmp-community
+snmp-server host 10.20.30.50 version 2c FAKEsnmpHostCommunity           ! cisco-snmp-host
+snmp-server location dfw1-row3
+!
+line vty 0 4
+ password 7 FAKEvtyLinePassword5150                                     ! cisco-password-type
+ login local
+end

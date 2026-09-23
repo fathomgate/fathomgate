@@ -1,0 +1,86 @@
+name: Bug report
+description: Something behaved differently from the spec or docs. Not for security issues.
+title: "bug: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a policy bypass, redaction bypass, approval bypass or audit integrity problem, do not file it here. Follow [SECURITY.md](../../SECURITY.md) instead.
+        Never paste a real secret, credential or private hostname pattern you would not publish.
+  - type: input
+    id: version
+    attributes:
+      label: NetGuard version or commit
+      placeholder: "0.1.0, or git sha"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - proxy (transport, eras, prefixing, TOFU)
+        - normalize
+        - classify
+        - inventory
+        - policy
+        - approval
+        - safety (drivers, watchdog)
+        - redact
+        - audit
+        - profiles
+        - policies/examples
+        - tests or tools (Python)
+        - console or design
+        - docs
+        - unsure
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream MCP server and version
+      placeholder: "junos-mcp-server v1.1.1, streamable-http"
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and protocol era
+      placeholder: "Claude Code 2.1, 2026-07-28"
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: Cite the spec section if you can, for example docs/specs/classification.md section 5.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: Decision, class, rule id and reason as the CLI printed them, or the error text.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The policy file (secrets removed), the tools/call arguments, and the commands you ran. A `*.test.yaml` case is ideal.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: audit
+    attributes:
+      label: Relevant audit event
+      description: The JSONL line for the call, if you have it. It carries no secrets by design; check `args_redacted` anyway.
+      render: json
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This is not a security issue as defined in SECURITY.md
+          required: true
+        - label: I have removed every secret and credential from this report
+          required: true

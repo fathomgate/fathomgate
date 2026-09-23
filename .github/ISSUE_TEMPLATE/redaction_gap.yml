@@ -1,0 +1,79 @@
+name: Redaction gap
+description: A secret in device output reached the agent, or a pattern is missing for a vendor form. Never paste the real secret.
+title: "redact: <vendor> <config keyword>"
+labels: [redaction, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste the real secret, hash, community string, key or token anywhere in this issue.** Replace every secret character with a made-up value of the same length and character class (for example `$9$xxxxxxxxxxxxxxxxxxxxxxxx`, `ENC AAAAAAAAAAAAAAAAAAAAAAAAAAAA==`). The shape is what we need.
+
+        If the secret matched a pattern already listed in [docs/specs/redaction-patterns.md](../../docs/specs/redaction-patterns.md) and still got through, that is a redaction bypass. Report it privately per [SECURITY.md](../../SECURITY.md) instead of here.
+  - type: dropdown
+    id: vendor
+    attributes:
+      label: Vendor
+      options:
+        - ios / iosxe
+        - nxos
+        - iosxr
+        - eos
+        - junos
+        - panos
+        - fortios
+        - srlinux
+        - other or unknown
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command or tool that produced the output
+      placeholder: "show running-config via ntunes send_command; or get_config on netdev-ssh-mcp"
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Line shape with the secret replaced
+      description: The exact line as the device prints it, with the secret characters replaced by a made-up value of the same length. Keep leading whitespace and keywords intact.
+      render: text
+      placeholder: |
+        snmp-server user ops network-admin auth sha 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX priv 0xXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: Device OS version
+      placeholder: "NX-OS 10.4(3)"
+  - type: dropdown
+    id: existing
+    attributes:
+      label: Is this form covered by an existing pattern id?
+      options:
+        - "No, it is a new form"
+        - "Partly: an existing pattern catches a nearby form but not this one (name it below)"
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: pattern_id
+    attributes:
+      label: Nearest existing pattern id, if any
+      placeholder: "nxos-snmp-user"
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed regex and fixture line
+      description: Optional. RE2 syntax with the secret in a group named S, and the annotated fixture line for tests/fixtures/configs/<vendor>.cfg.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I have replaced every secret character with a made-up value; nothing here is real
+          required: true
+        - label: The secret did not match a pattern already listed in the spec (otherwise this goes to SECURITY.md)
+          required: true

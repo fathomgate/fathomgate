@@ -1,0 +1,28 @@
+{
+  "platform": "nxos",
+  "rules": [
+    "cisco-password-type",
+    "cisco-aaa-server-key",
+    "cisco-snmp-user",
+    "cisco-snmp-community",
+    "cisco-snmp-host",
+    "cisco-key-string",
+    "ntp-authentication-key",
+    "cisco-ospf-md5"
+  ],
+  "secrets": [
+    "$5$FAKEsalt$nxosAdminType5HashAbCdEf",
+    "$5$FAKEsalt$nxosNetopsHash123456",
+    "FAKEnxosTacacsKey4455",
+    "FAKEnxosRadiusKey6677",
+    "0xFAKEauthMd5Hash1234",
+    "0xFAKEprivHash5678",
+    "FAKEnxosRoCommunity",
+    "FAKEnxosTrapCommunity",
+    "FAKEnxosKeyString8899",
+    "FAKEnxosNtpKey0011",
+    "FAKEnxosOspfMd5Key2233",
+    "FAKEnxosBgpType3Password4466",
+    "FAKEnxosBgpType7Password5577"
+  ]
+}

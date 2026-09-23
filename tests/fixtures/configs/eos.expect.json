@@ -1,0 +1,28 @@
+{
+  "platform": "eos",
+  "rules": [
+    "eos-secret-sha512",
+    "cisco-password-type",
+    "cisco-aaa-server-key",
+    "cisco-snmp-community",
+    "cisco-snmp-host",
+    "ntp-authentication-key",
+    "cisco-ospf-md5",
+    "cisco-bgp-neighbor-password"
+  ],
+  "secrets": [
+    "$6$FAKEsalt$eosAdminSha512HashAbCdEfGhIjKlMnOp",
+    "FAKEeosType7Secret1234",
+    "$6$FAKEsalt$eosReadonlySha512Hash9876",
+    "$6$FAKEsalt$eosEnablePasswordSha512Zyxw",
+    "FAKEeosTacacsKey5566",
+    "FAKEeosRadiusKey7788",
+    "FAKEeosRoCommunity",
+    "FAKEeosRwCommunity",
+    "FAKEeosTrapCommunity",
+    "FAKEeosNtpKey9900",
+    "FAKEeosOspfMd5Key1122",
+    "FAKEeosBgpPassword3344",
+    "FAKEeosBgpPassword5566"
+  ]
+}

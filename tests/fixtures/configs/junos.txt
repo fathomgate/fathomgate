@@ -1,0 +1,86 @@
+## Last commit: sanitised Junos configuration excerpt. All credentials are FAKE
+## and the trailing "## rule:" annotation names the redaction rule id
+## expected to catch it (see junos.expect.json).
+version 23.4R1.9;
+system {
+    host-name core-rtr-02;
+    root-authentication {
+        encrypted-password "$6$FAKEsalt$junosRootSha512HashAbCdEfGhIjKl"; ## SECRET-DATA  ## rule: junos-encrypted-password
+    }
+    login {
+        user admin {
+            uid 2000;
+            class super-user;
+            authentication {
+                encrypted-password "$1$FAKEsalt$junosAdminMd5Hash1234"; ## SECRET-DATA  ## rule: junos-encrypted-password
+            }
+        }
+        user netops {
+            uid 2001;
+            class read-only;
+            authentication {
+                encrypted-password "$5$FAKEsalt$junosNetopsSha256Hash5678"; ## SECRET-DATA  ## rule: junos-encrypted-password
+            }
+        }
+    }
+    tacplus-server {
+        10.20.30.40 {
+            secret "$9$FAKEjunosTacplusSecretAbCdEf"; ## SECRET-DATA  ## rule: junos-secret-data
+            source-address 10.255.0.2;
+        }
+    }
+    radius-server {
+        10.20.30.41 secret "$9$FAKEjunosRadiusSecretGhIjKl"; ## SECRET-DATA  ## rule: junos-secret-data
+    }
+    ntp {
+        authentication-key 1 type md5 value "$9$FAKEjunosNtpKeyMnOpQr"; ## SECRET-DATA  ## rule: junos-secret-data
+    }
+}
+interfaces {
+    ge-0/0/0 {
+        description "uplink to core-rtr-01";
+        unit 0 {
+            family inet {
+                address 192.0.2.5/30;
+            }
+        }
+    }
+}
+protocols {
+    bgp {
+        group EBGP-PEERS {
+            type external;
+            neighbor 192.0.2.6 {
+                authentication-key "$9$FAKEjunosBgpKeyStUvWx"; ## SECRET-DATA  ## rule: junos-secret-data
+                peer-as 65001;
+            }
+        }
+    }
+    ospf {
+        area 0.0.0.0 {
+            interface ge-0/0/0.0 {
+                authentication {
+                    md5 1 key "$9$FAKEjunosOspfMd5KeyYzAbCd"; ## SECRET-DATA  ## rule: junos-secret-data
+                }
+            }
+        }
+    }
+}
+security {
+    ike {
+        policy IKE-POL-BRANCH {
+            mode main;
+            pre-shared-key ascii-text "$9$FAKEjunosIkePskEfGhIj"; ## SECRET-DATA  ## rule: ike-pre-shared-key
+        }
+    }
+}
+snmp {
+    community FAKEjunosRoCommunity {  ## rule: generic-keyword
+        authorization read-only;
+    }
+}
+## The same device in "show configuration | display set" form, where the
+## SECRET-DATA marker is absent and the $9$ hash itself must be recognised.
+set system login user svc-backup authentication encrypted-password "$5$FAKEsalt$junosSvcBackupHashKlMnOp"  ## rule: junos-encrypted-password
+set protocols bgp group EBGP-PEERS neighbor 192.0.2.10 authentication-key "$9$FAKEjunosSetFormatBgpKeyQrSt"  ## rule: junos-9-hash
+set system radius-server 10.20.30.42 secret "$9$FAKEjunosSetFormatRadiusUvWx"  ## rule: junos-9-hash

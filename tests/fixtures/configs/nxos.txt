@@ -1,0 +1,61 @@
+!Command: show running-config
+!Sanitised NX-OS excerpt. All credentials are FAKE; the trailing comment names
+!the redaction rule id expected to catch it (see nxos.expect.json).
+version 10.2(5)
+hostname dc-leaf-01
+feature bgp
+feature ospf
+feature tacacs+
+feature interface-vlan
+!
+username admin password 5 $5$FAKEsalt$nxosAdminType5HashAbCdEf role network-admin      ! cisco-password-type
+username netops password 5 $5$FAKEsalt$nxosNetopsHash123456 role network-operator       ! cisco-password-type
+!
+tacacs-server key 7 "FAKEnxosTacacsKey4455"                                             ! cisco-aaa-server-key
+tacacs-server host 10.20.30.40
+radius-server host 10.20.30.41 key 7 "FAKEnxosRadiusKey6677" authentication accounting  ! cisco-aaa-server-key
+aaa group server tacacs+ TACACS-GROUP
+  server 10.20.30.40
+  use-vrf management
+!
+snmp-server user admin network-admin auth md5 0xFAKEauthMd5Hash1234 priv 0xFAKEprivHash5678 localizedkey   ! cisco-snmp-user
+snmp-server community FAKEnxosRoCommunity group network-operator                        ! cisco-snmp-community
+snmp-server host 10.20.30.50 traps version 2c FAKEnxosTrapCommunity                     ! cisco-snmp-host
+!
+key chain OSPF-KEYS
+  key 1
+    key-string 7 FAKEnxosKeyString8899                                                  ! cisco-key-string
+!
+ntp authentication-key 10 md5 FAKEnxosNtpKey0011 7                                      ! ntp-authentication-key
+ntp trusted-key 10
+!
+vlan 10
+  name servers
+!
+interface Vlan10
+  no shutdown
+  ip address 10.10.10.1/24
+  ip router ospf 1 area 0.0.0.0
+  ip ospf authentication message-digest
+  ip ospf message-digest-key 1 md5 3 FAKEnxosOspfMd5Key2233                              ! cisco-ospf-md5
+!
+interface Ethernet1/1
+  description uplink dc-spine-01
+  no switchport
+  ip address 10.0.0.1/31
+!
+router ospf 1
+  router-id 10.255.0.1
+!
+router bgp 65100
+  router-id 10.255.0.1
+  neighbor 10.0.0.0
+    remote-as 65000
+    password 3 FAKEnxosBgpType3Password4466                                              ! cisco-password-type
+    address-family ipv4 unicast
+  neighbor 10.0.0.2
+    remote-as 65000
+    password 7 FAKEnxosBgpType7Password5577                                              ! cisco-password-type
+!
+line vty
+  exec-timeout 15

@@ -1,0 +1,28 @@
+# read-only: the safest policy. Reads and inventory listings on known devices
+# are allowed; every write, arbitrary command, lab operation and local admin
+# action is denied with a rule id the agent can quote back. Unknown devices are
+# denied outright.
+#
+# Use this in front of netdev-ssh-mcp or any server you only trust to look.
+version: 1
+defaults:
+  unknown_target: deny
+  session:
+    max_devices: 20
+rules:
+  - id: reads-anywhere
+    match: { class: [READ_OPERATIONAL, READ_CONFIG, INVENTORY_READ] }
+    effect: allow
+    obligations: [redact]
+  - id: no-writes
+    match: { class: [WRITE_CONFIG] }
+    effect: deny
+    reason: "this proxy is read-only; configuration changes are not permitted"
+  - id: no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny
+    reason: "free-form commands that are not reads are not permitted"
+  - id: no-lab-or-admin
+    match: { class: [LAB_LIFECYCLE, LOCAL_ADMIN] }
+    effect: deny
+    reason: "lab lifecycle and local admin actions are not permitted through this proxy"

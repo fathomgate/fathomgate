@@ -1,0 +1,46 @@
+# golangci-lint v2 configuration. Sane defaults; nothing exotic.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - nolintlint
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+  settings:
+    gosec:
+      excludes:
+        - G304 # file paths come from the operator's CLI flags by design
+    revive:
+      rules:
+        - name: exported
+          arguments: [checkPrivateReceivers, disableStutteringCheck]
+    misspell:
+      locale: UK
+      ignore-rules: [color, center, license, licence, normalize, normalise, serialiser, canonicalised]
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errorlint, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/joshscott13/netguard]

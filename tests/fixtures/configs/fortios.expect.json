@@ -1,0 +1,14 @@
+{
+  "platform": "fortios",
+  "rules": [
+    "fortios-enc"
+  ],
+  "secrets": [
+    "FAKEfortiAdminPasswordBase64AbCdEfGhIjKlMnOpQrStUvWx==",
+    "FAKEfortiNetopsPasswordBase64YzAbCdEfGhIjKlMnOpQrSt==",
+    "FAKEfortiVpnUserPasswdBase64ZyXwVuTsRqPoNmLkJiHgFe==",
+    "FAKEfortiRadiusSecretBase64QwErTyUiOpAsDfGhJkLzXc==",
+    "FAKEfortiPskSecretBase64ZxCvBnMaSdFgHjKlQwErTy==",
+    "FAKEfortiBgpPasswordBase64PoIuYtReWqLkJhGfDsAzXc=="
+  ]
+}

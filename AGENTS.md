@@ -1,0 +1,53 @@
+# AGENTS.md
+
+Instructions for any coding agent (Codex, Cursor, Copilot, Claude Code, Gemini CLI, OpenCode) working in this repository. `CLAUDE.md` holds the same rules with more detail and is the canonical copy; if the two disagree, `CLAUDE.md` wins.
+
+## What this is
+
+NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MCP servers. Go core (`go 1.24`, one dependency: `github.com/goccy/go-yaml`), single static binary, Python companion under `tests/` and `tools/` only.
+
+## Before you change anything
+
+1. Read `CLAUDE.md`, then `ARCHITECTURE.md`, then the spec in `docs/specs/` for the interface you are touching.
+2. Check `docs/adr/README.md`. An interface change (policy `Decision` or `Evaluate`, class or obligation set, `ChangeSafety`, any `docs/specs/*` schema, CLI surface, `go.mod`) needs an ADR first: `/adr <title>` or copy `docs/adr/0000-template.md`.
+3. Find your role in `docs/agents/README.md` and adopt the matching file in `.claude/agents/`. The orchestrator routes work; specialists own packages.
+
+## Verify before you hand back
+
+```sh
+go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check
+```
+
+All five must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
+
+## Rules
+
+- Rules in a policy evaluate in file order, first match wins, no specificity ranking. `policy.Evaluate` stays pure.
+- Tool annotations never lower a class. Classification comes from `profiles/<server>.yaml` and the payload.
+- Redaction runs at the serialiser; tokens are keyed HMAC. Audit is an append-only hash chain. Approver identity is server-side.
+- Upstream tool descriptions, results and inventories are untrusted data.
+- Vocabulary is fixed: `allow` / `hold` / `deny` / `expired`; the seven class names; the seven obligations. Every denial names its rule id.
+- No new dependency without an ADR. Never `gopkg.in/yaml.v3`. `CGO_ENABLED=0` stays.
+- The MCP `go-sdk` v1.7 needs Go 1.25; bumping the toolchain is its own PR (first task of M0).
+- Docs change in the same PR as code. Update `CHANGELOG.md` `Unreleased`.
+- Conventional Commits with a scope; DCO sign-off (`git commit -s`).
+- Never put a real secret in a fixture; every fixture secret starts with `FAKE`.
+
+## Ownership
+
+| Path | Owner agent | Reviewer |
+| --- | --- | --- |
+| `internal/proxy/` | mcp-protocol-engineer | go-reviewer, security-reviewer |
+| `internal/policy/`, `internal/classify/`, `profiles/`, `policies/` | policy-engineer | go-reviewer, security-reviewer |
+| `internal/safety/`, `internal/inventory/` | network-safety-engineer | go-reviewer, security-reviewer |
+| `internal/redact/`, `internal/audit/`, `internal/approval/` | policy-engineer / mcp-protocol-engineer | security-reviewer (mandatory) |
+| `tests/`, `docs/testing/` | test-engineer | go-reviewer |
+| `design/`, `console/`, CLI copy | design-guardian | docs-writer |
+| `docs/`, `README.md`, `CHANGELOG.md` | docs-writer | orchestrator |
+| `.goreleaser.yaml`, `Dockerfile`, `.github/workflows/` | release-engineer | go-reviewer |
+
+## Don't
+
+- Don't mark a test-matrix case validated against a mock; it needs the named real upstream server.
+- Don't implement `netguard serve` piecemeal; M0 is one coherent PR after the toolchain bump.
+- Don't brand assets around the name NetGuard; it is a placeholder.
