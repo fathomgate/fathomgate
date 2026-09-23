@@ -13,13 +13,17 @@ GOFLAGS  ?=
 PYTHON   ?= python3
 BIN_DIR  := bin
 
+# The Go toolchain CI and releases build with: the `toolchain` line in go.mod
+# (ADR 0013). Bump it there, never here.
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
+
 # Pinned CI tools, run with `go run pkg@version` so go.mod stays unchanged.
 # govulncheck v1.8.0 needs Go 1.26; v1.7.0 runs on the Go 1.25 toolchain we
 # build with, so it scans the same standard library that ships.
 GOVULNCHECK_VERSION ?= v1.7.0
 ACTIONLINT_VERSION  ?= v1.7.12
 
-.PHONY: all build test vet lint vulncheck actionlint fmt policy-test fixtures-check status status-check release-snapshot clean help
+.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check status status-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -37,8 +41,15 @@ vet: ## go vet + gofmt check
 lint: ## golangci-lint (falls back to vet if not installed)
 	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "golangci-lint not installed; running go vet"; $(MAKE) vet; fi
 
-vulncheck: ## govulncheck ./... at GOVULNCHECK_VERSION; fails on reachable vulnerabilities
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+# GOTOOLCHAIN is set to the go.mod toolchain so govulncheck scans the standard
+# library that ships, whatever Go is installed locally (older or newer). The Go
+# command downloads that toolchain once through the module proxy, checked
+# against the checksum database.
+vulncheck: ## govulncheck ./... at GOVULNCHECK_VERSION with the go.mod toolchain; fails on reachable vulnerabilities
+	GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+toolchain-check: ## Fail unless the Go in use is the go.mod toolchain (CI and release guard)
+	@want='$(GO_TOOLCHAIN)'; got="$$($(GO) env GOVERSION)"; 	if [ -z "$$want" ]; then echo "go.mod has no toolchain line (ADR 0013)"; exit 1; fi; 	if [ "$$got" != "$$want" ]; then echo "Go in use is $$got, go.mod toolchain is $$want (ADR 0013)"; exit 1; fi; 	echo "Go in use is $$got, the go.mod toolchain"
 
 actionlint: ## Lint .github/workflows at ACTIONLINT_VERSION (uses shellcheck if on PATH)
 	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -config-file .github/actionlint.yaml
