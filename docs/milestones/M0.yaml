@@ -22,10 +22,10 @@ tasks:
     package: go.mod
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in progress
     adr: "0001"
     matrix: []
-    notes: Own PR; CI image and Dockerfile builder must move together. Verify GOPROXY reachability in CI.
+    notes: Own PR. Dockerfile builder already on golang:1.25-alpine (PR #1); every workflow reads go-version-file go.mod, so CI moves with go.mod. Verify GOPROXY reachability in CI. Dispatched 2026-09-23.
   - id: T0.2
     title: internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
     package: internal/proxy
@@ -69,8 +69,36 @@ tasks:
     state: open
     blocked_by: [T0.1]
     matrix: []
+  - id: T0.7
+    title: Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-)
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    matrix: []
+    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey.
+  - id: T0.8
+    title: tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale
+    package: tools/status
+    owner: docs-writer
+    reviewers: [go-reviewer]
+    state: open
+    matrix: []
+    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows.'
+  - id: T0.9
+    title: nightly-clab.yaml fails with a workflow file error on every push to main
+    package: .github/workflows
+    owner: release-engineer
+    reviewers: [go-reviewer]
+    state: open
+    matrix: []
+    notes: Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Fix so it parses and stays skipped until the clab runner exists.
 external:
   - kind: pr
-    ref: dependabot go-yaml 1.18.0 -> 1.19.2
-    state: open
-    note: Trivial first merge to exercise the pipeline; not part of M0 scope.
+    ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
+    state: merged
+    note: Merged 2026-09-23 before T0.1, so T0.1's diff stays toolchain-only.
+  - kind: pr
+    ref: "#1 dependabot golang 1.24-alpine -> 1.25-alpine"
+    state: merged
+    note: Dockerfile builder already on Go 1.25; T0.1 does not need to touch it.
