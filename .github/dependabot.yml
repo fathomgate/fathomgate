@@ -19,3 +19,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # The Dockerfile builder's Go minor must equal the go.mod `toolchain`
+    # minor (ADR 0013). A Go minor bump is the manual toolchain bump in
+    # CONTRIBUTING.md, never a Dependabot PR; distroless updates still flow.
+    ignore:
+      - dependency-name: golang
+        update-types: ["version-update:semver-minor"]

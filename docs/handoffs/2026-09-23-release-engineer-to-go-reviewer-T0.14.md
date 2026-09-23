@@ -4,7 +4,7 @@
 - **From → To:** release-engineer → go-reviewer; security-reviewer reviews second (toolchain, vuln gate, supply chain)
 - **State now:** in review
 - **Branch / PR:** `build/go-1.26-toolchain`, off `origin/land/m0-stack` (PR #25, `8a1e877`). Not pushed · none yet
-- **Date:** 2026-09-24
+- **Date:** 2026-09-23
 
 ## Done
 
@@ -18,8 +18,14 @@
 - `CONTRIBUTING.md` bump procedure, step 5, now says three more things:
   - golangci-lint must be built with a Go at least as new as the toolchain minor.
   - The Dockerfile builder must match the new minor.
-  - Dependabot's monthly `docker` update can propose a newer `golang` minor than the toolchain; hold it until the toolchain moves.
+  - Dependabot no longer proposes a new `golang` minor for the builder (see the review round below).
 - `CHANGELOG.md`: a Security entry (no advisory; reason: 1.25 is end of life) and three Changed entries. `docs/milestones/M0.yaml`: T0.14 is `in review` and `blocked_by` is removed, because T0.13 is merged. `STATUS.md` is re-rendered.
+
+## Review round 1 (go-reviewer: approve with nits; covers security sign-off)
+
+- The note was misdated 2026-09-24 because of an orchestrator error. It is renamed to `2026-09-23-…-T0.14.md`, and the Date field is fixed.
+- `.github/dependabot.yml` `docker` entry: an `ignore` rule for `golang` with `version-update:semver-minor`. The builder's Go minor now moves only with the manual toolchain bump. Patch updates and distroless updates still come through. `CONTRIBUTING.md` step 5 now says the config handles this, and the manual bump steps are unchanged.
+- Digest-pinning images and a checksum-verified golangci-lint install are deferred to follow-up T0.15 (the orchestrator adds it). Nothing about them changes here.
 
 ## Look at this first
 
@@ -27,7 +33,7 @@
 
 ## Deliberately unfinished
 
-- The `golang:1.26-alpine` image is referenced by tag, not by digest. That matches the repo today: #19 SHA-pinned actions but not images, and the T0.13 note lists pinning by digest as a follow-up. Today's digests, if you want them: `golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c`, `golang:1.26@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9`.
+- The `golang:1.26-alpine` image is referenced by tag, not by digest. That matches the repo today: #19 SHA-pinned actions but not images, and pinning by digest is now follow-up T0.15. Today's digests, for T0.15: `golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c`, `golang:1.26@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9`.
 - ADR 0013's body still says go1.25.14 and `golang:1.25-alpine`. I left the accepted record as written, because the version lives only in `go.mod`. If you want a dated "Updated by T0.14" line added, say so.
 - GO-2026-5024 (`golang.org/x/sys` v0.41.0, Windows, module-level only, not reachable) is still owned by T0.12. It does not change here.
 - The workflows have not run on GitHub yet. On the PR, `snapshot.yaml` runs because `go.mod` and `Dockerfile` changed. Expect `Go in use is go1.26.8, the go.mod toolchain`.
@@ -57,5 +63,4 @@ python tools/status/render.py --check
 
 ## Questions for the receiver
 
-- go-reviewer: should the Dockerfile builder be pinned to `golang:1.26.8-alpine` (patch-exact, same determinism as the `toolchain` line), or by digest, instead of the floating `1.26-alpine`?
-- security-reviewer: with golangci-lint at v2.9.0, is a checksum-verified install (the release `checksums.txt`, sha256 `493aaaca…6091` for linux-amd64) worth adding to the lint job, given that the action downloads the binary by version tag? In v7.0.1, `src/install.ts` fetches it with `tc.downloadTool` and does not verify a checksum.
+- None. Both round-1 questions (pinning the builder by digest, and a checksum-verified golangci-lint install) went to follow-up T0.15.
