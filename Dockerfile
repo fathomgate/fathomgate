@@ -1,6 +1,6 @@
 # Multi-stage build: compile a static binary, ship it on distroless.
 # docker build -t netguard . && docker run --rm netguard version
-FROM golang:1.24-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./
