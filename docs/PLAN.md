@@ -223,7 +223,7 @@ Every case names the real server it is validated against, so nothing in the plan
 
 | Case | Tier | Upstream server | Expected |
 | --- | --- | --- | --- |
-| `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev.run_show_command` etc. |
+| `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command` etc. |
 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era), upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green |
 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp | Allowed; classified `READ_OPERATIONAL` |
 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`, eos-mcp `run_command` | Denied by `no-exec`; error names rule id |
@@ -290,7 +290,7 @@ netguard/
 
 - [ ] Create the repo, MIT licence, `go mod init`, pin `github.com/modelcontextprotocol/go-sdk` v1.7.x and `go.yaml.in/yaml/v3`
 - [ ] Copy `docs/research/` and `design/` from this plan
-- [ ] M0: spawn netdev-ssh-mcp over stdio, forward `tools/list` and `tools/call` with the `netdev.` prefix
+- [ ] M0: spawn netdev-ssh-mcp over stdio, forward `tools/list` and `tools/call` with the `netdev-ssh-mcp.` prefix
 - [ ] Run the official conformance suite against the client-facing side; wire it into CI
 - [ ] GoReleaser config producing linux, darwin and windows binaries on tag
 - [ ] Write `profiles/netdev-ssh-mcp.yaml` by hand from the catalog in research brief 02

@@ -4,34 +4,52 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
+# No workflow-wide grants; each job asks for what it needs.
+permissions: {}
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload archives
+      packages: write # push the image to ghcr.io (dockers: in .goreleaser.yaml)
+      # id-token: write comes back with cosign keyless signing of
+      # checksums.txt and the image; nothing signs yet, so it is not granted.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
+          # The `toolchain` line in go.mod, same as ci.yaml (ADR 0013).
+          # setup-go v6 installs it and exports GOTOOLCHAIN=local, so the
+          # binaries are built with exactly the Go that CI tested.
           go-version-file: go.mod
-          cache: true
-      - uses: anchore/sbom-action/download-syft@v0
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+          # No module or build cache in the release job: a poisoned cache
+          # from another workflow must not reach a published binary.
+          cache: false
+      # A release is built with the go.mod toolchain or not at all.
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
+      # Same pinned govulncheck as ci.yaml (Makefile GOVULNCHECK_VERSION,
+      # v1.7.0): a vulnerability reachable from our code stops the release
+      # before anything is built or published.
+      - name: govulncheck ./...
+        run: make vulncheck
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           distribution: goreleaser
-          version: "~> v2"
+          # Pinned, same as snapshot.yaml: the release uses the GoReleaser
+          # that the last snapshot run exercised.
+          version: v2.18.2
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

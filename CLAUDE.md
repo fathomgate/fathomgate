@@ -39,7 +39,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 ## Toolchain facts
 
 - `go.mod` is `go 1.25.0` with two direct dependencies: `github.com/goccy/go-yaml` and `github.com/modelcontextprotocol/go-sdk` (pinned to the v1.7 minor). Never add `gopkg.in/yaml.v3` (unmaintained).
-- Until `internal/proxy` imports go-sdk, `internal/tools/tools.go` (`//go:build tools`) keeps it in `go.mod`. It is never compiled into the binary. Delete that import when the proxy lands. A go-sdk bump is its own PR.
+- `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
 
@@ -72,19 +72,20 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 - A change to any interface (`policy.Decision`, `Evaluate`, the class or obligation set, `ChangeSafety`, a schema in `docs/specs/`, the CLI surface, `go.mod`) needs an ADR before code.
 - Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
+- `netguard serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
 - Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). DCO sign-off.
 
 ## Repo map
 
 ```
-cmd/netguard/        CLI (version, serve [M0 stub], policy test|eval, audit verify|keygen, redact, inventory import)
+cmd/netguard/        CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (M2)
-internal/proxy/      M0: go-sdk transport, dual-era, prefixing            (not yet present)
+internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing; dual-era is T0.3
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
 profiles/            one YAML per upstream server (tool → class, param mapping), pinned by tests
@@ -99,7 +100,7 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 ## Things that look wrong but are deliberate
 
-- `netguard serve` exits 2 with a message. The transport is M0 (`internal/proxy`, T0.2).
+- `netguard serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - The name "NetGuard" is a placeholder and collides with existing products. Renaming is an open question in `docs/PLAN.md`; do not brand assets around it yet.

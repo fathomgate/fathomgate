@@ -28,11 +28,12 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in progress
+    state: merged
     blocked_by: [T0.1]
     adr: "0002"
     matrix: [1]
     spec: docs/specs/profile-schema.md
+    notes: 'Branch feat/proxy-passthrough, PR #20, stacked on #19 and #15. Review round 1 (G1-G10, S1-S6) and round 2 (go blocker plus 4 items, security 7 items) resolved; go-reviewer expects approve-with-nits once ADR 0012 is accepted and -race passes; security-reviewer approved with nits. CLI surface and proxy API in ADR 0012, accepted by joshscott13 2026-09-23. Merge gate: -race and golangci-lint in Linux CI. Prefix ruled per spec: netdev-ssh-mcp.<tool>; PLAN and matrix row 1 corrected, test-engineer to sign off the row. Tier 1 only; row 1 not validated. Merged in #20; landed on main via the stack PR on 2026-09-23.'
   - id: T0.3
     title: Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
     package: internal/proxy
@@ -63,9 +64,10 @@ tasks:
     package: .goreleaser.yaml
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: in progress
+    state: merged
     blocked_by: [T0.1]
     matrix: []
+    notes: 'Branch ci/m0-release-hardening, stacked on T0.1 (PR #14 head 64bf8b7); merge after it. Local goreleaser v2.18.2 snapshot with go1.25.14 succeeded: 6 archives (linux, darwin, windows x amd64, arm64), 6 SPDX SBOMs, checksums.txt, amd64 image (nonroot, no shell). .goreleaser.yaml needs no Go 1.25 fix; brews and dockers are deprecated in v2.18 (follow-up). New snapshot.yaml runs this in CI on release-input PRs. Exit criterion 4 (binaries on a tag) is not proven until a tag is pushed. Approved: go-reviewer with nits 2026-09-23, nits fixed (persist-credentials false, windows_arm64 asserted); security-reviewer found the supply chain sound. Stays in review until the PR opens. Merged in #19; landed on main via the stack PR on 2026-09-23.'
   - id: T0.7
     title: Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-)
     package: internal/audit
@@ -95,19 +97,20 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in progress
+    state: merged
     blocked_by: [T0.1]
     adr: "0011"
     matrix: []
-    notes: Guardrail from ADR 0011.
+    notes: 'Guardrail from ADR 0011. Branch ci/m0-release-hardening, stacked on T0.1. CI job govulncheck runs make vulncheck (golang.org/x/vuln v1.7.0 via go run; go.mod unchanged). Workflows now install go 1.25.x (check-latest) instead of go.mod''s exact go1.25.0, which has four reachable stdlib vulns via internal/audit. Local run under go1.25.14: No vulnerabilities found. Approved: go-reviewer with nits and security-reviewer with nits, 2026-09-23; all nits fixed (weekly schedule, SHA-pinned actions, least-privilege release job, vulncheck before release). Stays in review until the PR opens. Merged in #19; landed on main via the stack PR on 2026-09-23.'
   - id: T0.11
     title: Run actionlint on every PR in ci.yaml
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: in progress
+    state: merged
+    blocked_by: [T0.1]
     matrix: []
-    notes: From the T0.9 review. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
+    notes: 'From the T0.9 review. Branch ci/m0-release-hardening, stacked on T0.1 (its job uses the Go 1.25 setup). CI job actionlint runs make actionlint (v1.7.12, .github/actionlint.yaml, shellcheck on the runner); 0 errors in 4 workflow files locally. Approved by go-reviewer 2026-09-23; security-reviewer found the supply chain sound. Stays in review until the PR opens. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main. Merged in #19; landed on main via the stack PR on 2026-09-23.'
   - id: T0.12
     title: Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS
     package: internal/audit
@@ -118,6 +121,26 @@ tasks:
     adr: "0011"
     matrix: []
     notes: 'From the T0.7 security review. On Windows, SaveKey 0600 is ignored and the key inherits its folder ACL, so a local non-admin user can read audit.key and re-sign checkpoints over a rewritten log. os.WriteFile also keeps the mode of an existing file on Unix. Needs golang.org/x/sys/windows (ADR 0011). Targets M1; carry over if M0 closes first. Stopgap operator guidance is in SECURITY.md.'
+  - id: T0.13
+    title: Pin the Go build toolchain in go.mod and read it from there in every workflow
+    package: go.mod
+    owner: release-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: merged
+    blocked_by: [T0.10]
+    adr: "0013"
+    matrix: []
+    notes: 'Branch build/toolchain-pin, stacked on PR #20 (b0a102f), not pushed. go.mod gains toolchain go1.25.14 (newest 1.25 patch; floor stays go 1.25.0). All four workflows read go-version-file: go.mod via actions/setup-go v6.5.0 (SHA 924ae3a1); v5.6.0 reads only the go line, so it would install go1.25.0. New make toolchain-check guards ci.yaml and release.yaml; make vulncheck runs with the pinned toolchain. Dependabot gomod does not bump the toolchain line (dependabot-core#13520 open): manual bump procedure in CONTRIBUTING.md and ADR 0013. Go 1.25 is out of support since go1.27.0 (2026-08-19), so the next stdlib advisory needs a go1.26 toolchain. ADR 0013 accepted by joshscott13 2026-09-23. Merged in #21; landed on main via the stack PR on 2026-09-23.'
+  - id: T0.14
+    title: Move the build toolchain to Go 1.26 now that Go 1.25 is out of support
+    package: go.mod
+    owner: release-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [T0.13]
+    adr: "0013"
+    matrix: []
+    notes: 'Found during T0.13. Go 1.27.0 shipped 2026-08-19, so 1.25 gets no more patches and the next stdlib advisory needs a go1.26 toolchain. Keep the go 1.25.0 floor unless an ADR says otherwise. The move also touches golangci-lint v2.4.0 (built with 1.25), govulncheck (v1.8.0 needs 1.26), the Dockerfile builder and setup-go. Consider doing it before the first tag.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
