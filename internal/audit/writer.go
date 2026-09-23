@@ -67,6 +67,13 @@ func openLog(path string) (f *os.File, created bool, err error) {
 		return f, true, nil
 	}
 	if !errors.Is(err, fs.ErrExist) {
+		// Windows reports CREATE_NEW over a directory or junction as
+		// access denied, not "exists". Name the reason when the path is
+		// something other than a regular file; either way nothing is
+		// created or changed.
+		if fi, lerr := os.Lstat(path); lerr == nil && !fi.Mode().IsRegular() {
+			return nil, false, fmt.Errorf("%w: %s is a symbolic link, junction, directory or other non-regular file (%w)", errUnsafeLog, path, err)
+		}
 		return nil, false, fmt.Errorf("audit: create log: %w", err)
 	}
 	f, err = openExistingLog(path)

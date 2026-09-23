@@ -2,8 +2,8 @@
 
 - **Task:** T0.12 — Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS
 - **From → To:** policy-engineer → security-reviewer (go-reviewer also listed)
-- **State now:** in review (round 1 findings addressed)
-- **Branch / PR:** `fix/audit-key-perms` on `origin/land/m0-stack` (PR #25) · none yet (not pushed) · issue [#18](https://github.com/joshscott13/netguard/issues/18) · commits `970c1f5` (round 0), round 1 on top
+- **State now:** in review (round 1 and round 2 findings addressed)
+- **Branch / PR:** `fix/audit-key-perms` on `origin/land/m0-stack` (PR #25) · none yet (not pushed) · issue [#18](https://github.com/joshscott13/netguard/issues/18) · commits `970c1f5` (round 0), `28d22bf` (round 1), round 2 on top
 - **Date:** 2026-09-23
 
 ## Done
@@ -41,6 +41,24 @@ New regression tests:
 - Q1: `TestSavePublicKeyRefusesExisting`, `TestWriteKeyPair` (existing pub: no private key written; existing key: pub deleted again), `TestSavePublicKeyMode` (Unix), and the `keygen` case in `cmd/netguard/main_test.go`.
 - Mutation check: letting `NumberOfLinks > 1` through makes `TestNewWriterWindowsHardLinkKeepsDACL` fail.
 
+## Review round 2
+
+Findings from security-reviewer (REQUEST CHANGES), each fixed:
+
+| Finding | Fix |
+| --- | --- |
+| M1 `createExclusive` followed a dangling symlink | `CreateFile(CREATE_NEW)` now passes `FILE_FLAG_OPEN_REPARSE_POINT`, as `syscall.Open` does for `O_CREAT\|O_EXCL`. Comment rewritten. Applies to the key, `.pub` and new logs. |
+| L2 junction test accepted any error | It now asserts `errUnsafeLog`. `CREATE_NEW` over a junction or directory returns Access denied, not "exists", so `openLog` now `Lstat`s the path after a failed create and, for anything that is not a regular file, returns `errUnsafeLog` naming the reason (wrapping the original error). Nothing is created or changed either way. |
+| N3 elevated resume | `SECURITY.md`: NetGuard's own logs still resume when it runs elevated, because the owner is set to the user SID; only logs created by other elevated tools (owner `BUILTIN\Administrators`) are refused. Fix: `icacls <log> /setowner <user>`. |
+| Privileged tests | `needPrivilege` in `key_windows_test.go`: with `NETGUARD_REQUIRE_PRIVILEGED_TESTS=1` the symlink, dangling-symlink, other-owner and junction tests `t.Fatal` instead of skipping. Workflows not touched; the Release Engineer adds the `windows-latest` job. |
+| Threat model | "MCP08 key custody" stays open until this fix merges and the Windows CI job with the gate is green. |
+
+New tests: `TestWindowsDanglingSymlinkNotFollowed` (key, pub, log; nothing may appear at the link target) and `TestDanglingSymlinkNotFollowed` (Unix: pub, log; the key case was already `TestSaveKeyRefusesSymlink`).
+
+Not verified on this host: M1 itself. Creating any symlink needs a privilege this unelevated host lacks, and a dangling junction does not reproduce the bug (`CREATE_NEW` over it is Access denied with or without the flag, and nothing appears at the target). The Windows CI job with the gate set is the first run that exercises it.
+
+Gate proof on this unelevated host: `NETGUARD_REQUIRE_PRIVILEGED_TESTS=1 go test ./internal/audit/` fails `TestNewWriterWindowsRefusesSymlink`, `TestWindowsDanglingSymlinkNotFollowed/{key,pub,log}` and `TestNewWriterWindowsRefusesOtherOwner` with "NETGUARD_REQUIRE_PRIVILEGED_TESTS=1 but the test cannot run: ..."; without the variable they skip and the package passes.
+
 ## Look at this first
 
 - `internal/audit/writer.go` `openLog` / `resumeLog`, then `openExistingLog` and `checkLogFile` in `key_unix.go` and `key_windows.go`.
@@ -49,7 +67,7 @@ New regression tests:
 
 - Follow-up (Q3): raw `CreateFile` does not add the `\\?\` prefix, so Windows key and log paths over `MAX_PATH` fail to open (closed). Fix by prefixing absolute paths with `\\?\` as `os.OpenFile` does.
 - ADR 0011's x/sys row (`v0.41.0`, reached only via `segmentio/asm`) is stale. Not edited here by instruction; it gets a separate docs PR.
-- The Windows symlink and other-owner tests skip on an unelevated host (this one). They run on an elevated host or with Developer Mode.
+- The Windows symlink, dangling-symlink and other-owner tests skip on an unelevated host (this one) unless `NETGUARD_REQUIRE_PRIVILEGED_TESTS=1`, which makes them fail. They run on an elevated host or with Developer Mode.
 - No `--force` on `keygen` (CLI surface outside ADR 0012).
 
 ## Reproduce green

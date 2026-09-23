@@ -71,6 +71,45 @@ func TestSaveKeyRefusesSymlink(t *testing.T) {
 	}
 }
 
+// A dangling symlink at the public key or log path is not followed either:
+// nothing is created at the link's target.
+func TestDanglingSymlinkNotFollowed(t *testing.T) {
+	pub, _, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		create func(path string) error
+		want   error
+	}{
+		{"pub", func(p string) error { return SavePublicKey(p, pub) }, fs.ErrExist},
+		{"log", func(p string) error {
+			w, err := NewWriter(p, Options{})
+			if err == nil {
+				_ = w.Close()
+			}
+			return err
+		}, errUnsafeLog},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "attacker-chosen")
+			link := filepath.Join(dir, "audit."+tc.name)
+			if err := os.Symlink(target, link); err != nil {
+				t.Skipf("symlink: %v", err)
+			}
+			if err := tc.create(link); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("file created at the symlink target: %v", err)
+			}
+		})
+	}
+}
+
 func TestSavePublicKeyMode(t *testing.T) {
 	pub, _, err := NewKey()
 	if err != nil {

@@ -4,6 +4,7 @@ package audit
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -243,15 +244,34 @@ func assertUntouched(t *testing.T, path string) {
 	}
 }
 
+// requirePrivilegedEnv makes privilege-dependent tests fail instead of skip.
+// The windows-latest CI job sets it, so those tests cannot pass silently.
+const requirePrivilegedEnv = "NETGUARD_REQUIRE_PRIVILEGED_TESTS"
+
+// needPrivilege skips the test, or fails it when requirePrivilegedEnv=1.
+func needPrivilege(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv(requirePrivilegedEnv) == "1" {
+		t.Fatalf(requirePrivilegedEnv+"=1 but the test cannot run: "+format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
+// symlinkOrSkip creates a file symlink, or skips / fails via needPrivilege.
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		needPrivilege(t, "creating a symlink needs SeCreateSymbolicLinkPrivilege (Developer Mode or admin): %v", err)
+	}
+}
+
 // H1: a symlink at the log path is opened as itself and refused; its
 // target's DACL is not changed.
 func TestNewWriterWindowsRefusesSymlink(t *testing.T) {
 	dir := looseDir(t)
 	target := looseLog(t, dir, "target.jsonl")
 	link := filepath.Join(dir, "audit.jsonl")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("creating a symlink needs SeCreateSymbolicLinkPrivilege (Developer Mode or admin): %v", err)
-	}
+	symlinkOrSkip(t, target, link)
 	if _, err := NewWriter(link, Options{}); !errors.Is(err, errUnsafeLog) {
 		t.Fatalf("err = %v, want errUnsafeLog", err)
 	}
@@ -269,14 +289,53 @@ func TestNewWriterWindowsRefusesJunction(t *testing.T) {
 	link := filepath.Join(dir, "audit.jsonl")
 	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
 	if err != nil {
-		t.Skipf("mklink /J: %v: %s", err, out)
+		needPrivilege(t, "mklink /J: %v: %s", err, out)
 	}
 	_, err = NewWriter(link, Options{})
-	if err == nil {
-		t.Fatal("NewWriter accepted a junction")
+	if !errors.Is(err, errUnsafeLog) {
+		t.Fatalf("err = %v, want errUnsafeLog", err)
 	}
 	t.Logf("junction refused: %v", err)
 	assertUntouched(t, target)
+}
+
+// M1 (round 2): a dangling symlink at the key, public key or log path must
+// not be followed. CREATE_NEW without FILE_FLAG_OPEN_REPARSE_POINT would
+// create the file at the link's target, a place the attacker chose.
+func TestWindowsDanglingSymlinkNotFollowed(t *testing.T) {
+	pub, priv, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		create func(path string) error
+		want   error
+	}{
+		{"key", func(p string) error { return SaveKey(p, priv) }, fs.ErrExist},
+		{"pub", func(p string) error { return SavePublicKey(p, pub) }, fs.ErrExist},
+		{"log", func(p string) error {
+			w, err := NewWriter(p, Options{})
+			if err == nil {
+				_ = w.Close()
+			}
+			return err
+		}, errUnsafeLog},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "attacker-chosen")
+			link := filepath.Join(dir, "audit."+tc.name)
+			symlinkOrSkip(t, target, link)
+			if err := tc.create(link); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("file created at the symlink target: %v", err)
+			}
+		})
+	}
 }
 
 // H1: a hard link is refused and the shared file's DACL is not changed.
@@ -307,13 +366,14 @@ func TestNewWriterWindowsBrokenChainKeepsDACL(t *testing.T) {
 
 // H2: a log owned by another SID is refused. Giving a file another owner
 // needs elevation (SeRestorePrivilege, or membership of an owner-capable
-// group such as Administrators), so this skips when run unelevated.
+// group such as Administrators), so this skips when run unelevated unless
+// requirePrivilegedEnv=1.
 func TestNewWriterWindowsRefusesOtherOwner(t *testing.T) {
 	p := looseLog(t, looseDir(t), "audit.jsonl")
 	admins := wellKnown(t, windows.WinBuiltinAdministratorsSid)
 	if err := windows.SetNamedSecurityInfo(p, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION, admins, nil, nil, nil); err != nil {
-		t.Skipf("cannot give the file another owner without elevation: %v", err)
+		needPrivilege(t, "cannot give the file another owner without elevation: %v", err)
 	}
 	if _, err := NewWriter(p, Options{}); !errors.Is(err, errUnsafeLog) {
 		t.Fatalf("err = %v, want errUnsafeLog", err)

@@ -45,8 +45,13 @@ func ownerOnlySD() (*windows.SECURITY_DESCRIPTOR, error) {
 	return windows.SecurityDescriptorFromString("O:" + sid + "D:P(A;;FA;;;" + sid + ")(A;;FA;;;SY)")
 }
 
-// createExclusive creates path with CREATE_NEW: an existing file, directory,
-// symlink or junction fails with fs.ErrExist and is not followed. With
+// createExclusive creates path with CREATE_NEW plus
+// FILE_FLAG_OPEN_REPARSE_POINT, as syscall.Open does for O_CREAT|O_EXCL.
+// Without that flag CREATE_NEW follows a dangling symlink and creates the
+// file at the link's target, which an attacker who can plant links in the
+// directory would choose. With it, any existing entry at path (file,
+// directory, symlink, dangling or not, or junction) fails and nothing is
+// created elsewhere. With
 // ownerOnly the owner-only descriptor is applied atomically by CreateFile,
 // so there is no moment at which another user could open the file; without
 // it the file inherits its folder's ACL (the public key). flag carries
@@ -67,7 +72,7 @@ func createExclusive(path string, flag int, ownerOnly bool) (*os.File, error) {
 	if flag&os.O_APPEND != 0 {
 		access = windows.GENERIC_READ | appendAccess
 	}
-	return createFile(path, access|windows.DELETE, sa, windows.CREATE_NEW, 0)
+	return createFile(path, access|windows.DELETE, sa, windows.CREATE_NEW, windows.FILE_FLAG_OPEN_REPARSE_POINT)
 }
 
 // removeCreated marks the file behind f for deletion; it is removed when f
