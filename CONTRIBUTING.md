@@ -64,6 +64,7 @@ Run `cd tests && uv run pytest` for the Python suite.
 ### Core Go changes
 
 - `gofmt`, `go vet` and `golangci-lint run` must pass; `make lint` runs them.
+- `make vulncheck` (govulncheck, pinned in the `Makefile`) must report no vulnerability reachable from our code; CI runs it on every push and pull request with the newest Go 1.25 patch. A fix is usually a Go patch release or a module bump, and a module bump follows ADR 0011.
 - Table tests over synthetic requests; no network in `go test`.
 - A change to `Evaluate`, the classifier tables, the audit hash or the redaction token format needs a spec update in the same pull request, and usually an ADR.
 - Do not add a dependency without saying why in the pull request. `gopkg.in/yaml.v3` is not permitted.

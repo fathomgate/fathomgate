@@ -13,7 +13,12 @@ GOFLAGS  ?=
 PYTHON   ?= python3
 BIN_DIR  := bin
 
-.PHONY: all build test vet lint fmt policy-test fixtures-check status status-check release-snapshot clean help
+# Pinned CI tools, run with `go run pkg@version` so go.mod stays unchanged.
+# govulncheck v1.8.0 needs Go 1.26; v1.7.0 runs on the Go 1.25 toolchain we
+# build with, so it scans the same standard library that ships.
+GOVULNCHECK_VERSION ?= v1.7.0
+
+.PHONY: all build test vet lint vulncheck fmt policy-test fixtures-check status status-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -30,6 +35,9 @@ vet: ## go vet + gofmt check
 
 lint: ## golangci-lint (falls back to vet if not installed)
 	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "golangci-lint not installed; running go vet"; $(MAKE) vet; fi
+
+vulncheck: ## govulncheck ./... at GOVULNCHECK_VERSION; fails on reachable vulnerabilities
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 fmt: ## gofmt the tree
 	gofmt -w .

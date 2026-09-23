@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # Newest Go 1.25 patch, not the go.mod floor: `go-version-file: go.mod`
+  # installs exactly go1.25.0, whose standard library has known fixed
+  # vulnerabilities that govulncheck reports as reachable. Keep the minor in
+  # step with the `go` line in go.mod (and release.yaml, nightly-clab.yaml).
+  GO_VERSION: "1.25.x"
+
 jobs:
   go:
     name: go build / vet / test
@@ -19,7 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
           cache: true
       - run: go build ./...
       - run: go vet ./...
@@ -38,12 +46,31 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
           cache: true
       - uses: golangci/golangci-lint-action@v7
         with:
           # v2.4 is the first line built with Go 1.25; v2.1 refuses a go 1.25 module.
           version: v2.4.0
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+          cache: true
+      # `make vulncheck` runs golang.org/x/vuln/cmd/govulncheck at the version
+      # pinned in the Makefile (GOVULNCHECK_VERSION) via `go run pkg@version`,
+      # so go.mod and go.sum stay unchanged. Exit 3 (a vulnerability reachable
+      # from our code, stdlib included) fails the job; findings only in
+      # required modules that no symbol reaches are printed, not fatal.
+      - name: govulncheck ./...
+        run: make vulncheck
 
   python:
     name: policy-lint smoke

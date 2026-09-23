@@ -18,7 +18,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Newest Go 1.25 patch, same as ci.yaml: `go-version-file: go.mod`
+          # would ship binaries built with go1.25.0 and its known stdlib
+          # vulnerabilities.
+          go-version: "1.25.x"
+          check-latest: true
           cache: true
       - uses: anchore/sbom-action/download-syft@v0
       - uses: docker/setup-qemu-action@v3
