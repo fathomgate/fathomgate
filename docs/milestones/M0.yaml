@@ -138,11 +138,28 @@ tasks:
     package: go.mod
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
-    blocked_by: [T0.13]
+    state: in review
     adr: "0013"
     matrix: []
-    notes: 'Found during T0.13. Go 1.27.0 shipped 2026-08-19, so 1.25 gets no more patches and the next stdlib advisory needs a go1.26 toolchain. Keep the go 1.25.0 floor unless an ADR says otherwise. The move also touches golangci-lint v2.4.0 (built with 1.25), govulncheck (v1.8.0 needs 1.26), the Dockerfile builder and setup-go. Consider doing it before the first tag.'
+    notes: 'Found during T0.13. Go 1.27.0 shipped 2026-08-19, so 1.25 gets no more patches and the next stdlib advisory needs a go1.26 toolchain. Keep the go 1.25.0 floor unless an ADR says otherwise. The move also touches golangci-lint v2.4.0 (built with 1.25), govulncheck (v1.8.0 needs 1.26), the Dockerfile builder and setup-go. Consider doing it before the first tag. Branch build/go-1.26-toolchain off land/m0-stack (PR #25), not pushed: toolchain go1.26.8 (newest 1.26 patch, 2026-09-01); go 1.25.0 floor kept, so no new ADR. golangci-lint v2.4.0 -> v2.9.0 (first release built with go1.26.0; v2.4.0 and v2.8.0 refuse a go1.26.8 toolchain), 0 issues. govulncheck v1.7.0 -> v1.8.0, No vulnerabilities found. Dockerfile builder golang:1.26-alpine. No advisory fixed between go1.25.14 and go1.26.8. GoReleaser v2.18.2 snapshot green with go1.26.8.'
+  - id: T0.15
+    title: Pin the Dockerfile builder and distroless base images by digest
+    package: Dockerfile
+    owner: release-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [T0.14]
+    matrix: []
+    notes: 'From the T0.14 review. gcr.io/distroless/static-debian12:nonroot in Dockerfile.goreleaser ships in release images and is only tag-pinned, and so is the golang builder in Dockerfile. Pin both as tag@sha256 (Dependabot docker updates keep digest pins current). Optionally install golangci-lint via go run ...@vX so the checksum database verifies it.'
+  - id: T0.16
+    title: Update the ADR 0011 module table for golang.org/x/sys as a direct dependency
+    package: docs/adr
+    owner: docs-writer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [T0.12]
+    matrix: []
+    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

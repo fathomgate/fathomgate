@@ -32,7 +32,7 @@ jobs:
       - name: Go in use is the go.mod toolchain
         run: make toolchain-check
       # Same pinned govulncheck as ci.yaml (Makefile GOVULNCHECK_VERSION,
-      # v1.7.0): a vulnerability reachable from our code stops the release
+      # v1.8.0): a vulnerability reachable from our code stops the release
       # before anything is built or published.
       - name: govulncheck ./...
         run: make vulncheck

@@ -17,6 +17,7 @@ Go-reviewer returned request changes with one blocker, and security-reviewer app
 - **S5, `name.go`:** `netguard` is reserved in any case. `serve --server NetGuard` exits 2 with `server name "NetGuard" is reserved for the proxy itself`. Covered in `TestSplitName` and `TestParseServe`.
 - **G2:** each stdio child gets `GORACE=atexit_sleep_ms=0` (`childRaceEnv`). The proxy `-race -count=3` run dropped from 14.65s to 3.48s.
 - **G3:** an unattributed refusal is now a `note`, only ever appended to a completing result. The call's own refusal may still replace the upstream error that it caused. `TestUpstreamElicitationNeedsOneCall` covers both: the upstream error stays the upstream's error, and a completed result keeps its content with the refusal appended.
+- **Merge:** `origin/main` (#25, and #26's go1.26.8 toolchain) is merged in. The only conflict was the generated STATUS.md, re-rendered from the merged board.
 - **G4, G5, G6:** `sole` checks the count first. `refusal` now wraps an `error` (`Unwrap`), and schema errors use `%w`. `newSealer`, `seal`, `open` and `toolError` have godoc.
 - **ADR 0014:** accepted (option A). Option B's four requirements are recorded: single-use resume ids; a per-upstream cap with cancel-on-expiry; parked calls counting as in flight; cross-request tying after the original context ends. "proposed" has been removed everywhere 0014 is cited.
 - **SECURITY.md:** the impersonation row is rewritten. New rows cover schema spoofing, prompt flood, envelope replay (accepted), session binding (accepted until HTTP), content-block `_meta`, and ADR 0014's parking requirements.
@@ -61,7 +62,7 @@ A check that expects empty lists for undeclared capabilities would now fail, and
 gofmt -l . && go build ./... && go vet ./... && go test -count=3 ./...
 go test -count=1 -v -run 'Era|MRTR|Refused|Round|NeedsOneCall|Flood|Undeclared|StatelessMeta|Seal|Schema|Stdio' ./internal/proxy/
 MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golang:1.25 go test -race -count=3 ./...
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golangci/golangci-lint:v2.4.0 golangci-lint run ./...
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golangci/golangci-lint:v2.9.0 golangci-lint run ./...   # main is on toolchain go1.26.8 (#26); v2.4.0 refuses it. v2.4.0 was clean on a88979c, before the merge
 go build -o bin/netguard ./cmd/netguard && bin/netguard policy test policies/examples/*.test.yaml   # 25/25
 python tools/status/render.py --check
 ```
