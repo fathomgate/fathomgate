@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: open 3 · blocked 5 · in progress 1
+Tasks: open 2 · blocked 5 · in progress 1 · in review 1
 
 ## Blockers
 
@@ -21,7 +21,7 @@ Tasks: open 3 · blocked 5 · in progress 1
 | T0.5 | Client smoke — Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case | `tests/integration` | test-engineer | release-engineer | blocked | T0.3 | 22 | — |
 | T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | blocked | T0.1 | — | — |
 | T0.7 | Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | open | — | — | — |
-| T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | open | — | — | — |
+| T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | in review | — | — | — |
 | T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | open | — | — | — |
 
 ## Exit criteria
@@ -44,6 +44,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | --- | --- | --- | --- | --- |
 | 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
 | 2026-09-23 | joshscott13 | netguard-orchestrator | M0 | [Scaffold complete; M0 is yours and it starts with a toolchain bump](docs/handoffs/2026-09-23-joshscott13-to-netguard-orchestrator-M0.md) |
+| 2026-09-23 | docs-writer | go-reviewer | T0.8 | [T0.8 is ready for review: render.py writes UTF-8 with LF on every OS](docs/handoffs/2026-09-23-docs-writer-to-go-reviewer-T0.8.md) |
 
 ## How to update
 

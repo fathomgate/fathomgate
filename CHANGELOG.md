@@ -33,6 +33,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 - Nothing yet.
 
+### Fixed
+
+- `make status` and `render.py --check` now produce UTF-8 with LF on Windows; `PYTHON` overrides the interpreter.
+
 ### Security
 
 - Nothing yet. Security fixes will be listed here with their advisory id.
