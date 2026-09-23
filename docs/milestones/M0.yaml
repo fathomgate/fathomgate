@@ -16,16 +16,19 @@ blockers:
   - id: B1
     text: go-sdk v1.7.x requires Go 1.25; go.mod is 1.24. Toolchain bump is its own PR (T0.1).
     owner: mcp-protocol-engineer
+  - id: B2
+    text: "ADR 0011 (go-sdk transitive modules) must be accepted by a maintainer before T0.1 merges."
+    owner: joshscott13
 tasks:
   - id: T0.1
     title: Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x
     package: go.mod
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer]
-    state: in review
-    adr: "0001"
+    state: blocked
+    adr: "0011"
     matrix: []
-    notes: 'Own PR on build/go-1.25-go-sdk (not pushed). go.mod is go 1.25.0; go-sdk v1.7.0 is pinned via internal/tools/tools.go (//go:build tools); ci.yaml golangci-lint v2.1 -> v2.4 (v2.1 is built with go1.24 and refuses a go 1.25 module). go-sdk brings 8 new modules into the build graph, so an ADR is needed before merge (not written). Verify GOPROXY reachability in CI. Dispatched 2026-09-23.'
+    notes: 'Blocked on ADR 0011 acceptance (new transitive modules); review in parallel. Own PR on build/go-1.25-go-sdk (not pushed). go.mod is go 1.25.0; go-sdk v1.7.0 is pinned via internal/tools/tools.go (//go:build tools); ci.yaml golangci-lint v2.1 -> v2.4 (v2.1 is built with go1.24 and refuses a go 1.25 module). Verify GOPROXY reachability in CI. Dispatched 2026-09-23.'
   - id: T0.2
     title: internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
     package: internal/proxy

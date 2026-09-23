@@ -14,6 +14,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Added
 
+- Decision record `docs/adr/0011-accept-go-sdk-transitive-modules.md` (proposed): accepts go-sdk v1.7.0 and its eight indirect modules, with `go mod why` reasons, `CGO_ENABLED=0` cross-builds and the `govulncheck` follow-up.
 - Status tracking for agent handoffs: `docs/milestones/<Mn>.yaml` board (source of truth), `STATUS.md` rendered by `tools/status/render.py` (`make status`; CI job `STATUS.md is current`), `docs/handoffs/` protocol, template and first note, `/status` and `/handoff` slash commands, `.github/labels.yml` for the GitHub issue mirror. `/milestone` now writes the YAML board and `STATUS.md`.
 
 ### Added
