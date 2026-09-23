@@ -4,23 +4,23 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 3 · in review 3 · merged 1
+Tasks: open 1 · blocked 3 · in progress 4 · merged 4
 
 ## In flight
 
 | Task | Title | Package | Owner | Reviewers | State | Blocked by | Matrix | ADR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | merged | — | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
-| T0.2 | internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | T0.1 | 1 | [0002](docs/adr/0002-standalone-proxy-not-gateway-plugin.md) |
+| T0.2 | internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | in progress | T0.1 | 1 | [0002](docs/adr/0002-standalone-proxy-not-gateway-plugin.md) |
 | T0.3 | Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough) | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.2 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | T0.4 | Conformance suite in CI against the client-facing side; make conformance target | `.github/workflows` | test-engineer | go-reviewer | blocked | T0.2 | 1, 2 | — |
 | T0.5 | Client smoke — Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case | `tests/integration` | test-engineer | release-engineer | blocked | T0.3 | 22 | — |
-| T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | open | T0.1 | — | — |
-| T0.7 | Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | in review | — | — | — |
-| T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | in review | — | — | — |
-| T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | in review | — | — | — |
-| T0.10 | Add govulncheck to CI | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | open | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
-| T0.11 | Run actionlint on every PR in ci.yaml | `.github/workflows` | release-engineer | go-reviewer | open | — | — | — |
+| T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | in progress | T0.1 | — | — |
+| T0.7 | Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | merged | — | — | — |
+| T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | merged | — | — | — |
+| T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | merged | — | — | — |
+| T0.10 | Add govulncheck to CI | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | in progress | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
+| T0.11 | Run actionlint on every PR in ci.yaml | `.github/workflows` | release-engineer | go-reviewer | in progress | — | — | — |
 | T0.12 | Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
 
 ## Exit criteria

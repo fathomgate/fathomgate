@@ -28,7 +28,7 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     adr: "0002"
     matrix: [1]
@@ -63,7 +63,7 @@ tasks:
     package: .goreleaser.yaml
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     matrix: []
   - id: T0.7
@@ -71,31 +71,31 @@ tasks:
     package: internal/audit
     owner: policy-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey. Approved with nits by security-reviewer and go-reviewer 2026-09-23 (commit 6155c28); key-ACL finding split out as T0.12.
+    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey. Approved with nits by security-reviewer and go-reviewer 2026-09-23 (commit 6155c28); key-ACL finding split out as T0.12. Merged in PR #13 (1f06d44).
   - id: T0.8
     title: tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale
     package: tools/status
     owner: docs-writer
     reviewers: [go-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows. Approved with nits by go-reviewer 2026-09-23 (commit b0f9c75); nits: fixture board in the test, BOM/trailing-newline case. render.py also wrote the platform encoding (cp1252) on Windows; the fix writes UTF-8.'
+    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows. Approved with nits by go-reviewer 2026-09-23 (commit b0f9c75); nits: fixture board in the test, BOM/trailing-newline case. render.py also wrote the platform encoding (cp1252) on Windows; the fix writes UTF-8. Merged in PR #13 (1f06d44).'
   - id: T0.9
     title: nightly-clab.yaml fails with a workflow file error on every push to main
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: 'Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Root cause: unquoted `run: echo "TODO(M3): ..."` made the file invalid YAML. Fixed with a block scalar (commit 57b77fc); approved by go-reviewer 2026-09-23. Confirm on GitHub: no failed nightly-clab push run after merge.'
+    notes: 'Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Root cause: unquoted `run: echo "TODO(M3): ..."` made the file invalid YAML. Fixed with a block scalar (commit 57b77fc); approved by go-reviewer 2026-09-23. Confirm on GitHub: no failed nightly-clab push run after merge. Merged in PR #13 (1f06d44). Confirmed on GitHub: no failed nightly-clab run on main after 1f06d44 (last failure c43d02e).'
   - id: T0.10
     title: Add govulncheck to CI
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     adr: "0011"
     matrix: []
@@ -105,7 +105,7 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in progress
     matrix: []
     notes: From the T0.9 review. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
   - id: T0.12
