@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: open 3 · blocked 5 · in progress 1
+Tasks: open 2 · blocked 5 · in progress 1 · in review 1
 
 ## Blockers
 
@@ -22,7 +22,7 @@ Tasks: open 3 · blocked 5 · in progress 1
 | T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | blocked | T0.1 | — | — |
 | T0.7 | Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | open | — | — | — |
 | T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | open | — | — | — |
-| T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | open | — | — | — |
+| T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | in review | — | — | — |
 
 ## Exit criteria
 
@@ -42,6 +42,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
 | 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
 | 2026-09-23 | joshscott13 | netguard-orchestrator | M0 | [Scaffold complete; M0 is yours and it starts with a toolchain bump](docs/handoffs/2026-09-23-joshscott13-to-netguard-orchestrator-M0.md) |
 

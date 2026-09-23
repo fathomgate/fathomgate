@@ -37,4 +37,8 @@ jobs:
           echo "cases: timed rollback fires; watchdog rollback; device-tagged-lab write with commit timer"
       - name: destroy topology
         if: always()
-        run: echo "TODO(M3): containerlab destroy -t tests/clab/topology.clab.yaml --cleanup"
+        # Keep the block scalar: a plain `run: echo "TODO(M3): ..."` is invalid
+        # YAML (the ": " inside it starts a mapping), which made GitHub reject
+        # the whole file and record a failed "push" run on every push (T0.9).
+        run: |
+          echo "TODO(M3): containerlab destroy -t tests/clab/topology.clab.yaml --cleanup"

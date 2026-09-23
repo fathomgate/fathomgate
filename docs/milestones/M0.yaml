@@ -90,7 +90,7 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in review
     matrix: []
     notes: Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Fix so it parses and stays skipped until the clab runner exists.
 external:

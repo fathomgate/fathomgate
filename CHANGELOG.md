@@ -33,6 +33,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 - Nothing yet.
 
+### Fixed
+
+- `nightly-clab.yaml` is valid YAML again: the unquoted `run: echo "TODO(M3): ..."` in the destroy step is now a block scalar, so GitHub no longer records a failed "push" run for it on every push. The job stays skipped until `vars.NETGUARD_CLAB_ENABLED == 'true'` and a `[self-hosted, clab]` runner exists; `.github/actionlint.yaml` declares the `clab` label (T0.9).
+
 ### Security
 
 - Nothing yet. Security fixes will be listed here with their advisory id.

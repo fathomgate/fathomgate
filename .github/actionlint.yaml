@@ -1,0 +1,5 @@
+# actionlint config. Custom labels of self-hosted runners used by our workflows.
+# `clab`: the containerlab runner for nightly-clab.yaml (tier 3, arrives M3/M5).
+self-hosted-runner:
+  labels:
+    - clab
