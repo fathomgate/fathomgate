@@ -193,7 +193,7 @@ func printTrace(w *os.File, d policy.Decision, indent string) {
 		if e.Matched {
 			mark = "*"
 		}
-		fmt.Fprintf(w, "%s%s %-32s %s\n", indent, mark, e.RuleID, e.Note)
+		_, _ = fmt.Fprintf(w, "%s%s %-32s %s\n", indent, mark, e.RuleID, e.Note)
 	}
 }
 

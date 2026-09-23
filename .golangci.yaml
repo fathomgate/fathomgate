@@ -31,7 +31,7 @@ linters:
           arguments: [checkPrivateReceivers, disableStutteringCheck]
     misspell:
       locale: UK
-      ignore-rules: [color, center, license, licence, normalize, normalise, serialiser, canonicalised]
+      ignore-rules: [color, center, license, licence, normalize, normalise, serialiser, canonicalised, neighbor, flavor]
   exclusions:
     rules:
       - path: _test\.go

@@ -176,7 +176,7 @@ func TestEvaluatePlanPolicy(t *testing.T) {
 func TestEvaluateTraceCoversEveryRuleUntilMatch(t *testing.T) {
 	p := mustParse(t, planPolicy)
 	d := Evaluate(p, Request{Class: classify.ExecArbitrary, Targets: []Target{known("x", "core")}})
-	var ids []string
+	ids := make([]string, 0, len(d.Trace))
 	for _, e := range d.Trace {
 		ids = append(ids, e.RuleID)
 	}

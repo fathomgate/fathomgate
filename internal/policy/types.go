@@ -152,16 +152,16 @@ func (r *Range) Contains(n int) bool {
 	if r == nil {
 		return true
 	}
-	if r.GT != nil && !(n > *r.GT) {
+	if r.GT != nil && n <= *r.GT {
 		return false
 	}
-	if r.GTE != nil && !(n >= *r.GTE) {
+	if r.GTE != nil && n < *r.GTE {
 		return false
 	}
-	if r.LT != nil && !(n < *r.LT) {
+	if r.LT != nil && n >= *r.LT {
 		return false
 	}
-	if r.LTE != nil && !(n <= *r.LTE) {
+	if r.LTE != nil && n > *r.LTE {
 		return false
 	}
 	if r.EQ != nil && n != *r.EQ {

@@ -31,7 +31,7 @@ func cmdRedact(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		in = f
 	} else if len(files) > 1 {
 		fmt.Fprintln(os.Stderr, "usage: netguard redact --key-file <file> [input-file]")

@@ -75,7 +75,7 @@ func verifyFile(path string, pub ed25519.PublicKey, missingOK bool) (Report, err
 		}
 		return Report{}, fmt.Errorf("audit: open: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return VerifyReader(f, pub)
 }
 

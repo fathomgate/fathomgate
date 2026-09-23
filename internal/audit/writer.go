@@ -100,7 +100,7 @@ func (w *Writer) Append(ev *Event) error {
 	}
 	w.lastSeq, w.lastHash = ev.Seq, ev.Hash
 
-	if w.opts.CheckpointEvery > 0 && ev.Seq%uint64(w.opts.CheckpointEvery) == 0 {
+	if every := w.opts.CheckpointEvery; every > 0 && ev.Seq%uint64(every) == 0 {
 		cp, err := SignCheckpoint(w.opts.Key, w.lastSeq, w.lastHash)
 		if err != nil {
 			return err

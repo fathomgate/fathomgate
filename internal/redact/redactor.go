@@ -9,7 +9,7 @@ import (
 
 // TokenPrefix starts every replacement so downstream code (and the console)
 // can recognise redacted values.
-const TokenPrefix = "<redacted:hmac:"
+const TokenPrefix = "<redacted:hmac:" //nolint:gosec // a marker, not a credential
 
 // Hit counts how many secrets one rule replaced in a single Redact call.
 type Hit struct {

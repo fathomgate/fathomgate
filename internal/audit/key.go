@@ -51,7 +51,7 @@ func SavePublicKey(path string, pub ed25519.PublicKey) error {
 	if err != nil {
 		return fmt.Errorf("audit: marshal public key: %w", err)
 	}
-	return os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o644)
+	return os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o644) //nolint:gosec // public key; world-readable by design
 }
 
 // LoadPublicKey reads a PEM public key written by SavePublicKey. It also

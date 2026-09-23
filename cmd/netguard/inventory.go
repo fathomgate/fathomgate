@@ -40,7 +40,7 @@ func cmdInventoryImport(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		in = f
 	}
 	targets, err := inventory.ImportCSV(in)
@@ -52,11 +52,11 @@ func cmdInventoryImport(args []string) int {
 	}
 	var out io.Writer = os.Stdout
 	if *outPath != "-" {
-		f, err := os.OpenFile(*outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(*outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fail(err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		out = f
 	}
 	if err := inventory.WriteFile(out, &inventory.File{Devices: targets}); err != nil {
