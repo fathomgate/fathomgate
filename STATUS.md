@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: blocked 5 · in progress 1 · in review 3
+Tasks: open 1 · blocked 6 · in progress 1 · in review 3
 
 ## Blockers
 
@@ -23,6 +23,8 @@ Tasks: blocked 5 · in progress 1 · in review 3
 | T0.7 | Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | in review | — | — | — |
 | T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | in review | — | — | — |
 | T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | in review | — | — | — |
+| T0.11 | Run actionlint on every PR in ci.yaml | `.github/workflows` | release-engineer | go-reviewer | open | — | — | — |
+| T0.12 | Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | blocked | T0.1 | — | 0011 (missing) |
 
 ## Exit criteria
 
