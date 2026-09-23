@@ -82,7 +82,7 @@ tasks:
     package: tools/status
     owner: docs-writer
     reviewers: [go-reviewer]
-    state: open
+    state: in review
     matrix: []
     notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows.'
   - id: T0.9

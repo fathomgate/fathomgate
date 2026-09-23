@@ -36,6 +36,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 ### Fixed
 
 - `TestKeyRoundTrip` no longer fails on Windows; the 0600 key-mode assertion runs on Unix only.
+- `make status` and `render.py --check` now produce UTF-8 with LF on Windows; `PYTHON` overrides the interpreter.
 
 ### Security
 

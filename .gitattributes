@@ -1,0 +1,3 @@
+# STATUS.md is generated as UTF-8 with LF (tools/status/render.py) and CI
+# compares it byte for byte, so keep git from converting its line endings.
+STATUS.md text eol=lf
