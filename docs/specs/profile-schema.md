@@ -189,7 +189,7 @@ There is no separate proxy spec yet; this section is normative for `internal/pro
 
 - Every upstream tool is exposed to the agent as `<server>.<tool>`, where `<server>` is the upstream's `server` key from this schema (section 1), passed to the proxy explicitly. It is never derived from the upstream binary name.
 - `<server>` MUST match `[A-Za-z0-9_-]+`. It contains no `.`, so the first `.` in a prefixed name always ends the prefix, and upstream tool names that contain dots (`s.a.b` is tool `a.b` on server `s`) route unambiguously.
-- `tools/call` splits the name at the first `.`, looks up the upstream by `<server>` and forwards the unprefixed `<tool>` with the agent's arguments unchanged. `_meta` from the agent is not forwarded in M0.
+- `tools/call` splits the name at the first `.`, looks up the upstream by `<server>` and forwards the unprefixed `<tool>` with the agent's arguments unchanged. `_meta` from the agent is never forwarded; what does cross is in 8.4.
 - An upstream tool name outside the MCP tool-name character set `[A-Za-z0-9_.-]`, or one whose prefixed name exceeds 128 characters, is not exposed and is logged. So is a tool whose `inputSchema` is not a JSON object with `"type": "object"`.
 - Two upstreams with the same `<server>`, or one upstream listing the same tool name twice, is a startup error.
 - Title, description, input and output schema and annotations pass through unchanged. They are untrusted data: annotations are never used to decide anything, and descriptions are pinned from M2. Tool `_meta` and `icons` are dropped.
@@ -203,8 +203,13 @@ There is no separate proxy spec yet; this section is normative for `internal/pro
 | Prefix names no configured upstream | `-32602`, `reason: "unknown_server"` |
 | Upstream has no such tool (or it was not exposed, 8.1) | `-32602`, `reason: "unknown_tool"` |
 | Upstream returns a JSON-RPC error | Code kept if it is `-32700`, `-32600`, `-32601` or `-32603`; any other code, including `-32602` (reserved for the rows above), becomes `-32603`. Message `upstream <server>: <upstream message>`, with C0 and C1 control characters (including ESC and newline), DEL, Unicode format characters (Cf: bidi controls U+202A–U+202E and U+2066–U+2069, zero-width space U+200B, BOM), the separators U+2028 and U+2029, and invalid UTF-8 escaped as `\uXXXX` text and the upstream part capped at 512 bytes. Upstream `data` dropped |
-| Upstream result, including `isError: true` | Forwarded unchanged |
-| Upstream asks for input (MRTR `input_required`: elicitation, sampling or roots) | Tool result `isError: true`, text `netguard refused an input request ... from upstream <server> ...`. The upstream's prompt is not shown. The upstream client advertises none of these capabilities |
+| Upstream result, including `isError: true` | `content`, `structuredContent` and `isError` forwarded unchanged; the result's `_meta`, and any `requestState` or `inputRequests` on a complete result, dropped (8.4) |
+| Upstream asks for form elicitation and the agent declared form elicitation | Relayed with the origin label (8.4): `input_required` to a stateless agent, `elicitation/create` to a stateful one |
+| Upstream asks for sampling, roots or URL-mode elicitation; or a schema, id or count outside 8.4; or the agent did not declare form elicitation; or more than 10 rounds | Tool result `isError: true`, text `netguard refused an input request (<kind>) from upstream <server> during <tool>: <reason>`. The upstream's prompt is not shown |
+| Stateful upstream sends `elicitation/create` while a stateless agent is calling, or while more than one call to it is in flight | The upstream gets a JSON-RPC error; the agent gets the refusal text above (appended to the upstream's result if the upstream still completes). Stateless agent: [ADR 0014](../adr/0014-stateful-upstream-prompts-to-stateless-agents.md) (proposed) |
+| Upstream `input_required` with no input requests (load shedding) | Tool result `isError: true`, text `upstream <server> is busy ...; retry <tool> later` |
+| Agent retry with a `requestState` netguard did not issue, that fails its signature, has expired, was issued for another tool or other arguments, or `inputResponses` without one | `-32602`, `data: {"tool": "<name>", "reason": "invalid_request_state", "detail": "..."}`. Nothing reaches the upstream |
+| Agent retry answering an input request that is not outstanding, with a non-elicitation result, or with an action other than `accept`, `decline` or `cancel` | `-32602`, `reason: "invalid_input_responses"`. Nothing reaches the upstream |
 | Upstream process has exited, or exits mid-call | Tool result `isError: true`, text `upstream <server> is not running; restart netguard serve`. After a failed call the proxy waits up to 2 seconds to see the exit before choosing this text |
 
 None of these is a policy decision, so none uses `allow`, `hold`, `deny` or `expired`. Policy denials arrive in M1 as tool errors that name the rule id ([ARCHITECTURE.md](../../ARCHITECTURE.md#pipeline)).
@@ -225,3 +230,39 @@ netguard serve --server <name> --upstream <path> [--upstream-env KEY=VALUE]... [
 Upstream environment: the upstream inherits only an allow-list from the proxy. On Unix that is `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR` and the POSIX locale categories `LC_ALL`, `LC_COLLATE`, `LC_CTYPE`, `LC_MESSAGES`, `LC_MONETARY`, `LC_NUMERIC` and `LC_TIME` (no wildcard), matched exactly. On Windows it is `PATH`, `SystemRoot`, `SystemDrive`, `TEMP`, `TMP`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `PATHEXT` and `COMSPEC`, matched ASCII case-insensitively (no Unicode case folding). Every other variable, including `NETGUARD_*`, reaches the upstream only through `--upstream-env`.
 
 The agent side is stdio; stdout carries only the protocol. The upstream's stderr goes to the proxy's stderr one line at a time, each line prefixed `upstream <server>: ` with control characters escaped as in 8.2. A line longer than 4096 bytes is split at that limit, cut back to a whole UTF-8 character. A final line without a newline is written, prefixed and escaped the same way, when the upstream is closed. Startup (spawn, handshake, `tools/list`) has a 30-second limit. If it fails after the process started, the process is killed (the direct child only). On shutdown the upstream's stdin is closed, then it gets 5 seconds before SIGTERM and 5 more before it is killed (on Windows, killed after the first 5). Grandchildren, such as the server behind `uvx` or `npx`, are not signalled. Exit status: 0 when the agent disconnects or on SIGINT or SIGTERM, 1 when the upstream cannot be started or listed or the session fails, 2 for a usage error.
+
+### 8.4 Protocol eras, `_meta` and input requests
+
+Decision records: [ADR 0008](../adr/0008-dual-era-mcp-support.md) (accepted) and [ADR 0014](../adr/0014-stateful-upstream-prompts-to-stateless-agents.md) (proposed). The stateful era is 2025-11-25 and older (initialize handshake, session, server-initiated requests); the stateless era is 2026-07-28 (every request self-describing in `_meta`, MRTR).
+
+**Era detection.** Each side is detected on its own, and the two need not match.
+
+- Upstream, once at connect: go-sdk sends `server/discover` and, if the upstream answers with any error or names no stateless version, falls back to the initialise handshake at 2025-11-25 (and negotiates down to 2024-11-05). The negotiated version is logged with `upstream ready` as `protocol` and `era`.
+- Agent, per request: from the initialise handshake for a stateful agent, from the request's `_meta` for a stateless one. go-sdk answers `server/discover` and `initialize` itself.
+- Both versions travel with each call to the M1 pipeline seam (`Proxy.dispatch`), for the audit event.
+
+**What the proxy advertises upstream.** netguard's own identity (`clientInfo` `netguard`), its own negotiated version and its own capabilities: form elicitation only. No roots, no sampling. Toward a stateless upstream go-sdk puts these in every request's `_meta`.
+
+**`_meta`, agent to upstream.** Nothing. The allow-list is empty: the agent's `_meta`, including the `io.modelcontextprotocol/` self-description, `progressToken` and any vendor key, is read for era detection and dropped. Forwarding it would present the agent's identity and capabilities as the proxy's (go-sdk does not overwrite keys already present). Adding a key needs a change to this section.
+
+**`_meta`, upstream to agent.** Nothing from results (`io.modelcontextprotocol/serverInfo` from an upstream could impersonate the proxy), tools (8.1), elicitation requests or errors (8.2). Toward a stateless agent, go-sdk adds netguard's own `serverInfo`. `_meta` inside individual content blocks still passes until redaction lands (M2).
+
+**Upstream input requests.** Only form elicitation crosses to the agent, and only relabelled:
+
+- The message becomes `[from <server>] ` followed by the upstream's message with control characters escaped as in 8.2 and capped at 2048 bytes. Every string in the requested schema (titles, descriptions, enum values) is escaped the same way.
+- The schema must be a JSON object with `type` `object` (or no `type`) whose properties are each an object of type `string`, `number`, `integer`, `boolean` or `array`. A property name with a control character is refused, not rewritten.
+- At most 16 input requests per result, each id 1 to 128 bytes with no control characters.
+- The request's own `_meta` is dropped. URL-mode elicitation, sampling and roots are refused (8.2).
+
+How the prompt reaches the agent, by era:
+
+| Agent \ Upstream | Stateful (server-initiated `elicitation/create`) | Stateless (MRTR `input_required`) |
+| --- | --- | --- |
+| Stateful | Relayed as `elicitation/create` on the agent's session, attributed to the only call in flight on that upstream; refused when zero or several are in flight. The agent's cancellation of the call cancels the prompt | netguard asks the agent with `elicitation/create`, one request at a time in id order, and retries the upstream with the answers and the upstream's `requestState`, up to 10 rounds |
+| Stateless | Refused (ADR 0014, proposed) | Returned as `input_required` with the relabelled requests and a netguard `requestState`; the agent's retry is verified and the upstream retried once per agent retry, up to 10 rounds |
+
+**The agent's answer.** Only an elicitation result crosses back: `accept` with its `content`, or `decline` or `cancel` with nothing. Its `_meta` is dropped. A stateful agent's `accept` content is checked against the relabelled schema by go-sdk; a stateless agent's is left to the upstream.
+
+**`requestState` toward a stateless agent.** netguard never hands out the upstream's `requestState`. It issues `ng1.<payload>.<signature>`: base64url JSON binding the upstream server, the unprefixed tool, a SHA-256 digest of the call's arguments (as sent, insignificant whitespace removed, so key order and duplicate keys count), the outstanding input request ids, the upstream's own `requestState` (at most 64 KiB), the round and an expiry 30 minutes out, signed with HMAC-SHA256 under a random per-process key. On the retry netguard verifies the signature, expiry, server, tool and argument digest, checks every answer against the outstanding ids and the allow-list above, and only then sends the upstream its own `requestState` and the cleaned answers. A restart invalidates every outstanding `requestState`; the agent calls again without one.
+
+**Limits of this section.** It covers stdio on both sides. The `Mcp-Method` and `Mcp-Name` header checks ADR 0008 requires apply to Streamable HTTP and land with it. Progress notifications are not relayed.

@@ -23,17 +23,34 @@ type recorder struct {
 	calls []recordedCall
 }
 
+// recordedCall is what crossed the proxy into the upstream for one call.
 type recordedCall struct {
-	Name string
-	Args map[string]any
+	Name         string
+	Args         map[string]any
+	Version      string   // protocol version of the request (_meta or session)
+	ClientName   string   // clientInfo the upstream saw
+	MetaKeys     []string // request _meta keys, sorted
+	RequestState string
+	Responses    string // inputResponses as JSON, "" if none
 }
 
-func (r *recorder) add(name string, raw json.RawMessage) {
-	var args map[string]any
-	_ = json.Unmarshal(raw, &args)
+func (r *recorder) add(req *mcp.CallToolRequest) {
+	rc := recordedCall{Name: req.Params.Name, Version: req.ProtocolVersion(), RequestState: req.Params.RequestState}
+	_ = json.Unmarshal(req.Params.Arguments, &rc.Args)
+	if ci := req.ClientInfo(); ci != nil {
+		rc.ClientName = ci.Name
+	}
+	for k := range req.Params.Meta {
+		rc.MetaKeys = append(rc.MetaKeys, k)
+	}
+	slices.Sort(rc.MetaKeys)
+	if len(req.Params.InputResponses) > 0 {
+		b, _ := json.Marshal(req.Params.InputResponses)
+		rc.Responses = string(b)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, recordedCall{Name: name, Args: args})
+	r.calls = append(r.calls, rc)
 }
 
 func (r *recorder) all() []recordedCall {
@@ -63,22 +80,22 @@ type blockHooks struct {
 func fakeUpstream(rec *recorder, hooks *blockHooks) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "fake-netdev", Version: "0"}, nil)
 	echo := func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rec.add(req.Params.Name, req.Params.Arguments)
+		rec.add(req)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok " + req.Params.Name + " " + string(req.Params.Arguments)}}}, nil
 	}
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	s.AddTool(&mcp.Tool{Name: "run_show_command", Description: "Run a show command", InputSchema: objectSchema, Annotations: readOnly}, echo)
 	s.AddTool(&mcp.Tool{Name: "get_config", Description: "Get the running config", InputSchema: objectSchema}, echo)
 	s.AddTool(&mcp.Tool{Name: "failing_tool", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rec.add(req.Params.Name, req.Params.Arguments)
+		rec.add(req)
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "device unreachable"}}}, nil
 	})
 	s.AddTool(&mcp.Tool{Name: "protocol_error", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rec.add(req.Params.Name, req.Params.Arguments)
+		rec.add(req)
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "host is required"}
 	})
 	s.AddTool(&mcp.Tool{Name: "block", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rec.add(req.Params.Name, req.Params.Arguments)
+		rec.add(req)
 		if hooks != nil {
 			hooks.blocked <- struct{}{}
 		}
@@ -89,7 +106,10 @@ func fakeUpstream(rec *recorder, hooks *blockHooks) *mcp.Server {
 		return nil, ctx.Err()
 	})
 	s.AddTool(&mcp.Tool{Name: "needs_input", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rec.add(req.Params.Name, req.Params.Arguments)
+		rec.add(req)
+		if len(req.Params.InputResponses) > 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "answered"}}}, nil
+		}
 		return &mcp.CallToolResult{InputRequests: mcp.InputRequestMap{
 			"pw": &mcp.ElicitParams{
 				Message:         "Enter the enable password for core-rtr-01",

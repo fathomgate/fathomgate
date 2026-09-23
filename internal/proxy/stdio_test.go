@@ -18,15 +18,20 @@ import (
 
 // fakeUpstreamEnv makes the test binary act as a stdio upstream, so the
 // Command path (a real child process over stdin/stdout) is exercised
-// without any external server. "1" is a go-sdk server; "badversion" is a raw
-// JSON-RPC peer that answers the initialise request with a protocol version go-sdk
+// without any external server. "1" is a go-sdk server (stateless era,
+// 2026-07-28); "legacy" is the same server pinned to the stateful era
+// (2025-11-25), as a FastMCP 1.x upstream is; "badversion" is a raw JSON-RPC
+// peer that answers the initialise request with a protocol version go-sdk
 // rejects, and then never exits on its own.
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
 func TestMain(m *testing.M) {
 	switch os.Getenv(fakeUpstreamEnv) {
 	case "1":
-		runFakeStdioUpstream()
+		runFakeStdioUpstream(false)
+		return
+	case "legacy":
+		runFakeStdioUpstream(true)
 		return
 	case "badversion":
 		runBadVersionUpstream()
@@ -47,9 +52,12 @@ func TestMain(m *testing.M) {
 
 // runFakeStdioUpstream serves the fake upstream on stdio. Its "exit" tool
 // ends the process without answering, like a crashing upstream; its "env"
-// tool reports one environment variable.
-func runFakeStdioUpstream() {
-	s := fakeUpstream(&recorder{}, nil)
+// tool reports one environment variable. The era tools (addEraTools) ask for
+// input. With legacy set it answers server/discover with method-not-found.
+func runFakeStdioUpstream(legacy bool) {
+	rec := &recorder{}
+	s := fakeUpstream(rec, nil)
+	addEraTools(s, rec)
 	s.AddTool(&mcp.Tool{Name: "exit", InputSchema: objectSchema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		fmt.Fprint(os.Stderr, "last words without a newline")
 		os.Exit(3)
@@ -70,7 +78,11 @@ func runFakeStdioUpstream() {
 		fmt.Fprint(os.Stderr, "line one\n\x1b[31mred\x1b[0m\r\n")
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
 	})
-	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+	var t mcp.Transport = &mcp.StdioTransport{}
+	if legacy {
+		t = legacyServer{t}
+	}
+	if err := s.Run(context.Background(), t); err != nil {
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -368,5 +380,62 @@ func TestRuneCut(t *testing.T) {
 		if got := runeCut([]byte(tc.in)); got != tc.want {
 			t.Errorf("%s: runeCut = %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestStdioUpstreamEras is the era matrix over a real child process: the
+// upstream is spawned over stdio pinned to each era, and an agent of each era
+// negotiates, calls, and answers the upstream's prompt through netguard.
+func TestStdioUpstreamEras(t *testing.T) {
+	for _, e := range eras {
+		t.Run("agent "+e.agent+" upstream "+e.upstream, func(t *testing.T) {
+			mode := "1"
+			if e.upstream == v2025 {
+				mode = "legacy"
+			}
+			ct := Command{
+				Path: testExecutable(t),
+				Args: []string{"-test.run=^$"},
+				Env:  []string{fakeUpstreamEnv + "=" + mode},
+			}.Transport()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})
+			cancel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.upstreams[testServer].version; got != e.upstream {
+				_ = p.Close()
+				t.Fatalf("stdio upstream negotiated %s, want %s", got, e.upstream)
+			}
+			prompts := &promptLog{}
+			agent, _ := connectAgent(t, p, eraSetup{agent: e.agent}, prompts)
+			if got := agent.InitializeResult().ProtocolVersion; got != e.agent {
+				t.Fatalf("agent negotiated %s, want %s", got, e.agent)
+			}
+
+			bg := context.Background()
+			res, err := agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01", "command": "show version"}})
+			if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
+				t.Fatalf("round trip: %v %q", err, text(res))
+			}
+
+			res, err = agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.agent == v2026 && e.upstream == v2025 {
+				if !res.IsError || !strings.Contains(text(res), "ADR 0014") || len(prompts.all()) != 0 {
+					t.Fatalf("want the ADR 0014 refusal, got %v %q", res.IsError, text(res))
+				}
+				return
+			}
+			if res.IsError || !strings.Contains(text(res), "pw=accept:"+agentPassword) {
+				t.Fatalf("ask: %v %q", res.IsError, text(res))
+			}
+			if got := prompts.all(); len(got) != 1 || got[0].Message != labelledPrompt {
+				t.Fatalf("prompts %+v", got)
+			}
+		})
 	}
 }

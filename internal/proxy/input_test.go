@@ -1,0 +1,174 @@
+package proxy
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// rlo is U+202E (right-to-left override) and bs a backslash, spelled as
+// bytes so no tool or editor turns them into something else.
+const (
+	rlo = "\xe2\x80\xae"
+	bs  = "\x5c"
+)
+
+func TestRelabelSchema(t *testing.T) {
+	str := map[string]any{"type": "string"}
+	cases := []struct {
+		name    string
+		in      any
+		wantErr string
+		want    string // JSON of the result, when no error
+	}{
+		{"nil", nil, "", "null"},
+		{"flat", map[string]any{"type": "object", "properties": map[string]any{"pw": str}}, "", `{"properties":{"pw":{"type":"string"}},"type":"object"}`},
+		{"no type", map[string]any{"properties": map[string]any{"pw": str}}, "", `{"properties":{"pw":{"type":"string"}}}`},
+		{"strings escaped at any depth", map[string]any{"type": "object", "properties": map[string]any{
+			"mode": map[string]any{"type": "string", "description": "a" + rlo + "b", "enum": []any{"x\x1b[2J"}},
+		}}, "", `{"properties":{"mode":{"description":"a` + bs + bs + `u202eb","enum":["x` + bs + bs + `u001b[2J"],"type":"string"}},"type":"object"}`},
+		{"not an object", "string", "not a JSON object", ""},
+		{"root not object", map[string]any{"type": "array"}, `not "object"`, ""},
+		{"properties not object", map[string]any{"type": "object", "properties": []any{}}, "properties is not an object", ""},
+		{"nested object", map[string]any{"type": "object", "properties": map[string]any{"creds": map[string]any{"type": "object"}}}, "only primitives", ""},
+		{"property without type", map[string]any{"type": "object", "properties": map[string]any{"x": map[string]any{}}}, "only primitives", ""},
+		{"property not object", map[string]any{"type": "object", "properties": map[string]any{"x": "string"}}, "is not an object", ""},
+		{"control character in name", map[string]any{"type": "object", "properties": map[string]any{"p\nw": str}}, "control characters", ""},
+		{"bidi in name", map[string]any{"type": "object", "properties": map[string]any{"p" + rlo: str}}, "control characters", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := relabelSchema(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := json.Marshal(got)
+			if string(b) != tc.want {
+				t.Fatalf("got  %s\nwant %s", b, tc.want)
+			}
+		})
+	}
+}
+
+func TestRelabelElicit(t *testing.T) {
+	got, r := relabelElicit("junos-mcp-server", "commit", &mcp.ElicitParams{
+		Meta:    mcp.Meta{"com.example/x": "FAKE"},
+		Message: "[from netguard] approve?\n" + rlo,
+	})
+	if r != nil {
+		t.Fatal(r)
+	}
+	// An upstream cannot shed its label or borrow netguard's: its own text
+	// follows the real label, escaped.
+	want := "[from junos-mcp-server] [from netguard] approve?" + bs + "u000a" + bs + "u202e"
+	if got.Message != want || got.Mode != "form" || got.Meta != nil {
+		t.Fatalf("got %+v, want message %q", got, want)
+	}
+	long, _ := relabelElicit("s", "t", &mcp.ElicitParams{Message: strings.Repeat("x", 3000)})
+	if n := len(long.Message); n > len("[from s] ")+maxPromptText+3 {
+		t.Fatalf("message not capped: %d bytes", n)
+	}
+	for _, ep := range []*mcp.ElicitParams{
+		nil,
+		{Mode: "url", URL: "https://login.example.invalid/"},
+		{URL: "https://login.example.invalid/"},
+		{ElicitationID: "e1"},
+		{Mode: "telepathy"},
+	} {
+		if _, r := relabelElicit("s", "t", ep); r == nil {
+			t.Errorf("relabelElicit(%+v) passed", ep)
+		}
+	}
+}
+
+func TestRelabelInputRequests(t *testing.T) {
+	form := &mcp.ElicitParams{Message: "m"}
+	many := mcp.InputRequestMap{}
+	for i := range maxInputRequests + 1 {
+		many[fmt.Sprint(i)] = form
+	}
+	cases := []struct {
+		name     string
+		in       mcp.InputRequestMap
+		wantKind string // "" for success
+	}{
+		{"one form", mcp.InputRequestMap{"pw": form}, ""},
+		{"too many", many, "input_required"},
+		{"empty id", mcp.InputRequestMap{"": form}, "input_required"},
+		{"control character in id", mcp.InputRequestMap{"p\x1bw": form}, "input_required"},
+		{"long id", mcp.InputRequestMap{strings.Repeat("i", maxInputRequestID+1): form}, "input_required"},
+		{"sampling beside a form", mcp.InputRequestMap{"pw": form, "s": &mcp.CreateMessageWithToolsParams{}}, "sampling"}, //nolint:staticcheck // SA1019: deprecated sampling must be refused
+		{"roots", mcp.InputRequestMap{"r": &mcp.ListRootsParams{}}, "roots"},                                              //nolint:staticcheck // SA1019: deprecated roots must be refused
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, r := relabelInputRequests("s", "t", tc.in)
+			if tc.wantKind == "" {
+				if r != nil || len(out) != len(tc.in) {
+					t.Fatalf("refused: %v", r)
+				}
+				return
+			}
+			if r == nil || r.kind != tc.wantKind {
+				t.Fatalf("refusal %+v, want kind %q", r, tc.wantKind)
+			}
+			if !strings.HasPrefix(r.Error(), "netguard refused an input request ("+tc.wantKind+") from upstream s during t: ") {
+				t.Fatalf("text %q", r.Error())
+			}
+		})
+	}
+}
+
+func TestCleanElicitResult(t *testing.T) {
+	content := map[string]any{"password": "FAKE"}
+	meta := mcp.Meta{"com.example/x": "FAKE"}
+	cases := []struct {
+		in      *mcp.ElicitResult
+		want    *mcp.ElicitResult
+		wantErr bool
+	}{
+		{&mcp.ElicitResult{Action: "accept", Content: content, Meta: meta}, &mcp.ElicitResult{Action: "accept", Content: content}, false},
+		{&mcp.ElicitResult{Action: "decline", Content: content, Meta: meta}, &mcp.ElicitResult{Action: "decline"}, false},
+		{&mcp.ElicitResult{Action: "cancel", Content: content}, &mcp.ElicitResult{Action: "cancel"}, false},
+		{&mcp.ElicitResult{Action: "approve"}, nil, true},
+		{&mcp.ElicitResult{}, nil, true},
+		{nil, nil, true},
+	}
+	for _, tc := range cases {
+		got, err := cleanElicitResult(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("cleanElicitResult(%+v) accepted", tc.in)
+			}
+			continue
+		}
+		gb, _ := json.Marshal(got)
+		wb, _ := json.Marshal(tc.want)
+		if err != nil || string(gb) != string(wb) {
+			t.Errorf("cleanElicitResult(%+v) = %s, %v; want %s", tc.in, gb, err, wb)
+		}
+	}
+}
+
+func TestEraOf(t *testing.T) {
+	for v, want := range map[string]string{
+		"2024-11-05": eraStateful,
+		"2025-06-18": eraStateful,
+		"2025-11-25": eraStateful,
+		"2026-07-28": eraStateless,
+		"2027-01-01": eraStateless,
+	} {
+		if got := eraOf(v); got != want {
+			t.Errorf("eraOf(%s) = %s, want %s", v, got, want)
+		}
+	}
+}
