@@ -129,8 +129,12 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
-          # v2.4 is the first line built with Go 1.25; v2.1 refuses a go 1.25 module.
-          version: v2.4.0
+          # Must be built with a Go at least as new as the go.mod toolchain
+          # minor, or it refuses to run ("the Go language version (go1.25)
+          # used to build golangci-lint is lower than the targeted Go
+          # version"). v2.9.0 is the first release built with Go 1.26
+          # (go1.26.0, commit 72798d34); v2.8.0 is built with go1.25.5.
+          version: v2.9.0
 
   vuln:
     name: govulncheck
