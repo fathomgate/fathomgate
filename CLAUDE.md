@@ -72,6 +72,7 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 - A change to any interface (`policy.Decision`, `Evaluate`, the class or obligation set, `ChangeSafety`, a schema in `docs/specs/`, the CLI surface, `go.mod`) needs an ADR before code.
 - Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
+- `netguard serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
 - Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). DCO sign-off.
 

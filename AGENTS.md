@@ -55,5 +55,5 @@ All six must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if y
 ## Don't
 
 - Don't mark a test-matrix case validated against a mock; it needs the named real upstream server.
-- Don't implement `netguard serve` piecemeal; M0 is one coherent PR after the toolchain bump.
+- `netguard serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
 - Don't brand assets around the name NetGuard; it is a placeholder.
