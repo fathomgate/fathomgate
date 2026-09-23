@@ -28,11 +28,12 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in progress
+    state: in review
     blocked_by: [T0.1]
     adr: "0002"
     matrix: [1]
     spec: docs/specs/profile-schema.md
+    notes: 'Branch feat/proxy-passthrough, PR #20, stacked on #19 and #15. Review round 1 (G1-G10, S1-S6) and round 2 (go blocker plus 4 items, security 7 items) resolved; go-reviewer expects approve-with-nits once ADR 0012 is accepted and -race passes; security-reviewer approved with nits. CLI surface and proxy API in ADR 0012, accepted by joshscott13 2026-09-23. Merge gate: -race and golangci-lint in Linux CI. Prefix ruled per spec: netdev-ssh-mcp.<tool>; PLAN and matrix row 1 corrected, test-engineer to sign off the row. Tier 1 only; row 1 not validated.'
   - id: T0.3
     title: Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
     package: internal/proxy

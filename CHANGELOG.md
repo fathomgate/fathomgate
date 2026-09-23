@@ -8,6 +8,8 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Added
 
+- `internal/proxy` (T0.2): an MCP server toward the agent and a go-sdk client toward one stdio upstream. `tools/list` exposes each upstream tool as `<server>.<tool>`; `tools/call` strips the prefix and forwards under the agent's context, so cancellation reaches the upstream. Unknown or unprefixed names get JSON-RPC `-32602` with `reason` `unprefixed`, `unknown_server` or `unknown_tool`. An exited upstream yields a tool error naming it. Upstream JSON-RPC errors are relayed with the label `upstream <server>:`, control characters escaped, a 512-byte cap, and non-standard codes (and `-32602`) mapped to `-32603`. Upstream input requests (elicitation, sampling, roots) are refused by netguard. Upstream tool names outside `[A-Za-z0-9_.-]` are not exposed. No policy runs yet. Rules in `docs/specs/profile-schema.md` section 8.
+- `netguard serve --server <name> --upstream <path> [--upstream-env K=V]... [-- args]` runs the proxy on stdio. `--policy`, `--inventory`, `--profiles` and `--audit` are refused until M1, wherever they appear on the command line. The upstream inherits only an allow-listed environment (`PATH`, `HOME`, locale and temp variables; the Windows equivalents) plus `--upstream-env`. Its stderr is prefixed `upstream <server>: ` and escaped, and it is killed if startup fails. Decision record `docs/adr/0012-serve-cli-and-proxy-api-for-m0.md` (accepted).
 - Decision record `docs/adr/0011-accept-go-sdk-transitive-modules.md` (accepted): accepts go-sdk v1.7.0 and its eight indirect modules, with `go mod why` reasons, `CGO_ENABLED=0` cross-builds and the `govulncheck` follow-up.
 - CI job `govulncheck` in `ci.yaml` runs `make vulncheck` on every push, pull request and weekly schedule (Mondays 05:23 UTC): `golang.org/x/vuln/cmd/govulncheck` v1.7.0 via `go run`, so `go.mod` is unchanged. A vulnerability reachable from NetGuard code, standard library included, fails the build (ADR 0011 guardrail 4, T0.10).
 - CI job `actionlint` in `ci.yaml` runs `make actionlint`: `github.com/rhysd/actionlint` v1.7.12 via `go run`, with `.github/actionlint.yaml` and shellcheck, on every push and pull request, so a broken workflow file fails its pull request instead of `main` (T0.11).
@@ -19,7 +21,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 - `internal/inventory`: static `inventory.yaml` with `devices` and `roles` patterns, CSV import, resolver chain, NetBox stub.
 - `internal/redact`: ordered vendor rules (Cisco, NX-OS, Junos, EOS, PAN-OS, FortiOS) plus generic patterns, keyed truncated HMAC-SHA256 tokens.
 - `internal/audit`: hash-chained JSONL `call` records, Ed25519 `checkpoint` records, canonicalisation, `Verify`, key generation.
-- CLI `cmd/netguard`: `version`, `serve` (exits 2 until go-sdk is available), `policy test`, `policy eval`, `audit verify`, `audit keygen`, `redact`, `inventory import`.
+- CLI `cmd/netguard`: `version`, `serve`, `policy test`, `policy eval`, `audit verify`, `audit keygen`, `redact`, `inventory import`.
 - Profiles: `netdev-ssh-mcp`, `junos-mcp-server`, `eos-mcp`, `ntunes-netmiko-mcp-server`.
 - Example policies `read-only`, `lab-open`, `prod-approval` with 25 test cases across their `*.test.yaml` files.
 - Redaction fixture corpus under `tests/fixtures/configs/` for IOS-XE, NX-OS, EOS, Junos, PAN-OS and FortiOS, each with an `.expect.json`.
@@ -33,7 +35,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 ### Changed
 
 - Go 1.25 toolchain: `go.mod` declares `go 1.25.0`, the minimum go-sdk v1.7.0 sets. CI, release and the `Dockerfile` builder follow it (Dockerfile already on golang:1.25-alpine, PR #1).
-- go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod`. The `//go:build tools` file `internal/tools/tools.go` keeps it there until `internal/proxy` imports it. It is not linked into `bin/netguard` yet.
+- go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod` and imported by `internal/proxy`, so it is linked into `bin/netguard`. The interim `//go:build tools` pin `internal/tools/tools.go` is removed.
 - `release.yaml` pins GoReleaser to v2.18.2 instead of `~> v2`, the version `snapshot.yaml` runs, so a tag releases with the tool the last snapshot exercised (T0.6).
 - Every third-party action in `ci.yaml`, `release.yaml`, `snapshot.yaml` and `nightly-clab.yaml` is pinned by full commit SHA with a `# vX.Y.Z` comment; Dependabot `github-actions` updates keep the pins current. `anchore/sbom-action/download-syft` moves from the floating `v0` tag (73 commits behind) to v0.24.2. `snapshot.yaml` checks out with `persist-credentials: false`.
 - CI `golangci-lint` moves from v2.1 to v2.4.0. v2.1 is built with Go 1.24 and refuses to lint a module that declares Go 1.25.

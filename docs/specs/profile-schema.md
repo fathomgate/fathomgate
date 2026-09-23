@@ -8,7 +8,7 @@ This document describes what `internal/classify/profile.go` and `normalize.go` p
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `server` | string, non-empty | yes | Short name used as the tool prefix toward the agent (`netdev-ssh-mcp.get_config`) and in policy `match.servers`. MUST be unique across the `profiles/` directory; `LoadProfileDir` rejects duplicates. |
+| `server` | string, non-empty | yes | Short name used as the tool prefix toward the agent (`netdev-ssh-mcp.get_config`) and in policy `match.servers`. MUST be unique across the `profiles/` directory; `LoadProfileDir` rejects duplicates. To be usable as a prefix it MUST match `[A-Za-z0-9_-]+` ([section 8](#8-proxy-config-m0)); every shipped profile does. |
 | `source` | string (URL) | no | Repository the profile was written against. |
 | `description` | string | no | One line for humans. |
 | `tools` | map of tool name to tool spec | yes, non-empty | Every tool the upstream exposes. A tool absent from the profile normalises to nothing and is treated as `EXEC_ARBITRARY`. |
@@ -54,7 +54,7 @@ These are in the plan and in the research but the strict loader rejects them tod
 | `reads_config_when` | Extra config-read regexes per upstream. | M2 |
 | `capability_param`, `capability_table`, top-level `capabilities` | Meta-tool classification from a parameter (Meraki `execute_api(capability_id)`). | M1 (planned) |
 | `inventory_tool`, `inventory_map` | Which `INVENTORY_READ` tool seeds the resolver chain's upstream provider. | M2 |
-| `transport`, `era`, `vendor_hint`, `verified_version` | Launch and era configuration; today these live in `netguard serve` flags. | M2 |
+| `transport`, `era`, `vendor_hint`, `verified_version` | Launch and era configuration; today the launch command lives in `netguard serve` flags ([section 8](#8-proxy-config-m0)). | M2 |
 
 ## 4. Example: netdev-ssh-mcp
 
@@ -180,3 +180,48 @@ Profiles for upa/mcp-netmiko-server, Palo-MCP, mcfortigate and the Meraki meta-t
 - `server` is unique across the directory.
 
 `internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. A tier 2 test that compares each profile against the real upstream's `tools/list` is planned ([test-strategy.md](../testing/test-strategy.md)).
+
+## 8. Proxy config (M0)
+
+There is no separate proxy spec yet; this section is normative for `internal/proxy` and `netguard serve` until one exists. Decision record: [ADR 0012](../adr/0012-serve-cli-and-proxy-api-for-m0.md) (accepted).
+
+### 8.1 Tool-name prefixing
+
+- Every upstream tool is exposed to the agent as `<server>.<tool>`, where `<server>` is the upstream's `server` key from this schema (section 1), passed to the proxy explicitly. It is never derived from the upstream binary name.
+- `<server>` MUST match `[A-Za-z0-9_-]+`. It contains no `.`, so the first `.` in a prefixed name always ends the prefix, and upstream tool names that contain dots (`s.a.b` is tool `a.b` on server `s`) route unambiguously.
+- `tools/call` splits the name at the first `.`, looks up the upstream by `<server>` and forwards the unprefixed `<tool>` with the agent's arguments unchanged. `_meta` from the agent is not forwarded in M0.
+- An upstream tool name outside the MCP tool-name character set `[A-Za-z0-9_.-]`, or one whose prefixed name exceeds 128 characters, is not exposed and is logged. So is a tool whose `inputSchema` is not a JSON object with `"type": "object"`.
+- Two upstreams with the same `<server>`, or one upstream listing the same tool name twice, is a startup error.
+- Title, description, input and output schema and annotations pass through unchanged. They are untrusted data: annotations are never used to decide anything, and descriptions are pinned from M2. Tool `_meta` and `icons` are dropped.
+- The tool list is read once at startup. `notifications/tools/list_changed` from an upstream is not followed, and the proxy advertises `tools` without `listChanged`.
+
+### 8.2 Errors toward the agent
+
+| Situation | Wire form |
+| --- | --- |
+| Name has no `.`, or an empty side | JSON-RPC error `-32602`, `data: {"tool": "<name>", "reason": "unprefixed", "servers": [...]}` |
+| Prefix names no configured upstream | `-32602`, `reason: "unknown_server"` |
+| Upstream has no such tool (or it was not exposed, 8.1) | `-32602`, `reason: "unknown_tool"` |
+| Upstream returns a JSON-RPC error | Code kept if it is `-32700`, `-32600`, `-32601` or `-32603`; any other code, including `-32602` (reserved for the rows above), becomes `-32603`. Message `upstream <server>: <upstream message>`, with C0 and C1 control characters (including ESC and newline), DEL, Unicode format characters (Cf: bidi controls U+202A–U+202E and U+2066–U+2069, zero-width space U+200B, BOM), the separators U+2028 and U+2029, and invalid UTF-8 escaped as `\uXXXX` text and the upstream part capped at 512 bytes. Upstream `data` dropped |
+| Upstream result, including `isError: true` | Forwarded unchanged |
+| Upstream asks for input (MRTR `input_required`: elicitation, sampling or roots) | Tool result `isError: true`, text `netguard refused an input request ... from upstream <server> ...`. The upstream's prompt is not shown. The upstream client advertises none of these capabilities |
+| Upstream process has exited, or exits mid-call | Tool result `isError: true`, text `upstream <server> is not running; restart netguard serve`. After a failed call the proxy waits up to 2 seconds to see the exit before choosing this text |
+
+None of these is a policy decision, so none uses `allow`, `hold`, `deny` or `expired`. Policy denials arrive in M1 as tool errors that name the rule id ([ARCHITECTURE.md](../../ARCHITECTURE.md#pipeline)).
+
+### 8.3 `netguard serve` flags
+
+```text
+netguard serve --server <name> --upstream <path> [--upstream-env KEY=VALUE]... [-- <upstream args>...]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--server` | Required. The tool prefix: the upstream's profile `server` key (`netdev-ssh-mcp`). Validated against 8.1 before anything is spawned; an invalid name exits 2. |
+| `--upstream` | Required. The upstream executable, spawned over stdio. An empty or blank value, or `--`, exits 2. A bare name is looked up on the proxy's `PATH`; MCP hosts that launch with an empty `PATH` need an absolute path. Arguments for it are accepted only after `--` and are passed verbatim, with no shell. A positional argument without a preceding `--` exits 2. |
+| `--upstream-env` | Repeatable `KEY=VALUE` with `KEY` matching `[A-Za-z_][A-Za-z0-9_]*` (anything else exits 2), added after the inherited allow-list below, so it overrides. Upstream credentials go here; nothing from the agent is ever added. |
+| `--policy`, `--inventory`, `--profiles`, `--audit` | Reserved. Refused with exit 2 in M0, because the pipeline they configure is not wired and M0 forwards every call. They are refused wherever they appear, including among the upstream arguments after `--`. |
+
+Upstream environment: the upstream inherits only an allow-list from the proxy. On Unix that is `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR` and the POSIX locale categories `LC_ALL`, `LC_COLLATE`, `LC_CTYPE`, `LC_MESSAGES`, `LC_MONETARY`, `LC_NUMERIC` and `LC_TIME` (no wildcard), matched exactly. On Windows it is `PATH`, `SystemRoot`, `SystemDrive`, `TEMP`, `TMP`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `PATHEXT` and `COMSPEC`, matched ASCII case-insensitively (no Unicode case folding). Every other variable, including `NETGUARD_*`, reaches the upstream only through `--upstream-env`.
+
+The agent side is stdio; stdout carries only the protocol. The upstream's stderr goes to the proxy's stderr one line at a time, each line prefixed `upstream <server>: ` with control characters escaped as in 8.2. A line longer than 4096 bytes is split at that limit, cut back to a whole UTF-8 character. A final line without a newline is written, prefixed and escaped the same way, when the upstream is closed. Startup (spawn, handshake, `tools/list`) has a 30-second limit. If it fails after the process started, the process is killed (the direct child only). On shutdown the upstream's stdin is closed, then it gets 5 seconds before SIGTERM and 5 more before it is killed (on Windows, killed after the first 5). Grandchildren, such as the server behind `uvx` or `npx`, are not signalled. Exit status: 0 when the agent disconnects or on SIGINT or SIGTERM, 1 when the upstream cannot be started or listed or the session fails, 2 for a usage error.
