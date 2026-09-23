@@ -183,7 +183,7 @@ Profiles for upa/mcp-netmiko-server, Palo-MCP, mcfortigate and the Meraki meta-t
 
 ## 8. Proxy config (M0)
 
-There is no separate proxy spec yet; this section is normative for `internal/proxy` and `netguard serve` until one exists. Decision record: [ADR 0012](../adr/0012-serve-cli-and-proxy-api-for-m0.md) (proposed).
+There is no separate proxy spec yet; this section is normative for `internal/proxy` and `netguard serve` until one exists. Decision record: [ADR 0012](../adr/0012-serve-cli-and-proxy-api-for-m0.md) (accepted).
 
 ### 8.1 Tool-name prefixing
 

@@ -100,7 +100,7 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 ## Things that look wrong but are deliberate
 
-- `netguard serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012, proposed).
+- `netguard serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - The name "NetGuard" is a placeholder and collides with existing products. Renaming is an open question in `docs/PLAN.md`; do not brand assets around it yet.

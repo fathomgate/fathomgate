@@ -1,8 +1,8 @@
 # ADR 0012: `netguard serve` flags and the `internal/proxy` API for M0
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-23
-- Deciders: Josh Scott (maintainer); proposed by mcp-protocol-engineer in T0.2
+- Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer in T0.2
 
 ## Context
 
