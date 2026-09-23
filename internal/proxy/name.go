@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -12,13 +13,13 @@ const separator = "."
 // maxToolName is the MCP limit on a tool name (1 to 128 characters).
 const maxToolName = 128
 
-// validServerName reports whether s can be used as a tool prefix. A server
+// ValidateServerName reports whether s can be used as a tool prefix. A server
 // name is the profile's `server` key: ASCII letters, digits, '_' and '-'. It
 // may not contain the separator, so the first '.' in a prefixed name always
 // ends the prefix, whatever the upstream tool name contains.
-func validServerName(s string) error {
+func ValidateServerName(s string) error {
 	if s == "" {
-		return fmt.Errorf("server name is empty")
+		return errors.New("server name is empty")
 	}
 	for _, r := range s {
 		if !isNameRune(r) || r == '.' {
@@ -34,7 +35,7 @@ func validServerName(s string) error {
 // rather than passed on, and the prefixed name must fit the MCP length limit.
 func validUpstreamToolName(server, tool string) error {
 	if tool == "" {
-		return fmt.Errorf("empty tool name")
+		return errors.New("empty tool name")
 	}
 	for _, r := range tool {
 		if !isNameRune(r) {

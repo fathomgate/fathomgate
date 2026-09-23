@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -13,27 +16,56 @@ import (
 
 // fakeUpstreamEnv makes the test binary act as a stdio upstream, so the
 // Command path (a real child process over stdin/stdout) is exercised
-// without any external server.
+// without any external server. "1" is a go-sdk server; "badversion" is a raw
+// JSON-RPC peer that answers initialize with a protocol version go-sdk
+// rejects, and then never exits on its own.
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
 func TestMain(m *testing.M) {
-	if os.Getenv(fakeUpstreamEnv) == "1" {
+	switch os.Getenv(fakeUpstreamEnv) {
+	case "1":
 		runFakeStdioUpstream()
 		return
+	case "badversion":
+		runBadVersionUpstream()
+		return
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if code == 0 {
+		if leaks := waitForLeaks(5 * time.Second); len(leaks) > 0 {
+			fmt.Fprintf(os.Stderr, "goroutine leak check: %d goroutine(s) from go-sdk or internal/proxy still running after all tests:\n\n%s\n",
+				len(leaks), strings.Join(leaks, "\n\n"))
+			code = 1
+		} else {
+			fmt.Fprintln(os.Stderr, "goroutine leak check: ok")
+		}
+	}
+	os.Exit(code)
 }
 
 // runFakeStdioUpstream serves the fake upstream on stdio. Its "exit" tool
-// ends the process without answering, like a crashing upstream.
+// ends the process without answering, like a crashing upstream; its "env"
+// tool reports one environment variable.
 func runFakeStdioUpstream() {
 	s := fakeUpstream(&recorder{}, nil)
 	s.AddTool(&mcp.Tool{Name: "exit", InputSchema: objectSchema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		os.Exit(3)
 		return nil, nil
 	})
-	s.AddTool(&mcp.Tool{Name: "env", InputSchema: objectSchema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: os.Getenv("NETGUARD_TEST_UPSTREAM_VAR")}}}, nil
+	s.AddTool(&mcp.Tool{Name: "env", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(req.Params.Arguments, &args)
+		v, ok := os.LookupEnv(args.Name)
+		if !ok {
+			v = "<unset>"
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: v}}}, nil
+	})
+	s.AddTool(&mcp.Tool{Name: "stderr", InputSchema: objectSchema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		fmt.Fprint(os.Stderr, "line one\n\x1b[31mred\x1b[0m\r\n")
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
 	})
 	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		os.Exit(1)
@@ -41,18 +73,77 @@ func runFakeStdioUpstream() {
 	os.Exit(0)
 }
 
+// runBadVersionUpstream answers server/discover with method-not-found (so
+// go-sdk falls back to initialize) and initialize with an unsupported
+// protocol version. It ignores stdin EOF and sleeps, so only a kill ends it.
+func runBadVersionUpstream() {
+	sc := bufio.NewScanner(os.Stdin)
+	for sc.Scan() {
+		var msg struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if json.Unmarshal(sc.Bytes(), &msg) != nil || len(msg.ID) == 0 {
+			continue
+		}
+		var reply string
+		if msg.Method == "initialize" {
+			reply = fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"1999-01-01","capabilities":{},"serverInfo":{"name":"bad","version":"0"}}}`, msg.ID)
+		} else {
+			reply = fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}`, msg.ID)
+		}
+		fmt.Println(reply)
+	}
+	time.Sleep(time.Hour)
+}
+
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
-func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
+func testExecutable(t *testing.T) string {
+	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Skipf("no test executable: %v", err)
 	}
+	return exe
+}
+
+// syncBuffer is a goroutine-safe strings.Builder for captured stderr.
+type syncBuffer struct {
+	mu chanMutex
+	b  strings.Builder
+}
+
+type chanMutex chan struct{}
+
+func (m chanMutex) lock()   { m <- struct{}{} }
+func (m chanMutex) unlock() { <-m }
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.lock()
+	defer s.mu.unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.lock()
+	defer s.mu.unlock()
+	return s.b.String()
+}
+
+func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	ctx := context.Background()
+	// Neither of these may reach the upstream: only the allow-list and
+	// --upstream-env do.
+	t.Setenv("NETGUARD_TEST_SECRET", "FAKE-proxy-secret")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "FAKE-aws")
+	stderr := &syncBuffer{mu: make(chanMutex, 1)}
 	cmd := Command{
-		Path: exe,
-		Args: []string{"-test.run=^$"},
-		Env:  []string{fakeUpstreamEnv + "=1", "NETGUARD_TEST_UPSTREAM_VAR=FAKE-from-operator"},
+		Path:         testExecutable(t),
+		Args:         []string{"-test.run=^$"},
+		Env:          []string{fakeUpstreamEnv + "=1", "NETGUARD_TEST_UPSTREAM_VAR=FAKE-from-operator"},
+		Stderr:       stderr,
+		StderrPrefix: "upstream netdev-ssh-mcp: ",
 	}
 	startCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	p, err := New(startCtx, []Upstream{{Server: testServer, Transport: cmd.Transport()}}, Options{})
@@ -74,9 +165,38 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
 		t.Fatalf("round trip over stdio: %v %q", err, text(res))
 	}
-	res, err = agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.env"})
-	if err != nil || text(res) != "FAKE-from-operator" {
-		t.Fatalf("upstream env: %v %q", err, text(res))
+
+	envCases := []struct{ name, want string }{
+		{"NETGUARD_TEST_UPSTREAM_VAR", "FAKE-from-operator"}, // --upstream-env
+		{"NETGUARD_TEST_SECRET", "<unset>"},                  // proxy env withheld
+		{"AWS_SECRET_ACCESS_KEY", "<unset>"},
+		{"PATH", ""}, // allow-listed: any value but <unset>
+	}
+	for _, ec := range envCases {
+		res, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.env", Arguments: map[string]any{"name": ec.name}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := text(res)
+		if ec.want == "" {
+			if got == "<unset>" {
+				t.Errorf("upstream env %s is unset, want it inherited", ec.name)
+			}
+		} else if got != ec.want {
+			t.Errorf("upstream env %s = %q, want %q", ec.name, got, ec.want)
+		}
+	}
+
+	if _, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.stderr"}); err != nil {
+		t.Fatal(err)
+	}
+	wantStderr := "upstream netdev-ssh-mcp: line one\nupstream netdev-ssh-mcp: \\u001b[31mred\\u001b[0m\n"
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(stderr.String(), wantStderr) {
+		if time.Now().After(deadline) {
+			t.Fatalf("upstream stderr not prefixed and escaped:\n%q", stderr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// The upstream process dies mid-call.
@@ -105,5 +225,75 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	}
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close after upstream exit: %v", err)
+	}
+}
+
+// G4: when go-sdk's Connect fails after the process started, the process is
+// killed rather than left running.
+func TestConnectFailureKillsUpstream(t *testing.T) {
+	ct := Command{
+		Path: testExecutable(t),
+		Args: []string{"-test.run=^$"},
+		Env:  []string{fakeUpstreamEnv + "=badversion"},
+	}.Transport()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded against an unsupported protocol version")
+	}
+	if !strings.Contains(err.Error(), "connect") {
+		t.Fatalf("error %q", err)
+	}
+	if ct.Command.Process == nil {
+		t.Fatal("upstream was never started")
+	}
+	if ct.Command.ProcessState == nil {
+		t.Fatal("upstream process was not reaped; it is still running")
+	}
+}
+
+func TestBaseEnv(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin", "HOME=/home/n", "USER=n", "LANG=C.UTF-8", "LC_ALL=C", "LC_TIME=C", "TMPDIR=/tmp",
+		"NETGUARD_TEST_SECRET=FAKE", "AWS_SECRET_ACCESS_KEY=FAKE", "SSH_AUTH_SOCK=/tmp/agent", "LCX=1",
+		"Path=C:\\Windows", "SystemRoot=C:\\Windows", "SYSTEMDRIVE=C:", "TEMP=t", "TMP=t", "USERPROFILE=u",
+		"APPDATA=a", "LOCALAPPDATA=l", "PATHEXT=.EXE", "ComSpec=cmd.exe", "=C:=C:\\x", "NOVALUE",
+	}
+	cases := []struct {
+		goos string
+		want []string
+	}{
+		{"linux", []string{"PATH=/usr/bin", "HOME=/home/n", "USER=n", "LANG=C.UTF-8", "LC_ALL=C", "LC_TIME=C", "TMPDIR=/tmp"}},
+		{"darwin", []string{"PATH=/usr/bin", "HOME=/home/n", "USER=n", "LANG=C.UTF-8", "LC_ALL=C", "LC_TIME=C", "TMPDIR=/tmp"}},
+		{"windows", []string{"PATH=/usr/bin", "Path=C:\\Windows", "SystemRoot=C:\\Windows", "SYSTEMDRIVE=C:", "TEMP=t", "TMP=t", "USERPROFILE=u", "APPDATA=a", "LOCALAPPDATA=l", "PATHEXT=.EXE", "ComSpec=cmd.exe"}},
+	}
+	for _, tc := range cases {
+		got := baseEnv(environ, tc.goos)
+		if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%s:\n got %q\nwant %q", tc.goos, got, tc.want)
+		}
+	}
+}
+
+func TestLineWriter(t *testing.T) {
+	var out strings.Builder
+	w := &lineWriter{w: &out, prefix: "upstream s: "}
+	for _, chunk := range []string{"par", "tial\nwhole\r\n", "\x1b[2Jclear\n", "tab\there\n", "no newline yet"} {
+		if n, err := w.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", chunk, n, err)
+		}
+	}
+	want := "upstream s: partial\nupstream s: whole\nupstream s: \\u001b[2Jclear\nupstream s: tab\\u0009here\n"
+	if out.String() != want {
+		t.Fatalf("got %q\nwant %q", out.String(), want)
+	}
+	// An over-long unterminated line is flushed on its own.
+	out.Reset()
+	w = &lineWriter{w: &out, prefix: "p: "}
+	_, _ = w.Write([]byte(strings.Repeat("x", maxStderrLine)))
+	if !strings.HasPrefix(out.String(), "p: xxx") || !strings.HasSuffix(out.String(), "x\n") {
+		t.Fatalf("long line not flushed: %d bytes", out.Len())
 	}
 }

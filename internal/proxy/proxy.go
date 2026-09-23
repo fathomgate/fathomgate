@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -23,6 +24,11 @@ const Name = "netguard"
 // maxUpstreamTools caps how many tools one upstream may list. The upstream is
 // untrusted; a server that pages forever must not hang or exhaust the proxy.
 const maxUpstreamTools = 1024
+
+// exitGrace is how long a failed call waits for the upstream's exit to be
+// observed before choosing its error, so a mid-call crash reads as "not
+// running" rather than as a generic failure.
+const exitGrace = 2 * time.Second
 
 // Upstream is one MCP server the proxy connects to as a client.
 type Upstream struct {
@@ -118,7 +124,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 	}()
 
 	for _, u := range upstreams {
-		if err := validServerName(u.Server); err != nil {
+		if err := ValidateServerName(u.Server); err != nil {
 			return nil, fmt.Errorf("proxy: %w", err)
 		}
 		if _, dup := p.upstreams[u.Server]; dup {
@@ -138,6 +144,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		if err := p.addUpstreamTools(up, tools); err != nil {
 			return nil, err
 		}
+		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up))
 	}
 	p.server.AddReceivingMiddleware(p.checkToolName)
 	return p, nil
@@ -149,24 +156,52 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		Logger: slog.New(minLevel{p.logger.Handler(), slog.LevelWarn}),
 		// Advertise nothing: no roots, no sampling, no elicitation. An
 		// upstream prompt must never reach the agent unlabelled (M3 adds
-		// origin-labelled elicitation); until then the SDK refuses it.
+		// origin-labelled elicitation); until then netguard refuses it.
 		Capabilities: &mcp.ClientCapabilities{},
+		// Do not let go-sdk answer MRTR input requests on our behalf;
+		// forward sees them and refuses them itself.
+		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
 	cs, err := client.Connect(ctx, u.Transport, nil)
 	if err != nil {
+		// go-sdk does not close the session on every Connect failure (an
+		// unsupported protocol version, for one), so a spawned upstream
+		// could outlive the error. Kill it.
+		killCommand(u.Transport)
 		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, err)
 	}
 	up := &upstream{name: u.Server, session: cs, done: make(chan struct{})}
 	p.upstreams[u.Server] = up
 	go func() {
-		err := cs.Wait()
-		up.err = err
-		close(up.done)
+		defer close(up.done)
+		up.err = cs.Wait()
 		if !up.closing.Load() {
-			p.logger.Error("upstream exited; its tools now return errors", "server", up.name, "error", err)
+			p.logger.Error("upstream exited; its tools now return errors", "server", up.name, "error", up.err)
 		}
 	}()
 	return up, nil
+}
+
+// killCommand kills and reaps the process behind a CommandTransport, if it
+// was started. Other transports own no process.
+func killCommand(t mcp.Transport) {
+	ct, ok := t.(*mcp.CommandTransport)
+	if !ok || ct.Command == nil || ct.Command.Process == nil {
+		return
+	}
+	_ = ct.Command.Process.Kill()
+	_ = ct.Command.Wait() // fails harmlessly if go-sdk already waited
+}
+
+// toolCount is the number of tools exposed for up.
+func (p *Proxy) toolCount(up *upstream) int {
+	n := 0
+	for _, r := range p.routes {
+		if r.up == up {
+			n++
+		}
+	}
+	return n
 }
 
 // listTools reads the upstream's full tool list, following pagination.
@@ -273,16 +308,6 @@ func (h minLevel) WithGroup(name string) slog.Handler {
 	return minLevel{h.Handler.WithGroup(name), h.floor}
 }
 
-// Tools returns the agent-facing tool names, sorted.
-func (p *Proxy) Tools() []string {
-	names := make([]string, 0, len(p.routes))
-	for n := range p.routes {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	return names
-}
-
 // Run serves one agent session on t until the agent disconnects or ctx is
 // cancelled. For `netguard serve`, t is [mcp.StdioTransport].
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
@@ -344,9 +369,11 @@ func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, erro
 // forward sends c to its upstream under the agent's request context, so an
 // agent cancellation cancels the upstream call.
 //
-// Outcomes: the upstream result is returned unchanged; an upstream JSON-RPC
-// error is returned with its code and a message labelled with the upstream's
-// name; an upstream that has exited yields a tool error (isError) naming it.
+// Outcomes, in order: the upstream result is returned unchanged; an upstream
+// request for input (MRTR elicitation, sampling or roots) is refused by
+// netguard with a tool error; an upstream JSON-RPC error is relayed through
+// relayUpstreamError; an upstream that has exited, before or during the call,
+// yields a tool error (isError) naming it.
 func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error) {
 	up := c.up
 	if up.exited() {
@@ -357,23 +384,41 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		params.Arguments = c.arguments
 	}
 	res, err := up.session.CallTool(ctx, params)
-	switch {
-	case err == nil && res != nil:
+	if err == nil {
+		switch {
+		case res == nil:
+			return toolError(fmt.Sprintf("upstream %s returned no result for %s", up.name, c.tool)), nil
+		case res.NeedsInput():
+			p.logger.Warn("netguard refused an upstream input request", "server", up.name, "tool", c.tool, "requests", len(res.InputRequests))
+			return toolError(fmt.Sprintf("netguard refused an input request (elicitation, sampling or roots) from upstream %s during %s: upstream prompts are not forwarded in M0", up.name, c.tool)), nil
+		}
 		return res, nil
-	case err == nil:
-		return toolError(fmt.Sprintf("upstream %s returned no result for %s", up.name, c.tool)), nil
-	case ctx.Err() != nil:
+	}
+	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	var werr *jsonrpc.Error
 	if errors.As(err, &werr) {
-		return nil, &jsonrpc.Error{Code: werr.Code, Message: fmt.Sprintf("upstream %s: %s", up.name, werr.Message)}
+		return nil, relayUpstreamError(up.name, werr)
 	}
-	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || up.exited() {
+	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || awaitExit(up, exitGrace) {
 		return upstreamDown(up), nil
 	}
 	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", err)
-	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %v", up.name, c.tool, err)), nil
+	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
+}
+
+// awaitExit reports whether up has exited, waiting up to d for its exit
+// watcher when it has not yet.
+func awaitExit(up *upstream, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-up.done:
+		return true
+	case <-t.C:
+		return false
+	}
 }
 
 // upstreamDown is the tool error for a call to an upstream that has exited.

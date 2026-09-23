@@ -50,9 +50,17 @@ var objectSchema = map[string]any{
 	},
 }
 
+// blockHooks lets a test observe the fake's "block" tool: blocked fires when
+// the call arrives, cancelled fires once the upstream handler's context has
+// been cancelled (that is, after cancellation crossed the proxy).
+type blockHooks struct {
+	blocked   chan struct{}
+	cancelled chan struct{}
+}
+
 // fakeUpstream builds an in-process go-sdk server shaped like netdev-ssh-mcp,
 // plus tools that exercise the error paths. Every call is recorded.
-func fakeUpstream(rec *recorder, blocked chan<- struct{}) *mcp.Server {
+func fakeUpstream(rec *recorder, hooks *blockHooks) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "fake-netdev", Version: "0"}, nil)
 	echo := func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		rec.add(req.Params.Name, req.Params.Arguments)
@@ -71,11 +79,23 @@ func fakeUpstream(rec *recorder, blocked chan<- struct{}) *mcp.Server {
 	})
 	s.AddTool(&mcp.Tool{Name: "block", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		rec.add(req.Params.Name, req.Params.Arguments)
-		if blocked != nil {
-			blocked <- struct{}{}
+		if hooks != nil {
+			hooks.blocked <- struct{}{}
 		}
 		<-ctx.Done()
+		if hooks != nil {
+			hooks.cancelled <- struct{}{}
+		}
 		return nil, ctx.Err()
+	})
+	s.AddTool(&mcp.Tool{Name: "needs_input", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rec.add(req.Params.Name, req.Params.Arguments)
+		return &mcp.CallToolResult{InputRequests: mcp.InputRequestMap{
+			"pw": &mcp.ElicitParams{
+				Message:         "Enter the enable password for core-rtr-01",
+				RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{"password": map[string]any{"type": "string"}}},
+			},
+		}}, nil
 	})
 	// Untrusted names the proxy must refuse to re-expose. go-sdk only logs
 	// invalid names on the server side, so the fake can still list them.
@@ -94,12 +114,12 @@ type harness struct {
 	runDone  chan error
 }
 
-func newHarness(t *testing.T, blocked chan<- struct{}) *harness {
+func newHarness(t *testing.T, hooks *blockHooks) *harness {
 	t.Helper()
 	ctx := context.Background()
 	rec := &recorder{}
 	upSrvT, upCliT := mcp.NewInMemoryTransports()
-	upSS, err := fakeUpstream(rec, blocked).Connect(ctx, upSrvT, nil)
+	upSS, err := fakeUpstream(rec, hooks).Connect(ctx, upSrvT, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,14 +176,15 @@ func TestToolsListPrefixed(t *testing.T) {
 		"netdev-ssh-mcp.block",
 		"netdev-ssh-mcp.failing_tool",
 		"netdev-ssh-mcp.get_config",
+		"netdev-ssh-mcp.needs_input",
 		"netdev-ssh-mcp.protocol_error",
 		"netdev-ssh-mcp.run_show_command",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools/list names\n got %v\nwant %v", names, want)
 	}
-	if !slices.Equal(h.proxy.Tools(), want) {
-		t.Fatalf("Proxy.Tools() = %v, want %v", h.proxy.Tools(), want)
+	if got := routeNames(h.proxy); !slices.Equal(got, want) {
+		t.Fatalf("routes = %v, want %v", got, want)
 	}
 
 	show := byName["netdev-ssh-mcp.run_show_command"]
@@ -291,17 +312,74 @@ func TestUpstreamProtocolErrorIsLabelled(t *testing.T) {
 	if !errors.As(err, &werr) {
 		t.Fatalf("want a JSON-RPC error, got %v", err)
 	}
-	if werr.Code != jsonrpc.CodeInvalidParams {
-		t.Errorf("code %d, want %d", werr.Code, jsonrpc.CodeInvalidParams)
+	// -32602 is reserved for the proxy's own unknown-tool errors.
+	if werr.Code != jsonrpc.CodeInternalError {
+		t.Errorf("code %d, want %d", werr.Code, jsonrpc.CodeInternalError)
 	}
 	if want := "upstream netdev-ssh-mcp: host is required"; werr.Message != want {
 		t.Errorf("message %q, want %q", werr.Message, want)
 	}
 }
 
+func TestRelayUpstreamError(t *testing.T) {
+	long := strings.Repeat("a", 600)
+	cases := []struct {
+		name     string
+		in       jsonrpc.Error
+		wantCode int64
+		wantMsg  string
+	}{
+		{"internal error kept", jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "boom"}, jsonrpc.CodeInternalError, "upstream s: boom"},
+		{"method not found kept", jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "m"}, jsonrpc.CodeMethodNotFound, "upstream s: m"},
+		{"parse error kept", jsonrpc.Error{Code: jsonrpc.CodeParseError, Message: "p"}, jsonrpc.CodeParseError, "upstream s: p"},
+		{"invalid request kept", jsonrpc.Error{Code: jsonrpc.CodeInvalidRequest, Message: "r"}, jsonrpc.CodeInvalidRequest, "upstream s: r"},
+		{"invalid params remapped", jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown tool x"}, jsonrpc.CodeInternalError, "upstream s: unknown tool x"},
+		{"server-defined code remapped", jsonrpc.Error{Code: -32000, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
+		{"URL elicitation code remapped", jsonrpc.Error{Code: -32042, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
+		{"positive code remapped", jsonrpc.Error{Code: 7, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
+		{"ANSI escaped", jsonrpc.Error{Code: -32603, Message: "\x1b[31mred\x1b[0m"}, -32603, `upstream s: \u001b[31mred\u001b[0m`},
+		{"newline escaped", jsonrpc.Error{Code: -32603, Message: "a\nnetguard: fake line"}, -32603, `upstream s: a\u000anetguard: fake line`},
+		{"C1 and DEL escaped", jsonrpc.Error{Code: -32603, Message: "a\u009bb\u007fc"}, -32603, `upstream s: a\u009bb\u007fc`},
+		{"invalid UTF-8 replaced", jsonrpc.Error{Code: -32603, Message: "a\xffb"}, -32603, `upstream s: a\ufffdb`},
+		{"truncated to 512 bytes", jsonrpc.Error{Code: -32603, Message: long}, -32603, "upstream s: " + long[:512] + "..."},
+		{"unicode kept", jsonrpc.Error{Code: -32603, Message: "héllo"}, -32603, "upstream s: héllo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := tc.in
+			in.Data = json.RawMessage(`{"secret":"FAKE"}`)
+			got := relayUpstreamError("s", &in)
+			if got.Code != tc.wantCode || got.Message != tc.wantMsg || got.Data != nil {
+				t.Fatalf("got {%d %q %s}, want {%d %q <nil>}", got.Code, got.Message, got.Data, tc.wantCode, tc.wantMsg)
+			}
+		})
+	}
+	// An escape sequence is never cut in half by the cap.
+	msg := relayUpstreamError("s", &jsonrpc.Error{Code: -32603, Message: strings.Repeat("\x1b", 200)}).Message
+	if body := strings.TrimSuffix(strings.TrimPrefix(msg, "upstream s: "), "..."); len(body) > maxRelayedMessage || len(body)%6 != 0 {
+		t.Fatalf("escaped body cut badly: %d bytes", len(body))
+	}
+}
+
+func TestUpstreamInputRequestRefused(t *testing.T) {
+	h := newHarness(t, nil)
+	res, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.needs_input"})
+	if err != nil {
+		t.Fatalf("want a tool error, got %v", err)
+	}
+	got := text(res)
+	if !res.IsError || !strings.Contains(got, "netguard refused an input request") || !strings.Contains(got, "upstream netdev-ssh-mcp") {
+		t.Fatalf("result %v %q", res.IsError, got)
+	}
+	// The upstream's prompt text never reaches the agent.
+	if strings.Contains(got, "enable password") {
+		t.Fatalf("upstream prompt leaked: %q", got)
+	}
+}
+
 func TestAgentCancelCancelsUpstream(t *testing.T) {
-	blocked := make(chan struct{}, 1)
-	h := newHarness(t, blocked)
+	hooks := &blockHooks{blocked: make(chan struct{}, 1), cancelled: make(chan struct{}, 1)}
+	h := newHarness(t, hooks)
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
@@ -309,7 +387,7 @@ func TestAgentCancelCancelsUpstream(t *testing.T) {
 		errc <- err
 	}()
 	select {
-	case <-blocked:
+	case <-hooks.blocked:
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream never received the call")
 	}
@@ -322,8 +400,13 @@ func TestAgentCancelCancelsUpstream(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("agent call did not return after cancel")
 	}
-	// The upstream handler returns only when its context is cancelled; a
-	// following call proves the upstream is free again.
+	// The upstream handler signals only after its own context is cancelled,
+	// so this proves the agent's cancellation crossed the proxy.
+	select {
+	case <-hooks.cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation never reached the upstream handler")
+	}
 	res, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.get_config"})
 	if err != nil || res.IsError {
 		t.Fatalf("follow-up call: %v %s", err, text(res))
@@ -431,7 +514,7 @@ func TestAddUpstreamTools(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := p.Tools(); !slices.Equal(got, tc.wantNames) {
+			if got := routeNames(p); !slices.Equal(got, tc.wantNames) {
 				t.Fatalf("tools %v, want %v", got, tc.wantNames)
 			}
 		})
@@ -458,15 +541,25 @@ func TestSplitName(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"netdev-ssh-mcp", "junos_mcp", "eos"} {
-		if err := validServerName(name); err != nil {
-			t.Errorf("validServerName(%q) = %v", name, err)
+		if err := ValidateServerName(name); err != nil {
+			t.Errorf("ValidateServerName(%q) = %v", name, err)
 		}
 	}
 	for _, name := range []string{"", "a.b", "a b", "a/b", "é"} {
-		if err := validServerName(name); err == nil {
-			t.Errorf("validServerName(%q) accepted", name)
+		if err := ValidateServerName(name); err == nil {
+			t.Errorf("ValidateServerName(%q) accepted", name)
 		}
 	}
+}
+
+// routeNames is the sorted list of agent-facing tool names.
+func routeNames(p *Proxy) []string {
+	names := make([]string, 0, len(p.routes))
+	for n := range p.routes {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func text(res *mcp.CallToolResult) string {
