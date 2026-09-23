@@ -5,8 +5,15 @@ Usage:
   python3 tools/status/render.py            # rewrite STATUS.md
   python3 tools/status/render.py --check    # exit 1 if STATUS.md is stale (CI)
 
+On Windows use `python` (or `make status PYTHON=python`); `python3` there is a
+Microsoft Store alias.
+
 The current milestone is the one named in docs/milestones/CURRENT (one line).
 Requires PyYAML (`pip install pyyaml`, or `uv run` inside tests/).
+
+Every file is read as UTF-8 and STATUS.md is written as UTF-8 with LF line
+endings, whatever the platform defaults are, so the output is byte-identical
+on every OS. `--check` compares those exact bytes against the file on disk.
 """
 from __future__ import annotations
 
@@ -25,15 +32,17 @@ MILESTONES = ROOT / "docs" / "milestones"
 HANDOFFS = ROOT / "docs" / "handoffs"
 STATUS = ROOT / "STATUS.md"
 
+ENCODING = "utf-8"
+
 STATES = ["open", "blocked", "in progress", "in review", "merged", "validated", "dropped"]
 # <date>-<from-slug>-to-<to-slug>-<task-id>.md ; slugs may contain hyphens, the task id may not.
 HANDOFF_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+?)-to-(.+)-([^-]+)\.md$")
 
 
 def load_current() -> tuple[str, dict]:
-    cur = (MILESTONES / "CURRENT").read_text().strip()
+    cur = (MILESTONES / "CURRENT").read_text(encoding=ENCODING).strip()
     path = MILESTONES / f"{cur}.yaml"
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text(encoding=ENCODING))
     if data.get("milestone") != cur:
         sys.exit(f"{path}: milestone field {data.get('milestone')!r} != CURRENT {cur!r}")
     return cur, data
@@ -74,7 +83,7 @@ def latest_handoffs(n: int = 5) -> list[tuple[str, str, str, str, str]]:
             continue
         date, frm, to, task = m.groups()
         first = ""
-        for line in p.read_text().splitlines():
+        for line in p.read_text(encoding=ENCODING).splitlines():
             if line.startswith("# "):
                 first = line[2:].strip()
                 break
@@ -169,6 +178,23 @@ def render(cur: str, data: dict) -> str:
     return "\n".join(lines)
 
 
+def encode(text: str) -> bytes:
+    """The exact bytes STATUS.md must hold: UTF-8, LF line endings."""
+    return text.encode(ENCODING)
+
+
+def write_status(path: pathlib.Path, text: str) -> None:
+    """Write text as UTF-8 with LF, ignoring the platform's defaults."""
+    with open(path, "w", encoding=ENCODING, newline="\n") as f:
+        f.write(text)
+
+
+def is_current(path: pathlib.Path, text: str) -> bool:
+    """True if the file on disk holds exactly the bytes write_status would write."""
+    current = path.read_bytes() if path.exists() else b""
+    return current == encode(text)
+
+
 def main(argv: list[str]) -> int:
     cur, data = load_current()
     errs = validate(data)
@@ -178,13 +204,12 @@ def main(argv: list[str]) -> int:
         return 1
     text = render(cur, data)
     if "--check" in argv:
-        current = STATUS.read_text() if STATUS.exists() else ""
-        if current != text:
+        if not is_current(STATUS, text):
             sys.stderr.write("STATUS.md is stale: run `make status` and commit the result\n")
             return 1
         print("STATUS.md is current")
         return 0
-    STATUS.write_text(text)
+    write_status(STATUS, text)
     print(f"wrote {STATUS.relative_to(ROOT)} from docs/milestones/{cur}.yaml")
     return 0
 

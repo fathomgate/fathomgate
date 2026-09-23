@@ -55,6 +55,7 @@ The corpus this design answers: Invariant Labs tool poisoning and rug-pulls, Tra
 
 - Run one proxy per credential scope. Upstreams read credentials from their environment; the proxy cannot scope them per call.
 - Keep `redact.key_file` and `audit.checkpoint_key` outside the log and blob directories, readable by the proxy user only.
+- On Windows, `netguard audit keygen` cannot restrict the key file itself: it inherits its folder's ACL. Keep `audit.checkpoint_key` under the proxy user's `%LOCALAPPDATA%`, or remove inherited entries with `icacls <file> /inheritance:r /grant:r <user>:R`. Tracked as T0.12.
 - Ship checkpoint hashes to syslog or a SIEM so the chain is anchored outside the host.
 - Bind the webhook listener to loopback or a private interface, behind TLS termination you control, and rotate the HMAC key with the `key_id` mechanism.
 - Start with `policies/examples/read-only.yaml`. Widen from there.

@@ -10,6 +10,7 @@ LDFLAGS  := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.da
 
 GO       ?= go
 GOFLAGS  ?=
+PYTHON   ?= python3
 BIN_DIR  := bin
 
 .PHONY: all build test vet lint fmt policy-test fixtures-check status status-check release-snapshot clean help
@@ -51,10 +52,10 @@ clean: ## Remove build outputs
 	rm -rf $(BIN_DIR) dist
 
 status: ## Re-render STATUS.md from docs/milestones/<CURRENT>.yaml and docs/handoffs/
-	python3 tools/status/render.py
+	$(PYTHON) tools/status/render.py
 
 status-check: ## Fail if STATUS.md is stale relative to the board (CI)
-	python3 tools/status/render.py --check
+	$(PYTHON) tools/status/render.py --check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'

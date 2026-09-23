@@ -98,7 +98,7 @@ Written after every `CheckpointEvery` events (a writer option; `0` disables chec
 | `hash` | That record's `hash`. MUST equal the chain's current hash. |
 | `sig` | Base64 (standard alphabet) Ed25519 signature over `canonical({"type":"checkpoint","seq":<seq>,"hash":"<hash>"})`, that is over the bytes `{"hash":"<hash>","seq":<seq>,"type":"checkpoint"}`. |
 
-Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory.
+Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. On Windows the file mode is not enforced; see SECURITY.md "Hardening guidance for operators" until T0.12 lands.
 
 Planned (M4): time-based checkpoint interval, `key_id` for rotation, a `ts` on the checkpoint, rotation with `prev_file`, and a checkpoint written at clean shutdown.
 

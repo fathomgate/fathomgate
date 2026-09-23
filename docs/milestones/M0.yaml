@@ -74,25 +74,43 @@ tasks:
     package: internal/audit
     owner: policy-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in review
     matrix: []
-    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey.
+    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey. Approved with nits by security-reviewer and go-reviewer 2026-09-23 (commit 6155c28); key-ACL finding split out as T0.12.
   - id: T0.8
     title: tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale
     package: tools/status
     owner: docs-writer
     reviewers: [go-reviewer]
-    state: open
+    state: in review
     matrix: []
-    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows.'
+    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows. Approved with nits by go-reviewer 2026-09-23 (commit b0f9c75); nits: fixture board in the test, BOM/trailing-newline case.'
   - id: T0.9
     title: nightly-clab.yaml fails with a workflow file error on every push to main
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
+    state: in review
+    matrix: []
+    notes: 'Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Root cause: unquoted `run: echo "TODO(M3): ..."` made the file invalid YAML. Fixed with a block scalar (commit 57b77fc); approved by go-reviewer 2026-09-23. Confirm on GitHub: no failed nightly-clab push run after merge.'
+  - id: T0.11
+    title: Run actionlint on every PR in ci.yaml
+    package: .github/workflows
+    owner: release-engineer
+    reviewers: [go-reviewer]
     state: open
     matrix: []
-    notes: Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Fix so it parses and stays skipped until the clab runner exists.
+    notes: From the T0.9 review. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
+  - id: T0.12
+    title: Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [T0.1]
+    adr: "0011"
+    matrix: []
+    notes: 'From the T0.7 security review. On Windows, SaveKey 0600 is ignored and the key inherits its folder ACL, so a local non-admin user can read audit.key and re-sign checkpoints over a rewritten log. os.WriteFile also keeps the mode of an existing file on Unix. Needs golang.org/x/sys/windows (ADR 0011). Targets M1; carry over if M0 closes first. Stopgap operator guidance is in SECURITY.md.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
