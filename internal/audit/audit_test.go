@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -275,8 +276,12 @@ func TestKeyRoundTrip(t *testing.T) {
 	if err := SaveKey(kp, priv); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(kp)
-	if info.Mode().Perm() != 0o600 {
+	info, err := os.Stat(kp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows ignores Unix permission bits (ACLs govern access), so assert 0600 on Unix only.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("key mode %v", info.Mode().Perm())
 	}
 	loaded, err := LoadKey(kp)

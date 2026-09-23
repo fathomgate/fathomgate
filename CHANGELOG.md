@@ -33,6 +33,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 - Nothing yet.
 
+### Fixed
+
+- `TestKeyRoundTrip` no longer fails on Windows; the 0600 key-mode assertion runs on Unix only.
+
 ### Security
 
 - Nothing yet. Security fixes will be listed here with their advisory id.
