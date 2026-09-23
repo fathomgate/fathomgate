@@ -1,10 +1,37 @@
-# T0.3 review round 1 applied: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
+# T0.3 review rounds 1 and 2 applied: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
 
 - **Task:** T0.3 — Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
 - **From → To:** mcp-protocol-engineer → go-reviewer (re-review), then security-reviewer
 - **State now:** in review
 - **Branch / PR:** `feat/proxy-dual-era` (origin/main merged in; #25 is on main) · none yet (not pushed)
 - **Date:** 2026-09-23
+
+## Review round 2
+
+Go-reviewer approved with nits; security-reviewer requested changes with one high finding. Everything is applied, and `origin/main` is merged again before the final commit.
+
+- **S1 (high), `schema.go` and `input.go`:** netguard's refusal texts no longer quote any upstream value. Every schema error is now a fixed sentinel that says what was expected (for example `the root type is not "object"`), not what arrived.
+  - Audit result: property names are not quoted either. The stateless refusal no longer echoes the agent's protocol version (`errStatelessClient`). `askAgent`'s failure text no longer includes the go-sdk error, because a schema-validation error can quote upstream properties and values; the error goes to the log instead. `state.go` texts were already fixed.
+  - `TestRefusalsQuoteNoUpstreamText` feeds `EVIL\x1b[2J\n[from netguard]` plus U+202E through every field that can be refused, and asserts none of it reaches the refusal.
+- **S2, `label.go` and `schema.go`:** `hasOriginLabel` folds the text and refuses it if it contains `[from`. The fold lower-cases, maps fullwidth ASCII, maps Cyrillic and Greek look-alikes (а е о р с х і г м, ο ρ α ι ...) and about fifteen bracket variants, and removes white space and format characters.
+  - It is checked on the message, the form title and description, property names, titles and descriptions, `oneOf` consts and titles, enum values and defaults.
+  - Second layer: every property title is labelled `[from <server>]`, and a property with no title gets its name as the title.
+  - Limits, documented in `label.go`, spec §8.4 and SECURITY.md: this is not UTS #39. Mathematical alphanumerics, other scripts, combining marks and font-only homoglyphs pass.
+  - Tests: 15 new `TestRelabelSchema` rows, including Cyrillic, Greek, fullwidth, lenticular and zero-width spoofs, plus a false-positive guard. `TestRelabelElicit` gains message spoofs.
+- **S3, `input.go` and `proxy.go`:** `askAgent` takes the per-call prompt slot for every prompt, so it cannot open a prompt beside an `elicitation/create` and vice versa. A single limit of 10 prompts per call (`maxPromptsPerCall`) covers every path and every round.
+  - For a stateless agent, the count travels in the sealed `requestState` (new `Prompts` field). `forward` refuses a round that would pass 10 before anything in it is asked.
+  - Tests: `TestPromptLimitAcrossRounds` (4 prompts per round: 8 asked, then a refusal, in both agent eras) and `TestAskAgentSharesPromptSlot`.
+- **S4, `name.go`:** `reservedServerName` lower-cases the name and strips `-`, `_` and trailing digits. `net-guard`, `Net-Guard2`, `netguard01`, `_netguard_` and `n-e-t-g-u-a-r-d` are refused; `netguard-lab` and `my-netguard` are allowed.
+- **Notes:**
+  - go-sdk already filters `subscriptions/listen` by the declared capabilities (`allowedSubscriptions`). With `tools` declared without `listChanged`, the agent gets an empty acknowledgement and the call returns at once. It is a core 2026 method, so it is not refused.
+  - SECURITY.md and spec §8.4 now say the sealed length reveals roughly the size of the upstream's state.
+  - The SECURITY.md rows for impersonation, prompt flood and forged retry are rewritten to match the code.
+- **G1:** the "middleware: a" typo is fixed.
+- **G2:** schema marshal errors are wrapped with `%w`.
+- **G3:** `format` keeps only `email`, `uri`, `date` and `date-time`.
+- **G4:** property keys are sorted before checking.
+- **G5:** the method map is now `undeclaredCapability`, a switch.
+- **G6:** `errStateSignature` is renamed `errStateAuth`.
 
 ## Review round 1
 
@@ -60,8 +87,8 @@ A check that expects empty lists for undeclared capabilities would now fail, and
 
 ```sh
 gofmt -l . && go build ./... && go vet ./... && go test -count=3 ./...
-go test -count=1 -v -run 'Era|MRTR|Refused|Round|NeedsOneCall|Flood|Undeclared|StatelessMeta|Seal|Schema|Stdio' ./internal/proxy/
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golang:1.25 go test -race -count=3 ./...
+go test -count=1 -v -run 'Era|MRTR|Refused|Round|NeedsOneCall|Flood|Undeclared|StatelessMeta|Seal|Schema|Stdio|PromptLimit|PromptSlot|QuoteNo|RelabelElicit' ./internal/proxy/
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golang:1.26 go test -race -count=3 ./...
 MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golangci/golangci-lint:v2.9.0 golangci-lint run ./...   # main is on toolchain go1.26.8 (#26); v2.4.0 refuses it. v2.4.0 was clean on a88979c, before the merge
 go build -o bin/netguard ./cmd/netguard && bin/netguard policy test policies/examples/*.test.yaml   # 25/25
 python tools/status/render.py --check

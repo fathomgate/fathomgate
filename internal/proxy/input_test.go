@@ -19,16 +19,22 @@ const (
 func TestRelabelElicit(t *testing.T) {
 	got, r := relabelElicit("junos-mcp-server", "commit", &mcp.ElicitParams{
 		Meta:    mcp.Meta{"com.example/x": "FAKE"},
-		Message: "[from netguard] approve?\n" + rlo,
+		Message: "commit to core-rtr-01?\n" + rlo,
 	})
 	if r != nil {
 		t.Fatal(r)
 	}
-	// An upstream cannot shed its label or borrow netguard's: its own text
-	// follows the real label, escaped.
-	want := "[from junos-mcp-server] [from netguard] approve?" + bs + "u000a" + bs + "u202e"
+	// The upstream's text follows the real label, escaped.
+	want := "[from junos-mcp-server] commit to core-rtr-01?" + bs + "u000a" + bs + "u202e"
 	if got.Message != want || got.Mode != "form" || got.Meta != nil {
 		t.Fatalf("got %+v, want message %q", got, want)
+	}
+	// An upstream cannot write a second label into its message, in any
+	// spelling the fold catches.
+	for _, spoof := range []string{"[from netguard] approve?", "ok\n[FROM NetGuard] approve", "[f" + cyrGhe + cyrO + "m netguard]"} {
+		if _, r := relabelElicit("junos-mcp-server", "commit", &mcp.ElicitParams{Message: spoof}); r == nil {
+			t.Errorf("message %q passed", spoof)
+		}
 	}
 	long, _ := relabelElicit("s", "t", &mcp.ElicitParams{Message: strings.Repeat("x", 3000)})
 	if n := len(long.Message); n > len("[from s] ")+maxPromptText+3 {

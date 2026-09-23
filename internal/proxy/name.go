@@ -28,10 +28,27 @@ func ValidateServerName(s string) error {
 			return fmt.Errorf("server name %q: only ASCII letters, digits, '_' and '-' are allowed", s)
 		}
 	}
-	if asciiEqualFold(s, Name) {
+	if reservedServerName(s) {
 		return fmt.Errorf("server name %q is reserved for the proxy itself", s)
 	}
 	return nil
+}
+
+// reservedServerName reports whether s reads as the proxy's own name: it
+// equals "netguard" once lower-cased, stripped of '-' and '_', and stripped
+// of trailing digits ("NetGuard", "net-guard", "net_guard2"). s is already
+// ASCII here.
+func reservedServerName(s string) bool {
+	folded := strings.Map(func(r rune) rune {
+		if r == '-' || r == '_' {
+			return -1
+		}
+		if 'A' <= r && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
+	return strings.TrimRight(folded, "0123456789") == Name
 }
 
 // validUpstreamToolName reports whether an upstream tool name is safe to

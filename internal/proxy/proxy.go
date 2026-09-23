@@ -473,13 +473,14 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	if len(c.arguments) > 0 && string(c.arguments) != "null" {
 		params.Arguments = c.arguments
 	}
-	round := 0
+	round, prompts := 0, 0
 	if c.requestState != "" || len(c.inputResponses) > 0 {
-		var err error
-		params.InputResponses, params.RequestState, round, err = p.resume(c)
+		rs, err := p.resume(c)
 		if err != nil {
 			return nil, err
 		}
+		params.InputResponses, params.RequestState = rs.responses, rs.upState
+		round, prompts = rs.round, rs.prompts
 	}
 	if up.exited() {
 		return upstreamDown(up), nil
@@ -487,7 +488,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	p.logger.Debug("forwarding", "server", up.name, "tool", c.tool,
 		"agent_protocol", c.agent.version, "upstream_protocol", up.version, "round", round)
 
-	f := up.begin(ctx, c)
+	f := up.begin(ctx, c, prompts)
 	defer up.end(f)
 	for ; ; round++ {
 		res, err := up.session.CallTool(ctx, params)
@@ -517,6 +518,10 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 			r = newRefusal(up.name, c.tool, "elicitation", errNoFormElicitation)
 		case round >= maxInputRounds:
 			r = newRefusal(up.name, c.tool, "input_required", fmt.Errorf("more than %d rounds of input in one call", maxInputRounds))
+		case up.promptsSoFar(f)+len(reqs) > maxPromptsPerCall:
+			// Checked before anything is asked, so no human answers half a
+			// round that cannot be completed.
+			r = newRefusal(up.name, c.tool, "input_required", errTooManyPrompts)
 		case len(res.RequestState) > maxRequestState:
 			r = newRefusal(up.name, c.tool, "input_required", errors.New("the upstream's requestState is too large"))
 		}
@@ -537,6 +542,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 			state, err := p.states.seal(sealedState{
 				Server: up.name, Tool: c.tool, Args: argsDigest(c.arguments),
 				IDs: ids, Up: res.RequestState, Round: round + 1,
+				Prompts: up.promptsSoFar(f) + len(reqs),
 			})
 			if err != nil {
 				r = newRefusal(up.name, c.tool, "input_required", err)
@@ -545,7 +551,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 			}
 			return &mcp.CallToolResult{InputRequests: reqs, RequestState: state}, nil
 		}
-		answers, stop, err := p.askAgent(ctx, c, reqs)
+		answers, stop, err := p.askAgent(ctx, c, f, reqs)
 		if err != nil || stop != nil {
 			return stop, err
 		}
@@ -630,20 +636,26 @@ type unknownToolData struct {
 	Servers []string `json:"servers"`
 }
 
-// undeclaredMethods belong to capabilities the proxy does not declare: it
-// declares tools only. go-sdk would otherwise answer them with empty lists
-// or an empty result, which tells the agent something the proxy never
-// offered.
-var undeclaredMethods = map[string]string{
-	"prompts/list":             "prompts",
-	"prompts/get":              "prompts",
-	"resources/list":           "resources",
-	"resources/read":           "resources",
-	"resources/templates/list": "resources",
-	"resources/subscribe":      "resources",
-	"resources/unsubscribe":    "resources",
-	"logging/setLevel":         "logging",
-	"completion/complete":      "completions",
+// undeclaredCapability returns the capability a method belongs to when the
+// proxy does not declare it (it declares tools only), or "". go-sdk would
+// otherwise answer these with empty lists or an empty result, which tells
+// the agent something the proxy never offered. subscriptions/listen is not
+// here: it is core in 2026-07-28, and go-sdk acknowledges only the
+// notifications the declared capabilities allow (none, since tools has no
+// listChanged).
+func undeclaredCapability(method string) string {
+	switch method {
+	case "prompts/list", "prompts/get":
+		return "prompts"
+	case "resources/list", "resources/read", "resources/templates/list", "resources/subscribe", "resources/unsubscribe":
+		return "resources"
+	case "logging/setLevel":
+		return "logging"
+	case "completion/complete":
+		return "completions"
+	default:
+		return ""
+	}
 }
 
 // refuseUndeclared is receiving middleware: a request for a method of a
@@ -651,7 +663,7 @@ var undeclaredMethods = map[string]string{
 // (-32601) in either era.
 func refuseUndeclared(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		if capability, ok := undeclaredMethods[method]; ok {
+		if capability := undeclaredCapability(method); capability != "" {
 			return nil, &jsonrpc.Error{
 				Code:    jsonrpc.CodeMethodNotFound,
 				Message: fmt.Sprintf("method %q is not supported: netguard does not declare the %s capability", method, capability),
@@ -661,7 +673,7 @@ func refuseUndeclared(next mcp.MethodHandler) mcp.MethodHandler {
 	}
 }
 
-// checkToolName is receiving middleware:a tools/call whose name is not a
+// checkToolName is receiving middleware: a tools/call whose name is not a
 // known "<server>.<tool>" gets a JSON-RPC invalid-params error (-32602, as
 // the MCP spec requires for unknown tools) that says why, before any handler
 // or upstream sees it.

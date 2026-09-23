@@ -78,8 +78,8 @@ func TestSealer(t *testing.T) {
 		{"prefix only", statePrefix, errStateMalformed},
 		{"not base64", statePrefix + "!!", errStateMalformed},
 		{"too short", statePrefix + "AAAA", errStateMalformed},
-		{"ciphertext edited", statePrefix + flipped, errStateSignature},
-		{"truncated", statePrefix + body[:len(body)-4], errStateSignature},
+		{"ciphertext edited", statePrefix + flipped, errStateAuth},
+		{"truncated", statePrefix + body[:len(body)-4], errStateAuth},
 		{"oversized", statePrefix + strings.Repeat("A", maxSealedState), errStateMalformed},
 	}
 	for _, tc := range cases {
@@ -89,7 +89,7 @@ func TestSealer(t *testing.T) {
 	}
 
 	// Another process (another key) cannot open it.
-	if _, err := testSealer(t, now).open(token); !errors.Is(err, errStateSignature) {
+	if _, err := testSealer(t, now).open(token); !errors.Is(err, errStateAuth) {
 		t.Errorf("foreign key: %v", err)
 	}
 

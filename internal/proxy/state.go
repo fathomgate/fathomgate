@@ -46,19 +46,20 @@ const (
 
 // sealedState is the encrypted content of a requestState netguard issues.
 type sealedState struct {
-	Server string   `json:"s"`           // upstream server name (prefix)
-	Tool   string   `json:"t"`           // unprefixed upstream tool
-	Args   string   `json:"a"`           // argsDigest of the call's arguments
-	IDs    []string `json:"i"`           // input request ids the upstream asked for
-	Up     string   `json:"u,omitempty"` // the upstream's requestState, verbatim
-	Round  int      `json:"r"`           // input rounds so far in this call
-	Exp    int64    `json:"e"`           // expiry, Unix seconds
+	Server  string   `json:"s"`           // upstream server name (prefix)
+	Tool    string   `json:"t"`           // unprefixed upstream tool
+	Args    string   `json:"a"`           // argsDigest of the call's arguments
+	IDs     []string `json:"i"`           // input request ids the upstream asked for
+	Up      string   `json:"u,omitempty"` // the upstream's requestState, verbatim
+	Round   int      `json:"r"`           // input rounds so far in this call
+	Prompts int      `json:"p"`           // prompts put to the human so far in this call
+	Exp     int64    `json:"e"`           // expiry, Unix seconds
 }
 
 // Reasons a requestState is refused. They are shown to the agent.
 var (
 	errStateMalformed = errors.New("requestState was not issued by netguard")
-	errStateSignature = errors.New("requestState does not verify")
+	errStateAuth      = errors.New("requestState does not verify")
 	errStateExpired   = errors.New("requestState has expired; call the tool again without it")
 	errStateTooLarge  = errors.New("the sealed requestState would exceed the size netguard accepts")
 )
@@ -127,7 +128,7 @@ func (s *sealer) open(state string) (sealedState, error) {
 	n := s.aead.NonceSize()
 	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], []byte(statePrefix))
 	if err != nil {
-		return st, errStateSignature
+		return st, errStateAuth
 	}
 	if err := json.Unmarshal(plain, &st); err != nil {
 		return st, errStateMalformed

@@ -587,12 +587,12 @@ func TestSplitName(t *testing.T) {
 			t.Errorf("splitName(%q) = %q, %q, %v; want %q, %q, %v", tc.in, s, tool, ok, tc.server, tc.tool, tc.ok)
 		}
 	}
-	for _, name := range []string{"netdev-ssh-mcp", "junos_mcp", "eos"} {
+	for _, name := range []string{"netdev-ssh-mcp", "junos_mcp", "eos", "netguard-lab", "my-netguard", "netguard2x"} {
 		if err := ValidateServerName(name); err != nil {
 			t.Errorf("ValidateServerName(%q) = %v", name, err)
 		}
 	}
-	for _, name := range []string{"", "a.b", "a b", "a/b", "é", "netguard", "NetGuard", "NETGUARD"} {
+	for _, name := range []string{"", "a.b", "a b", "a/b", "é", "netguard", "NetGuard", "NETGUARD", "net-guard", "net_guard", "Net-Guard2", "netguard01", "_netguard_", "n-e-t-g-u-a-r-d"} {
 		if err := ValidateServerName(name); err == nil {
 			t.Errorf("ValidateServerName(%q) accepted", name)
 		}

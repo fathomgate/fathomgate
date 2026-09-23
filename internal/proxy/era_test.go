@@ -575,7 +575,7 @@ func TestInputRequestsRefused(t *testing.T) {
 		{"sampling", v2026, false, "ask_sampling", "netguard refused an input request (sampling) from upstream netdev-ssh-mcp during ask_sampling"},
 		{"roots", v2026, false, "ask_roots", "(roots)"},
 		{"URL elicitation", v2026, false, "ask_url", "(URL elicitation)"},
-		{"nested schema", v2025, false, "ask_nested", "only primitives are allowed"},
+		{"nested schema", v2025, false, "ask_nested", "a property type is not"},
 		{"client without elicitation, stateless", v2026, true, "ask", "does not support form elicitation"},
 		{"client without elicitation, stateful", v2025, true, "ask", "does not support form elicitation"},
 		{"load shedding", v2026, false, "ask_busy", "upstream netdev-ssh-mcp is busy"},

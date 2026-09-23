@@ -32,6 +32,9 @@ const (
 	maxInputRequests = 16
 	// maxInputRequestID caps the length of an upstream input request id.
 	maxInputRequestID = 128
+	// maxPromptsPerCall caps the prompts one call may put to the human,
+	// across every path and every MRTR round.
+	maxPromptsPerCall = 10
 )
 
 // promptLabel is the origin label every upstream prompt carries. Server
@@ -111,6 +114,9 @@ func relabelElicit(server, tool string, ep *mcp.ElicitParams) (*mcp.ElicitParams
 	if (ep.Mode != "" && ep.Mode != "form") || ep.URL != "" || ep.ElicitationID != "" {
 		return nil, newRefusal(server, tool, "URL elicitation", errFormOnly)
 	}
+	if hasOriginLabel(ep.Message) {
+		return nil, newRefusal(server, tool, "elicitation", errors.New("the message reads as an origin label (\"[from\"); only netguard labels prompts"))
+	}
 	schema, err := relabelSchema(server, ep.RequestedSchema)
 	if err != nil {
 		return nil, newRefusal(server, tool, "elicitation", fmt.Errorf("requested schema: %w", err))
@@ -167,48 +173,58 @@ func invalidRetry(prefixed, reason string, detail error) error {
 	}
 }
 
+// resumed is what a verified MRTR retry carries on to the upstream call.
+type resumed struct {
+	responses mcp.InputResponseMap // allow-listed answers
+	upState   string               // the upstream's own requestState
+	round     int                  // input rounds so far in this call
+	prompts   int                  // prompts put to the human so far in this call
+}
+
 // resume verifies a stateless agent's MRTR retry and returns what to send
-// the upstream: the allow-listed responses, the upstream's own requestState
-// and the round count. Any mismatch is a JSON-RPC invalid-params error and
-// nothing reaches the upstream.
-func (p *Proxy) resume(c call) (mcp.InputResponseMap, string, int, error) {
+// the upstream. Any mismatch is a JSON-RPC invalid-params error and nothing
+// reaches the upstream.
+func (p *Proxy) resume(c call) (resumed, error) {
 	name := prefixName(c.up.name, c.tool)
 	if c.requestState == "" {
-		return nil, "", 0, invalidRetry(name, reasonInvalidRequestState, errors.New("inputResponses sent without the requestState netguard issued"))
+		return resumed{}, invalidRetry(name, reasonInvalidRequestState, errors.New("inputResponses sent without the requestState netguard issued"))
 	}
 	st, err := p.states.open(c.requestState)
 	if err != nil {
-		return nil, "", 0, invalidRetry(name, reasonInvalidRequestState, err)
+		return resumed{}, invalidRetry(name, reasonInvalidRequestState, err)
 	}
 	switch {
 	case st.Server != c.up.name || st.Tool != c.tool:
-		return nil, "", 0, invalidRetry(name, reasonInvalidRequestState, fmt.Errorf("requestState was issued for %s", clip(prefixName(st.Server, st.Tool))))
+		return resumed{}, invalidRetry(name, reasonInvalidRequestState, fmt.Errorf("requestState was issued for %s", clip(prefixName(st.Server, st.Tool))))
 	case st.Args != argsDigest(c.arguments):
-		return nil, "", 0, invalidRetry(name, reasonInvalidRequestState, errors.New("arguments differ from the call that asked for input"))
+		return resumed{}, invalidRetry(name, reasonInvalidRequestState, errors.New("arguments differ from the call that asked for input"))
 	}
 	out := make(mcp.InputResponseMap, len(c.inputResponses))
 	for id, r := range c.inputResponses {
 		if !slices.Contains(st.IDs, id) {
-			return nil, "", 0, invalidRetry(name, reasonInvalidInputResponse, fmt.Errorf("no input request %q is outstanding", clip(id)))
+			return resumed{}, invalidRetry(name, reasonInvalidInputResponse, fmt.Errorf("no input request %q is outstanding", clip(id)))
 		}
 		er, ok := r.(*mcp.ElicitResult)
 		if !ok {
-			return nil, "", 0, invalidRetry(name, reasonInvalidInputResponse, fmt.Errorf("response %q is not an elicitation result", clip(id)))
+			return resumed{}, invalidRetry(name, reasonInvalidInputResponse, fmt.Errorf("response %q is not an elicitation result", clip(id)))
 		}
 		clean, err := cleanElicitResult(er)
 		if err != nil {
-			return nil, "", 0, invalidRetry(name, reasonInvalidInputResponse, err)
+			return resumed{}, invalidRetry(name, reasonInvalidInputResponse, err)
 		}
 		out[id] = clean
 	}
-	return out, st.Up, st.Round, nil
+	return resumed{responses: out, upState: st.Up, round: st.Round, prompts: st.Prompts}, nil
 }
 
 // askAgent puts relabelled input requests to a stateful agent as
 // server-initiated elicitation/create requests, one at a time in id order,
-// and returns the allow-listed answers. A non-nil result is a tool error to
-// return instead.
-func (p *Proxy) askAgent(ctx context.Context, c call, reqs mcp.InputRequestMap) (mcp.InputResponseMap, *mcp.CallToolResult, error) {
+// and returns the allow-listed answers. Each prompt takes the call's single
+// prompt slot and counts toward its prompt limit, the same slot and limit a
+// stateful upstream's elicitation/create uses, so the two paths cannot open
+// prompts side by side or add up past the limit. A non-nil result is a tool
+// error to return instead.
+func (p *Proxy) askAgent(ctx context.Context, c call, f *inflight, reqs mcp.InputRequestMap) (mcp.InputResponseMap, *mcp.CallToolResult, error) {
 	ids := make([]string, 0, len(reqs))
 	for id := range reqs {
 		ids = append(ids, id)
@@ -216,7 +232,13 @@ func (p *Proxy) askAgent(ctx context.Context, c call, reqs mcp.InputRequestMap) 
 	slices.Sort(ids)
 	out := make(mcp.InputResponseMap, len(ids))
 	for _, id := range ids {
+		if err := c.up.startPrompt(f); err != nil {
+			r := newRefusal(c.up.name, c.tool, "input_required", err)
+			_ = p.refuse(c.up, f, r)
+			return nil, toolError(r.Error()), nil
+		}
 		r, err := c.agent.session.Elicit(ctx, reqs[id].(*mcp.ElicitParams))
+		c.up.endPrompt(f)
 		if err == nil {
 			r, err = cleanElicitResult(r)
 		}
@@ -225,8 +247,11 @@ func (p *Proxy) askAgent(ctx context.Context, c call, reqs mcp.InputRequestMap) 
 				return nil, nil, ctx.Err()
 			}
 			p.logger.Warn("relaying an upstream prompt to the agent failed", "server", c.up.name, "tool", c.tool, "error", err)
-			return nil, toolError(fmt.Sprintf("netguard could not relay an input request from upstream %s during %s to the agent: %s",
-				c.up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
+			// The error can quote the upstream's schema (a validation
+			// failure names properties and values), so it stays in the log;
+			// netguard's own text names only the server and tool.
+			return nil, toolError(fmt.Sprintf("netguard could not relay an input request from upstream %s during %s to the agent: the client did not answer it, or its answer did not fit the form",
+				c.up.name, c.tool)), nil
 		}
 		out[id] = r
 	}
@@ -250,15 +275,17 @@ type inflight struct {
 	// upstream error or result: this call may not be the one that asked.
 	note *refusal
 	// prompting is set while one of this call's prompts is with the agent;
-	// prompts counts those relayed. They bound a stateful upstream to one
-	// outstanding prompt and maxInputRounds prompts per call.
+	// prompts counts those put to the human, including earlier MRTR rounds.
+	// Every path shares them: one prompt open per call, at most
+	// maxPromptsPerCall per call.
 	prompting bool
 	prompts   int
 }
 
-// begin registers a call as in flight on u.
-func (u *upstream) begin(ctx context.Context, c call) *inflight {
-	f := &inflight{ctx: ctx, agent: c.agent, tool: c.tool}
+// begin registers a call as in flight on u, with the prompts an earlier
+// round of the same call already put to the human.
+func (u *upstream) begin(ctx context.Context, c call, prompts int) *inflight {
+	f := &inflight{ctx: ctx, agent: c.agent, tool: c.tool, prompts: prompts}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.calls == nil {
@@ -296,6 +323,13 @@ func (u *upstream) sole() (*inflight, int) {
 	return nil, 0
 }
 
+// promptsSoFar is the number of prompts f has put to the human.
+func (u *upstream) promptsSoFar(f *inflight) int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return f.prompts
+}
+
 // startPrompt reserves f's single prompt slot, or says why it cannot.
 func (u *upstream) startPrompt(f *inflight) error {
 	u.mu.Lock()
@@ -303,8 +337,8 @@ func (u *upstream) startPrompt(f *inflight) error {
 	switch {
 	case f.prompting:
 		return errors.New("another prompt from this upstream is still open for this call")
-	case f.prompts >= maxInputRounds:
-		return fmt.Errorf("more than %d prompts in one call", maxInputRounds)
+	case f.prompts >= maxPromptsPerCall:
+		return errTooManyPrompts
 	}
 	f.prompting = true
 	f.prompts++
@@ -353,7 +387,7 @@ func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResu
 
 // upstreamElicitation handles a server-initiated elicitation/create from a
 // stateful upstream: relabelled and relayed to a stateful agent that
-// declared form elicitation, one at a time and at most maxInputRounds per
+// declared form elicitation, one at a time and at most maxPromptsPerCall per
 // call, and refused otherwise. go-sdk runs incoming requests concurrently,
 // so the per-call slot is what stops a burst. The agent's cancellation of
 // the call cancels the prompt.
@@ -368,7 +402,7 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			// ADR 0014 (accepted): converting this into input_required
 			// would mean holding the upstream call open across agent
 			// requests; deferred to matrix row 17.
-			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", fmt.Errorf("this client speaks %s and cannot receive a server-initiated prompt; see ADR 0014", f.agent.version)))
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errStatelessClient))
 		case !f.agent.canElicit:
 			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errNoFormElicitation))
 		}
@@ -401,4 +435,10 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 	}
 }
 
-var errNoFormElicitation = errors.New("this client does not support form elicitation")
+var (
+	errNoFormElicitation = errors.New("this client does not support form elicitation")
+	// errStatelessClient names no agent-supplied value: the text reaches
+	// both the upstream and the agent.
+	errStatelessClient = errors.New("this client speaks the stateless era (2026-07-28) and cannot receive a server-initiated prompt; see ADR 0014")
+	errTooManyPrompts  = fmt.Errorf("more than %d prompts in one call", maxPromptsPerCall)
+)
