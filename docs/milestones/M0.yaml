@@ -22,10 +22,10 @@ tasks:
     package: go.mod
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer]
-    state: in progress
+    state: in review
     adr: "0001"
     matrix: []
-    notes: Own PR. Dockerfile builder already on golang:1.25-alpine (PR #1); every workflow reads go-version-file go.mod, so CI moves with go.mod. Verify GOPROXY reachability in CI. Dispatched 2026-09-23.
+    notes: 'Own PR on build/go-1.25-go-sdk (not pushed). go.mod is go 1.25.0; go-sdk v1.7.0 is pinned via internal/tools/tools.go (//go:build tools); ci.yaml golangci-lint v2.1 -> v2.4 (v2.1 is built with go1.24 and refuses a go 1.25 module). go-sdk brings 8 new modules into the build graph, so an ADR is needed before merge (not written). Verify GOPROXY reachability in CI. Dispatched 2026-09-23.'
   - id: T0.2
     title: internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
     package: internal/proxy

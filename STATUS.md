@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: open 1 · blocked 6 · in progress 1 · in review 3
+Tasks: open 1 · blocked 6 · in review 4
 
 ## Blockers
 
@@ -14,7 +14,7 @@ Tasks: open 1 · blocked 6 · in progress 1 · in review 3
 
 | Task | Title | Package | Owner | Reviewers | State | Blocked by | Matrix | ADR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | in progress | — | — | [0001](docs/adr/0001-go-core-with-python-companion.md) |
+| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | in review | — | — | [0001](docs/adr/0001-go-core-with-python-companion.md) |
 | T0.2 | internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.1 | 1 | [0002](docs/adr/0002-standalone-proxy-not-gateway-plugin.md) |
 | T0.3 | Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough) | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.2 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | T0.4 | Conformance suite in CI against the client-facing side; make conformance target | `.github/workflows` | test-engineer | go-reviewer | blocked | T0.2 | 1, 2 | — |
@@ -47,8 +47,8 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
 | 2026-09-23 | policy-engineer | security-reviewer | T0.7 | [T0.7 for security review: 0600 key-mode assertion now runs on Unix only; SaveKey unchanged](docs/handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.7.md) |
 | 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
+| 2026-09-23 | mcp-protocol-engineer | go-reviewer | T0.1 | [T0.1 ready for review: go.mod on Go 1.25.0 with go-sdk v1.7.0 pinned, but merge waits on a dependency ADR](docs/handoffs/2026-09-23-mcp-protocol-engineer-to-go-reviewer-T0.1.md) |
 | 2026-09-23 | joshscott13 | netguard-orchestrator | M0 | [Scaffold complete; M0 is yours and it starts with a toolchain bump](docs/handoffs/2026-09-23-joshscott13-to-netguard-orchestrator-M0.md) |
-| 2026-09-23 | docs-writer | go-reviewer | T0.8 | [T0.8 is ready for review: render.py writes UTF-8 with LF on every OS](docs/handoffs/2026-09-23-docs-writer-to-go-reviewer-T0.8.md) |
 
 ## How to update
 

@@ -37,7 +37,7 @@ make policy-test  # every policies/**/*.test.yaml through netguard policy test
 make fixtures-check
 ```
 
-Go 1.24, one dependency (`github.com/goccy/go-yaml`). The Python companion under `tests/` needs `uv` and is optional.
+Go 1.25. Direct dependencies: `github.com/goccy/go-yaml` and the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.7.x, pinned for the M0 proxy). The Python companion under `tests/` needs `uv` and is optional.
 
 ## How a call is decided
 

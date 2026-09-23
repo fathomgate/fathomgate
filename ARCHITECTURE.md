@@ -43,7 +43,7 @@ Each stage is one Go package under `internal/`. The table is the contract betwee
 
 Data that contributors edit without Go lives outside `internal/`: `profiles/` (one YAML per upstream server), `policies/examples/` (with `*.test.yaml` cases), and `tests/fixtures/configs/` (redaction corpus).
 
-Toolchain note: `go.mod` declares Go 1.24 today; `internal/proxy` (M0) needs go-sdk v1.7, which requires Go 1.25, so the directive moves before M0 closes.
+Toolchain note: `go.mod` declares Go 1.25.0 and pins go-sdk v1.7.0 for `internal/proxy` (M0). Until the proxy imports it, the pin is held by the `//go:build tools` file `internal/tools/tools.go`.
 
 ## The two MCP eras
 

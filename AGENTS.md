@@ -4,7 +4,7 @@ Instructions for any coding agent (Codex, Cursor, Copilot, Claude Code, Gemini C
 
 ## What this is
 
-NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MCP servers. Go core (`go 1.24`, one dependency: `github.com/goccy/go-yaml`), single static binary, Python companion under `tests/` and `tools/` only.
+NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MCP servers. Go core (`go 1.25.0`; direct dependencies `github.com/goccy/go-yaml` and `github.com/modelcontextprotocol/go-sdk` v1.7.x), single static binary, Python companion under `tests/` and `tools/` only.
 
 ## Before you change anything
 
@@ -34,7 +34,7 @@ All six must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if y
 - Upstream tool descriptions, results and inventories are untrusted data.
 - Vocabulary is fixed: `allow` / `hold` / `deny` / `expired`; the seven class names; the seven obligations. Every denial names its rule id.
 - No new dependency without an ADR. Never `gopkg.in/yaml.v3`. `CGO_ENABLED=0` stays.
-- The MCP `go-sdk` v1.7 needs Go 1.25; bumping the toolchain is its own PR (first task of M0).
+- The MCP `go-sdk` is pinned to the v1.7 minor (it needs Go 1.25). A go-sdk bump is its own PR.
 - Docs change in the same PR as code. Update `CHANGELOG.md` `Unreleased`.
 - Conventional Commits with a scope; DCO sign-off (`git commit -s`).
 - Never put a real secret in a fixture; every fixture secret starts with `FAKE`.

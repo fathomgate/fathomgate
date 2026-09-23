@@ -38,8 +38,8 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 
 ## Toolchain facts
 
-- `go.mod` is `go 1.24` with one dependency, `github.com/goccy/go-yaml`. Never add `gopkg.in/yaml.v3` (unmaintained).
-- The official MCP `go-sdk` v1.7.x needs Go 1.25. Bumping the toolchain and adding `go-sdk` is the first task of M0 and needs its own PR; do not sneak it into another change.
+- `go.mod` is `go 1.25.0` with two direct dependencies: `github.com/goccy/go-yaml` and `github.com/modelcontextprotocol/go-sdk` (pinned to the v1.7 minor). Never add `gopkg.in/yaml.v3` (unmaintained).
+- Until `internal/proxy` imports go-sdk, `internal/tools/tools.go` (`//go:build tools`) keeps it in `go.mod`. It is never compiled into the binary. Delete that import when the proxy lands. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
 
@@ -99,7 +99,7 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 ## Things that look wrong but are deliberate
 
-- `netguard serve` exits 2 with a message. The transport is M0 and blocked on Go 1.25.
+- `netguard serve` exits 2 with a message. The transport is M0 (`internal/proxy`, T0.2).
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - The name "NetGuard" is a placeholder and collides with existing products. Renaming is an open question in `docs/PLAN.md`; do not brand assets around it yet.
