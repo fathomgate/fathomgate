@@ -84,17 +84,36 @@ func parseServe(args []string, usageOut io.Writer) (serveConfig, error) {
 	if cfg.server == "" || cfg.upstream == "" {
 		return cfg, errors.New("--server and --upstream are required")
 	}
+	if cfg.upstream == "--" || strings.TrimSpace(cfg.upstream) == "" {
+		return cfg, fmt.Errorf("--upstream %q is not an executable path", cfg.upstream)
+	}
 	if err := proxy.ValidateServerName(cfg.server); err != nil {
 		return cfg, fmt.Errorf("--server: %w", err)
 	}
 	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); !ok || k == "" {
-			return cfg, fmt.Errorf("--upstream-env %q is not KEY=VALUE", kv)
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok || !validEnvName(k) {
+			return cfg, fmt.Errorf("--upstream-env %q is not KEY=VALUE with KEY matching [A-Za-z_][A-Za-z0-9_]*", kv)
 		}
 	}
 	cfg.upstreamArgs = rest
 	cfg.upstreamEnv = env
 	return cfg, nil
+}
+
+// validEnvName reports whether k matches [A-Za-z_][A-Za-z0-9_]*.
+func validEnvName(k string) bool {
+	if k == "" {
+		return false
+	}
+	for i := 0; i < len(k); i++ {
+		c := k[i]
+		letter := c == '_' || ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z')
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // flagName returns the name in "-name", "--name" or "--name=value".

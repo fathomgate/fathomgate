@@ -343,6 +343,13 @@ func TestRelayUpstreamError(t *testing.T) {
 		{"invalid UTF-8 replaced", jsonrpc.Error{Code: -32603, Message: "a\xffb"}, -32603, `upstream s: a\ufffdb`},
 		{"truncated to 512 bytes", jsonrpc.Error{Code: -32603, Message: long}, -32603, "upstream s: " + long[:512] + "..."},
 		{"unicode kept", jsonrpc.Error{Code: -32603, Message: "héllo"}, -32603, "upstream s: héllo"},
+		{"line separator escaped", jsonrpc.Error{Code: -32603, Message: "a\u2028b"}, -32603, `upstream s: a\u2028b`},
+		{"paragraph separator escaped", jsonrpc.Error{Code: -32603, Message: "a\u2029b"}, -32603, `upstream s: a\u2029b`},
+		{"bidi override escaped", jsonrpc.Error{Code: -32603, Message: "\u202eexe.txt"}, -32603, `upstream s: \u202eexe.txt`},
+		{"bidi embedding escaped", jsonrpc.Error{Code: -32603, Message: "\u202ax\u202c"}, -32603, `upstream s: \u202ax\u202c`},
+		{"bidi isolates escaped", jsonrpc.Error{Code: -32603, Message: "\u2066x\u2069"}, -32603, `upstream s: \u2066x\u2069`},
+		{"zero-width space escaped", jsonrpc.Error{Code: -32603, Message: "ig\u200bnore"}, -32603, `upstream s: ig\u200bnore`},
+		{"BOM escaped", jsonrpc.Error{Code: -32603, Message: "\ufeffx"}, -32603, `upstream s: \ufeffx`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,6 +365,26 @@ func TestRelayUpstreamError(t *testing.T) {
 	msg := relayUpstreamError("s", &jsonrpc.Error{Code: -32603, Message: strings.Repeat("\x1b", 200)}).Message
 	if body := strings.TrimSuffix(strings.TrimPrefix(msg, "upstream s: "), "..."); len(body) > maxRelayedMessage || len(body)%6 != 0 {
 		t.Fatalf("escaped body cut badly: %d bytes", len(body))
+	}
+}
+
+func TestAwaitExit(t *testing.T) {
+	up := &upstream{name: "s", done: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if awaitExit(ctx, up, time.Hour) {
+		t.Fatal("awaitExit reported an exit that did not happen")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("awaitExit ignored ctx")
+	}
+	if awaitExit(context.Background(), up, 10*time.Millisecond) {
+		t.Fatal("awaitExit reported an exit after its timer")
+	}
+	close(up.done)
+	if !awaitExit(context.Background(), up, time.Hour) {
+		t.Fatal("awaitExit missed a closed done channel")
 	}
 }
 

@@ -61,16 +61,20 @@ func (c Command) Transport() *mcp.CommandTransport {
 // Variables an upstream inherits from the proxy. Everything else, including
 // the proxy's own NETGUARD_* settings and any credential in its environment,
 // is withheld unless passed with Command.Env (`--upstream-env`).
+// The LC_ names are the POSIX locale categories; no wildcard.
 var (
-	unixEnvAllow    = []string{"PATH", "HOME", "USER", "LANG", "TMPDIR"}
-	unixEnvPrefixes = []string{"LC_"}
+	unixEnvAllow = []string{
+		"PATH", "HOME", "USER", "LANG", "TMPDIR",
+		"LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME",
+	}
 	windowsEnvAllow = []string{"PATH", "SystemRoot", "SystemDrive", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PATHEXT", "COMSPEC"}
 )
 
 // baseEnv returns the entries of environ an upstream inherits on goos: on
-// Unix PATH, HOME, USER, LANG, LC_* and TMPDIR; on Windows PATH, SystemRoot,
-// SystemDrive, TEMP, TMP, USERPROFILE, APPDATA, LOCALAPPDATA, PATHEXT and
-// COMSPEC, matched case-insensitively.
+// Unix PATH, HOME, USER, LANG, TMPDIR and the POSIX LC_ categories, matched
+// exactly; on Windows PATH, SystemRoot, SystemDrive, TEMP, TMP, USERPROFILE,
+// APPDATA, LOCALAPPDATA, PATHEXT and COMSPEC, matched ASCII
+// case-insensitively.
 func baseEnv(environ []string, goos string) []string {
 	var out []string
 	for _, kv := range environ {
@@ -88,7 +92,7 @@ func baseEnv(environ []string, goos string) []string {
 func envAllowed(k, goos string) bool {
 	if goos == "windows" {
 		for _, a := range windowsEnvAllow {
-			if strings.EqualFold(k, a) {
+			if asciiEqualFold(k, a) {
 				return true
 			}
 		}
@@ -99,10 +103,27 @@ func envAllowed(k, goos string) bool {
 			return true
 		}
 	}
-	for _, p := range unixEnvPrefixes {
-		if strings.HasPrefix(k, p) {
-			return true
+	return false
+}
+
+// asciiEqualFold compares ASCII case-insensitively. Unlike strings.EqualFold
+// it does not apply Unicode folding, so "\u017fystemRoot" (long s) is not
+// "SystemRoot".
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		x, y := a[i], b[i]
+		if 'A' <= x && x <= 'Z' {
+			x += 'a' - 'A'
+		}
+		if 'A' <= y && y <= 'Z' {
+			y += 'a' - 'A'
+		}
+		if x != y {
+			return false
 		}
 	}
-	return false
+	return true
 }

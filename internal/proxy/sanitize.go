@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -34,10 +35,14 @@ func relayUpstreamError(server string, werr *jsonrpc.Error) *jsonrpc.Error {
 	}
 }
 
-// isControl reports C0 controls (including ESC, tab and newline), DEL and C1
-// controls.
+// isControl reports characters that must not reach a terminal, log or model
+// verbatim: C0 controls (including ESC, tab and newline), DEL, C1 controls,
+// format characters (Cf: bidi embeddings and overrides U+202A-U+202E and
+// isolates U+2066-U+2069, zero-width space U+200B, BOM) and the line and
+// paragraph separators U+2028 and U+2029 (Zl, Zp).
 func isControl(r rune) bool {
-	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) ||
+		unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
 }
 
 // escapeControl replaces control characters with the six-character text
@@ -73,15 +78,16 @@ func escapeControl(s string, limit int) string {
 const maxStderrLine = 4096
 
 // lineWriter prefixes every line written to it and escapes control
-// characters in the line. It holds a partial line until its newline arrives
-// (or maxStderrLine bytes accumulate); a final line without a newline is
-// lost when the process exits. Writes never fail, so a broken log sink
-// cannot stall the upstream's stderr.
+// characters in the line. It holds a partial line until its newline arrives,
+// maxStderrLine bytes accumulate (cut back to a whole UTF-8 character), or
+// Flush is called. Writes never fail, so a broken log sink cannot stall the
+// upstream's stderr.
 type lineWriter struct {
 	mu     sync.Mutex
 	w      io.Writer
 	prefix string
 	buf    []byte
+	split  bool // the current line was already cut at maxStderrLine
 }
 
 func (l *lineWriter) Write(p []byte) (int, error) {
@@ -90,22 +96,60 @@ func (l *lineWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	for len(p) > 0 {
 		i := bytes.IndexByte(p, '\n')
+		chunk := p
+		if i >= 0 {
+			chunk = p[:i]
+		}
+		l.buf = append(l.buf, chunk...)
+		for len(l.buf) >= maxStderrLine {
+			l.emitPrefix(runeCut(l.buf[:maxStderrLine]))
+			l.split = true
+		}
 		if i < 0 {
-			l.buf = append(l.buf, p...)
-			if len(l.buf) >= maxStderrLine {
-				l.emit()
-			}
 			break
 		}
-		l.buf = append(l.buf, p[:i]...)
 		p = p[i+1:]
-		l.emit()
+		// A line cut at the limit whose remainder is empty has already
+		// been written in full; do not add an empty line for its newline.
+		if len(l.buf) > 0 || !l.split {
+			l.emit()
+		}
+		l.split = false
 	}
 	return n, nil
 }
 
-func (l *lineWriter) emit() {
-	line := strings.TrimSuffix(string(l.buf), "\r")
-	l.buf = l.buf[:0]
+// Flush writes out a partial line, if any, as a line of its own.
+func (l *lineWriter) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.buf) > 0 {
+		l.emit()
+	}
+	l.split = false
+}
+
+// emit writes the whole buffer as one line.
+func (l *lineWriter) emit() { l.emitPrefix(len(l.buf)) }
+
+// emitPrefix writes buf[:n] as one line and keeps the rest.
+func (l *lineWriter) emitPrefix(n int) {
+	line := strings.TrimSuffix(string(l.buf[:n]), "\r")
+	l.buf = append(l.buf[:0], l.buf[n:]...)
 	_, _ = io.WriteString(l.w, l.prefix+escapeControl(line, 0)+"\n")
+}
+
+// runeCut returns how much of b can be emitted without splitting a UTF-8
+// character at its end: len(b), or the start of a trailing incomplete
+// character. Invalid bytes are not held back.
+func runeCut(b []byte) int {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(b[i]) {
+			if !utf8.FullRune(b[i:]) && i > 0 {
+				return i
+			}
+			break
+		}
+	}
+	return len(b)
 }

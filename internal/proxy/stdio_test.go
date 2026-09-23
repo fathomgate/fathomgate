@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -49,6 +51,7 @@ func TestMain(m *testing.M) {
 func runFakeStdioUpstream() {
 	s := fakeUpstream(&recorder{}, nil)
 	s.AddTool(&mcp.Tool{Name: "exit", InputSchema: objectSchema}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		fmt.Fprint(os.Stderr, "last words without a newline")
 		os.Exit(3)
 		return nil, nil
 	})
@@ -109,26 +112,45 @@ func testExecutable(t *testing.T) string {
 }
 
 // syncBuffer is a goroutine-safe strings.Builder for captured stderr.
+// Every Write signals notify (capacity 1, never blocks), so a test can wait
+// for new output instead of polling.
 type syncBuffer struct {
-	mu chanMutex
-	b  strings.Builder
+	mu     sync.Mutex
+	b      strings.Builder
+	notify chan struct{}
 }
 
-type chanMutex chan struct{}
-
-func (m chanMutex) lock()   { m <- struct{}{} }
-func (m chanMutex) unlock() { <-m }
+func newSyncBuffer() *syncBuffer { return &syncBuffer{notify: make(chan struct{}, 1)} }
 
 func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.lock()
-	defer s.mu.unlock()
-	return s.b.Write(p)
+	s.mu.Lock()
+	n, err := s.b.Write(p)
+	s.mu.Unlock()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+	return n, err
 }
 
 func (s *syncBuffer) String() string {
-	s.mu.lock()
-	defer s.mu.unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+// waitFor blocks until the buffer contains want, or fails after 5 seconds.
+func (s *syncBuffer) waitFor(t *testing.T, want string) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for !strings.Contains(s.String(), want) {
+		select {
+		case <-s.notify:
+		case <-timer.C:
+			t.Fatalf("stderr never contained %q:\n%q", want, s.String())
+		}
+	}
 }
 
 func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
@@ -137,7 +159,7 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	// --upstream-env do.
 	t.Setenv("NETGUARD_TEST_SECRET", "FAKE-proxy-secret")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "FAKE-aws")
-	stderr := &syncBuffer{mu: make(chanMutex, 1)}
+	stderr := newSyncBuffer()
 	cmd := Command{
 		Path:         testExecutable(t),
 		Args:         []string{"-test.run=^$"},
@@ -190,14 +212,7 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	if _, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.stderr"}); err != nil {
 		t.Fatal(err)
 	}
-	wantStderr := "upstream netdev-ssh-mcp: line one\nupstream netdev-ssh-mcp: \\u001b[31mred\\u001b[0m\n"
-	deadline := time.Now().Add(5 * time.Second)
-	for !strings.Contains(stderr.String(), wantStderr) {
-		if time.Now().After(deadline) {
-			t.Fatalf("upstream stderr not prefixed and escaped:\n%q", stderr.String())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	stderr.waitFor(t, "upstream netdev-ssh-mcp: line one\nupstream netdev-ssh-mcp: \\u001b[31mred\\u001b[0m\n")
 
 	// The upstream process dies mid-call.
 	res, err = agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.exit"})
@@ -225,6 +240,10 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	}
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close after upstream exit: %v", err)
+	}
+	// The partial last line is flushed by Close, prefixed like the rest.
+	if got := stderr.String(); !strings.HasSuffix(got, "upstream netdev-ssh-mcp: last words without a newline\n") {
+		t.Fatalf("partial final stderr line not flushed on Close:\n%q", got)
 	}
 }
 
@@ -258,8 +277,10 @@ func TestBaseEnv(t *testing.T) {
 	environ := []string{
 		"PATH=/usr/bin", "HOME=/home/n", "USER=n", "LANG=C.UTF-8", "LC_ALL=C", "LC_TIME=C", "TMPDIR=/tmp",
 		"NETGUARD_TEST_SECRET=FAKE", "AWS_SECRET_ACCESS_KEY=FAKE", "SSH_AUTH_SOCK=/tmp/agent", "LCX=1",
+		"LC_FAKE_SECRET=FAKE", "LC_=x", "lc_all=C",
 		"Path=C:\\Windows", "SystemRoot=C:\\Windows", "SYSTEMDRIVE=C:", "TEMP=t", "TMP=t", "USERPROFILE=u",
 		"APPDATA=a", "LOCALAPPDATA=l", "PATHEXT=.EXE", "ComSpec=cmd.exe", "=C:=C:\\x", "NOVALUE",
+		"\u017fystemRoot=FAKE-long-s", "SystemRoo\u212a=FAKE-kelvin",
 	}
 	cases := []struct {
 		goos string
@@ -289,11 +310,63 @@ func TestLineWriter(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("got %q\nwant %q", out.String(), want)
 	}
+	// Flush writes the held partial line.
+	w.Flush()
+	if !strings.HasSuffix(out.String(), "upstream s: no newline yet\n") {
+		t.Fatalf("Flush: %q", out.String())
+	}
+	w.Flush() // nothing held: no empty line
+	if strings.HasSuffix(out.String(), "upstream s: \n") {
+		t.Fatal("Flush of an empty buffer wrote a line")
+	}
+
 	// An over-long unterminated line is flushed on its own.
 	out.Reset()
 	w = &lineWriter{w: &out, prefix: "p: "}
 	_, _ = w.Write([]byte(strings.Repeat("x", maxStderrLine)))
 	if !strings.HasPrefix(out.String(), "p: xxx") || !strings.HasSuffix(out.String(), "x\n") {
 		t.Fatalf("long line not flushed: %d bytes", out.Len())
+	}
+
+	// The 4096-byte cut never splits a multi-byte character: with a 3-byte
+	// character straddling the limit, it moves to the next line whole.
+	out.Reset()
+	w = &lineWriter{w: &out, prefix: ""}
+	_, _ = w.Write([]byte(strings.Repeat("x", maxStderrLine-1) + "€" + "tail\n"))
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 2 || lines[0] != strings.Repeat("x", maxStderrLine-1) || lines[1] != "€tail" {
+		t.Fatalf("cut split a character: %d lines, second %q", len(lines), lines[len(lines)-1])
+	}
+	if !utf8.ValidString(out.String()) {
+		t.Fatal("cut produced invalid UTF-8")
+	}
+	// A line of exactly maxStderrLine bytes and its newline is one line, not
+	// a line plus an empty one.
+	out.Reset()
+	w = &lineWriter{w: &out, prefix: ""}
+	_, _ = w.Write([]byte(strings.Repeat("y", maxStderrLine) + "\nnext\n"))
+	if want := strings.Repeat("y", maxStderrLine) + "\nnext\n"; out.String() != want {
+		t.Fatalf("exact-limit line: got %d bytes, %q...", out.Len(), out.String()[out.Len()-10:])
+	}
+}
+
+func TestRuneCut(t *testing.T) {
+	euro := "€" // 3 bytes
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"ascii", "abc", 3},
+		{"complete multibyte at end", "ab" + euro, 5},
+		{"one byte of three", "ab" + euro[:1], 2},
+		{"two bytes of three", "ab" + euro[:2], 2},
+		{"stray continuation bytes kept", "ab\x82\x82", 4},
+		{"empty", "", 0},
+	}
+	for _, tc := range cases {
+		if got := runeCut([]byte(tc.in)); got != tc.want {
+			t.Errorf("%s: runeCut = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }

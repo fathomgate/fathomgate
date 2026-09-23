@@ -72,11 +72,12 @@ type route struct {
 // connectUpstream is its only writer and is owned by the Proxy (Close waits
 // for it).
 type upstream struct {
-	name    string
-	session *mcp.ClientSession
-	done    chan struct{}
-	err     error
-	closing atomic.Bool
+	name      string
+	transport mcp.Transport // to flush a Command's stderr on Close
+	session   *mcp.ClientSession
+	done      chan struct{}
+	err       error
+	closing   atomic.Bool
 }
 
 // exited reports whether the upstream session has ended.
@@ -170,7 +171,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		killCommand(u.Transport)
 		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, err)
 	}
-	up := &upstream{name: u.Server, session: cs, done: make(chan struct{})}
+	up := &upstream{name: u.Server, transport: u.Transport, session: cs, done: make(chan struct{})}
 	p.upstreams[u.Server] = up
 	go func() {
 		defer close(up.done)
@@ -183,14 +184,36 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 }
 
 // killCommand kills and reaps the process behind a CommandTransport, if it
-// was started. Other transports own no process.
+// was started, then flushes its stderr. Other transports own no process.
+// Only the direct child is killed; see the Command godoc on grandchildren.
 func killCommand(t mcp.Transport) {
 	ct, ok := t.(*mcp.CommandTransport)
 	if !ok || ct.Command == nil || ct.Command.Process == nil {
 		return
 	}
 	_ = ct.Command.Process.Kill()
-	_ = ct.Command.Wait() // fails harmlessly if go-sdk already waited
+	// go-sdk may already have waited (Connect closes the session on most
+	// failures, and that close waits for the process). Only wait if it has
+	// not, so two Waits never run at once. go-sdk's close has returned by
+	// the time Connect returns, except when it gave up on an unresponsive
+	// process; Linux CI with -race must confirm this stays race-free.
+	if ct.Command.ProcessState == nil {
+		_ = ct.Command.Wait()
+	}
+	flushStderr(t)
+}
+
+// flushStderr writes out a partial final stderr line held by a Command's
+// line writer. Call it only after the process has been reaped, when no more
+// stderr can arrive.
+func flushStderr(t mcp.Transport) {
+	ct, ok := t.(*mcp.CommandTransport)
+	if !ok || ct.Command == nil {
+		return
+	}
+	if lw, ok := ct.Command.Stderr.(*lineWriter); ok {
+		lw.Flush()
+	}
 }
 
 // toolCount is the number of tools exposed for up.
@@ -333,6 +356,9 @@ func (p *Proxy) Close() error {
 				errs = append(errs, fmt.Errorf("upstream %s: close: %w", n, err))
 			}
 			<-up.done
+			// session.Close has waited for a Command's process, and exec
+			// has finished copying its stderr, so the last line is final.
+			flushStderr(up.transport)
 		}
 		p.closeErr = errors.Join(errs...)
 	})
@@ -401,21 +427,23 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	if errors.As(err, &werr) {
 		return nil, relayUpstreamError(up.name, werr)
 	}
-	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || awaitExit(up, exitGrace) {
+	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || awaitExit(ctx, up, exitGrace) {
 		return upstreamDown(up), nil
 	}
 	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", err)
 	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
 }
 
-// awaitExit reports whether up has exited, waiting up to d for its exit
-// watcher when it has not yet.
-func awaitExit(up *upstream, d time.Duration) bool {
+// awaitExit reports whether up has exited, waiting up to d (or until ctx is
+// done) for its exit watcher when it has not yet.
+func awaitExit(ctx context.Context, up *upstream, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-up.done:
 		return true
+	case <-ctx.Done():
+		return up.exited()
 	case <-t.C:
 		return false
 	}

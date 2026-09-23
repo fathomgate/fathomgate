@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseServe(t *testing.T) {
+	t.Parallel()
 	base := []string{"--server", "netdev-ssh-mcp", "--upstream", "/opt/bin/netdev-ssh-mcp"}
 	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
 	cases := []struct {
@@ -24,6 +25,15 @@ func TestParseServe(t *testing.T) {
 		{name: "upstream-env empty value", args: with("--upstream-env", "A="), wantEnv: []string{"A="}},
 		{name: "upstream-env no equals", args: with("--upstream-env", "NOEQUALS"), wantErr: "not KEY=VALUE"},
 		{name: "upstream-env empty key", args: with("--upstream-env", "=v"), wantErr: "not KEY=VALUE"},
+		{name: "upstream-env underscore key", args: with("--upstream-env", "_A1=v"), wantEnv: []string{"_A1=v"}},
+		{name: "upstream-env digit first", args: with("--upstream-env", "1A=v"), wantErr: "[A-Za-z_]"},
+		{name: "upstream-env dash in key", args: with("--upstream-env", "A-B=v"), wantErr: "[A-Za-z_]"},
+		{name: "upstream-env dot in key", args: with("--upstream-env", "A.B=v"), wantErr: "[A-Za-z_]"},
+		{name: "upstream-env space in key", args: with("--upstream-env", "A B=v"), wantErr: "[A-Za-z_]"},
+		{name: "upstream-env non-ASCII key", args: with("--upstream-env", "\u017fystemRoot=v"), wantErr: "[A-Za-z_]"},
+		{name: "empty upstream", args: []string{"--server", "s", "--upstream", ""}, wantErr: "required"},
+		{name: "blank upstream", args: []string{"--server", "s", "--upstream", "  "}, wantErr: "not an executable path"},
+		{name: "upstream is --", args: []string{"--server", "s", "--upstream", "--"}, wantErr: "not an executable path"},
 		{name: "positional without --", args: with("extra"), wantErr: `unexpected argument "extra"`},
 		{name: "reserved --policy", args: with("--policy", "p.yaml"), wantErr: "--policy"},
 		{name: "reserved -audit=x", args: with("-audit=a.jsonl"), wantErr: "--audit"},
@@ -39,6 +49,7 @@ func TestParseServe(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cfg, err := parseServe(tc.args, io.Discard)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
