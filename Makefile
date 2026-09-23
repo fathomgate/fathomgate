@@ -49,7 +49,17 @@ vulncheck: ## govulncheck ./... at GOVULNCHECK_VERSION with the go.mod toolchain
 	GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 toolchain-check: ## Fail unless the Go in use is the go.mod toolchain (CI and release guard)
-	@want='$(GO_TOOLCHAIN)'; got="$$($(GO) env GOVERSION)"; 	if [ -z "$$want" ]; then echo "go.mod has no toolchain line (ADR 0013)"; exit 1; fi; 	if [ "$$got" != "$$want" ]; then echo "Go in use is $$got, go.mod toolchain is $$want (ADR 0013)"; exit 1; fi; 	echo "Go in use is $$got, the go.mod toolchain"
+	@want='$(GO_TOOLCHAIN)'; \
+	got="$$($(GO) env GOVERSION)"; \
+	if [ -z "$$want" ]; then \
+		echo "go.mod has no toolchain line (ADR 0013)"; \
+		exit 1; \
+	fi; \
+	if [ "$$got" != "$$want" ]; then \
+		echo "Go in use is $$got, go.mod toolchain is $$want (ADR 0013)"; \
+		exit 1; \
+	fi; \
+	echo "Go in use is $$got, the go.mod toolchain"
 
 actionlint: ## Lint .github/workflows at ACTIONLINT_VERSION (uses shellcheck if on PATH)
 	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -config-file .github/actionlint.yaml

@@ -28,6 +28,8 @@ jobs:
           # setup-go v6 runs on node24: the self-hosted runner must be
           # actions/runner v2.327.1 or later.
           go-version-file: go.mod
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
       - name: build proxy
         run: make build
       - name: deploy topology

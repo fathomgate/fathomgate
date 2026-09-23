@@ -15,9 +15,10 @@ permissions:
   contents: read
 
 # Go toolchain (ADR 0013): every setup-go step reads `go-version-file: go.mod`.
-# setup-go v6 installs the `toolchain` line (go1.25.14), not the `go` floor
-# (go1.25.0), and exports GOTOOLCHAIN=local so no step switches toolchains.
-# The toolchain version lives in go.mod only; bump it there.
+# setup-go v6 installs the `toolchain` line, not the `go` floor, and exports
+# GOTOOLCHAIN=local so no step switches toolchains. The toolchain version
+# lives in go.mod only; bump it there (CONTRIBUTING.md). Jobs that build run
+# `make toolchain-check` right after setup-go.
 
 jobs:
   go:
