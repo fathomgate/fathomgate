@@ -19,7 +19,7 @@ import (
 // fakeUpstreamEnv makes the test binary act as a stdio upstream, so the
 // Command path (a real child process over stdin/stdout) is exercised
 // without any external server. "1" is a go-sdk server; "badversion" is a raw
-// JSON-RPC peer that answers initialize with a protocol version go-sdk
+// JSON-RPC peer that answers the initialise request with a protocol version go-sdk
 // rejects, and then never exits on its own.
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
@@ -77,7 +77,7 @@ func runFakeStdioUpstream() {
 }
 
 // runBadVersionUpstream answers server/discover with method-not-found (so
-// go-sdk falls back to initialize) and initialize with an unsupported
+// go-sdk falls back to the initialise request) and answers it with an unsupported
 // protocol version. It ignores stdin EOF and sleeps, so only a kill ends it.
 func runBadVersionUpstream() {
 	sc := bufio.NewScanner(os.Stdin)
@@ -90,7 +90,7 @@ func runBadVersionUpstream() {
 			continue
 		}
 		var reply string
-		if msg.Method == "initialize" {
+		if msg.Method == "initialize" { //nolint:misspell // MCP wire method name, not prose
 			reply = fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"1999-01-01","capabilities":{},"serverInfo":{"name":"bad","version":"0"}}}`, msg.ID)
 		} else {
 			reply = fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}`, msg.ID)

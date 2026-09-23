@@ -163,12 +163,13 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// forward sees them and refuses them itself.
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
-	cs, err := client.Connect(ctx, u.Transport, nil)
+	tt := &trackedTransport{Transport: u.Transport}
+	cs, err := client.Connect(ctx, tt, nil)
 	if err != nil {
 		// go-sdk does not close the session on every Connect failure (an
 		// unsupported protocol version, for one), so a spawned upstream
-		// could outlive the error. Kill it.
-		killCommand(u.Transport)
+		// could outlive the error. Kill it and close the connection.
+		tt.kill()
 		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, err)
 	}
 	up := &upstream{name: u.Server, transport: u.Transport, session: cs, done: make(chan struct{})}
@@ -183,24 +184,48 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 	return up, nil
 }
 
-// killCommand kills and reaps the process behind a CommandTransport, if it
-// was started, then flushes its stderr. Other transports own no process.
+// trackedTransport records the Connection its Transport returns, so a
+// failed Connect can close it. go-sdk may or may not have closed that
+// connection already.
+type trackedTransport struct {
+	mcp.Transport
+
+	mu   sync.Mutex
+	conn mcp.Connection
+}
+
+// Connect implements [mcp.Transport].
+func (t *trackedTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	c, err := t.Transport.Connect(ctx)
+	if err == nil {
+		t.mu.Lock()
+		t.conn = c
+		t.mu.Unlock()
+	}
+	return c, err
+}
+
+// kill stops the process behind a CommandTransport, if one was started, and
+// closes the recorded connection. Other transports own no process.
+//
+// It never calls cmd.Wait or reads cmd.ProcessState itself. go-sdk's
+// connection Close owns the Wait. It runs once (sync.Once), and a second
+// caller blocks until the first has finished, so this Close returns only
+// after the process has been reaped, whether go-sdk closed first or not.
+// Process.Kill is safe while another goroutine is in Wait, and killing
+// first means Close reaps at once rather than after its 5s grace period.
 // Only the direct child is killed; see the Command godoc on grandchildren.
-func killCommand(t mcp.Transport) {
-	ct, ok := t.(*mcp.CommandTransport)
-	if !ok || ct.Command == nil || ct.Command.Process == nil {
-		return
+func (t *trackedTransport) kill() {
+	if ct, ok := t.Transport.(*mcp.CommandTransport); ok && ct.Command != nil && ct.Command.Process != nil {
+		_ = ct.Command.Process.Kill()
 	}
-	_ = ct.Command.Process.Kill()
-	// go-sdk may already have waited (Connect closes the session on most
-	// failures, and that close waits for the process). Only wait if it has
-	// not, so two Waits never run at once. go-sdk's close has returned by
-	// the time Connect returns, except when it gave up on an unresponsive
-	// process; Linux CI with -race must confirm this stays race-free.
-	if ct.Command.ProcessState == nil {
-		_ = ct.Command.Wait()
+	t.mu.Lock()
+	c := t.conn
+	t.mu.Unlock()
+	if c != nil {
+		_ = c.Close()
 	}
-	flushStderr(t)
+	flushStderr(t.Transport)
 }
 
 // flushStderr writes out a partial final stderr line held by a Command's
@@ -229,7 +254,7 @@ func (p *Proxy) toolCount(up *upstream) int {
 
 // listTools reads the upstream's full tool list, following pagination.
 func listTools(ctx context.Context, up *upstream) ([]*mcp.Tool, error) {
-	var tools []*mcp.Tool
+	tools := make([]*mcp.Tool, 0, 16)
 	for t, err := range up.session.Tools(ctx, nil) {
 		if err != nil {
 			return nil, fmt.Errorf("proxy: upstream %s: tools/list: %w", up.name, err)
@@ -319,14 +344,18 @@ type minLevel struct {
 	floor slog.Level
 }
 
+// Enabled reports whether l is at or above the floor and the wrapped
+// handler is enabled for it.
 func (h minLevel) Enabled(ctx context.Context, l slog.Level) bool {
 	return l >= h.floor && h.Handler.Enabled(ctx, l)
 }
 
+// WithAttrs returns a minLevel wrapping the handler with attrs added.
 func (h minLevel) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return minLevel{h.Handler.WithAttrs(attrs), h.floor}
 }
 
+// WithGroup returns a minLevel wrapping the handler with the group opened.
 func (h minLevel) WithGroup(name string) slog.Handler {
 	return minLevel{h.Handler.WithGroup(name), h.floor}
 }

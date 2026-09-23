@@ -158,7 +158,7 @@ func TestToolsListPrefixed(t *testing.T) {
 	h := newHarness(t, nil)
 	ctx := context.Background()
 
-	var got []*mcp.Tool
+	got := make([]*mcp.Tool, 0, 4)
 	for tool, err := range h.agent.Tools(ctx, nil) {
 		if err != nil {
 			t.Fatal(err)

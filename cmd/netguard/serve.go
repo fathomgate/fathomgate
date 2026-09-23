@@ -54,7 +54,7 @@ func parseServe(args []string, usageOut io.Writer) (serveConfig, error) {
 		fs.String(name, "", "not enforced in M0; refused until the pipeline is wired (M1)")
 	}
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), serveUsage)
+		_, _ = fmt.Fprintln(fs.Output(), serveUsage)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
