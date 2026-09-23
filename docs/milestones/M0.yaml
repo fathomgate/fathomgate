@@ -74,7 +74,7 @@ tasks:
     package: internal/audit
     owner: policy-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in review
     matrix: []
     notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey.
   - id: T0.8
