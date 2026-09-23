@@ -1,6 +1,9 @@
 # Multi-stage build: compile a static binary, ship it on distroless.
 # docker build -t netguard . && docker run --rm netguard version
-FROM golang:1.25-alpine AS build
+# The golang image sets GOTOOLCHAIN=local, so it builds with its own Go: keep
+# its minor equal to the go.mod `toolchain` line (ADR 0013). Release binaries
+# come from GoReleaser, not from this file.
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 COPY go.mod go.sum ./

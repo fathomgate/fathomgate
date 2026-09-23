@@ -18,9 +18,10 @@ BIN_DIR  := bin
 GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
 
 # Pinned CI tools, run with `go run pkg@version` so go.mod stays unchanged.
-# govulncheck v1.8.0 needs Go 1.26; v1.7.0 runs on the Go 1.25 toolchain we
-# build with, so it scans the same standard library that ships.
-GOVULNCHECK_VERSION ?= v1.7.0
+# govulncheck v1.8.0 declares go 1.26.0; `make vulncheck` runs it under the
+# go.mod toolchain (go1.26 since T0.14), so it scans the standard library that
+# ships. Keep its Go requirement at or below the toolchain minor.
+GOVULNCHECK_VERSION ?= v1.8.0
 ACTIONLINT_VERSION  ?= v1.7.12
 
 .PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check status status-check release-snapshot clean help
