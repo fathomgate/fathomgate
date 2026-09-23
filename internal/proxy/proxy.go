@@ -160,7 +160,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		}
 		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up), "protocol", up.version, "era", eraOf(up.version))
 	}
-	p.server.AddReceivingMiddleware(p.checkToolName)
+	p.server.AddReceivingMiddleware(refuseUndeclared, p.checkToolName)
 	return p, nil
 }
 
@@ -491,26 +491,21 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	defer up.end(f)
 	for ; ; round++ {
 		res, err := up.session.CallTool(ctx, params)
-		if r := up.refusedFor(f); r != nil && ctx.Err() == nil {
-			// The upstream sent elicitation/create and netguard refused it.
-			// Say so, whatever the upstream made of the refusal.
-			if err != nil {
-				return toolError(r.Error()), nil
-			}
-			if res != nil && !res.NeedsInput() {
-				out := passResult(res)
-				out.Content = append(out.Content, &mcp.TextContent{Text: r.Error()})
-				return out, nil
-			}
-		}
+		own, note := up.refusalsFor(f)
 		if err != nil {
+			if own != nil && ctx.Err() == nil {
+				// The upstream failed after netguard refused this call's own
+				// prompt: the refusal is the reason, so say that instead.
+				// An unattributed note never replaces an upstream error.
+				return toolError(own.Error()), nil
+			}
 			return p.callFailed(ctx, c, err)
 		}
 		switch {
 		case res == nil:
 			return toolError(fmt.Sprintf("upstream %s returned no result for %s", up.name, c.tool)), nil
 		case !res.NeedsInput():
-			return passResult(res), nil
+			return withRefusals(passResult(res), own, note), nil
 		case len(res.InputRequests) == 0:
 			return toolError(fmt.Sprintf("upstream %s is busy (input_required with no requests); retry %s later", up.name, c.tool)), nil
 		}
@@ -519,11 +514,11 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		switch {
 		case r != nil:
 		case !c.agent.canElicit:
-			r = &refusal{up.name, c.tool, "elicitation", "this client does not support form elicitation"}
+			r = newRefusal(up.name, c.tool, "elicitation", errNoFormElicitation)
 		case round >= maxInputRounds:
-			r = &refusal{up.name, c.tool, "input_required", fmt.Sprintf("more than %d rounds of input in one call", maxInputRounds)}
+			r = newRefusal(up.name, c.tool, "input_required", fmt.Errorf("more than %d rounds of input in one call", maxInputRounds))
 		case len(res.RequestState) > maxRequestState:
-			r = &refusal{up.name, c.tool, "input_required", "the upstream's requestState is too large"}
+			r = newRefusal(up.name, c.tool, "input_required", errors.New("the upstream's requestState is too large"))
 		}
 		if r != nil {
 			_ = p.refuse(up, f, r)
@@ -536,13 +531,19 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 				ids = append(ids, id)
 			}
 			slices.Sort(ids)
-			return &mcp.CallToolResult{
-				InputRequests: reqs,
-				RequestState: p.states.seal(sealedState{
-					Server: up.name, Tool: c.tool, Args: argsDigest(c.arguments),
-					IDs: ids, Up: res.RequestState, Round: round + 1,
-				}),
-			}, nil
+			// Measure the sealed state, not the upstream's: escaping and
+			// encoding can push a state under maxRequestState past what
+			// open accepts.
+			state, err := p.states.seal(sealedState{
+				Server: up.name, Tool: c.tool, Args: argsDigest(c.arguments),
+				IDs: ids, Up: res.RequestState, Round: round + 1,
+			})
+			if err != nil {
+				r = newRefusal(up.name, c.tool, "input_required", err)
+				_ = p.refuse(up, f, r)
+				return toolError(r.Error()), nil
+			}
+			return &mcp.CallToolResult{InputRequests: reqs, RequestState: state}, nil
 		}
 		answers, stop, err := p.askAgent(ctx, c, reqs)
 		if err != nil || stop != nil {
@@ -608,6 +609,9 @@ func upstreamDown(up *upstream) *mcp.CallToolResult {
 	return toolError(fmt.Sprintf("upstream %s is not running; restart netguard serve", up.name))
 }
 
+// toolError is a tool result with isError set and text as its only content:
+// how netguard reports a failure the agent can act on, as opposed to a
+// JSON-RPC protocol error.
 func toolError(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
 }
@@ -626,7 +630,38 @@ type unknownToolData struct {
 	Servers []string `json:"servers"`
 }
 
-// checkToolName is receiving middleware: a tools/call whose name is not a
+// undeclaredMethods belong to capabilities the proxy does not declare: it
+// declares tools only. go-sdk would otherwise answer them with empty lists
+// or an empty result, which tells the agent something the proxy never
+// offered.
+var undeclaredMethods = map[string]string{
+	"prompts/list":             "prompts",
+	"prompts/get":              "prompts",
+	"resources/list":           "resources",
+	"resources/read":           "resources",
+	"resources/templates/list": "resources",
+	"resources/subscribe":      "resources",
+	"resources/unsubscribe":    "resources",
+	"logging/setLevel":         "logging",
+	"completion/complete":      "completions",
+}
+
+// refuseUndeclared is receiving middleware: a request for a method of a
+// capability the proxy does not declare gets JSON-RPC method-not-found
+// (-32601) in either era.
+func refuseUndeclared(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if capability, ok := undeclaredMethods[method]; ok {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.CodeMethodNotFound,
+				Message: fmt.Sprintf("method %q is not supported: netguard does not declare the %s capability", method, capability),
+			}
+		}
+		return next(ctx, method, req)
+	}
+}
+
+// checkToolName is receiving middleware:a tools/call whose name is not a
 // known "<server>.<tool>" gets a JSON-RPC invalid-params error (-32602, as
 // the MCP spec requires for unknown tools) that says why, before any handler
 // or upstream sees it.

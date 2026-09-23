@@ -592,7 +592,7 @@ func TestSplitName(t *testing.T) {
 			t.Errorf("ValidateServerName(%q) = %v", name, err)
 		}
 	}
-	for _, name := range []string{"", "a.b", "a b", "a/b", "é"} {
+	for _, name := range []string{"", "a.b", "a b", "a/b", "é", "netguard", "NetGuard", "NETGUARD"} {
 		if err := ValidateServerName(name); err == nil {
 			t.Errorf("ValidateServerName(%q) accepted", name)
 		}

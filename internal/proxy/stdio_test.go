@@ -25,6 +25,11 @@ import (
 // rejects, and then never exits on its own.
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
+// childRaceEnv stops a -race child from sleeping a second at exit to let
+// the race detector report; every spawned fake exits several times per
+// run, and the upstream only inherits what Command.Env passes.
+const childRaceEnv = "GORACE=atexit_sleep_ms=0"
+
 func TestMain(m *testing.M) {
 	switch os.Getenv(fakeUpstreamEnv) {
 	case "1":
@@ -175,7 +180,7 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	cmd := Command{
 		Path:         testExecutable(t),
 		Args:         []string{"-test.run=^$"},
-		Env:          []string{fakeUpstreamEnv + "=1", "NETGUARD_TEST_UPSTREAM_VAR=FAKE-from-operator"},
+		Env:          []string{fakeUpstreamEnv + "=1", "NETGUARD_TEST_UPSTREAM_VAR=FAKE-from-operator", childRaceEnv},
 		Stderr:       stderr,
 		StderrPrefix: "upstream netdev-ssh-mcp: ",
 	}
@@ -265,7 +270,7 @@ func TestConnectFailureKillsUpstream(t *testing.T) {
 	ct := Command{
 		Path: testExecutable(t),
 		Args: []string{"-test.run=^$"},
-		Env:  []string{fakeUpstreamEnv + "=badversion"},
+		Env:  []string{fakeUpstreamEnv + "=badversion", childRaceEnv},
 	}.Transport()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -396,7 +401,7 @@ func TestStdioUpstreamEras(t *testing.T) {
 			ct := Command{
 				Path: testExecutable(t),
 				Args: []string{"-test.run=^$"},
-				Env:  []string{fakeUpstreamEnv + "=" + mode},
+				Env:  []string{fakeUpstreamEnv + "=" + mode, childRaceEnv},
 			}.Transport()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})

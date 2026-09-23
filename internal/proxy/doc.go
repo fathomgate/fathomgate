@@ -18,7 +18,7 @@
 // (2026-07-28, _meta on every request). The proxy records both per call,
 // forwards no _meta in either direction, and relays an upstream's form
 // elicitation to the agent only relabelled with its origin: as MRTR
-// input_required to a stateless agent, behind a signed requestState
+// input_required to a stateless agent, behind an AES-GCM sealed requestState
 // (state.go), or as elicitation/create to a stateful one (input.go). The
 // normative rules are in docs/specs/profile-schema.md section 8.4.
 //

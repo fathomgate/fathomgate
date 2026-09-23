@@ -1,58 +1,78 @@
-# T0.3 ready for review: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
+# T0.3 review round 1 applied: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
 
 - **Task:** T0.3 — Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
-- **From → To:** mcp-protocol-engineer → go-reviewer, then security-reviewer
+- **From → To:** mcp-protocol-engineer → go-reviewer (re-review), then security-reviewer
 - **State now:** in review
-- **Branch / PR:** `feat/proxy-dual-era` off `origin/land/m0-stack` (PR #25) · none yet (not pushed)
+- **Branch / PR:** `feat/proxy-dual-era` (origin/main merged in; #25 is on main) · none yet (not pushed)
 - **Date:** 2026-09-23
 
-## Done
+## Review round 1
 
-- **Era detection** (`internal/proxy/era.go`): go-sdk negotiates each side on its own. The upstream tries `server/discover`, then falls back to the initialise handshake at 2025-11-25. The agent's era is read per request. `upstream.version` and `call.agent.version` carry both eras to `Proxy.dispatch` for M1 audit, and `upstream ready` logs `protocol` and `era`.
-- **`_meta`** (`proxy.go` `handler`, `forward`, `passResult`): nothing of the agent's `_meta` reaches the upstream. go-sdk injects the proxy's own triple and never overwrites existing keys, so forwarding would have leaked the agent's identity and capabilities. Upstream result `_meta`, and a stray `requestState` or `inputRequests` on a complete result, are dropped. This closes the "recheck in T0.3" row. A stateless agent sees netguard's own `serverInfo`.
-- **Upstream prompts** (`input.go`): only form elicitation crosses to the agent. The message is prefixed `[from <server>] `, and every string in the message and schema is escaped. The schema must be flat. Limits: 16 requests per result, ids up to 128 bytes. Sampling, roots and URL mode are refused. Answers cross back only as `accept` (with content), `decline` or `cancel`, with no `_meta`.
-  - Stateless agent: MRTR `input_required`.
-  - Stateful agent: `elicitation/create`, looped by netguard itself, because go-sdk's server re-invokes only once.
-  - Stateful upstream's `elicitation/create`: attributed to the only call in flight on that upstream, refused otherwise. Agent cancellation cancels the prompt.
-  - 10 rounds per call.
-- **`requestState`** (`state.go`): a stateless agent gets `ng1.<payload>.<sig>`. The HMAC-SHA256 uses a random per-process key and binds server, tool, argument digest, outstanding ids, the upstream's state (up to 64 KiB), the round and a 30-minute expiry. Bad retries get `-32602` with `invalid_request_state` or `invalid_input_responses`, and the upstream never sees them.
-- **ADR 0014 (proposed), decision point:** ADR 0008 says a stateful upstream's `elicitation/create` is "converted to `input_required`" for a stateless agent. That needs the upstream call parked across agent requests. T0.3 refuses instead, with a labelled tool error. Everything else in ADR 0008 is implemented. No exported API changed (ADR 0012 holds).
-- **Docs:** profile-schema §8.1 and §8.2 rows, new normative §8.4; SECURITY.md gap table (7 rows); CHANGELOG; ARCHITECTURE eras table; ROADMAP M0 line; `doc.go`; ADR index.
+Go-reviewer returned request changes with one blocker, and security-reviewer approved with nits. Every item is applied. Two T0.4 conformance findings and the maintainer's acceptance of ADR 0014 are folded in.
+
+- **G1 (blocker), `state.go`:** `seal` now returns an error. It measures the **sealed** string against `maxSealedState` (96 KiB), and `open` refuses anything longer than the same constant, so `seal` never issues a state that `open` rejects. `forward` turns `errStateTooLarge` into a labelled refusal. `TestSealLimit` binary-searches the largest upstream state that seals, for plain, `<` (HTML-escaped), `\x01` and multibyte content. It checks that the state at the limit opens and that limit+1 is refused by `seal`.
+- **S3, `state.go`:** the envelope is now AES-256-GCM (stdlib `crypto/aes` + `crypto/cipher`) with a random per-process key and a random 96-bit nonce. The prefix `ng2.` is the additional authenticated data. The binding and the upstream's state are inside the ciphertext, and `TestSealer` checks that neither is visible in the token. Spec §8.4 now says the upstream's state is never handed out "in the clear or otherwise readable".
+- **S1, `input.go`:** each call gets one prompt slot (`startPrompt`/`endPrompt`) and a count capped at `maxInputRounds` on the stateful path. Prompts beyond that are refused. `TestPromptFlood` fires 4 concurrent `elicitation/create` and gets exactly 1 relayed and 3 refused, with no sleeps (the agent is gated on a channel). It then sends 11 serial prompts and gets 10 relayed and 1 refused.
+- **S2, `schema.go`:** the schema is rebuilt from the allow-list rather than filtered. Unknown keywords are dropped. Caps: 32 properties, 64 enum/`oneOf` entries, 64 KiB input, 16 KiB rebuilt. The form title is labelled, and every human-visible string is escaped. Enum and const values that would need escaping are refused, because they must round-trip. Both eras' paths use `relabelElicit`. `TestRelabelSchema` has 28 rows.
+- **S5, `name.go`:** `netguard` is reserved in any case. `serve --server NetGuard` exits 2 with `server name "NetGuard" is reserved for the proxy itself`. Covered in `TestSplitName` and `TestParseServe`.
+- **G2:** each stdio child gets `GORACE=atexit_sleep_ms=0` (`childRaceEnv`). The proxy `-race -count=3` run dropped from 14.65s to 3.48s.
+- **G3:** an unattributed refusal is now a `note`, only ever appended to a completing result. The call's own refusal may still replace the upstream error that it caused. `TestUpstreamElicitationNeedsOneCall` covers both: the upstream error stays the upstream's error, and a completed result keeps its content with the refusal appended.
+- **G4, G5, G6:** `sole` checks the count first. `refusal` now wraps an `error` (`Unwrap`), and schema errors use `%w`. `newSealer`, `seal`, `open` and `toolError` have godoc.
+- **ADR 0014:** accepted (option A). Option B's four requirements are recorded: single-use resume ids; a per-upstream cap with cancel-on-expiry; parked calls counting as in flight; cross-request tying after the original context ends. "proposed" has been removed everywhere 0014 is cited.
+- **SECURITY.md:** the impersonation row is rewritten. New rows cover schema spoofing, prompt flood, envelope replay (accepted), session binding (accepted until HTTP), content-block `_meta`, and ADR 0014's parking requirements.
+- **Conformance finding 1:** new middleware `refuseUndeclared` answers `-32601` for `prompts/list`, `prompts/get`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/subscribe`, `resources/unsubscribe`, `logging/setLevel` and `completion/complete`. `TestUndeclaredCapabilities` covers it for both agent eras.
+- **Conformance finding 2:** confirmed fixed by dropping the result `_meta`. `TestStatefulAgentSeesNoStatelessMeta` checks, for both upstream eras, that no `io.modelcontextprotocol/` key reaches a 2025 agent on the wire, including results where the upstream sets one. go-sdk adds `serverInfo` only on stateless requests.
+
+## Conformance baseline changes for the test-engineer (branch ci/conformance, not touched)
+
+In `tests/conformance/expected-failures.*.yml`, these entries should no longer fail:
+
+- Any check expecting `-32601` from `prompts/list`, `prompts/get`, `resources/list`, `resources/templates/list`, `resources/read` or `logging/setLevel` against a server that declares `{"tools":{}}` only.
+- Any 2025-11-25 check flagging `_meta["io.modelcontextprotocol/serverInfo"]` on a `tools/call` result.
+
+A check that expects empty lists for undeclared capabilities would now fail, and should be dropped or inverted.
+
+## Done (unchanged from the first submission)
+
+- **Era detection** (`era.go`): each side is detected separately. The upstream is detected once at connect; the agent per request. Both eras are recorded on the call for M1 audit, and `upstream ready` logs `protocol` and `era`.
+- **No `_meta` crosses in either direction.** The upstream's result `_meta`, and a stray `requestState` or `inputRequests` on a complete result, are dropped.
+- **Upstream prompts, by agent era:** a stateless agent gets them as MRTR `input_required`; a stateful one gets `elicitation/create`, looped by netguard for up to 10 rounds. Answers cross back only as `accept` with content, `decline` or `cancel`. Sampling, roots and URL mode are refused.
+- **Invalid retries** get `-32602` with `invalid_request_state` or `invalid_input_responses` and never reach the upstream.
+- **Docs:** profile-schema §8.1, §8.2 and §8.4; SECURITY.md; CHANGELOG; ARCHITECTURE; ROADMAP; ADR index.
 
 ## Look at this first
 
-- `internal/proxy/proxy.go` `forward`: the input loop, the refusal ordering and the era branch.
-- `internal/proxy/input.go` `upstreamElicitation` and `refuse`: attribution through `upstream.calls`, and the `context.AfterFunc` cancel bridge.
-- `internal/proxy/era_test.go` `legacyServer` and `legacyAgent`: how a go-sdk v1.7 fake is pinned to 2025-11-25.
+- `internal/proxy/proxy.go` `forward`: the refusal order (own refusal versus note) and where the sealed length is measured.
+- `internal/proxy/input.go` `upstreamElicitation`, `startPrompt` and `refuse`.
+- `internal/proxy/schema.go` `relabelSchema`: the allow-list.
 
 ## Deliberately unfinished
 
-- **Stateless agent × stateful upstream prompt:** refused, pending the maintainer's decision on ADR 0014.
-- **Not relayed:** progress notifications, and `_meta` inside content blocks (M2 serialiser).
-- **HTTP:** there is no Streamable HTTP yet, so no `Mcp-Method`/`Mcp-Name` checks.
-- **Row 2 not validated:** tier 1 fakes and a real stdio child only. Smoke against netdev-ssh-mcp v1.6.6 only. `upa/mcp-netmiko-server` was not run. The test-engineer validates.
-- **Row 17:** labelling is implemented, but it is not validated against junos-mcp-server (M3).
-- **`CLAUDE.md` repo map, line 88,** still says "dual-era is T0.3". Not edited, because it is agent configuration. Maintainer to update.
+- **Replay within 30 minutes:** accepted for M0. M3 needs a single-use id.
+- **Session binding:** the envelope and prompt attribution are not bound to an agent session, since stdio has one. Required once Streamable HTTP lands.
+- **Not relayed:** content-block `_meta` (passes until M2), progress notifications, and the `Mcp-Method`/`Mcp-Name` headers (HTTP only).
+- **Property titles and descriptions** are escaped, not individually prefixed; the message and the form title carry the label.
+- **Validation:** row 2 is not validated. That needs `upa/mcp-netmiko-server` and the test-engineer. Row 17 is not validated.
+- **`CLAUDE.md` line 88:** left for the orchestrator.
 
 ## Reproduce green
 
 ```sh
 gofmt -l . && go build ./... && go vet ./... && go test -count=3 ./...
-go test -count=1 -v -run 'Era|MRTR|Refused|Round|NeedsOneCall|CancelDuringPrompt|Stdio' ./internal/proxy/
+go test -count=1 -v -run 'Era|MRTR|Refused|Round|NeedsOneCall|Flood|Undeclared|StatelessMeta|Seal|Schema|Stdio' ./internal/proxy/
 MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golang:1.25 go test -race -count=3 ./...
 MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/src -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local golangci/golangci-lint:v2.4.0 golangci-lint run ./...
-go build -o bin/netguard ./cmd/netguard && bin/netguard policy test $(find policies -name '*.test.yaml' | sort)   # 25/25
+go build -o bin/netguard ./cmd/netguard && bin/netguard policy test policies/examples/*.test.yaml   # 25/25
 python tools/status/render.py --check
 ```
 
 ## Decisions made without an ADR
 
-- **Envelope parameters:** 30-minute TTL, per-process key (a restart voids outstanding states), 10 rounds, 16 requests, 64 KiB, and the argument digest over compacted raw bytes (not canonical JSON, so duplicate keys count). They are normative in §8.4, not in an ADR.
-- **Refusal ordering:** an unattributable prompt is recorded against every call in flight on that upstream. A refusal is appended as text to an upstream result that still completes.
+- **Envelope parameters:** 30-minute TTL, per-process key, 10 rounds, 16 requests, a 64 KiB upstream state and a 96 KiB sealed state. The argument digest is taken over compacted raw bytes. Schema caps: 32 properties, 64 entries, 16 KiB. All are normative in §8.4.
+- **Unrenderable enum values:** enum and const strings with control characters are refused rather than escaped, because an escaped value would not match what the upstream expects back.
 - **Upstream advertisement:** form elicitation is advertised to every upstream, because the agent's era is unknown at connect time.
 
 ## Questions for the receiver
 
-- go-reviewer: is `upstream.calls` plus `refusedFor` after each `CallTool` the right shape, or should the refusal travel on the call's context?
-- security-reviewer: is accepting replay of a valid envelope within its 30 minutes acceptable until M3 binds approvals to a pending id?
-- Maintainer: accept ADR 0014 (refuse), or require parking before M0 closes?
+- go-reviewer: is `refusalsFor` after each `CallTool`, with own refusal versus note, the shape you wanted for G3?
+- security-reviewer: is escaping (not prefixing) property titles and descriptions enough, given that the form title and message carry the label?

@@ -2,7 +2,8 @@ package proxy
 
 import (
 	"bytes"
-	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,27 +17,34 @@ import (
 // A stateless (2026-07-28) agent answers an upstream's input request by
 // re-sending the tools/call with inputResponses and the requestState it was
 // given. The agent is untrusted, so the requestState the proxy hands out is
-// not the upstream's: it is a sealed envelope that binds the upstream's own
-// state to the server, tool, arguments and input request ids it was issued
-// for, signed with a key that never leaves the process. See
-// docs/specs/profile-schema.md section 8.4.
+// not the upstream's: it is an envelope sealed with AES-256-GCM under a key
+// that never leaves the process. The upstream's own state and the binding
+// (server, tool, arguments, outstanding input request ids, round, expiry)
+// are inside the ciphertext, so the agent can neither read nor change them.
+// See docs/specs/profile-schema.md section 8.4.
 
 const (
 	// statePrefix starts every requestState netguard issues; it versions
-	// the envelope format.
-	statePrefix = "ng1."
-	// maxRequestState caps a requestState in either direction: the
-	// upstream's (untrusted, carried inside the envelope) and the agent's.
+	// the envelope format and is authenticated as additional data.
+	statePrefix = "ng2."
+	// maxRequestState caps the upstream's requestState (untrusted) before
+	// netguard tries to seal it.
 	maxRequestState = 64 << 10
+	// maxSealedState caps a requestState netguard issues and, from the same
+	// constant, one it accepts: seal refuses to issue a longer one, so
+	// everything seal issues, open can open. JSON escaping and base64 make
+	// the sealed form larger than the upstream's state, by up to about
+	// eight times for escape-heavy text, so this is checked after sealing.
+	maxSealedState = 96 << 10
 	// stateTTL bounds how long an issued requestState is accepted. It covers
 	// a human answering a prompt, not a parked approval (that is M3).
 	stateTTL = 30 * time.Minute
-	// maxInputRounds bounds how many times one call may ask for input,
-	// matching go-sdk's own client limit.
+	// maxInputRounds bounds how many times one call may ask for input, in
+	// either era, matching go-sdk's own client limit.
 	maxInputRounds = 10
 )
 
-// sealedState is the signed content of a requestState netguard issues.
+// sealedState is the encrypted content of a requestState netguard issues.
 type sealedState struct {
 	Server string   `json:"s"`           // upstream server name (prefix)
 	Tool   string   `json:"t"`           // unprefixed upstream tool
@@ -50,72 +58,78 @@ type sealedState struct {
 // Reasons a requestState is refused. They are shown to the agent.
 var (
 	errStateMalformed = errors.New("requestState was not issued by netguard")
-	errStateSignature = errors.New("requestState signature does not verify")
+	errStateSignature = errors.New("requestState does not verify")
 	errStateExpired   = errors.New("requestState has expired; call the tool again without it")
+	errStateTooLarge  = errors.New("the sealed requestState would exceed the size netguard accepts")
 )
 
-// sealer issues and verifies requestState envelopes. The key is random per
+// sealer issues and opens requestState envelopes. The key is random per
 // process, so a restart invalidates every outstanding state; the agent then
 // starts the call again, as the spec allows.
 type sealer struct {
-	key []byte
-	now func() time.Time
+	aead cipher.AEAD
+	now  func() time.Time
 }
 
+// newSealer returns a sealer with a fresh random AES-256-GCM key and the
+// real clock.
 func newSealer() (*sealer, error) {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("proxy: requestState key: %w", err)
 	}
-	return &sealer{key: key, now: time.Now}, nil
-}
-
-func (s *sealer) mac(payload string) []byte {
-	m := hmac.New(sha256.New, s.key)
-	m.Write([]byte(statePrefix))
-	m.Write([]byte(payload))
-	return m.Sum(nil)
-}
-
-// seal returns the requestState for st, with its expiry set from now.
-func (s *sealer) seal(st sealedState) string {
-	st.Exp = s.now().Add(stateTTL).Unix()
-	raw, err := json.Marshal(st)
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		// sealedState holds only strings and ints.
-		panic(fmt.Sprintf("proxy: marshal requestState: %v", err))
+		return nil, fmt.Errorf("proxy: requestState cipher: %w", err)
 	}
-	payload := base64.RawURLEncoding.EncodeToString(raw)
-	return statePrefix + payload + "." + base64.RawURLEncoding.EncodeToString(s.mac(payload))
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("proxy: requestState cipher: %w", err)
+	}
+	return &sealer{aead: aead, now: time.Now}, nil
 }
 
-// open verifies a requestState and returns its content. It checks the
-// format, the signature and the expiry; the caller checks the binding.
+// seal returns the requestState for st, with its expiry set from now. It
+// fails with errStateTooLarge rather than issue a state open would refuse.
+func (s *sealer) seal(st sealedState) (string, error) {
+	st.Exp = s.now().Add(stateTTL).Unix()
+	plain, err := json.Marshal(st)
+	if err != nil {
+		return "", fmt.Errorf("proxy: marshal requestState: %w", err)
+	}
+	nonce := make([]byte, s.aead.NonceSize(), s.aead.NonceSize()+len(plain)+s.aead.Overhead())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("proxy: requestState nonce: %w", err)
+	}
+	sealed := s.aead.Seal(nonce, nonce, plain, []byte(statePrefix))
+	out := statePrefix + base64.RawURLEncoding.EncodeToString(sealed)
+	if len(out) > maxSealedState {
+		return "", errStateTooLarge
+	}
+	return out, nil
+}
+
+// open decrypts and authenticates a requestState and checks its expiry; the
+// caller checks the binding.
 func (s *sealer) open(state string) (sealedState, error) {
 	var st sealedState
-	if len(state) > maxRequestState+len(statePrefix)+128 {
+	if len(state) > maxSealedState {
 		return st, errStateMalformed
 	}
-	rest, ok := strings.CutPrefix(state, statePrefix)
+	body, ok := strings.CutPrefix(state, statePrefix)
 	if !ok {
 		return st, errStateMalformed
 	}
-	payload, sig, ok := strings.Cut(rest, ".")
-	if !ok {
+	sealed, err := base64.RawURLEncoding.DecodeString(body)
+	if err != nil || len(sealed) < s.aead.NonceSize()+s.aead.Overhead() {
 		return st, errStateMalformed
 	}
-	got, err := base64.RawURLEncoding.DecodeString(sig)
+	n := s.aead.NonceSize()
+	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], []byte(statePrefix))
 	if err != nil {
-		return st, errStateMalformed
-	}
-	if !hmac.Equal(got, s.mac(payload)) {
 		return st, errStateSignature
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(payload)
-	if err != nil {
-		return st, errStateMalformed
-	}
-	if err := json.Unmarshal(raw, &st); err != nil {
+	if err := json.Unmarshal(plain, &st); err != nil {
 		return st, errStateMalformed
 	}
 	if s.now().Unix() > st.Exp {

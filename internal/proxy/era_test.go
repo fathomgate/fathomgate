@@ -117,6 +117,12 @@ func (t *wireTap) Connect(ctx context.Context) (mcp.Connection, error) {
 	return tapConn{c, t}, nil
 }
 
+func (t *wireTap) all() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return slices.Clone(t.results)
+}
+
 func (t *wireTap) last() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -268,6 +274,8 @@ type eraSetup struct {
 	noElicit        bool   // the agent declares no elicitation
 	manualMRTR      bool   // the agent handles input_required itself
 	hooks           *blockHooks
+	extra           func(*mcp.Server) // adds test-specific upstream tools
+	gate            <-chan struct{}   // if set, the agent answers a prompt only once it closes (or after 5s)
 }
 
 type eraHarness struct {
@@ -284,6 +292,9 @@ func newEraHarness(t *testing.T, s eraSetup) *eraHarness {
 	rec := &recorder{}
 	srv := fakeUpstream(rec, s.hooks)
 	addEraTools(srv, rec)
+	if s.extra != nil {
+		s.extra(srv)
+	}
 	upSrvT, upCliT := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, pinServer(s.upstream, upSrvT), nil); err != nil {
 		t.Fatal(err)
@@ -312,6 +323,14 @@ func connectAgent(t *testing.T, p *Proxy, s eraSetup, prompts *promptLog) (*mcp.
 			prompts.mu.Lock()
 			prompts.got = append(prompts.got, req.Params)
 			prompts.mu.Unlock()
+			if s.gate != nil {
+				timer := time.NewTimer(5 * time.Second)
+				defer timer.Stop()
+				select {
+				case <-s.gate:
+				case <-timer.C:
+				}
+			}
 			return &mcp.ElicitResult{
 				Meta:    mcp.Meta{"com.example/agent": "FAKE-agent-meta"},
 				Action:  "accept",
@@ -476,7 +495,7 @@ func TestMRTRWire(t *testing.T) {
 		t.Fatalf("want input_required, got %q", text(first))
 	}
 	wire := h.tap.last()
-	for _, want := range []string{`"resultType":"input_required"`, `"requestState":"ng1.`, `"method":"elicitation/create"`} {
+	for _, want := range []string{`"resultType":"input_required"`, `"requestState":"` + statePrefix, `"method":"elicitation/create"`} {
 		if !strings.Contains(wire, want) {
 			t.Errorf("wire result lacks %s: %s", want, wire)
 		}
@@ -631,10 +650,20 @@ func TestStatelessAgentMultiRound(t *testing.T) {
 
 // TestUpstreamElicitationNeedsOneCall: a stateful upstream's
 // elicitation/create names no call, so with two calls in flight netguard
-// cannot say whose prompt it is and refuses it.
+// cannot say whose prompt it is and refuses it. That refusal is only ever
+// added to what the upstream returns: an upstream error stays the
+// upstream's error, and a result the upstream still completes keeps its
+// content, with the refusal appended.
 func TestUpstreamElicitationNeedsOneCall(t *testing.T) {
 	hooks := &blockHooks{blocked: make(chan struct{}, 1), cancelled: make(chan struct{}, 1)}
-	h := newEraHarness(t, eraSetup{agent: v2025, upstream: v2025, hooks: hooks})
+	h := newEraHarness(t, eraSetup{agent: v2025, upstream: v2025, hooks: hooks, extra: func(s *mcp.Server) {
+		s.AddTool(&mcp.Tool{Name: "ask_direct", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if _, err := req.Session.Elicit(ctx, promptFor("pw")); err == nil {
+				return textResult("upstream got an answer"), nil
+			}
+			return textResult("upstream carried on without an answer"), nil
+		})
+	}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errc := make(chan error, 1)
@@ -647,12 +676,24 @@ func TestUpstreamElicitationNeedsOneCall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("block never reached the upstream")
 	}
-	res, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
-	if err != nil {
-		t.Fatalf("want a tool error, got %v", err)
+	bg := context.Background()
+
+	// The upstream fails the call: the agent gets the upstream's own error.
+	_, err := h.agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
+	var werr *jsonrpc.Error
+	if !errors.As(err, &werr) || !strings.HasPrefix(werr.Message, "upstream netdev-ssh-mcp: ") ||
+		!strings.Contains(werr.Message, "cannot be attributed to one call (2 in flight)") {
+		t.Fatalf("want the upstream's relayed error, got %v", err)
 	}
-	if !res.IsError || !strings.Contains(text(res), "cannot be attributed to one call (2 in flight)") {
-		t.Fatalf("result %v %q", res.IsError, text(res))
+
+	// The upstream carries on: its result stands and the refusal is appended.
+	res, err := h.agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
+	if err != nil || res.IsError {
+		t.Fatalf("want the upstream's result, got %v %q", err, text(res))
+	}
+	if got := text(res); !strings.HasPrefix(got, "upstream carried on without an answer") ||
+		!strings.Contains(got, "netguard refused an input request (elicitation) from upstream netdev-ssh-mcp: it cannot be attributed to one call (2 in flight)") {
+		t.Fatalf("result %q", got)
 	}
 	if len(h.prompts.all()) != 0 {
 		t.Fatal("an unattributed prompt reached the agent")
@@ -667,6 +708,82 @@ func TestUpstreamElicitationNeedsOneCall(t *testing.T) {
 	case <-hooks.cancelled:
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation never reached the upstream")
+	}
+}
+
+// TestPromptFlood: go-sdk runs an upstream's incoming requests concurrently,
+// so a hostile stateful upstream can fire many elicitation/create at once.
+// netguard lets one prompt per call be open and at most maxInputRounds per
+// call, and refuses the rest.
+func TestPromptFlood(t *testing.T) {
+	const burst = 4
+	release := make(chan struct{})
+	h := newEraHarness(t, eraSetup{agent: v2025, upstream: v2025, gate: release, extra: func(s *mcp.Server) {
+		// ask_burst fires burst prompts at once. The agent holds the first
+		// open until the other burst-1 have been refused.
+		s.AddTool(&mcp.Tool{Name: "ask_burst", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var (
+				mu          sync.Mutex
+				wg          sync.WaitGroup
+				ok, refused int
+			)
+			for i := range burst {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					_, err := req.Session.Elicit(ctx, promptFor(fmt.Sprint("p", i)))
+					mu.Lock()
+					defer mu.Unlock()
+					if err == nil {
+						ok++
+						return
+					}
+					refused++
+					if refused == burst-1 {
+						close(release)
+					}
+				}()
+			}
+			wg.Wait()
+			return textResult(fmt.Sprintf("ok=%d refused=%d", ok, refused)), nil
+		})
+		// ask_serial asks one more time than a call may.
+		s.AddTool(&mcp.Tool{Name: "ask_serial", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			ok, refused := 0, 0
+			for range maxInputRounds + 1 {
+				if _, err := req.Session.Elicit(ctx, promptFor("pw")); err == nil {
+					ok++
+				} else {
+					refused++
+				}
+			}
+			return textResult(fmt.Sprintf("ok=%d refused=%d", ok, refused)), nil
+		})
+	}})
+	bg := context.Background()
+
+	res, err := h.agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_burst"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := text(res); !strings.HasPrefix(got, fmt.Sprintf("ok=1 refused=%d", burst-1)) ||
+		!strings.Contains(got, "another prompt from this upstream is still open for this call") {
+		t.Fatalf("burst: %q", got)
+	}
+	if n := len(h.prompts.all()); n != 1 {
+		t.Fatalf("agent saw %d prompts from a burst, want 1", n)
+	}
+
+	res, err = h.agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_serial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := text(res); !strings.HasPrefix(got, fmt.Sprintf("ok=%d refused=1", maxInputRounds)) ||
+		!strings.Contains(got, "more than 10 prompts in one call") {
+		t.Fatalf("serial: %q", got)
+	}
+	if n := len(h.prompts.all()); n != 1+maxInputRounds {
+		t.Fatalf("agent saw %d prompts, want %d", n, 1+maxInputRounds)
 	}
 }
 

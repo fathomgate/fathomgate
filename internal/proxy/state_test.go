@@ -1,9 +1,12 @@
 package proxy
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,11 +22,20 @@ func testSealer(t *testing.T, now time.Time) *sealer {
 	return s
 }
 
+func mustSeal(t *testing.T, s *sealer, st sealedState) string {
+	t.Helper()
+	token, err := s.seal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
 func TestSealer(t *testing.T) {
-	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	s := testSealer(t, now)
-	st := sealedState{Server: "s", Tool: "t", Args: argsDigest(json.RawMessage(`{"a":1}`)), IDs: []string{"otp", "pw"}, Up: "FAKE-up-state", Round: 2}
-	token := s.seal(st)
+	st := sealedState{Server: "s", Tool: "t", Args: argsDigest(json.RawMessage(`{"a":1}`)), IDs: []string{"otp", "pw"}, Up: "FAKE-up-state-secret", Round: 2}
+	token := mustSeal(t, s, st)
 	if !strings.HasPrefix(token, statePrefix) {
 		t.Fatalf("token %q lacks prefix", token)
 	}
@@ -36,9 +48,25 @@ func TestSealer(t *testing.T) {
 		t.Fatalf("open = %+v, want %+v", got, st)
 	}
 
-	payload, sig, _ := strings.Cut(strings.TrimPrefix(token, statePrefix), ".")
-	flipped := []byte(payload)
-	flipped[0] ^= 1
+	// The agent cannot read the upstream's state or the binding.
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(token, statePrefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"FAKE-up-state-secret", `"s":"s"`, "otp"} {
+		if bytes.Contains(raw, []byte(secret)) || strings.Contains(token, secret) {
+			t.Errorf("sealed state reveals %q", secret)
+		}
+	}
+	// Sealing twice gives two different tokens (random nonce).
+	if again := mustSeal(t, s, st); again == token {
+		t.Error("two seals of the same state are identical")
+	}
+
+	body := strings.TrimPrefix(token, statePrefix)
+	edited := bytes.Clone(raw)
+	edited[len(edited)/2] ^= 1
+	flipped := base64.RawURLEncoding.EncodeToString(edited)
 	cases := []struct {
 		name  string
 		token string
@@ -46,12 +74,13 @@ func TestSealer(t *testing.T) {
 	}{
 		{"empty", "", errStateMalformed},
 		{"not ours", "FAKE-up-state", errStateMalformed},
+		{"old format", "ng1." + body, errStateMalformed},
 		{"prefix only", statePrefix, errStateMalformed},
-		{"no signature", statePrefix + payload, errStateMalformed},
-		{"signature not base64", statePrefix + payload + ".!!", errStateMalformed},
-		{"payload edited", statePrefix + string(flipped) + "." + sig, errStateSignature},
-		{"signature cut", statePrefix + payload + "." + sig[:10], errStateSignature},
-		{"oversized", statePrefix + strings.Repeat("A", maxRequestState+200) + "." + sig, errStateMalformed},
+		{"not base64", statePrefix + "!!", errStateMalformed},
+		{"too short", statePrefix + "AAAA", errStateMalformed},
+		{"ciphertext edited", statePrefix + flipped, errStateSignature},
+		{"truncated", statePrefix + body[:len(body)-4], errStateSignature},
+		{"oversized", statePrefix + strings.Repeat("A", maxSealedState), errStateMalformed},
 	}
 	for _, tc := range cases {
 		if _, err := s.open(tc.token); !errors.Is(err, tc.want) {
@@ -72,6 +101,60 @@ func TestSealer(t *testing.T) {
 	s.now = func() time.Time { return now.Add(stateTTL + time.Second) }
 	if _, err := s.open(token); !errors.Is(err, errStateExpired) {
 		t.Errorf("after TTL: %v", err)
+	}
+}
+
+// TestSealLimit: seal never issues a state open refuses. For each kind of
+// upstream state, find the longest one that seals; it must open, and one
+// byte more must be refused by seal itself.
+func TestSealLimit(t *testing.T) {
+	s := testSealer(t, time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+	base := sealedState{Server: testServer, Tool: "ask", Args: argsDigest(nil), IDs: []string{"pw"}, Round: 1}
+	kinds := []struct {
+		name string
+		unit string
+	}{
+		{"plain text", "a"},
+		{"HTML-escaped", "<"},
+		{"control characters", "\x01"},
+		{"multibyte", "\xe2\x82\xac"},
+	}
+	for _, k := range kinds {
+		t.Run(k.name, func(t *testing.T) {
+			sealN := func(n int) (string, error) {
+				st := base
+				st.Up = strings.Repeat(k.unit, n)
+				return s.seal(st)
+			}
+			// Largest n that seals, by binary search over repeat counts.
+			n := sort.Search(maxSealedState, func(n int) bool {
+				_, err := sealN(n)
+				return err != nil
+			}) - 1
+			if n < 1 {
+				t.Fatalf("nothing seals")
+			}
+			at, err := sealN(n)
+			if err != nil {
+				t.Fatalf("at limit (%d units): %v", n, err)
+			}
+			if len(at) > maxSealedState {
+				t.Fatalf("issued %d bytes, cap %d", len(at), maxSealedState)
+			}
+			if _, err := s.open(at); err != nil {
+				t.Fatalf("open refuses what seal issued at the limit (%d bytes): %v", len(at), err)
+			}
+			if _, err := sealN(n + 1); !errors.Is(err, errStateTooLarge) {
+				t.Fatalf("limit+1: %v, want errStateTooLarge", err)
+			}
+		})
+	}
+	// The cap on the upstream's own state is below what always seals for
+	// plain text, so a plain 64 KiB state is carried.
+	st := base
+	st.Up = strings.Repeat("a", maxRequestState)
+	if _, err := s.seal(st); err != nil {
+		t.Fatalf("plain state at maxRequestState: %v", err)
 	}
 }
 

@@ -19,6 +19,6 @@ To propose one, copy the template to the next number, open a pull request, and l
 | [0011](0011-accept-go-sdk-transitive-modules.md) | Accept go-sdk v1.7.0 and its transitive modules | accepted | 2026-09-23 |
 | [0012](0012-serve-cli-and-proxy-api-for-m0.md) | `netguard serve` flags and the `internal/proxy` API for M0 | accepted | 2026-09-23 |
 | [0013](0013-pin-go-toolchain-in-go-mod.md) | Pin the Go build toolchain in go.mod | accepted | 2026-09-23 |
-| [0014](0014-stateful-upstream-prompts-to-stateless-agents.md) | Refuse a stateful upstream's prompt to a stateless agent until parking is decided | proposed | 2026-09-23 |
+| [0014](0014-stateful-upstream-prompts-to-stateless-agents.md) | Refuse a stateful upstream's prompt to a stateless agent in M0; defer parking to row 17 | accepted | 2026-09-23 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#open-questions). Each will become a record when resolved.

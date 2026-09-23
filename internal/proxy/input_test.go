@@ -16,49 +16,6 @@ const (
 	bs  = "\x5c"
 )
 
-func TestRelabelSchema(t *testing.T) {
-	str := map[string]any{"type": "string"}
-	cases := []struct {
-		name    string
-		in      any
-		wantErr string
-		want    string // JSON of the result, when no error
-	}{
-		{"nil", nil, "", "null"},
-		{"flat", map[string]any{"type": "object", "properties": map[string]any{"pw": str}}, "", `{"properties":{"pw":{"type":"string"}},"type":"object"}`},
-		{"no type", map[string]any{"properties": map[string]any{"pw": str}}, "", `{"properties":{"pw":{"type":"string"}}}`},
-		{"strings escaped at any depth", map[string]any{"type": "object", "properties": map[string]any{
-			"mode": map[string]any{"type": "string", "description": "a" + rlo + "b", "enum": []any{"x\x1b[2J"}},
-		}}, "", `{"properties":{"mode":{"description":"a` + bs + bs + `u202eb","enum":["x` + bs + bs + `u001b[2J"],"type":"string"}},"type":"object"}`},
-		{"not an object", "string", "not a JSON object", ""},
-		{"root not object", map[string]any{"type": "array"}, `not "object"`, ""},
-		{"properties not object", map[string]any{"type": "object", "properties": []any{}}, "properties is not an object", ""},
-		{"nested object", map[string]any{"type": "object", "properties": map[string]any{"creds": map[string]any{"type": "object"}}}, "only primitives", ""},
-		{"property without type", map[string]any{"type": "object", "properties": map[string]any{"x": map[string]any{}}}, "only primitives", ""},
-		{"property not object", map[string]any{"type": "object", "properties": map[string]any{"x": "string"}}, "is not an object", ""},
-		{"control character in name", map[string]any{"type": "object", "properties": map[string]any{"p\nw": str}}, "control characters", ""},
-		{"bidi in name", map[string]any{"type": "object", "properties": map[string]any{"p" + rlo: str}}, "control characters", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := relabelSchema(tc.in)
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("error %v, want %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			b, _ := json.Marshal(got)
-			if string(b) != tc.want {
-				t.Fatalf("got  %s\nwant %s", b, tc.want)
-			}
-		})
-	}
-}
-
 func TestRelabelElicit(t *testing.T) {
 	got, r := relabelElicit("junos-mcp-server", "commit", &mcp.ElicitParams{
 		Meta:    mcp.Meta{"com.example/x": "FAKE"},

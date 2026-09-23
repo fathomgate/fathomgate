@@ -12,17 +12,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Upstream input requests (ADR 0008; profile-schema section 8.4).
+// Upstream input requests (ADR 0008, ADR 0014; profile-schema section 8.4).
 //
 // An upstream asks for user input in one of two shapes: a stateless upstream
 // returns an MRTR input_required result, a stateful one sends a
 // server-initiated elicitation/create while the call is open. Whatever the
 // shape, only form elicitation crosses to the agent, and only after
-// relabelling: the message gets the prefix "[from <server>] " and every
-// string in it and in its schema has control characters escaped. Sampling,
-// roots, URL-mode elicitation and anything unrecognised are refused. The
-// agent's answer crosses back only as an elicitation result with action
-// accept (with its content), decline or cancel; nothing else, and no _meta.
+// relabelling: the message gets the prefix "[from <server>] ", the schema is
+// rebuilt from an allow-list (schema.go) and every human-visible string is
+// escaped. Sampling, roots, URL-mode elicitation and anything unrecognised
+// are refused. The agent's answer crosses back only as an elicitation result
+// with action accept (with its content), decline or cancel; nothing else, and
+// no _meta.
 
 const (
 	// maxPromptText caps each relabelled string of an upstream prompt.
@@ -33,38 +34,49 @@ const (
 	maxInputRequestID = 128
 )
 
-// promptLabel is the origin label every upstream prompt carries.
+// promptLabel is the origin label every upstream prompt carries. Server
+// names cannot be "netguard" (ValidateServerName), so no upstream can wear
+// the proxy's own label.
 func promptLabel(server string) string { return "[from " + server + "] " }
 
 // refusal is netguard declining to pass an upstream input request on. Its
 // text is safe to show the agent: it names the upstream and the kind of
 // request, never the upstream's prompt.
 type refusal struct {
-	server, tool, kind, reason string
+	server, tool, kind string
+	reason             error
+}
+
+func newRefusal(server, tool, kind string, reason error) *refusal {
+	return &refusal{server: server, tool: tool, kind: kind, reason: reason}
 }
 
 func (r *refusal) Error() string {
 	if r.tool == "" {
-		return fmt.Sprintf("netguard refused an input request (%s) from upstream %s: %s", r.kind, r.server, r.reason)
+		return fmt.Sprintf("netguard refused an input request (%s) from upstream %s: %v", r.kind, r.server, r.reason)
 	}
-	return fmt.Sprintf("netguard refused an input request (%s) from upstream %s during %s: %s", r.kind, r.server, r.tool, r.reason)
+	return fmt.Sprintf("netguard refused an input request (%s) from upstream %s during %s: %v", r.kind, r.server, r.tool, r.reason)
 }
+
+func (r *refusal) Unwrap() error { return r.reason }
+
+var errFormOnly = errors.New("only form elicitation is passed to the agent")
 
 // relabelInputRequests checks every input request of an upstream
 // input_required result and returns the agent-facing copies, or the reason
 // netguard will not pass them on.
 func relabelInputRequests(server, tool string, reqs mcp.InputRequestMap) (mcp.InputRequestMap, *refusal) {
 	if len(reqs) > maxInputRequests {
-		return nil, &refusal{server, tool, "input_required", fmt.Sprintf("more than %d input requests", maxInputRequests)}
+		return nil, newRefusal(server, tool, "input_required", fmt.Errorf("more than %d input requests", maxInputRequests))
 	}
 	out := make(mcp.InputRequestMap, len(reqs))
 	for id, ir := range reqs {
 		if id == "" || len(id) > maxInputRequestID || strings.IndexFunc(id, isControl) >= 0 {
-			return nil, &refusal{server, tool, "input_required", "an input request id is empty, too long or has control characters"}
+			return nil, newRefusal(server, tool, "input_required", errors.New("an input request id is empty, too long or has control characters"))
 		}
 		ep, ok := ir.(*mcp.ElicitParams)
 		if !ok {
-			return nil, &refusal{server, tool, inputKind(ir), "only form elicitation is passed to the agent"}
+			return nil, newRefusal(server, tool, inputKind(ir), errFormOnly)
 		}
 		clean, r := relabelElicit(server, tool, ep)
 		if r != nil {
@@ -90,87 +102,24 @@ func inputKind(ir mcp.InputRequest) string {
 }
 
 // relabelElicit returns the agent-facing copy of one upstream elicitation:
-// form mode only, message labelled with its origin, control characters in
-// every string escaped, _meta dropped.
+// form mode only, message labelled with its origin and escaped, schema
+// rebuilt from the allow-list, _meta dropped. Both eras' paths use it.
 func relabelElicit(server, tool string, ep *mcp.ElicitParams) (*mcp.ElicitParams, *refusal) {
 	if ep == nil {
-		return nil, &refusal{server, tool, "elicitation", "empty request"}
+		return nil, newRefusal(server, tool, "elicitation", errors.New("empty request"))
 	}
 	if (ep.Mode != "" && ep.Mode != "form") || ep.URL != "" || ep.ElicitationID != "" {
-		return nil, &refusal{server, tool, "URL elicitation", "only form elicitation is passed to the agent"}
+		return nil, newRefusal(server, tool, "URL elicitation", errFormOnly)
 	}
-	schema, err := relabelSchema(ep.RequestedSchema)
+	schema, err := relabelSchema(server, ep.RequestedSchema)
 	if err != nil {
-		return nil, &refusal{server, tool, "elicitation", "requested schema: " + err.Error()}
+		return nil, newRefusal(server, tool, "elicitation", fmt.Errorf("requested schema: %w", err))
 	}
 	return &mcp.ElicitParams{
 		Mode:            "form",
 		Message:         promptLabel(server) + escapeControl(ep.Message, maxPromptText),
 		RequestedSchema: schema,
 	}, nil
-}
-
-// relabelSchema checks an elicitation schema is the flat object the spec
-// allows (primitive, or array for multi-select, properties) and returns a
-// copy with control characters escaped in every string value. Property names
-// with control characters are refused rather than rewritten.
-func relabelSchema(s any) (any, error) {
-	if s == nil {
-		return nil, nil
-	}
-	raw, err := json.Marshal(s)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
-		return nil, errors.New("not a JSON object")
-	}
-	if t, ok := m["type"]; ok && t != "object" {
-		return nil, fmt.Errorf(`type is %v, not "object"`, t)
-	}
-	if p, ok := m["properties"]; ok {
-		props, ok := p.(map[string]any)
-		if !ok {
-			return nil, errors.New("properties is not an object")
-		}
-		for name, v := range props {
-			if strings.IndexFunc(name, isControl) >= 0 {
-				return nil, errors.New("a property name has control characters")
-			}
-			pm, ok := v.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("property %q is not an object", name)
-			}
-			switch pm["type"] {
-			case "string", "number", "integer", "boolean", "array":
-			default:
-				return nil, fmt.Errorf("property %q has type %v; only primitives are allowed", name, pm["type"])
-			}
-		}
-	}
-	return escapeStrings(m), nil
-}
-
-// escapeStrings returns v with escapeControl applied to every string value
-// at any depth. Object keys are left alone.
-func escapeStrings(v any) any {
-	switch x := v.(type) {
-	case string:
-		return escapeControl(x, maxPromptText)
-	case map[string]any:
-		for k, e := range x {
-			x[k] = escapeStrings(e)
-		}
-		return x
-	case []any:
-		for i, e := range x {
-			x[i] = escapeStrings(e)
-		}
-		return x
-	default:
-		return v
-	}
 }
 
 // cleanElicitResult is the allow-list for an agent's answer to an upstream
@@ -287,13 +236,24 @@ func (p *Proxy) askAgent(ctx context.Context, c call, reqs mcp.InputRequestMap) 
 // inflight is one call open on an upstream. A stateful upstream's
 // elicitation/create names no call, so the proxy attributes it to the only
 // call in flight on that upstream, and refuses it when there is not exactly
-// one.
+// one. All fields after tool are guarded by upstream.mu.
 type inflight struct {
 	ctx   context.Context // the agent's request context
 	agent agentPeer
 	tool  string
 
-	refused *refusal // set by the elicitation handler; guarded by upstream.mu
+	// refused is netguard's refusal of this call's own prompt. The upstream
+	// may fail the call because of it, so it may replace an upstream error.
+	refused *refusal
+	// note is a refusal of a prompt that could not be attributed to one
+	// call. It is only ever appended to a result, never put in place of an
+	// upstream error or result: this call may not be the one that asked.
+	note *refusal
+	// prompting is set while one of this call's prompts is with the agent;
+	// prompts counts those relayed. They bound a stateful upstream to one
+	// outstanding prompt and maxInputRounds prompts per call.
+	prompting bool
+	prompts   int
 }
 
 // begin registers a call as in flight on u.
@@ -315,33 +275,64 @@ func (u *upstream) end(f *inflight) {
 	delete(u.calls, f)
 }
 
-// refusedFor reads f's recorded refusal.
-func (u *upstream) refusedFor(f *inflight) *refusal {
+// refusalsFor reads f's own refusal and its unattributed note.
+func (u *upstream) refusalsFor(f *inflight) (own, note *refusal) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return f.refused
+	return f.refused, f.note
 }
 
-// sole returns the only call in flight on u and the number in flight.
+// sole returns the only call in flight on u, or nil and the number in
+// flight when there is not exactly one.
 func (u *upstream) sole() (*inflight, int) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	for f := range u.calls {
-		if len(u.calls) == 1 {
-			return f, 1
-		}
+	if len(u.calls) != 1 {
+		return nil, len(u.calls)
 	}
-	return nil, len(u.calls)
+	for f := range u.calls {
+		return f, 1
+	}
+	return nil, 0
 }
 
-// refuse records r against f, or against every call in flight on u when the
-// request could not be attributed (any of them may be waiting on it), logs
-// it and returns it as the error the upstream receives.
+// startPrompt reserves f's single prompt slot, or says why it cannot.
+func (u *upstream) startPrompt(f *inflight) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	switch {
+	case f.prompting:
+		return errors.New("another prompt from this upstream is still open for this call")
+	case f.prompts >= maxInputRounds:
+		return fmt.Errorf("more than %d prompts in one call", maxInputRounds)
+	}
+	f.prompting = true
+	f.prompts++
+	return nil
+}
+
+// endPrompt releases f's prompt slot.
+func (u *upstream) endPrompt(f *inflight) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	f.prompting = false
+}
+
+// refuse records r against f, or, when the request could not be attributed
+// (f is nil), as a note on every call in flight on u, since any of them may
+// be the one waiting. It logs r and returns it as the error the upstream
+// receives.
 func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 	u.mu.Lock()
-	for c := range u.calls {
-		if (f == nil || c == f) && c.refused == nil {
-			c.refused = r
+	if f != nil {
+		if f.refused == nil {
+			f.refused = r
+		}
+	} else {
+		for c := range u.calls {
+			if c.note == nil {
+				c.note = r
+			}
 		}
 	}
 	u.mu.Unlock()
@@ -349,23 +340,37 @@ func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 	return r
 }
 
+// withRefusals appends the refusals recorded during a call to its final
+// result, so the agent learns what netguard declined on its behalf.
+func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResult {
+	for _, r := range []*refusal{own, note} {
+		if r != nil {
+			res.Content = append(res.Content, &mcp.TextContent{Text: r.Error()})
+		}
+	}
+	return res
+}
+
 // upstreamElicitation handles a server-initiated elicitation/create from a
 // stateful upstream: relabelled and relayed to a stateful agent that
-// declared form elicitation, refused otherwise. The agent's cancellation of
+// declared form elicitation, one at a time and at most maxInputRounds per
+// call, and refused otherwise. go-sdk runs incoming requests concurrently,
+// so the per-call slot is what stops a burst. The agent's cancellation of
 // the call cancels the prompt.
 func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 	return func(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 		f, n := u.sole()
 		if f == nil {
-			return nil, p.refuse(u, nil, &refusal{u.name, "", "elicitation", fmt.Sprintf("it cannot be attributed to one call (%d in flight)", n)})
+			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", fmt.Errorf("it cannot be attributed to one call (%d in flight)", n)))
 		}
 		switch {
 		case f.agent.stateless():
-			// ADR 0014 (proposed): converting this into input_required means
-			// holding the upstream call open across agent requests.
-			return nil, p.refuse(u, f, &refusal{u.name, f.tool, "elicitation", "this client speaks " + f.agent.version + " and cannot receive a server-initiated prompt; see ADR 0014"})
+			// ADR 0014 (accepted): converting this into input_required
+			// would mean holding the upstream call open across agent
+			// requests; deferred to matrix row 17.
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", fmt.Errorf("this client speaks %s and cannot receive a server-initiated prompt; see ADR 0014", f.agent.version)))
 		case !f.agent.canElicit:
-			return nil, p.refuse(u, f, &refusal{u.name, f.tool, "elicitation", "this client does not support form elicitation"})
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errNoFormElicitation))
 		}
 		var ep *mcp.ElicitParams
 		if req != nil {
@@ -375,6 +380,10 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		if r != nil {
 			return nil, p.refuse(u, f, r)
 		}
+		if err := u.startPrompt(f); err != nil {
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", err))
+		}
+		defer u.endPrompt(f)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		stop := context.AfterFunc(f.ctx, cancel)
@@ -391,3 +400,5 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		return res, nil
 	}
 }
+
+var errNoFormElicitation = errors.New("this client does not support form elicitation")
