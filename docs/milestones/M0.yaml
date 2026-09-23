@@ -4,7 +4,7 @@
 # Owners and reviewers are agent slugs from .claude/agents/ (or a GitHub handle for a human).
 milestone: M0
 title: Pass-through proxy
-status: blocked
+status: in progress
 opened: 2026-09-23
 exit_criteria:
   - Official MCP conformance suite passes on the client-facing side
@@ -12,29 +12,23 @@ exit_criteria:
   - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
   - GoReleaser produces linux/darwin/windows binaries on a tag
 validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server]
-blockers:
-  - id: B1
-    text: Go 1.25 toolchain and go-sdk v1.7.0 on build/go-1.25-go-sdk; clears when T0.1 merges.
-    owner: mcp-protocol-engineer
-  - id: B2
-    text: "ADR 0011 (go-sdk transitive modules) must be accepted by a maintainer before T0.1 merges."
-    owner: joshscott13
+blockers: []
 tasks:
   - id: T0.1
     title: Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x
     package: go.mod
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer]
-    state: blocked
+    state: merged
     adr: "0011"
     matrix: []
-    notes: 'Blocked on ADR 0011 acceptance (new transitive modules); review in parallel. Own PR on build/go-1.25-go-sdk; go-reviewer: approve with nits once ADR 0011 is accepted. go.mod is go 1.25.0; go-sdk v1.7.0 is pinned via internal/tools/tools.go (//go:build tools); ci.yaml golangci-lint v2.1 -> v2.4.0 (v2.1 is built with go1.24 and refuses a go 1.25 module). Verify GOPROXY reachability in CI. Dispatched 2026-09-23.'
+    notes: 'Merged in PR #14 (3147f2c) 2026-09-23. ADR 0011 accepted by joshscott13 the same day; the acceptance landed in a follow-up PR because it was pushed after the merge. Merged before a formal review approval; go-reviewer re-checked after the merge and found every earlier nit resolved and ADR 0011 matching go.mod and go.sum. go.mod is go 1.25.0; go-sdk v1.7.0 is pinned via internal/tools/tools.go (//go:build tools); ci.yaml golangci-lint v2.1 -> v2.4.0 (v2.1 is built with go1.24 and refuses a go 1.25 module). Verify GOPROXY reachability in CI. Dispatched 2026-09-23.'
   - id: T0.2
     title: internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     adr: "0002"
     matrix: [1]
@@ -69,7 +63,7 @@ tasks:
     package: .goreleaser.yaml
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     matrix: []
   - id: T0.7
@@ -77,31 +71,31 @@ tasks:
     package: internal/audit
     owner: policy-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey. Approved with nits by security-reviewer and go-reviewer 2026-09-23 (commit 6155c28); key-ACL finding split out as T0.12.
+    notes: Found by the M0 kickoff green check on Windows (go1.26.7). Linux CI is green. Skip or relax the 0600 assertion on GOOS=windows only; keep it strict elsewhere. Do not weaken SaveKey. Approved with nits by security-reviewer and go-reviewer 2026-09-23 (commit 6155c28); key-ACL finding split out as T0.12. Merged in PR #13 (1f06d44).
   - id: T0.8
     title: tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale
     package: tools/status
     owner: docs-writer
     reviewers: [go-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows. Approved with nits by go-reviewer 2026-09-23 (commit b0f9c75); nits: fixture board in the test, BOM/trailing-newline case. render.py also wrote the platform encoding (cp1252) on Windows; the fix writes UTF-8.'
+    notes: 'write_text() uses the platform newline. Write LF explicitly and compare byte-for-byte in --check. Also `make status` calls python3, which is a Microsoft Store alias on Windows. Approved with nits by go-reviewer 2026-09-23 (commit b0f9c75); nits: fixture board in the test, BOM/trailing-newline case. render.py also wrote the platform encoding (cp1252) on Windows; the fix writes UTF-8. Merged in PR #13 (1f06d44).'
   - id: T0.9
     title: nightly-clab.yaml fails with a workflow file error on every push to main
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: in review
+    state: merged
     matrix: []
-    notes: 'Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Root cause: unquoted `run: echo "TODO(M3): ..."` made the file invalid YAML. Fixed with a block scalar (commit 57b77fc); approved by go-reviewer 2026-09-23. Confirm on GitHub: no failed nightly-clab push run after merge.'
+    notes: 'Runs 35901518242 and 35901475161 fail in 0s with a workflow file issue. The workflow has no push trigger; likely the job-level `if` on vars or the self-hosted label set. Root cause: unquoted `run: echo "TODO(M3): ..."` made the file invalid YAML. Fixed with a block scalar (commit 57b77fc); approved by go-reviewer 2026-09-23. Confirm on GitHub: no failed nightly-clab push run after merge. Merged in PR #13 (1f06d44). Confirmed on GitHub: no failed nightly-clab run on main after 1f06d44 (last failure c43d02e).'
   - id: T0.10
     title: Add govulncheck to CI
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.1]
     adr: "0011"
     matrix: []
@@ -111,7 +105,7 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in progress
     matrix: []
     notes: From the T0.9 review. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
   - id: T0.12
