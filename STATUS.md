@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 4 · blocked 1 · merged 9
+Tasks: open 3 · blocked 1 · in review 1 · merged 9
 
 ## In flight
 
@@ -23,7 +23,7 @@ Tasks: open 4 · blocked 1 · merged 9
 | T0.11 | Run actionlint on every PR in ci.yaml | `.github/workflows` | release-engineer | go-reviewer | merged | T0.1 | — | — |
 | T0.12 | Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
 | T0.13 | Pin the Go build toolchain in go.mod and read it from there in every workflow | `go.mod` | release-engineer | go-reviewer, security-reviewer | merged | T0.10 | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
-| T0.14 | Move the build toolchain to Go 1.26 now that Go 1.25 is out of support | `go.mod` | release-engineer | go-reviewer, security-reviewer | open | T0.13 | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
+| T0.14 | Move the build toolchain to Go 1.26 now that Go 1.25 is out of support | `go.mod` | release-engineer | go-reviewer, security-reviewer | in review | — | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
 
 ## Exit criteria
 
@@ -43,11 +43,11 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-24 | release-engineer | go-reviewer | T0.14 | [T0.14 ready for review: the build toolchain moves to go1.26.8, with golangci-lint v2.9.0 and govulncheck v1.8.0](docs/handoffs/2026-09-24-release-engineer-to-go-reviewer-T0.14.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.6 | [T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.6.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.13 | [T0.13 ready for review: the Go build toolchain is pinned in go.mod and every workflow reads it](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.13.md) |
 | 2026-09-23 | policy-engineer | security-reviewer | T0.7 | [T0.7 for security review: 0600 key-mode assertion now runs on Unix only; SaveKey unchanged](docs/handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.7.md) |
-| 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
 
 ## How to update
 

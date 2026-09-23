@@ -136,11 +136,10 @@ tasks:
     package: go.mod
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
-    blocked_by: [T0.13]
+    state: in review
     adr: "0013"
     matrix: []
-    notes: 'Found during T0.13. Go 1.27.0 shipped 2026-08-19, so 1.25 gets no more patches and the next stdlib advisory needs a go1.26 toolchain. Keep the go 1.25.0 floor unless an ADR says otherwise. The move also touches golangci-lint v2.4.0 (built with 1.25), govulncheck (v1.8.0 needs 1.26), the Dockerfile builder and setup-go. Consider doing it before the first tag.'
+    notes: 'Found during T0.13. Go 1.27.0 shipped 2026-08-19, so 1.25 gets no more patches and the next stdlib advisory needs a go1.26 toolchain. Keep the go 1.25.0 floor unless an ADR says otherwise. The move also touches golangci-lint v2.4.0 (built with 1.25), govulncheck (v1.8.0 needs 1.26), the Dockerfile builder and setup-go. Consider doing it before the first tag. Branch build/go-1.26-toolchain off land/m0-stack (PR #25), not pushed: toolchain go1.26.8 (newest 1.26 patch, 2026-09-01); go 1.25.0 floor kept, so no new ADR. golangci-lint v2.4.0 -> v2.9.0 (first release built with go1.26.0; v2.4.0 and v2.8.0 refuse a go1.26.8 toolchain), 0 issues. govulncheck v1.7.0 -> v1.8.0, No vulnerabilities found. Dockerfile builder golang:1.26-alpine. No advisory fixed between go1.25.14 and go1.26.8. GoReleaser v2.18.2 snapshot green with go1.26.8.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
