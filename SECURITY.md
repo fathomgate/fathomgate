@@ -60,8 +60,10 @@ Recorded from the T0.2 security review. M0 forwards every call with no policy; t
 | Hung upstream: a call that never returns holds the agent's request | Accepted for M0. The agent can cancel, and cancellation reaches the upstream | M1 adds a per-call deadline |
 | Payload size: large arguments or results pass through uncapped | Note only | Revisit with redaction (M2) |
 | Result `_meta` from the upstream is forwarded unchanged | Open | Recheck in T0.3 (dual-era) |
+| MCP05 injection through results: tool result content, including ANSI escapes and prompt-like text, reaches the agent unchanged | Open. Only error messages and stderr are escaped in M0 | M2 (redaction at the response serialiser) |
+| Grandchildren survive a kill: `killCommand` and shutdown signal only the direct child, so the server behind `npx` or `uvx` can outlive the proxy | Open. There is no Job Object (Windows) or process group (Unix) | M1 |
 
-Closed in M0: upstream input requests are refused, not forwarded. Upstream error messages and stderr are labelled with their origin and have control characters escaped. The upstream inherits only an allow-listed environment. Reserved `serve` flags are refused wherever they appear.
+Closed in M0: upstream input requests are refused, not forwarded. Upstream error messages and stderr are labelled with their origin and have control, bidi, zero-width and line-separator characters escaped. The upstream inherits only an allow-listed environment. Reserved `serve` flags are refused wherever they appear.
 
 The corpus this design answers: Invariant Labs tool poisoning and rug-pulls, Trail of Bits line-jumping and ANSI deception, the MCP specification's security best practices (confused deputy in proxies, token passthrough), OWASP MCP Top 10 (MCP03 tool poisoning, MCP05 command injection, MCP08 missing audit), and arXiv 2603.22489. Links are in [docs/PLAN.md](docs/PLAN.md#sources).
 

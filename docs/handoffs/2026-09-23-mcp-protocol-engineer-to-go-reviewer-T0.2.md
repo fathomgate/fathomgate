@@ -1,4 +1,4 @@
-# T0.2 review fixes are in (G1–G10, S1–S6); go-reviewer re-review, then security-reviewer
+# T0.2 review rounds 1 and 2 resolved; go-reviewer re-review, then security-reviewer
 
 - **Task:** T0.2 — internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
 - **From → To:** mcp-protocol-engineer → go-reviewer (re-review), then security-reviewer
@@ -7,7 +7,25 @@
 - **Date:** 2026-09-23
 - **Supersedes:** [the first T0.2 note](2026-09-23-mcp-protocol-engineer-to-security-reviewer-T0.2.md) (go-reviewer: request changes; security-reviewer: approve with nits)
 
-## Done
+## Round 2 (resolved)
+
+Go-reviewer returned request changes with one blocker. Security-reviewer approved with nits.
+
+- **Blocker:** the stderr check in `TestStdioUpstreamRoundTripAndExit` no longer sleeps. `syncBuffer.Write` signals a notify channel (capacity 1, non-blocking), and `waitFor` waits on it under a 5s timer.
+- **awaitExit:** now takes `ctx` first and returns on `ctx.Done()`. Covered by `TestAwaitExit`.
+- **4096-byte stderr cut:** it backs off to the last complete UTF-8 character (`runeCut`). This now also applies to lines that do end in a newline. A line of exactly 4096 bytes no longer produces an extra empty line. Covered by `TestRuneCut` and new `TestLineWriter` cases.
+- **`--upstream`:** an empty or blank value, or `--`, is refused with exit 2.
+- **`TestParseServe`:** runs with `t.Parallel()` at the top level and for each case.
+- **Escaping:** `isControl` also escapes Unicode Cf, Zl and Zp (bidi U+202A–202E and U+2066–2069, U+200B, BOM, U+2028, U+2029). `TestRelayUpstreamError` has 7 new rows.
+- **SECURITY.md:** two new gap rows. MCP05: tool result content, including ANSI and prompt-like text, reaches the agent unchanged; closes in M2. Grandchildren (`npx`, `uvx`) survive a kill because there is no Job Object or process group; closes in M1.
+- **Windows env names:** compared ASCII case-insensitively (`asciiEqualFold`). `TestBaseEnv` covers the long-s `ſystemRoot` and Kelvin-sign cases.
+- **Unix `LC_` variables:** the wildcard is replaced by the POSIX categories by name. `LC_FAKE_SECRET`, `LC_` and `lc_all` are now excluded.
+- **`--upstream-env` keys:** must match `[A-Za-z_][A-Za-z0-9_]*`. Six new `TestParseServe` cases.
+- **killCommand:** calls `Wait` only when `ProcessState == nil`. A comment says Linux CI `-race` must confirm this.
+- **Partial last stderr line:** flushed by `Proxy.Close` (and by `killCommand`), prefixed and escaped. The stdio test checks that the crashing fake's last line arrives. Spec §8.3 is updated.
+- **Stale prefixes:** `design/preview.html` now says `netdev-ssh-mcp.run_show_command`. I did **not** edit `.claude/agents/mcp-protocol-engineer.md` (lines 27 and 57) or `.claude/agents/design-guardian.md` (line 62). They are agent configuration, and changing them needs the maintainer's own go-ahead, not an agent relay. Each needs a one-word change from `netdev.` to `netdev-ssh-mcp.`.
+
+## Done in round 1
 
 - **S1, G5, G6:** `cmd/netguard/serve.go` now parses flags in `parseServe(args, w) (serveConfig, error)`. Leftover arguments are refused unless `--` came first. Leftovers are scanned for `--policy`, `--inventory`, `--profiles` and `--audit` (`-x`, `--x`, `--x=v`), with or without `--`. An invalid `--server` exits 2 before anything is spawned (`proxy.ValidateServerName`). Covered by the `TestParseServe` table and `TestRunDispatch`.
 - **S2:** the upstream inherits only an allow-list (`baseEnv` in `command.go`; Unix and Windows sets as specified; case-insensitive on Windows), plus `--upstream-env` appended last. `TestStdioUpstreamRoundTripAndExit` shows that `NETGUARD_TEST_SECRET` and `AWS_SECRET_ACCESS_KEY` arrive `<unset>` in a real child process. `TestBaseEnv` is a table test.
@@ -41,7 +59,6 @@
 
 ## Deliberately unfinished
 
-- A final upstream stderr line without a newline is dropped (documented in section 8.3).
 - Reserved names are refused even among the upstream's own arguments after `--`, as the reviewer asked. So an upstream with its own `--audit` flag cannot be given it in M0 (noted in ADR 0012).
 - No `-race` or golangci-lint on this Windows host. Linux CI runs both.
 - Matrix row 1 is still not validated.
@@ -63,4 +80,4 @@ python tools/status/render.py --check
 ## Questions for the receiver
 
 - Should `-race` in Linux CI be marked required for T0.2's merge? It could not run here.
-- `.claude/agents/mcp-protocol-engineer.md` (lines 27 and 57), `.claude/agents/design-guardian.md` (line 62) and `design/preview.html` (line 589) still say `netdev.run_show_command`. They are agent config and design-owned files, so I left them for the orchestrator and design-guardian.
+- Maintainer: approve the one-word prefix fix in the two `.claude/agents/` files listed under Round 2 (not done by an agent).
