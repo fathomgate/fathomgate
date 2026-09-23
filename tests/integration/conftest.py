@@ -53,14 +53,16 @@ def proxy_server_params(netguard_binary: Path, upstream_command: list[str], tmp_
     Returned lazily as a dict so this module imports without the `mcp`
     package installed; test_passthrough turns it into the SDK type.
     """
+    # M0 serve is pass-through: --policy, --inventory, --profiles and --audit
+    # are refused until M1 wires the pipeline (ADR 0012). The prefix is the
+    # profile `server` key; upstream arguments follow `--`.
     return {
         "command": str(netguard_binary),
         "args": [
             "serve",
-            "--policy", str(REPO / "policies" / "examples" / "read-only.yaml"),
-            "--inventory", str(REPO / "inventory.example.yaml"),
-            "--profiles", str(REPO / "profiles"),
-            "--audit", str(tmp_path / "audit.jsonl"),
-            "--upstream", " ".join(upstream_command),
+            "--server", "netdev-ssh-mcp",
+            "--upstream", upstream_command[0],
+            "--",
+            *upstream_command[1:],
         ],
     }
