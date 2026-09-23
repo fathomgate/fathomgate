@@ -24,7 +24,7 @@ Implement the client-facing server and the upstream client manager so a single b
 
 ### 2. Tool-name prefixing and `tools/list` aggregation
 
-Every upstream tool appears as `<server>.<tool>` (`netdev.run_show_command`, `junos.load_and_commit_config`). The prefix is the profile key from `profiles/<server>.yaml`, never guessed from the binary name. `tools/call` strips the prefix, resolves the upstream, and hands the unprefixed name plus arguments to the pipeline (`internal/normalize` → `internal/classify` → `internal/inventory` → `internal/policy`). Collisions between two upstreams are a startup error, not a silent overwrite.
+Every upstream tool appears as `<server>.<tool>` (`netdev-ssh-mcp.run_show_command`, `junos-mcp-server.load_and_commit_config`). The prefix is the profile key from `profiles/<server>.yaml`, never guessed from the binary name. `tools/call` strips the prefix, resolves the upstream, and hands the unprefixed name plus arguments to the pipeline (`internal/normalize` → `internal/classify` → `internal/inventory` → `internal/policy`). Collisions between two upstreams are a startup error, not a silent overwrite.
 
 ### 3. Decision delivery on the wire
 
@@ -54,7 +54,7 @@ Wire the official MCP conformance suite against the client-facing side of the pr
 2. Read the go-sdk source for the transport you are touching (`go doc github.com/modelcontextprotocol/go-sdk/mcp` and the vendored module under `$(go env GOMODCACHE)`). Do not rely on memory of an older release.
 3. Write the table test first in `internal/proxy/*_test.go` using go-sdk's in-memory transport and a recording fake upstream. Cover both eras in the same table.
 4. Implement. Run `go build ./... && go test ./internal/proxy/... -race && golangci-lint run ./internal/proxy/...`.
-5. Run the conformance suite locally: `make conformance`. Then a tier-2 smoke against the real reference upstream: `netguard serve --config tests/configs/netdev-only.yaml` with `netdev-ssh-mcp` spawned over stdio, and `netguard policy eval --tool netdev.run_show_command --arg host=lab-sw-01 --arg command="show version"` to confirm the pipeline is reached.
+5. Run the conformance suite locally: `make conformance`. Then a tier-2 smoke against the real reference upstream: `netguard serve --server netdev-ssh-mcp --upstream <path-to-netdev-ssh-mcp>` (flags per `docs/specs/profile-schema.md` section 8), and `netguard policy eval --tool netdev-ssh-mcp.run_show_command --arg host=lab-sw-01 --arg command="show version"` to confirm the pipeline is reached.
 6. Verify decision delivery by hand for each effect with a scripted client in `tests/clients/`: one `allow`, one `deny` (check the rule id appears), one `hold` on a 2026-era client (check `input_required` and `requestState`), the same `hold` on a 2025-era client (check the pending id in the error).
 7. Open the PR with: era matrix tested, conformance output, the test-matrix rows exercised (`tools/list` passes through with server prefix; Dual-era handshake; MRTR elicitation approval; Upstream elicitation origin; PATH-stripped launcher), and the spec section updated in the same PR.
 
