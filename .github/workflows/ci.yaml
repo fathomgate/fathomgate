@@ -14,12 +14,11 @@ on:
 permissions:
   contents: read
 
-env:
-  # Newest Go 1.25 patch, not the go.mod floor: `go-version-file: go.mod`
-  # installs exactly go1.25.0, whose standard library has known fixed
-  # vulnerabilities that govulncheck reports as reachable. Keep the minor in
-  # step with the `go` line in go.mod (and release.yaml, nightly-clab.yaml).
-  GO_VERSION: "1.25.x"
+# Go toolchain (ADR 0013): every setup-go step reads `go-version-file: go.mod`.
+# setup-go v6 installs the `toolchain` line, not the `go` floor, and exports
+# GOTOOLCHAIN=local so no step switches toolchains. The toolchain version
+# lives in go.mod only; bump it there (CONTRIBUTING.md). Jobs that build run
+# `make toolchain-check` right after setup-go.
 
 jobs:
   go:
@@ -27,11 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
+          go-version-file: go.mod
           cache: true
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
       - run: go build ./...
       - run: go vet ./...
       - name: gofmt
@@ -47,10 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
+          go-version-file: go.mod
           cache: true
       - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
@@ -62,10 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
+          go-version-file: go.mod
           cache: true
       # `make vulncheck` runs golang.org/x/vuln/cmd/govulncheck at the version
       # pinned in the Makefile (GOVULNCHECK_VERSION) via `go run pkg@version`,
@@ -81,10 +79,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
+          go-version-file: go.mod
           cache: true
       # `make actionlint` runs github.com/rhysd/actionlint at the version pinned
       # in the Makefile (ACTIONLINT_VERSION) via `go run pkg@version`, with

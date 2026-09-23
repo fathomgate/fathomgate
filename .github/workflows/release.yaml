@@ -19,16 +19,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          # Newest Go 1.25 patch, same as ci.yaml: `go-version-file: go.mod`
-          # would ship binaries built with go1.25.0 and its known stdlib
-          # vulnerabilities.
-          go-version: "1.25.x"
-          check-latest: true
+          # The `toolchain` line in go.mod, same as ci.yaml (ADR 0013).
+          # setup-go v6 installs it and exports GOTOOLCHAIN=local, so the
+          # binaries are built with exactly the Go that CI tested.
+          go-version-file: go.mod
           # No module or build cache in the release job: a poisoned cache
           # from another workflow must not reach a published binary.
           cache: false
+      # A release is built with the go.mod toolchain or not at all.
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
       # Same pinned govulncheck as ci.yaml (Makefile GOVULNCHECK_VERSION,
       # v1.7.0): a vulnerability reachable from our code stops the release
       # before anything is built or published.
