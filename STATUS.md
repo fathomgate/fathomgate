@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 3 · blocked 1 · in review 1 · merged 9
+Tasks: open 3 · blocked 3 · in review 1 · merged 9
 
 ## In flight
 
@@ -24,6 +24,8 @@ Tasks: open 3 · blocked 1 · in review 1 · merged 9
 | T0.12 | Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
 | T0.13 | Pin the Go build toolchain in go.mod and read it from there in every workflow | `go.mod` | release-engineer | go-reviewer, security-reviewer | merged | T0.10 | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
 | T0.14 | Move the build toolchain to Go 1.26 now that Go 1.25 is out of support | `go.mod` | release-engineer | go-reviewer, security-reviewer | in review | — | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
+| T0.15 | Pin the Dockerfile builder and distroless base images by digest | `Dockerfile` | release-engineer | go-reviewer, security-reviewer | blocked | T0.14 | — | — |
+| T0.16 | Update the ADR 0011 module table for golang.org/x/sys as a direct dependency | `docs/adr` | docs-writer | go-reviewer | blocked | T0.12 | — | — |
 
 ## Exit criteria
 
