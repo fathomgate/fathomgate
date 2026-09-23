@@ -1,9 +1,9 @@
 # T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI
 
 - **Task:** T0.6 — Verify GoReleaser snapshot and distroless image build with the new toolchain; T0.10 — Add govulncheck to CI; T0.11 — Run actionlint on every PR in ci.yaml
-- **From → To:** release-engineer → go-reviewer (security-reviewer also reviews T0.10)
+- **From → To:** release-engineer → go-reviewer (T0.6, T0.11); T0.10 → **security-reviewer for sign-off** (mandatory per the review rules; go-reviewer approved with nits)
 - **State now:** in review
-- **Branch / PR:** `ci/m0-release-hardening`, stacked on T0.1 (PR #14 head `64bf8b7`), not pushed · none yet. One commit per task: T0.10 `d7e4253`, T0.11 `c7af910`, T0.6 is the head commit (with this note and the board).
+- **Branch / PR:** `ci/m0-release-hardening`, stacked on T0.1 (PR #14 head `64bf8b7`), not pushed · none yet. One commit per task: T0.10 `d7e4253`, T0.11 `c7af910`, T0.6 `9b127a2`; note renamed by the orchestrator in `3c4731b`; review fixes in the head commit `ci: address T0.6/T0.10 review`.
 - **Date:** 2026-09-23
 
 ## Done
@@ -14,6 +14,20 @@
 - **T0.6.** GoReleaser v2.18.2, built with go1.25.14, ran `release --snapshot --clean --skip=publish,sign` and exited 0. It produced 6 archives (linux, darwin and windows, each amd64 and arm64), 6 SPDX SBOMs, `checksums.txt`, the Homebrew formula and the amd64 image. `go version -m` shows go1.25.14, `CGO_ENABLED=0` and `-trimpath=true` on every binary. The linux binaries are statically linked, and the darwin binaries link only libSystem, which is normal for Go on darwin. The image runs `version`, its user is `nonroot:nonroot` and its filesystem contains no shell. The root `Dockerfile` (golang:1.25-alpine builder on `distroless/static-debian12:nonroot`) builds a static go1.25.14 binary. `.goreleaser.yaml` needed no change.
 - **T0.6 CI.** New `snapshot.yaml` runs on `workflow_dispatch`, and on pull requests only when `.goreleaser.yaml`, the Dockerfiles, `go.mod`, `go.sum` or the release workflows change. It repeats the checks above and uploads `dist/` for 7 days. `release.yaml` now pins GoReleaser v2.18.2 instead of `~> v2`.
 - `Makefile` has new `vulncheck` and `actionlint` targets. `CONTRIBUTING.md` and `CHANGELOG.md` `[Unreleased]` are updated.
+
+## Review round 1 (go-reviewer: T0.11 approved; T0.6, T0.10 approved with nits)
+
+- `ci.yaml` gains a weekly `schedule` (Mondays 05:23 UTC), so govulncheck sees new advisories without a push. The comment now says `go run` turns govulncheck's exit 3 into exit 1.
+- `CONTRIBUTING.md`: a local go1.25.0 fails `make vulncheck`; use `GOTOOLCHAIN=go1.25.14 make vulncheck`.
+- Every third-party action in all four workflows is pinned by full commit SHA with a `# vX.Y.Z` comment. The pins are the newest release inside the major version already in use, resolved with `gh api .../git/ref/tags/<tag>`, and annotated tags are dereferenced to their commit. `anchore/sbom-action` `v0.24.2` was the only annotated tag. Its floating `v0` tag sat 73 commits behind `v0.24.2`, so this pin is a real move for `download-syft`. `.github/dependabot.yml` already has `github-actions` weekly, so Dependabot keeps the pins current.
+- `snapshot.yaml` checks out with `persist-credentials: false` and asserts all six archives, `windows_arm64` included. The CHANGELOG says six.
+- The toolchain approach is unchanged (`1.25.x` + `check-latest`). The `toolchain` line in `go.mod` is now the maintainer's decision.
+
+## For security-reviewer (T0.10 sign-off)
+
+- Open `.github/workflows/ci.yaml`, job `vuln`, and the `vulncheck` target in `Makefile`. The job has `contents: read` only, and govulncheck is fetched through the Go module proxy and checked against the sumdb (`go run pkg@v1.7.0`).
+- Supply-chain hardening is in the same commit: SHA-pinned actions everywhere, with `release.yaml` done first because it holds `contents: write` and `id-token: write`.
+- Open finding: GO-2026-5024 in `golang.org/x/sys` v0.41.0 is present at module level only (Windows) and is not reachable. T0.12 should bump it.
 
 ## Look at this first
 
@@ -51,5 +65,5 @@ python tools/status/render.py --check
 
 ## Questions for the receiver
 
-- Should `toolchain go1.25.x` go into `go.mod` via an ADR, so `go.mod` is again the single source of the Go version?
-- Should govulncheck also run on a weekly schedule? New advisories appear without a push.
+- The `toolchain` line in `go.mod` has gone to the maintainer as a decision. Nothing is open for go-reviewer.
+- security-reviewer: is the `govulncheck` gate (reachable only, weekly plus every push) enough for ADR 0011 guardrail 4?
