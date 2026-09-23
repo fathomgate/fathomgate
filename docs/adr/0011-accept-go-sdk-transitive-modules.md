@@ -8,7 +8,7 @@
 
 M0 needs `github.com/modelcontextprotocol/go-sdk v1.7.0` for the proxy transport ([ADR 0001](0001-go-core-with-python-companion.md), [ADR 0008](0008-dual-era-mcp-support.md)). Before T0.1, `go.mod` had one dependency, `github.com/goccy/go-yaml`, and the repo rule is no new dependency without an ADR ([CLAUDE.md](../../CLAUDE.md#toolchain-facts)). ADR 0001 chose go-sdk but did not record the modules it brings with it. This record does.
 
-go-sdk v1.7.0 declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25.0`. T0.1 (branch `build/go-1.25-go-sdk`) adds the SDK as a direct require. The `mcp` package build graph adds eight indirect modules, and `go.sum` also records three modules used only by go-sdk's own tests. The table below lists them all, checked against `go.mod` and `go.sum` at commit `0a17503`.
+go-sdk v1.7.0 declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25.0`. T0.1 (branch `build/go-1.25-go-sdk`) adds the SDK as a direct require. The `mcp` package build graph adds eight indirect modules, and `go.sum` also records three modules used only by go-sdk's own tests. The table below lists them all, checked against `go.mod` and `go.sum` at commit `d8bca15`.
 
 | Module | Version | In | Why (`go mod why -m`, shortest path from `go-sdk/mcp`) |
 | --- | --- | --- | --- |
