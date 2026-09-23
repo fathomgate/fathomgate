@@ -3,6 +3,8 @@ package audit
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -280,7 +282,8 @@ func TestKeyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows ignores Unix permission bits (ACLs govern access), so assert 0600 on Unix only.
+	// Windows ignores Unix permission bits (ACLs govern access), so assert 0600
+	// on Unix only; key_windows_test.go asserts the DACL instead.
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("key mode %v", info.Mode().Perm())
 	}
@@ -311,6 +314,25 @@ func TestKeyRoundTrip(t *testing.T) {
 	}
 	if _, err := LoadKey(filepath.Join(dir, "junk")); err == nil {
 		t.Fatal("junk key should error")
+	}
+}
+
+// SaveKey must never replace an existing file, whatever its contents.
+func TestSaveKeyRefusesExisting(t *testing.T) {
+	_, priv, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp := filepath.Join(t.TempDir(), "audit.key")
+	if err := os.WriteFile(kp, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKey(kp, priv); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("SaveKey over an existing file: err = %v, want fs.ErrExist", err)
+	}
+	b, err := os.ReadFile(kp)
+	if err != nil || string(b) != "old" {
+		t.Fatalf("existing file changed: %q, %v", b, err)
 	}
 }
 

@@ -14,14 +14,36 @@ func NewKey() (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	return ed25519.GenerateKey(rand.Reader)
 }
 
-// SaveKey writes the private key as a PKCS#8 PEM file with mode 0600.
+// SaveKey writes the private key as a PKCS#8 PEM file readable by its owner
+// only. It never overwrites: an existing path fails with an error wrapping
+// fs.ErrExist and the file is left untouched. On Unix the file is created
+// with O_EXCL and set to mode 0600 whatever the umask; on Windows it is
+// created with a protected DACL that grants the current user and SYSTEM
+// only, so it inherits nothing from its folder (key_unix.go, key_windows.go).
 func SaveKey(path string, priv ed25519.PrivateKey) error {
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
 		return fmt.Errorf("audit: marshal key: %w", err)
 	}
 	block := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
-	return os.WriteFile(path, pem.EncodeToMemory(block), 0o600)
+	f, err := createOwnerOnly(path, os.O_WRONLY)
+	if err != nil {
+		return fmt.Errorf("audit: create key: %w", err)
+	}
+	_, werr := f.Write(pem.EncodeToMemory(block))
+	if werr == nil {
+		werr = f.Sync()
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		// The file is ours (created exclusively above); do not leave a
+		// truncated key behind.
+		_ = os.Remove(path)
+		return fmt.Errorf("audit: write key: %w", werr)
+	}
+	return nil
 }
 
 // LoadKey reads a PKCS#8 PEM Ed25519 private key written by SaveKey.

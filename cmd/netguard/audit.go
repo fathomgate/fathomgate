@@ -79,7 +79,7 @@ func cmdAuditVerify(args []string) int {
 // cmdAuditKeygen creates a checkpoint signing key pair.
 func cmdAuditKeygen(args []string) int {
 	fs := flag.NewFlagSet("audit keygen", flag.ContinueOnError)
-	out := fs.String("out", "audit.key", "private key output path (mode 0600)")
+	out := fs.String("out", "audit.key", "private key output path; created owner-only and never overwritten")
 	pubOut := fs.String("pub", "", "public key output path (default: <out>.pub)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage

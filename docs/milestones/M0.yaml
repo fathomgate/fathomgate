@@ -116,11 +116,10 @@ tasks:
     package: internal/audit
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
-    blocked_by: [T0.1]
+    state: in review
     adr: "0011"
     matrix: []
-    notes: 'From the T0.7 security review. On Windows, SaveKey 0600 is ignored and the key inherits its folder ACL, so a local non-admin user can read audit.key and re-sign checkpoints over a rewritten log. os.WriteFile also keeps the mode of an existing file on Unix. Needs golang.org/x/sys/windows (ADR 0011). Targets M1; carry over if M0 closes first. Stopgap operator guidance is in SECURITY.md.'
+    notes: 'From the T0.7 security review. On Windows, SaveKey 0600 is ignored and the key inherits its folder ACL, so a local non-admin user can read audit.key and re-sign checkpoints over a rewritten log. os.WriteFile also keeps the mode of an existing file on Unix. Needs golang.org/x/sys/windows (ADR 0011). Branch fix/audit-key-perms on land/m0-stack, not pushed. SaveKey and new logs: exclusive create; Unix O_EXCL + Chmod 0600; Windows CreateFile(CREATE_NEW) with O:<user>D:P(A;;FA;;;<user>)(A;;FA;;;SY). Existing logs are reset to owner-only on open, never truncated. No --force added (CLI surface). x/sys v0.41.0 -> v0.47.0 (GO-2026-5024), now direct. Windows DACL tests read the ACL back from a ProgramData-like folder.'
   - id: T0.13
     title: Pin the Go build toolchain in go.mod and read it from there in every workflow
     package: go.mod

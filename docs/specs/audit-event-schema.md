@@ -81,7 +81,7 @@ Hash (`HashEvent` in `hash.go`):
 2. `hash = hex(SHA-256(canonical(record) || prev_hash))`, where `prev_hash` is appended as its 64 ASCII hex characters.
 3. Set `hash` on the record and write the line.
 
-The writer holds a mutex while assigning `seq` and `prev_hash`. The file is opened with `O_APPEND | O_CREATE | O_WRONLY`, mode `0600`. Opening an existing file replays and verifies its chain first and refuses to append to a broken one.
+The writer holds a mutex while assigning `seq` and `prev_hash`. A new log is created exclusively (`O_CREATE | O_EXCL`, `CREATE_NEW` on Windows) for append-only writing and is owner-only from creation: mode `0600` on Unix, the protected owner-only DACL described in section 5 on Windows. An existing log is never truncated: it is opened for append, set back to the same protection, then its chain is replayed and verified, and the writer refuses to append to a broken one.
 
 ## 5. Checkpoint record
 
@@ -98,7 +98,14 @@ Written after every `CheckpointEvery` events (a writer option; `0` disables chec
 | `hash` | That record's `hash`. MUST equal the chain's current hash. |
 | `sig` | Base64 (standard alphabet) Ed25519 signature over `canonical({"type":"checkpoint","seq":<seq>,"hash":"<hash>"})`, that is over the bytes `{"hash":"<hash>","seq":<seq>,"type":"checkpoint"}`. |
 
-Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. On Windows the file mode is not enforced; see SECURITY.md "Hardening guidance for operators" until T0.12 lands.
+Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. `SaveKey` guarantees:
+
+- It never overwrites. An existing path, including a symlink, fails with an error wrapping `fs.ErrExist` and the file is left untouched. There is no `--force`.
+- Unix (`key_unix.go`): created with `O_CREATE | O_EXCL` and mode `0600`, then `Chmod(0600)` on the open descriptor, so the umask cannot widen it.
+- Windows (`key_windows.go`): created with `CREATE_NEW` and a security descriptor passed to `CreateFile`, so it is protected from the first instant. The descriptor is `O:<user>D:P(A;;FA;;;<user>)(A;;FA;;;SY)`: owned by the current process user, a protected DACL (no inherited ACEs), full control for that user and `LocalSystem`, nothing for Administrators, `Everyone`, `BUILTIN\Users` or `Authenticated Users`. The handle is not inheritable.
+- A failed write removes the partial file.
+
+The public key (`SavePublicKey`) is written `0644` and inherits its folder's ACL on Windows, by design.
 
 Planned (M4): time-based checkpoint interval, `key_id` for rotation, a `ts` on the checkpoint, rotation with `prev_file`, and a checkpoint written at clean shutdown.
 

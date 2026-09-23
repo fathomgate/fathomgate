@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"sync"
 	"time"
@@ -32,10 +34,13 @@ type Writer struct {
 	lastHash string
 }
 
-// NewWriter opens (or creates) the log at path with O_APPEND and resumes the
-// chain from the last valid line. It refuses to append to a file whose
-// existing chain does not verify, because appending to a broken chain would
-// hide the break behind valid new records.
+// NewWriter opens (or creates) the log at path for appending and resumes the
+// chain from the last valid line. A new log is created exclusively and
+// owner-only (mode 0600 on Unix, a protected owner-only DACL on Windows); an
+// existing log is corrected to the same protection before it is used, and
+// is never truncated. It refuses to append to a file whose existing chain
+// does not verify, because appending to a broken chain would hide the break
+// behind valid new records.
 func NewWriter(path string, opts Options) (*Writer, error) {
 	if opts.CheckpointEvery > 0 && opts.Key == nil {
 		return nil, fmt.Errorf("audit: checkpoints require a signing key")
@@ -43,16 +48,22 @@ func NewWriter(path string, opts Options) (*Writer, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	rep, err := verifyFile(path, nil, true)
-	if err != nil {
-		return nil, err
+	f, err := createOwnerOnly(path, os.O_WRONLY|os.O_APPEND)
+	if errors.Is(err, fs.ErrExist) {
+		f, err = openOwnerOnlyAppend(path)
 	}
-	if !rep.OK {
-		return nil, fmt.Errorf("audit: %s: existing chain broken at seq %d: %s", path, rep.BrokenSeq, rep.Problem)
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("audit: open: %w", err)
+	}
+	// Verify the file now held open, so the chain we resume is the one we
+	// append to.
+	rep, err := verifyFile(path, nil, false)
+	if err == nil && !rep.OK {
+		err = fmt.Errorf("audit: %s: existing chain broken at seq %d: %s", path, rep.BrokenSeq, rep.Problem)
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
 	}
 	return &Writer{f: f, opts: opts, lastSeq: rep.LastSeq, lastHash: rep.LastHash}, nil
 }
