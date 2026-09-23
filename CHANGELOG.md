@@ -34,7 +34,6 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 - Go 1.25 toolchain: `go.mod` declares `go 1.25.0`, the minimum go-sdk v1.7.0 sets. CI, release and the `Dockerfile` builder follow it (Dockerfile already on golang:1.25-alpine, PR #1).
 - go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod`. The `//go:build tools` file `internal/tools/tools.go` keeps it there until `internal/proxy` imports it. It is not linked into `bin/netguard` yet.
-- `ci.yaml`, `release.yaml` and `nightly-clab.yaml` install the newest Go 1.25 patch (`go-version: 1.25.x`, `check-latest: true`) instead of reading `go.mod`. `go-version-file: go.mod` installed exactly go1.25.0, whose standard library has four vulnerabilities govulncheck traces to `internal/audit` (GO-2025-4007, GO-2025-4009, GO-2025-4011, GO-2026-5972), and release binaries would have shipped with them. `go.mod` keeps `go 1.25.0` as the floor (T0.10).
 - `release.yaml` pins GoReleaser to v2.18.2 instead of `~> v2`, the version `snapshot.yaml` runs, so a tag releases with the tool the last snapshot exercised (T0.6).
 - Every third-party action in `ci.yaml`, `release.yaml`, `snapshot.yaml` and `nightly-clab.yaml` is pinned by full commit SHA with a `# vX.Y.Z` comment; Dependabot `github-actions` updates keep the pins current. `anchore/sbom-action/download-syft` moves from the floating `v0` tag (73 commits behind) to v0.24.2. `snapshot.yaml` checks out with `persist-credentials: false`.
 - CI `golangci-lint` moves from v2.1 to v2.4.0. v2.1 is built with Go 1.24 and refuses to lint a module that declares Go 1.25.
@@ -47,6 +46,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Security
 
-- Nothing yet. Security fixes will be listed here with their advisory id.
+- `ci.yaml`, `release.yaml` and `nightly-clab.yaml` install the newest Go 1.25 patch (`go-version: 1.25.x`, `check-latest: true`) instead of reading `go.mod`. `go-version-file: go.mod` installed exactly go1.25.0, whose standard library has four vulnerabilities govulncheck traces to `internal/audit` (GO-2025-4007, GO-2025-4009, GO-2025-4011, GO-2026-5972), and release binaries would have shipped with them. `go.mod` keeps `go 1.25.0` as the floor (T0.10).
+- `release.yaml` runs `make vulncheck` before GoReleaser, so a reachable vulnerability stops a release; its permissions move to the job (`contents: write`, `packages: write`), `id-token: write` is dropped until cosign signing lands, and setup-go runs with `cache: false`.
 
 [Unreleased]: https://github.com/joshscott13/netguard/compare/main...HEAD

@@ -66,7 +66,7 @@ tasks:
     state: in review
     blocked_by: [T0.1]
     matrix: []
-    notes: 'Branch ci/m0-release-hardening, stacked on T0.1 (PR #14 head 64bf8b7); merge after it. Local goreleaser v2.18.2 snapshot with go1.25.14 succeeded: 6 archives (linux, darwin, windows x amd64, arm64), 6 SPDX SBOMs, checksums.txt, amd64 image (nonroot, no shell). .goreleaser.yaml needs no Go 1.25 fix; brews and dockers are deprecated in v2.18 (follow-up). New snapshot.yaml runs this in CI on release-input PRs. Exit criterion 4 (binaries on a tag) is not proven until a tag is pushed. go-reviewer approved with nits 2026-09-23; nits fixed (persist-credentials false, windows_arm64 asserted).'
+    notes: 'Branch ci/m0-release-hardening, stacked on T0.1 (PR #14 head 64bf8b7); merge after it. Local goreleaser v2.18.2 snapshot with go1.25.14 succeeded: 6 archives (linux, darwin, windows x amd64, arm64), 6 SPDX SBOMs, checksums.txt, amd64 image (nonroot, no shell). .goreleaser.yaml needs no Go 1.25 fix; brews and dockers are deprecated in v2.18 (follow-up). New snapshot.yaml runs this in CI on release-input PRs. Exit criterion 4 (binaries on a tag) is not proven until a tag is pushed. Approved: go-reviewer with nits 2026-09-23, nits fixed (persist-credentials false, windows_arm64 asserted); security-reviewer found the supply chain sound. Stays in review until the PR opens.'
   - id: T0.7
     title: Make TestKeyRoundTrip portable — file-mode assertion fails on Windows (-rw-rw-rw-)
     package: internal/audit
@@ -100,7 +100,7 @@ tasks:
     blocked_by: [T0.1]
     adr: "0011"
     matrix: []
-    notes: 'Guardrail from ADR 0011. Branch ci/m0-release-hardening, stacked on T0.1. CI job govulncheck runs make vulncheck (golang.org/x/vuln v1.7.0 via go run; go.mod unchanged). Workflows now install go 1.25.x (check-latest) instead of go.mod''s exact go1.25.0, which has four reachable stdlib vulns via internal/audit. Local run under go1.25.14: No vulnerabilities found. go-reviewer approved with nits 2026-09-23 (fixed: weekly schedule, SHA-pinned actions); awaiting security-reviewer sign-off.'
+    notes: 'Guardrail from ADR 0011. Branch ci/m0-release-hardening, stacked on T0.1. CI job govulncheck runs make vulncheck (golang.org/x/vuln v1.7.0 via go run; go.mod unchanged). Workflows now install go 1.25.x (check-latest) instead of go.mod''s exact go1.25.0, which has four reachable stdlib vulns via internal/audit. Local run under go1.25.14: No vulnerabilities found. Approved: go-reviewer with nits and security-reviewer with nits, 2026-09-23; all nits fixed (weekly schedule, SHA-pinned actions, least-privilege release job, vulncheck before release). Stays in review until the PR opens.'
   - id: T0.11
     title: Run actionlint on every PR in ci.yaml
     package: .github/workflows
@@ -109,7 +109,7 @@ tasks:
     state: in review
     blocked_by: [T0.1]
     matrix: []
-    notes: From the T0.9 review. Branch ci/m0-release-hardening, stacked on T0.1 (its job uses the Go 1.25 setup). CI job actionlint runs make actionlint (v1.7.12, .github/actionlint.yaml, shellcheck on the runner); 0 errors in 4 workflow files locally. Approved by go-reviewer 2026-09-23. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
+    notes: From the T0.9 review. Branch ci/m0-release-hardening, stacked on T0.1 (its job uses the Go 1.25 setup). CI job actionlint runs make actionlint (v1.7.12, .github/actionlint.yaml, shellcheck on the runner); 0 errors in 4 workflow files locally. Approved by go-reviewer 2026-09-23; security-reviewer found the supply chain sound. Stays in review until the PR opens. Pin the actionlint version and use .github/actionlint.yaml, so a broken workflow fails its PR instead of silently breaking main.
   - id: T0.12
     title: Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS
     package: internal/audit

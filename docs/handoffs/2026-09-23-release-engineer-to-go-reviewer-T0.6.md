@@ -1,9 +1,9 @@
 # T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI
 
 - **Task:** T0.6 — Verify GoReleaser snapshot and distroless image build with the new toolchain; T0.10 — Add govulncheck to CI; T0.11 — Run actionlint on every PR in ci.yaml
-- **From → To:** release-engineer → go-reviewer (T0.6, T0.11); T0.10 → **security-reviewer for sign-off** (mandatory per the review rules; go-reviewer approved with nits)
+- **From → To:** release-engineer → go-reviewer (T0.6, T0.11); T0.10 → security-reviewer (mandatory per the review rules). **All three approved:** go-reviewer approved T0.11, and approved T0.6 and T0.10 with nits; security-reviewer approved T0.10 with nits and found the T0.6/T0.11 supply chain sound. Nits from both rounds are fixed. The tasks stay `in review` until the PR opens.
 - **State now:** in review
-- **Branch / PR:** `ci/m0-release-hardening`, stacked on T0.1 (PR #14 head `64bf8b7`), not pushed · none yet. One commit per task: T0.10 `d7e4253`, T0.11 `c7af910`, T0.6 `9b127a2`; note renamed by the orchestrator in `3c4731b`; review fixes in the head commit `ci: address T0.6/T0.10 review`.
+- **Branch / PR:** `ci/m0-release-hardening`, stacked on T0.1 (PR #14 head `64bf8b7`), not pushed · none yet. One commit per task: T0.10 `d7e4253`, T0.11 `c7af910`, T0.6 `9b127a2`; note renamed by the orchestrator in `3c4731b`; go-reviewer fixes in `71519db`; security-reviewer fixes in the head commit `ci(release): least-privilege permissions and vulncheck before release`.
 - **Date:** 2026-09-23
 
 ## Done
@@ -28,6 +28,13 @@
 - Open `.github/workflows/ci.yaml`, job `vuln`, and the `vulncheck` target in `Makefile`. The job has `contents: read` only, and govulncheck is fetched through the Go module proxy and checked against the sumdb (`go run pkg@v1.7.0`).
 - Supply-chain hardening is in the same commit: SHA-pinned actions everywhere, with `release.yaml` done first because it holds `contents: write` and `id-token: write`.
 - Open finding: GO-2026-5024 in `golang.org/x/sys` v0.41.0 is present at module level only (Windows) and is not reachable. T0.12 should bump it.
+
+## Review round 2 (security-reviewer: T0.10 approved with nits)
+
+- `release.yaml`: `permissions: {}` at workflow level. The job gets `contents: write` and `packages: write` (the ghcr image push). `id-token: write` is removed, with a comment that it returns with cosign signing.
+- `release.yaml`: `make vulncheck` (govulncheck v1.7.0) runs before GoReleaser, and setup-go uses `cache: false`.
+- `CHANGELOG.md`: the go1.25.0 stdlib-vulnerability entry moved from Changed to `### Security`, next to the release-hardening entry.
+- **Waiting on `docs/security/threat-model.md`, which does not exist yet:** the supply-chain rows (SHA-pinned actions, pinned GoReleaser and govulncheck, least-privilege release token, no cache in the release job, unsigned artefacts until cosign), and the deferral of GO-2026-5024 (`golang.org/x/sys` v0.41.0, Windows, not reachable; owner **T0.12**). Not created in this branch, as instructed.
 
 ## Look at this first
 
