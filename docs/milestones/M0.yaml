@@ -1,0 +1,76 @@
+# Milestone board — source of truth for STATUS.md.
+# Edit this file, then run `make status` to re-render STATUS.md; CI fails if the two disagree.
+# States: open | blocked | in progress | in review | merged | validated | dropped
+# Owners and reviewers are agent slugs from .claude/agents/ (or a GitHub handle for a human).
+milestone: M0
+title: Pass-through proxy
+status: blocked
+opened: 2026-09-23
+exit_criteria:
+  - Official MCP conformance suite passes on the client-facing side
+  - Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
+  - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
+  - GoReleaser produces linux/darwin/windows binaries on a tag
+validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server]
+blockers:
+  - id: B1
+    text: go-sdk v1.7.x requires Go 1.25; go.mod is 1.24. Toolchain bump is its own PR (T0.1).
+    owner: mcp-protocol-engineer
+tasks:
+  - id: T0.1
+    title: Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x
+    package: go.mod
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer]
+    state: open
+    adr: "0001"
+    matrix: []
+    notes: Own PR; CI image and Dockerfile builder must move together. Verify GOPROXY reachability in CI.
+  - id: T0.2
+    title: internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [T0.1]
+    adr: "0002"
+    matrix: [1]
+    spec: docs/specs/profile-schema.md
+  - id: T0.3
+    title: Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [T0.2]
+    adr: "0008"
+    matrix: [2]
+  - id: T0.4
+    title: Conformance suite in CI against the client-facing side; make conformance target
+    package: .github/workflows
+    owner: test-engineer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [T0.2]
+    matrix: [1, 2]
+  - id: T0.5
+    title: Client smoke — Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [release-engineer]
+    state: open
+    blocked_by: [T0.3]
+    matrix: [22]
+  - id: T0.6
+    title: Verify GoReleaser snapshot and distroless image build with the new toolchain
+    package: .goreleaser.yaml
+    owner: release-engineer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [T0.1]
+    matrix: []
+external:
+  - kind: pr
+    ref: dependabot go-yaml 1.18.0 -> 1.19.2
+    state: open
+    note: Trivial first merge to exercise the pipeline; not part of M0 scope.

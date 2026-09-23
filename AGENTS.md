@@ -12,13 +12,19 @@ NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MC
 2. Check `docs/adr/README.md`. An interface change (policy `Decision` or `Evaluate`, class or obligation set, `ChangeSafety`, any `docs/specs/*` schema, CLI surface, `go.mod`) needs an ADR first: `/adr <title>` or copy `docs/adr/0000-template.md`.
 3. Find your role in `docs/agents/README.md` and adopt the matching file in `.claude/agents/`. The orchestrator routes work; specialists own packages.
 
+## Status and handoffs
+
+- Read `STATUS.md` first, then the newest `docs/handoffs/*.md` addressed to your agent slug.
+- The board is `docs/milestones/<Mn>.yaml`. Change your task's `state` there; never edit `STATUS.md` by hand (`make status` renders it; CI fails if stale).
+- Before you stop, write a handoff note from `docs/handoffs/_template.md` (or run `/handoff <to> <task-id>`), commit it with the YAML and `STATUS.md` alongside your code. A note that says "see chat" is not finished.
+
 ## Verify before you hand back
 
 ```sh
-go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check
+go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check
 ```
 
-All five must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
+All six must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
 
 ## Rules
 

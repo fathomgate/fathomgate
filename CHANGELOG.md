@@ -8,6 +8,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Added
 
+- Status tracking for agent handoffs: `docs/milestones/<Mn>.yaml` board (source of truth), `STATUS.md` rendered by `tools/status/render.py` (`make status`; CI job `STATUS.md is current`), `docs/handoffs/` protocol, template and first note, `/status` and `/handoff` slash commands, `.github/labels.yml` for the GitHub issue mirror. `/milestone` now writes the YAML board and `STATUS.md`.
+
+### Added
+
 - Go module `github.com/joshscott13/netguard` (Go 1.24; go-sdk v1.7 will need 1.25), MIT licence, `Makefile`, `.goreleaser.yaml`, distroless `Dockerfile`, CI workflows `ci.yaml`, `nightly-clab.yaml`, `release.yaml`.
 - `internal/policy`: YAML policy loader with strict keys, `Evaluate(policy, request) -> Decision` with first-match-wins, unknown-target and session caps, reserved `default:` rule ids, the seven-obligation vocabulary, and the `*.test.yaml` runner.
 - `internal/classify`: the seven-class enum, per-server profiles (`server`, `tools`, `target_params`, `targets_params`, `group_params`, `command_params`, `config_params`), `Normalize`, and the fallback command classifier with allow-list downgrade.

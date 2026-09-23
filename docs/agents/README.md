@@ -97,3 +97,7 @@ Using M1 (Classify + allow/deny) as the example:
 7. **Release and announce.** The Release Engineer runs preflight, snapshot, container, snippet and launcher checks, cuts `CHANGELOG.md`, pushes the signed tag, verifies brew and the image, and hands the URL to the Docs Writer, who publishes the M1 announce post: a read-only proxy that stops `reload` from reaching a device.
 
 Then `/milestone M2`.
+
+## State between agents
+
+Every handoff in the pipeline above crosses through files, not chat: the board `docs/milestones/<Mn>.yaml`, the rendered `STATUS.md`, and one note per handoff in `docs/handoffs/`. `/status` reads them; `/handoff` writes them. The protocol is in [docs/handoffs/README.md](../handoffs/README.md).

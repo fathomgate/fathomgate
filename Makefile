@@ -12,7 +12,7 @@ GO       ?= go
 GOFLAGS  ?=
 BIN_DIR  := bin
 
-.PHONY: all build test vet lint fmt policy-test fixtures-check release-snapshot clean help
+.PHONY: all build test vet lint fmt policy-test fixtures-check status status-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -49,6 +49,12 @@ release-snapshot: ## Local GoReleaser dry run (needs goreleaser)
 
 clean: ## Remove build outputs
 	rm -rf $(BIN_DIR) dist
+
+status: ## Re-render STATUS.md from docs/milestones/<CURRENT>.yaml and docs/handoffs/
+	python3 tools/status/render.py
+
+status-check: ## Fail if STATUS.md is stale relative to the board (CI)
+	python3 tools/status/render.py --check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'

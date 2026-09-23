@@ -82,7 +82,8 @@ tests/                 Python companion: policy_lint, tiered pytest, fixtures/co
 tools/policy-lint/     launcher for tests/policy_lint
 design/                Fathom tokens + the NetGuard policy layer + console preview
 docs/                  PLAN, PRD, adr/ (10 ADRs), specs/ (8 normative specs), testing/, agents/, research/
-.claude/               11 specialist agents + 6 slash commands that run the build pipeline
+.claude/               11 specialist agents + 8 slash commands that run the build pipeline
+STATUS.md              rendered board for the current milestone (docs/milestones/, docs/handoffs/)
 ```
 
 ## Reading order
@@ -95,6 +96,7 @@ docs/                  PLAN, PRD, adr/ (10 ADRs), specs/ (8 normative specs), te
 | Implement or review an interface | [docs/specs/](docs/specs/) |
 | Contribute a server profile, policy or redaction pattern without Go | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Work here as a coding agent | [CLAUDE.md](CLAUDE.md), [AGENTS.md](AGENTS.md), [docs/agents/](docs/agents/README.md) |
+| See what is in flight and who has it | [STATUS.md](STATUS.md), then [docs/handoffs/](docs/handoffs/README.md) |
 | See the console design | [design/DESIGN.md](design/DESIGN.md) and `design/preview.html` |
 | Read the research this was built on | [docs/research/](docs/research/) |
 

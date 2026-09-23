@@ -60,3 +60,15 @@ jobs:
             case "$f" in *.test.yaml) continue;; esac
             uv run python -m policy_lint "$f"
           done
+
+  status:
+    name: STATUS.md is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: board and STATUS.md agree
+        run: python3 tools/status/render.py --check

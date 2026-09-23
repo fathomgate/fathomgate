@@ -79,4 +79,5 @@ Every merged PR adds a line under `## [Unreleased]` in Keep-a-Changelog form (Ad
 - `CHANGELOG.md` `[Unreleased]` lists every merged change in the milestone.
 - `go test ./...`, `golangci-lint run`, `make policy-test` and the conformance suite pass on `main`.
 - `ROADMAP.md` shows the milestone closed and the next one open with its exit criteria copied from `docs/PLAN.md`.
+- `docs/milestones/<Mn>.yaml` has every task `validated` or `dropped`, `docs/milestones/CURRENT` names the next milestone, `make status-check` passes, and a closing note exists in `docs/handoffs/` addressed to the next milestone's first owner. Nothing about the milestone's state should live only in a chat transcript.
 - Release Engineer has received the `/release` request, or you have recorded why the milestone does not ship (only M0 may close without a public tag).
