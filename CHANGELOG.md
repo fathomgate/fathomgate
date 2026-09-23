@@ -6,19 +6,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ## [Unreleased]
 
-### Changed
-
-- Go 1.25 toolchain: `go.mod` declares `go 1.25.0` (the floor go-sdk v1.7.0 sets). CI, release and the `Dockerfile` builder follow it.
-- go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod`, held there by the `//go:build tools` file `internal/tools/tools.go` until `internal/proxy` imports it. It is not linked into `bin/netguard` yet.
-- CI `golangci-lint` moves from v2.1 to v2.4. v2.1 is built with Go 1.24 and refuses to lint a module that declares Go 1.25.
-
 ### Added
 
 - Decision record `docs/adr/0011-accept-go-sdk-transitive-modules.md` (proposed): accepts go-sdk v1.7.0 and its eight indirect modules, with `go mod why` reasons, `CGO_ENABLED=0` cross-builds and the `govulncheck` follow-up.
 - Status tracking for agent handoffs: `docs/milestones/<Mn>.yaml` board (source of truth), `STATUS.md` rendered by `tools/status/render.py` (`make status`; CI job `STATUS.md is current`), `docs/handoffs/` protocol, template and first note, `/status` and `/handoff` slash commands, `.github/labels.yml` for the GitHub issue mirror. `/milestone` now writes the YAML board and `STATUS.md`.
-
-### Added
-
 - Go module `github.com/joshscott13/netguard` (Go 1.25; see Changed), MIT licence, `Makefile`, `.goreleaser.yaml`, distroless `Dockerfile`, CI workflows `ci.yaml`, `nightly-clab.yaml`, `release.yaml`.
 - `internal/policy`: YAML policy loader with strict keys, `Evaluate(policy, request) -> Decision` with first-match-wins, unknown-target and session caps, reserved `default:` rule ids, the seven-obligation vocabulary, and the `*.test.yaml` runner.
 - `internal/classify`: the seven-class enum, per-server profiles (`server`, `tools`, `target_params`, `targets_params`, `group_params`, `command_params`, `config_params`), `Normalize`, and the fallback command classifier with allow-list downgrade.
@@ -38,7 +29,9 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Changed
 
-- Nothing yet.
+- Go 1.25 toolchain: `go.mod` declares `go 1.25.0`, the minimum go-sdk v1.7.0 sets. CI, release and the `Dockerfile` builder follow it (Dockerfile already on golang:1.25-alpine, PR #1).
+- go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod`. The `//go:build tools` file `internal/tools/tools.go` keeps it there until `internal/proxy` imports it. It is not linked into `bin/netguard` yet.
+- CI `golangci-lint` moves from v2.1 to v2.4.0. v2.1 is built with Go 1.24 and refuses to lint a module that declares Go 1.25.
 
 ### Fixed
 

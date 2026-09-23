@@ -43,7 +43,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           # v2.4 is the first line built with Go 1.25; v2.1 refuses a go 1.25 module.
-          version: v2.4
+          version: v2.4.0
 
   python:
     name: policy-lint smoke
