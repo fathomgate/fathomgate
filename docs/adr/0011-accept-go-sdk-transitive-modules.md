@@ -1,8 +1,8 @@
 # ADR 0011: Accept go-sdk v1.7.0 and its transitive modules
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-23
-- Deciders: Josh Scott (maintainer; acceptance pending)
+- Deciders: Josh Scott (maintainer; accepted 2026-09-23)
 
 ## Context
 

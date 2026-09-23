@@ -4,18 +4,17 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: open 1 · blocked 8 · in review 3
+Tasks: open 1 · blocked 7 · in review 4
 
 ## Blockers
 
 - **B1** (mcp-protocol-engineer): Go 1.25 toolchain and go-sdk v1.7.0 on build/go-1.25-go-sdk; clears when T0.1 merges.
-- **B2** (joshscott13): ADR 0011 (go-sdk transitive modules) must be accepted by a maintainer before T0.1 merges.
 
 ## In flight
 
 | Task | Title | Package | Owner | Reviewers | State | Blocked by | Matrix | ADR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | blocked | — | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
+| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | in review | — | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
 | T0.2 | internal/proxy — spawn one stdio upstream, forward tools/list and tools/call with server prefix | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.1 | 1 | [0002](docs/adr/0002-standalone-proxy-not-gateway-plugin.md) |
 | T0.3 | Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough) | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.2 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | T0.4 | Conformance suite in CI against the client-facing side; make conformance target | `.github/workflows` | test-engineer | go-reviewer | blocked | T0.2 | 1, 2 | — |
