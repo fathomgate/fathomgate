@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 1 · blocked 3 · in review 5 · merged 4
+Tasks: open 1 · blocked 4 · in review 5 · merged 4
 
 ## In flight
 
@@ -23,6 +23,7 @@ Tasks: open 1 · blocked 3 · in review 5 · merged 4
 | T0.11 | Run actionlint on every PR in ci.yaml | `.github/workflows` | release-engineer | go-reviewer | in review | T0.1 | — | — |
 | T0.12 | Restrict the audit key file to its owner on Windows (DACL) and open keys with O_EXCL plus chmod on every OS | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | T0.1 | — | [0011](docs/adr/0011-accept-go-sdk-transitive-modules.md) |
 | T0.13 | Pin the Go build toolchain in go.mod and read it from there in every workflow | `go.mod` | release-engineer | go-reviewer, security-reviewer | in review | T0.10 | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
+| T0.14 | Move the build toolchain to Go 1.26 now that Go 1.25 is out of support | `go.mod` | release-engineer | go-reviewer, security-reviewer | blocked | T0.13 | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
 
 ## Exit criteria
 
