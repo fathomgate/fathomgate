@@ -3,13 +3,13 @@
 A policy-enforcing MCP proxy that sits between AI agents and network-device MCP servers. It classifies every tool call by network semantics, resolves the target device's role from a static inventory, hostname patterns or NetBox/Nautobot, evaluates a YAML policy, and forwards, denies, or holds the call for human approval. Every result passes through a secret redactor and lands in a hash-chained audit log.
 
 ```jsonc
-// mcp.json — the proxy in front of a real server (once M0 ships the transport)
+// mcp.json — the proxy in front of a real server (M0: pass-through, no policy yet)
 {
   "mcpServers": {
     "netdev": {
-      "command": "netguard",
-      "args": ["serve", "--policy", "policies/examples/read-only.yaml",
-               "--inventory", "inventory.yaml", "--upstream", "netdev-ssh-mcp"]
+      "command": "/usr/local/bin/netguard",
+      "args": ["serve", "--server", "netdev-ssh-mcp",
+               "--upstream", "/usr/local/bin/netdev-ssh-mcp"]
     }
   }
 }
@@ -17,7 +17,7 @@ A policy-enforcing MCP proxy that sits between AI agents and network-device MCP 
 
 ## Status
 
-The building blocks are done and tested; the proxy transport is not. See [ROADMAP.md](ROADMAP.md).
+The building blocks are done and tested. The proxy transport forwards `tools/list` and `tools/call` for one stdio upstream with the `<server>.` prefix, but does not run the pipeline yet: in M0 every call is forwarded. See [ROADMAP.md](ROADMAP.md).
 
 | Piece | Package | Try it |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ The building blocks are done and tested; the proxy transport is not. See [ROADMA
 | Vendor secret patterns, keyed HMAC tokens, fixture corpus | `internal/redact` | `netguard redact --key-file k tests/fixtures/configs/junos.txt` |
 | Hash-chained JSONL, Ed25519 checkpoints, verify | `internal/audit` | `netguard audit keygen && netguard audit verify audit.jsonl --key audit.key.pub` |
 | Resolver chain: static file, hostname patterns, CSV import, NetBox stub | `internal/inventory` | `netguard inventory import --csv devices.csv --out inventory.yaml` |
-| Proxy transport (M0) | `internal/proxy` | `netguard serve` prints why it is not here yet: the official go-sdk v1.7 needs Go 1.25 |
+| Proxy transport (M0, pass-through) | `internal/proxy` | `netguard serve --server netdev-ssh-mcp --upstream netdev-ssh-mcp` (tools appear as `netdev-ssh-mcp.run_show_command`; arguments for the upstream follow `--`) |
 
 ## Build
 
@@ -70,7 +70,8 @@ Every denial names its rule. Policies are data; test them with `netguard policy 
 ## Layout
 
 ```
-cmd/netguard/          CLI: version, serve (stub), policy test|eval, audit verify|keygen, redact, inventory import
+cmd/netguard/          CLI: version, serve (M0 pass-through), policy test|eval, audit verify|keygen, redact, inventory import
+internal/proxy/        go-sdk server toward the agent, stdio client toward the upstream, tool prefixing
 internal/classify/     Class enum, profiles, Normalize, ClassifyCommand
 internal/policy/       Policy types, Load/Parse/Validate, Evaluate, RunTestFile
 internal/redact/       Rules, Redactor, HMAC tokens

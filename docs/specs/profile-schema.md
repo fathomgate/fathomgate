@@ -8,7 +8,7 @@ This document describes what `internal/classify/profile.go` and `normalize.go` p
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `server` | string, non-empty | yes | Short name used as the tool prefix toward the agent (`netdev-ssh-mcp.get_config`) and in policy `match.servers`. MUST be unique across the `profiles/` directory; `LoadProfileDir` rejects duplicates. |
+| `server` | string, non-empty | yes | Short name used as the tool prefix toward the agent (`netdev-ssh-mcp.get_config`) and in policy `match.servers`. MUST be unique across the `profiles/` directory; `LoadProfileDir` rejects duplicates. To be usable as a prefix it MUST match `[A-Za-z0-9_-]+` ([section 8](#8-proxy-config-m0)); every shipped profile does. |
 | `source` | string (URL) | no | Repository the profile was written against. |
 | `description` | string | no | One line for humans. |
 | `tools` | map of tool name to tool spec | yes, non-empty | Every tool the upstream exposes. A tool absent from the profile normalises to nothing and is treated as `EXEC_ARBITRARY`. |
@@ -54,7 +54,7 @@ These are in the plan and in the research but the strict loader rejects them tod
 | `reads_config_when` | Extra config-read regexes per upstream. | M2 |
 | `capability_param`, `capability_table`, top-level `capabilities` | Meta-tool classification from a parameter (Meraki `execute_api(capability_id)`). | M1 (planned) |
 | `inventory_tool`, `inventory_map` | Which `INVENTORY_READ` tool seeds the resolver chain's upstream provider. | M2 |
-| `transport`, `era`, `vendor_hint`, `verified_version` | Launch and era configuration; today these live in `netguard serve` flags. | M2 |
+| `transport`, `era`, `vendor_hint`, `verified_version` | Launch and era configuration; today the launch command lives in `netguard serve` flags ([section 8](#8-proxy-config-m0)). | M2 |
 
 ## 4. Example: netdev-ssh-mcp
 
@@ -180,3 +180,45 @@ Profiles for upa/mcp-netmiko-server, Palo-MCP, mcfortigate and the Meraki meta-t
 - `server` is unique across the directory.
 
 `internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. A tier 2 test that compares each profile against the real upstream's `tools/list` is planned ([test-strategy.md](../testing/test-strategy.md)).
+
+## 8. Proxy config (M0)
+
+There is no separate proxy spec yet; this section is normative for `internal/proxy` and `netguard serve` until one exists. Decision record: [ADR 0012](../adr/0012-serve-cli-and-proxy-api-for-m0.md) (proposed).
+
+### 8.1 Tool-name prefixing
+
+- Every upstream tool is exposed to the agent as `<server>.<tool>`, where `<server>` is the upstream's `server` key from this schema (section 1), passed to the proxy explicitly. It is never derived from the upstream binary name.
+- `<server>` MUST match `[A-Za-z0-9_-]+`. It contains no `.`, so the first `.` in a prefixed name always ends the prefix, and upstream tool names that contain dots (`s.a.b` is tool `a.b` on server `s`) route unambiguously.
+- `tools/call` splits the name at the first `.`, looks up the upstream by `<server>` and forwards the unprefixed `<tool>` with the agent's arguments unchanged. `_meta` from the agent is not forwarded in M0.
+- An upstream tool name outside the MCP tool-name character set `[A-Za-z0-9_.-]`, or one whose prefixed name exceeds 128 characters, is not exposed and is logged. So is a tool whose `inputSchema` is not a JSON object with `"type": "object"`.
+- Two upstreams with the same `<server>`, or one upstream listing the same tool name twice, is a startup error.
+- Title, description, input and output schema and annotations pass through unchanged. They are untrusted data: annotations are never used to decide anything, and descriptions are pinned from M2. Tool `_meta` and `icons` are dropped.
+- The tool list is read once at startup. `notifications/tools/list_changed` from an upstream is not followed, and the proxy advertises `tools` without `listChanged`.
+
+### 8.2 Errors toward the agent
+
+| Situation | Wire form |
+| --- | --- |
+| Name has no `.`, or an empty side | JSON-RPC error `-32602`, `data: {"tool": "<name>", "reason": "unprefixed", "servers": [...]}` |
+| Prefix names no configured upstream | `-32602`, `reason: "unknown_server"` |
+| Upstream has no such tool (or it was not exposed, 8.1) | `-32602`, `reason: "unknown_tool"` |
+| Upstream returns a JSON-RPC error | Same code; message `upstream <server>: <upstream message>`; upstream `data` dropped |
+| Upstream result, including `isError: true` | Forwarded unchanged |
+| Upstream process has exited, or exits mid-call | Tool result `isError: true`, text `upstream <server> is not running; restart netguard serve` |
+
+None of these is a policy decision, so none uses `allow`, `hold`, `deny` or `expired`. Policy denials arrive in M1 as tool errors that name the rule id ([ARCHITECTURE.md](../../ARCHITECTURE.md#pipeline)).
+
+### 8.3 `netguard serve` flags
+
+```text
+netguard serve --server <name> --upstream <path> [--upstream-env KEY=VALUE]... [-- <upstream args>...]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--server` | Required. The tool prefix: the upstream's profile `server` key (`netdev-ssh-mcp`). |
+| `--upstream` | Required. The upstream executable, spawned over stdio. A bare name is looked up on `PATH`; MCP hosts that launch with an empty `PATH` need an absolute path. Arguments for it follow `--` and are passed verbatim, with no shell. |
+| `--upstream-env` | Repeatable `KEY=VALUE`, appended to the proxy's own environment for the upstream process. Upstream credentials are ambient to the upstream; nothing from the agent is ever added. |
+| `--policy`, `--inventory`, `--profiles`, `--audit` | Reserved. Refused with exit 2 in M0, because the pipeline they configure is not wired and M0 forwards every call. |
+
+The agent side is stdio. The upstream's stderr goes to the proxy's stderr; stdout carries only the protocol. Startup (spawn, handshake, `tools/list`) has a 30-second limit. Exit status: 0 when the agent disconnects or on SIGINT or SIGTERM, 1 when the upstream cannot be started or listed, 2 for a usage error.

@@ -28,11 +28,12 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: in progress
+    state: in review
     blocked_by: [T0.1]
     adr: "0002"
     matrix: [1]
     spec: docs/specs/profile-schema.md
+    notes: 'Branch feat/proxy-passthrough, stacked on PR #14 (T0.1); merge after it. CLI surface and proxy API in ADR 0012 (proposed, needs acceptance). Prefix and error rules in profile-schema section 8. Tier 1 only (fake go-sdk upstream in-process and as a child process); row 1 is not validated. A manual smoke against netdev-ssh-mcp v1.6.6 listed its five tools as netdev-ssh-mcp.*. Matrix row 1 and PLAN say netdev.run_show_command; the spec says the prefix is the profile server key (netdev-ssh-mcp) — open question in the handoff.'
   - id: T0.3
     title: Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
     package: internal/proxy
