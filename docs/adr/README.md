@@ -16,6 +16,6 @@ To propose one, copy the template to the next number, open a pull request, and l
 | [0008](0008-dual-era-mcp-support.md) | Dual-era MCP support | accepted | 2026-09-23 |
 | [0009](0009-fathom-design-system-policy-layer.md) | Fathom design system plus a policy layer | accepted | 2026-09-23 |
 | [0010](0010-classify-by-payload-not-annotations.md) | Classify by payload, not by annotations | accepted | 2026-09-23 |
-| [0011](0011-accept-go-sdk-transitive-modules.md) | Accept go-sdk v1.7.0 and its transitive modules | proposed | 2026-09-23 |
+| [0011](0011-accept-go-sdk-transitive-modules.md) | Accept go-sdk v1.7.0 and its transitive modules | accepted | 2026-09-23 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#open-questions). Each will become a record when resolved.
