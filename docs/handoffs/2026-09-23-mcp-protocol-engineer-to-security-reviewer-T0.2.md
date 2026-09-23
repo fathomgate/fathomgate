@@ -5,6 +5,7 @@
 - **State now:** in review
 - **Branch / PR:** `feat/proxy-passthrough`, stacked on PR #14 (T0.1, head `64bf8b7`) · no PR yet (not pushed)
 - **Date:** 2026-09-23
+- **Superseded by:** [review fixes note](2026-09-23-mcp-protocol-engineer-to-go-reviewer-T0.2.md) (the prefix question below was ruled: `netdev-ssh-mcp.`)
 
 ## Done
 

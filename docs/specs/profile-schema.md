@@ -202,9 +202,10 @@ There is no separate proxy spec yet; this section is normative for `internal/pro
 | Name has no `.`, or an empty side | JSON-RPC error `-32602`, `data: {"tool": "<name>", "reason": "unprefixed", "servers": [...]}` |
 | Prefix names no configured upstream | `-32602`, `reason: "unknown_server"` |
 | Upstream has no such tool (or it was not exposed, 8.1) | `-32602`, `reason: "unknown_tool"` |
-| Upstream returns a JSON-RPC error | Same code; message `upstream <server>: <upstream message>`; upstream `data` dropped |
+| Upstream returns a JSON-RPC error | Code kept if it is `-32700`, `-32600`, `-32601` or `-32603`; any other code, including `-32602` (reserved for the rows above), becomes `-32603`. Message `upstream <server>: <upstream message>`, with C0 and C1 control characters (including ESC and newline), DEL and invalid UTF-8 escaped as `\uXXXX` text and the upstream part capped at 512 bytes. Upstream `data` dropped |
 | Upstream result, including `isError: true` | Forwarded unchanged |
-| Upstream process has exited, or exits mid-call | Tool result `isError: true`, text `upstream <server> is not running; restart netguard serve` |
+| Upstream asks for input (MRTR `input_required`: elicitation, sampling or roots) | Tool result `isError: true`, text `netguard refused an input request ... from upstream <server> ...`. The upstream's prompt is not shown. The upstream client advertises none of these capabilities |
+| Upstream process has exited, or exits mid-call | Tool result `isError: true`, text `upstream <server> is not running; restart netguard serve`. After a failed call the proxy waits up to 2 seconds to see the exit before choosing this text |
 
 None of these is a policy decision, so none uses `allow`, `hold`, `deny` or `expired`. Policy denials arrive in M1 as tool errors that name the rule id ([ARCHITECTURE.md](../../ARCHITECTURE.md#pipeline)).
 
@@ -216,9 +217,11 @@ netguard serve --server <name> --upstream <path> [--upstream-env KEY=VALUE]... [
 
 | Flag | Meaning |
 | --- | --- |
-| `--server` | Required. The tool prefix: the upstream's profile `server` key (`netdev-ssh-mcp`). |
-| `--upstream` | Required. The upstream executable, spawned over stdio. A bare name is looked up on `PATH`; MCP hosts that launch with an empty `PATH` need an absolute path. Arguments for it follow `--` and are passed verbatim, with no shell. |
-| `--upstream-env` | Repeatable `KEY=VALUE`, appended to the proxy's own environment for the upstream process. Upstream credentials are ambient to the upstream; nothing from the agent is ever added. |
-| `--policy`, `--inventory`, `--profiles`, `--audit` | Reserved. Refused with exit 2 in M0, because the pipeline they configure is not wired and M0 forwards every call. |
+| `--server` | Required. The tool prefix: the upstream's profile `server` key (`netdev-ssh-mcp`). Validated against 8.1 before anything is spawned; an invalid name exits 2. |
+| `--upstream` | Required. The upstream executable, spawned over stdio. A bare name is looked up on the proxy's `PATH`; MCP hosts that launch with an empty `PATH` need an absolute path. Arguments for it are accepted only after `--` and are passed verbatim, with no shell. A positional argument without a preceding `--` exits 2. |
+| `--upstream-env` | Repeatable `KEY=VALUE`, added after the inherited allow-list below, so it overrides. Upstream credentials go here; nothing from the agent is ever added. |
+| `--policy`, `--inventory`, `--profiles`, `--audit` | Reserved. Refused with exit 2 in M0, because the pipeline they configure is not wired and M0 forwards every call. They are refused wherever they appear, including among the upstream arguments after `--`. |
 
-The agent side is stdio. The upstream's stderr goes to the proxy's stderr; stdout carries only the protocol. Startup (spawn, handshake, `tools/list`) has a 30-second limit. Exit status: 0 when the agent disconnects or on SIGINT or SIGTERM, 1 when the upstream cannot be started or listed, 2 for a usage error.
+Upstream environment: the upstream inherits only an allow-list from the proxy. On Unix that is `PATH`, `HOME`, `USER`, `LANG`, `LC_*` and `TMPDIR`. On Windows it is `PATH`, `SystemRoot`, `SystemDrive`, `TEMP`, `TMP`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `PATHEXT` and `COMSPEC`, matched case-insensitively. Every other variable, including `NETGUARD_*`, reaches the upstream only through `--upstream-env`.
+
+The agent side is stdio; stdout carries only the protocol. The upstream's stderr goes to the proxy's stderr one line at a time, each line prefixed `upstream <server>: ` with control characters escaped; a final line without a newline is dropped. Startup (spawn, handshake, `tools/list`) has a 30-second limit, and if it fails after the process started, the process is killed. On shutdown the upstream's stdin is closed, then it gets 5 seconds before SIGTERM and 5 more before it is killed (on Windows, killed after the first 5). Grandchildren, such as the server behind `uvx` or `npx`, are not signalled. Exit status: 0 when the agent disconnects or on SIGINT or SIGTERM, 1 when the upstream cannot be started or listed or the session fails, 2 for a usage error.
