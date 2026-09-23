@@ -42,7 +42,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
 | 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
-| 2026-09-23 | release-engineer | go-reviewer-T0.6-T0.10 | T0.11 | [T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.6-T0.10-T0.11.md) |
+| 2026-09-23 | release-engineer | go-reviewer | T0.6 | [T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.6.md) |
 | 2026-09-23 | policy-engineer | security-reviewer | T0.7 | [T0.7 for security review: 0600 key-mode assertion now runs on Unix only; SaveKey unchanged](docs/handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.7.md) |
 | 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
 | 2026-09-23 | mcp-protocol-engineer | go-reviewer | T0.1 | [T0.1 fix-ups are in: Go 1.25.0, go-sdk v1.7.0, golangci-lint v2.4.0; merge waits on ADR 0011 (proposed)](docs/handoffs/2026-09-23-mcp-protocol-engineer-to-go-reviewer-T0.1.md) |
