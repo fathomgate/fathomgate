@@ -2,9 +2,9 @@
 
 <!-- GENERATED from docs/milestones/M0.yaml by tools/status/render.py. Edit the YAML, then `make status`. -->
 
-**Current milestone:** M0 â€” Pass-through proxy Â· **state:** blocked Â· opened 2026-09-23
+**Current milestone:** M0 — Pass-through proxy · **state:** blocked · opened 2026-09-23
 
-Tasks: open 1 Â· blocked 5
+Tasks: open 3 · blocked 5 · in progress 1
 
 ## Blockers
 
@@ -14,12 +14,15 @@ Tasks: open 1 Â· blocked 5
 
 | Task | Title | Package | Owner | Reviewers | State | Blocked by | Matrix | ADR |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | open | â€” | â€” | [0001](docs/adr/0001-go-core-with-python-companion.md) |
+| T0.1 | Bump toolchain to Go 1.25 and add github.com/modelcontextprotocol/go-sdk v1.7.x | `go.mod` | mcp-protocol-engineer | go-reviewer | in progress | — | — | [0001](docs/adr/0001-go-core-with-python-companion.md) |
 | T0.2 | internal/proxy â€” spawn one stdio upstream, forward tools/list and tools/call with server prefix | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.1 | 1 | [0002](docs/adr/0002-standalone-proxy-not-gateway-plugin.md) |
 | T0.3 | Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough) | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | blocked | T0.2 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
-| T0.4 | Conformance suite in CI against the client-facing side; make conformance target | `.github/workflows` | test-engineer | go-reviewer | blocked | T0.2 | 1, 2 | â€” |
-| T0.5 | Client smoke â€” Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case | `tests/integration` | test-engineer | release-engineer | blocked | T0.3 | 22 | â€” |
-| T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | blocked | T0.1 | â€” | â€” |
+| T0.4 | Conformance suite in CI against the client-facing side; make conformance target | `.github/workflows` | test-engineer | go-reviewer | blocked | T0.2 | 1, 2 | — |
+| T0.5 | Client smoke â€” Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case | `tests/integration` | test-engineer | release-engineer | blocked | T0.3 | 22 | — |
+| T0.6 | Verify GoReleaser snapshot and distroless image build with the new toolchain | `.goreleaser.yaml` | release-engineer | go-reviewer | blocked | T0.1 | — | — |
+| T0.7 | Make TestKeyRoundTrip portable â€” file-mode assertion fails on Windows (-rw-rw-rw-) | `internal/audit` | policy-engineer | go-reviewer, security-reviewer | open | — | — | — |
+| T0.8 | tools/status/render.py writes CRLF on Windows, so status-check reports STATUS.md stale | `tools/status` | docs-writer | go-reviewer | open | — | — | — |
+| T0.9 | nightly-clab.yaml fails with a workflow file error on every push to main | `.github/workflows` | release-engineer | go-reviewer | open | — | — | — |
 
 ## Exit criteria
 
@@ -32,12 +35,14 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 ## External
 
-- pr: dependabot go-yaml 1.18.0 -> 1.19.2 â€” open. Trivial first merge to exercise the pipeline; not part of M0 scope.
+- pr: #2 dependabot go-yaml 1.18.0 -> 1.19.2 — merged. Merged 2026-09-23 before T0.1, so T0.1's diff stays toolchain-only.
+- pr: #1 dependabot golang 1.24-alpine -> 1.25-alpine — merged. Dockerfile builder already on Go 1.25; T0.1 does not need to touch it.
 
 ## Last handoffs
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-23 | netguard-orchestrator | mcp-protocol-engineer | T0.1 | [T0.1 is yours: move go.mod to Go 1.25 and pin go-sdk v1.7.x, nothing else](docs/handoffs/2026-09-23-netguard-orchestrator-to-mcp-protocol-engineer-T0.1.md) |
 | 2026-09-23 | joshscott13 | netguard-orchestrator | M0 | [Scaffold complete; M0 is yours and it starts with a toolchain bump](docs/handoffs/2026-09-23-joshscott13-to-netguard-orchestrator-M0.md) |
 
 ## How to update
