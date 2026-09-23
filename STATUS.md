@@ -43,11 +43,11 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
-| 2026-09-24 | policy-engineer | security-reviewer | T0.12 | [T0.12 for security review: audit key and log are owner-only on every OS (protected DACL on Windows, O_EXCL + 0600 on Unix)](docs/handoffs/2026-09-24-policy-engineer-to-security-reviewer-T0.12.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.6 | [T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.6.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.13 | [T0.13 ready for review: the Go build toolchain is pinned in go.mod and every workflow reads it](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.13.md) |
 | 2026-09-23 | policy-engineer | security-reviewer | T0.7 | [T0.7 for security review: 0600 key-mode assertion now runs on Unix only; SaveKey unchanged](docs/handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.7.md) |
+| 2026-09-23 | policy-engineer | security-reviewer | T0.12 | [T0.12 for security review: audit key and log are owner-only on every OS (protected DACL on Windows, O_EXCL + 0600 on Unix)](docs/handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.12.md) |
 
 ## How to update
 

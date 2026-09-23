@@ -87,17 +87,18 @@ func cmdAuditKeygen(args []string) int {
 	if *pubOut == "" {
 		*pubOut = *out + ".pub"
 	}
-	if _, err := os.Stat(*out); err == nil {
+	// Friendly early errors; WriteKeyPair enforces the same with O_EXCL.
+	if _, err := os.Lstat(*out); err == nil {
 		return fail(fmt.Errorf("%s already exists; refusing to overwrite a signing key", *out))
+	}
+	if _, err := os.Lstat(*pubOut); err == nil {
+		return fail(fmt.Errorf("%s already exists; refusing to overwrite a verification key", *pubOut))
 	}
 	pub, priv, err := audit.NewKey()
 	if err != nil {
 		return fail(err)
 	}
-	if err := audit.SaveKey(*out, priv); err != nil {
-		return fail(err)
-	}
-	if err := audit.SavePublicKey(*pubOut, pub); err != nil {
+	if err := audit.WriteKeyPair(*out, *pubOut, pub, priv); err != nil {
 		return fail(err)
 	}
 	fmt.Printf("private key: %s\npublic key:  %s\n", *out, *pubOut)

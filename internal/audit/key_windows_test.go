@@ -3,7 +3,9 @@
 package audit
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"unsafe"
@@ -81,9 +83,8 @@ func currentUser(t *testing.T) *windows.SID {
 
 // assertOwnerOnly checks the T0.12 guarantee: a protected DACL, no inherited
 // ACEs, no Everyone / Users / Authenticated Users entries, only allow ACEs
-// for the current user and SYSTEM, and (for files NetGuard created) the
-// current user as owner. Resuming a log never changes its owner.
-func assertOwnerOnly(t *testing.T, path string, checkOwner bool) {
+// for the current user and SYSTEM, and the current user as owner.
+func assertOwnerOnly(t *testing.T, path string) {
 	t.Helper()
 	me := currentUser(t)
 	system := wellKnown(t, windows.WinLocalSystemSid)
@@ -96,7 +97,7 @@ func assertOwnerOnly(t *testing.T, path string, checkOwner bool) {
 	if !sec.protected {
 		t.Errorf("%s: DACL is not protected (SE_DACL_PROTECTED unset)", filepath.Base(path))
 	}
-	if checkOwner && (sec.owner == nil || !sec.owner.Equals(me)) {
+	if sec.owner == nil || !sec.owner.Equals(me) {
 		t.Errorf("%s: owner %v, want current user %v", filepath.Base(path), sec.owner, me)
 	}
 	if len(sec.aces) == 0 {
@@ -166,7 +167,7 @@ func TestSaveKeyWindowsDACL(t *testing.T) {
 	if err := SaveKey(kp, priv); err != nil {
 		t.Fatal(err)
 	}
-	assertOwnerOnly(t, kp, true)
+	assertOwnerOnly(t, kp)
 	loaded, err := LoadKey(kp)
 	if err != nil {
 		t.Fatalf("owner cannot read its own key: %v", err)
@@ -182,7 +183,7 @@ func TestWriterWindowsDACL(t *testing.T) {
 	// A log NewWriter creates is owner-only from the start.
 	fresh := filepath.Join(dir, "new.jsonl")
 	writeChain(t, fresh, 2, Options{})
-	assertOwnerOnly(t, fresh, true)
+	assertOwnerOnly(t, fresh)
 
 	// An existing log that inherited the loose folder ACL is corrected on
 	// resume, and its chain continues.
@@ -207,8 +208,115 @@ func TestWriterWindowsDACL(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	assertOwnerOnly(t, old, false)
+	assertOwnerOnly(t, old)
 	if rep, err := Verify(old); err != nil || !rep.OK || rep.Events != 3 {
 		t.Fatalf("resumed chain %+v, %v", rep, err)
 	}
+}
+
+// looseLog writes a valid two-event chain into dir, where it inherits the
+// loose folder ACL, and returns its path.
+func looseLog(t *testing.T, dir, name string) string {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), "src.jsonl")
+	writeChain(t, src, 2, Options{})
+	b, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if readSecurity(t, p).protected {
+		t.Fatal("setup: the loose log should start with an inherited DACL")
+	}
+	return p
+}
+
+// assertUntouched fails if the file's DACL was made protected, which is
+// what restrictOpenFile would have done.
+func assertUntouched(t *testing.T, path string) {
+	t.Helper()
+	if readSecurity(t, path).protected {
+		t.Fatalf("%s: DACL was changed", filepath.Base(path))
+	}
+}
+
+// H1: a symlink at the log path is opened as itself and refused; its
+// target's DACL is not changed.
+func TestNewWriterWindowsRefusesSymlink(t *testing.T) {
+	dir := looseDir(t)
+	target := looseLog(t, dir, "target.jsonl")
+	link := filepath.Join(dir, "audit.jsonl")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("creating a symlink needs SeCreateSymbolicLinkPrivilege (Developer Mode or admin): %v", err)
+	}
+	if _, err := NewWriter(link, Options{}); !errors.Is(err, errUnsafeLog) {
+		t.Fatalf("err = %v, want errUnsafeLog", err)
+	}
+	assertUntouched(t, target)
+}
+
+// H1: a junction (mount point) at the log path is refused and its target
+// directory's DACL is not changed. Junctions need no privilege.
+func TestNewWriterWindowsRefusesJunction(t *testing.T) {
+	dir := looseDir(t)
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "audit.jsonl")
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
+	if err != nil {
+		t.Skipf("mklink /J: %v: %s", err, out)
+	}
+	_, err = NewWriter(link, Options{})
+	if err == nil {
+		t.Fatal("NewWriter accepted a junction")
+	}
+	t.Logf("junction refused: %v", err)
+	assertUntouched(t, target)
+}
+
+// H1: a hard link is refused and the shared file's DACL is not changed.
+func TestNewWriterWindowsHardLinkKeepsDACL(t *testing.T) {
+	dir := looseDir(t)
+	orig := looseLog(t, dir, "orig.jsonl")
+	link := filepath.Join(dir, "audit.jsonl")
+	if err := os.Link(orig, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWriter(link, Options{}); !errors.Is(err, errUnsafeLog) {
+		t.Fatalf("err = %v, want errUnsafeLog", err)
+	}
+	assertUntouched(t, orig)
+}
+
+// Q2: the DACL changes only after the chain verifies.
+func TestNewWriterWindowsBrokenChainKeepsDACL(t *testing.T) {
+	p := filepath.Join(looseDir(t), "audit.jsonl")
+	if err := os.WriteFile(p, []byte("not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWriter(p, Options{}); err == nil {
+		t.Fatal("NewWriter should refuse a broken chain")
+	}
+	assertUntouched(t, p)
+}
+
+// H2: a log owned by another SID is refused. Giving a file another owner
+// needs elevation (SeRestorePrivilege, or membership of an owner-capable
+// group such as Administrators), so this skips when run unelevated.
+func TestNewWriterWindowsRefusesOtherOwner(t *testing.T) {
+	p := looseLog(t, looseDir(t), "audit.jsonl")
+	admins := wellKnown(t, windows.WinBuiltinAdministratorsSid)
+	if err := windows.SetNamedSecurityInfo(p, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION, admins, nil, nil, nil); err != nil {
+		t.Skipf("cannot give the file another owner without elevation: %v", err)
+	}
+	if _, err := NewWriter(p, Options{}); !errors.Is(err, errUnsafeLog) {
+		t.Fatalf("err = %v, want errUnsafeLog", err)
+	}
+	assertUntouched(t, p)
 }
