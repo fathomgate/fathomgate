@@ -72,6 +72,24 @@ jobs:
       - name: govulncheck ./...
         run: make vulncheck
 
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+          cache: true
+      # `make actionlint` runs github.com/rhysd/actionlint at the version pinned
+      # in the Makefile (ACTIONLINT_VERSION) via `go run pkg@version`, with
+      # .github/actionlint.yaml for the self-hosted `clab` label. shellcheck is
+      # preinstalled on ubuntu-latest, so `run:` scripts are checked too. A
+      # broken workflow file fails its pull request instead of main (T0.9).
+      - name: actionlint .github/workflows
+        run: make actionlint
+
   python:
     name: policy-lint smoke
     runs-on: ubuntu-latest
