@@ -205,7 +205,7 @@ tasks:
     state: blocked
     blocked_by: [T0.4]
     matrix: []
-    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead. Maintainer go-ahead 2026-09-23. Blocked: branch protection and rulesets both return 403 on a private repository without GitHub Pro. Unblocks when the maintainer upgrades the plan or makes the repository public; the job already runs on every PR, so until then it is a gate by convention (CONTRIBUTING.md).'
+    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead. Maintainer go-ahead 2026-09-23. Blocked: branch protection and rulesets both return 403 on a private repository without GitHub Pro. Unblocks when the maintainer upgrades the plan or makes the repository public; the job already runs on every PR, so until then it is a gate by convention (CONTRIBUTING.md). Before making the repository public (one way to unblock this): wait until krisiasty/netdev-ssh-mcp has shipped a fix for the obfuscation leaks recorded in T0.29, or trim the leaked-line detail from docs/research/02-network-mcp-servers.md first. The removed upstream report draft is in git history; rewrite history only if the repository goes public before the fix.'
   - id: T0.22
     title: Sweep remaining stale go-sdk v1.7 and go 1.24 mentions
     package: docs
@@ -221,7 +221,7 @@ tasks:
     reviewers: [security-reviewer, go-reviewer]
     state: open
     matrix: [22]
-    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code. ADR 0017 (PR #55) merged 2026-09-23 with status proposed: recommends --upstream-env-pass NAME. Awaiting the maintainer''s acceptance and answers to its four open questions before implementation.'
+    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code. ADR 0017 (PR #55) merged 2026-09-23 with status proposed: recommends --upstream-env-pass NAME. Awaiting the maintainer''s acceptance and answers to its four open questions before implementation. ADR 0017 accepted by the maintainer 2026-09-23: --upstream-env-pass NAME; no secret-key warning; NETGUARD_* refused on both flags; exact passed values (4 bytes or more) scrubbed from relayed upstream stderr as [redacted:NAME]; an empty value exits 2. Ready for implementation.'
   - id: T0.24
     title: Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64
     package: internal/audit
@@ -247,15 +247,15 @@ tasks:
     matrix: [22]
     notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step. PR #56: the maintainer''s HPE vEOS 4.16.6M running-config (public sample) as a fake-device show running-config transcript and a redaction fixture (eos-4.16.txt), four secrets replaced with FAKE values of the same shape; client-smoke fetches it via get_config. show_version stays synthetic. Found T0.29.'
   - id: T0.27
-    title: Streamable HTTP listener for netguard serve
+    title: (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: open
     blocked_by: [T0.28]
     adr: "0016"
-    matrix: [1, 2]
-    notes: 'Maintainer decision 2026-09-23: add an HTTP listener toward the agent. Design in ADR 0016 (PR #57, proposed); implementation waits for its acceptance. Moves the trust boundary from a pipe to a socket, so loopback-only default, Origin check, agent auth and per-session state are in scope. Conformance should then run against the listener (via a two-rule shim for the token and tool prefix) and clear 11 of the 12 HTTP-transport baseline entries. ADR 0016 proposes five sub-tasks it numbers T0.27-T0.31; those ids collide with this board, so they are renumbered from T0.30 when the ADR is accepted.'
+    matrix: [23]
+    notes: 'First of the HTTP listener tasks (maintainer decision 2026-09-23; ADR 0016 accepted 2026-09-23 with named tokens for attribution, built-in TLS in M1, not an M0 exit criterion, conformance shim accepted). Loopback-only bind, token required on every request, Origin and cross-site Sec-Fetch-Site refused before auth, no CORS, go-sdk localhost Host check on, caps and limits as in ADR 0016. Followed by T0.30 to T0.33.'
   - id: T0.28
     title: Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine)
     package: internal/proxy
@@ -269,9 +269,48 @@ tasks:
     package: profiles
     owner: upstream-server-scout
     reviewers: [security-reviewer]
-    state: open
+    state: merged
     matrix: [15]
-    notes: 'From T0.26. netdev-ssh-mcp v1.6.6 replaces secrets with [h:<first 6 bytes of sha256>] unless started with --no-obfuscate (internal/netdev/obfuscate.go). The hash is unkeyed, so short common values (public, private) are recoverable by hashing a word list; it does not meet invariant 4 and NetGuard must not rely on it. Note it in profiles/netdev-ssh-mcp.yaml comments and docs/research, and decide whether install docs recommend leaving it on in M0 (defence in depth) or off once NetGuard redacts (M2).'
+    notes: 'From T0.26. netdev-ssh-mcp v1.6.6 replaces secrets with [h:<first 6 bytes of sha256>] unless started with --no-obfuscate (internal/netdev/obfuscate.go). The hash is unkeyed, so short common values (public, private) are recoverable by hashing a word list; it does not meet invariant 4 and NetGuard must not rely on it. Note it in profiles/netdev-ssh-mcp.yaml comments and docs/research, and decide whether install docs recommend leaving it on in M0 (defence in depth) or off once NetGuard redacts (M2). Merged in PR #61 2026-09-23. Worse than first reported: several patterns hash a keyword (sha512, 7, ascii-text) and leave the secret in clear (eos 5/13, ios-xe 3/22, nxos 5/13, junos 7/13 fixture secrets), others are missed; NetGuard rules catch all. The upstream report is sent privately by the maintainer, not filed publicly; its draft was removed from the repo in a follow-up PR. M2 redaction must not skip lines holding an [h:...] token.'
+  - id: T0.30
+    title: Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [T0.27]
+    adr: "0016"
+    matrix: [2, 23]
+    notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well.'
+  - id: T0.31
+    title: netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling
+    package: cmd/netguard
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer, release-engineer]
+    state: open
+    blocked_by: [T0.27]
+    adr: "0016"
+    matrix: [23]
+    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback).'
+  - id: T0.32
+    title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
+    package: tests/conformance
+    owner: test-engineer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [T0.31]
+    adr: "0016"
+    matrix: [1, 2]
+    notes: 'ADR 0016 expects 11 of the 12 HTTP-transport baseline entries to clear. File an upstream request for a suite header option and a tool-name map; drop the shim when both exist.'
+  - id: T0.33
+    title: Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [docs-writer, security-reviewer]
+    state: open
+    blocked_by: [T0.31]
+    adr: "0016"
+    matrix: [23]
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

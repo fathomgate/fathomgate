@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 2 · in review 1 · merged 21
+Tasks: open 4 · blocked 6 · in review 1 · merged 22
 
 ## In flight
 
@@ -36,9 +36,13 @@ Tasks: open 5 · blocked 2 · in review 1 · merged 21
 | T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | — |
 | T0.25 | Report the upstream's exit status when it dies at startup, not only EOF | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | — | 22 | — |
 | T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | in review | — | 22 | — |
-| T0.27 | Streamable HTTP listener for netguard serve | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.28 | 1, 2 | 0016 (missing) |
+| T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
-| T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | open | — | 15 | — |
+| T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
+| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.27 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Exit criteria
 
