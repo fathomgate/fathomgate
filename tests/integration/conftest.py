@@ -139,12 +139,22 @@ def fake_device(tmp_path: Path):
 
 
 def upstream_env_args(device: FakeDevice | None) -> list[str]:
-    """`--upstream-env` flags: netguard passes the upstream only an allow-list
-    of its own environment, so device credentials are handed over explicitly."""
-    args = ["--upstream-env", f"DEVICE_USERNAME={DEVICE_USERNAME}", "--upstream-env", f"DEVICE_PASSWORD={DEVICE_PASSWORD}"]
+    """netguard passes the upstream only an allow-list of its own environment,
+    so device settings are handed over explicitly, the way docs/install.md
+    shows: non-secrets with `--upstream-env NAME=value`, the password with
+    `--upstream-env-pass DEVICE_PASSWORD` (ADR 0017), so it is never on the
+    command line. The password itself comes from netguard's environment:
+    see client_env."""
+    args = ["--upstream-env", f"DEVICE_USERNAME={DEVICE_USERNAME}", "--upstream-env-pass", "DEVICE_PASSWORD"]
     if device is not None:
         args += ["--upstream-env", f"SSH_KNOWN_HOSTS={device.known_hosts}"]
     return args
+
+
+def client_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """netguard's environment as a client with an `env` block
+    ({"DEVICE_PASSWORD": ...}) sets it: env plus the fake device password."""
+    return {**(env or {}), "DEVICE_PASSWORD": DEVICE_PASSWORD}
 
 
 def serve_args(upstream: Path | str, device: FakeDevice | None, *extra: str) -> list[str]:
@@ -157,9 +167,10 @@ def proxy_server_params(netguard_binary: Path, upstream_binary: Path, fake_devic
 
     A dict so this module imports without the `mcp` package installed. M0
     serve is pass-through: --policy, --inventory, --profiles and --audit are
-    refused until M1 wires the pipeline (ADR 0012).
+    refused until M1 wires the pipeline (ADR 0012). `env` is the client's
+    `env` block; the python-sdk client merges it into HOME, PATH and friends.
     """
-    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device)}
+    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device), "env": client_env()}
 
 
 def _readline(stream, timeout: float) -> str:

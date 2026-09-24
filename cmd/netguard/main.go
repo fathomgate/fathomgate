@@ -3,7 +3,7 @@
 // Subcommands:
 //
 //	netguard version
-//	netguard serve --server S --upstream PATH [--upstream-env K=V]... [-- ARGS...]
+//	netguard serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- ARGS...]
 //	netguard policy test <file.test.yaml>...
 //	netguard policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D...
 //	netguard audit verify <audit.jsonl> [--key audit.pub]
@@ -73,7 +73,7 @@ func usage() {
 
 Usage:
   netguard version
-  netguard serve --server S --upstream PATH [--upstream-env K=V]... [-- upstream args...]
+  netguard serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
   netguard policy test <file.test.yaml>...
   netguard policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D [--target D2] [--json]
   netguard policy eval --policy p.yaml --profile profiles/S.yaml --tool T --arg k=v [--arg k=v] ...

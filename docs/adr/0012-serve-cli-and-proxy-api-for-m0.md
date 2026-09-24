@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer in T0.2
+- Extended by: [ADR 0017](0017-keep-upstream-secrets-off-the-command-line.md) (`--upstream-env-pass NAME`, `NETGUARD_*` refused on both environment flags, `Command.Secrets` scrubbed from upstream stderr). The current flag table is [profile-schema section 8.3](../specs/profile-schema.md#83-netguard-serve-flags).
 
 ## Context
 
