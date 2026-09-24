@@ -1,0 +1,14 @@
+# upa/mcp-netmiko-server at 96e8ff321cc839eeb525474736439ddc2ebc795c declares
+# `mcp[cli]>=1.6.0` and `netmiko>=4.5.0` (pyproject.toml; its `pytest`
+# dependency is for its own tests and is not needed to run main.py). Its
+# uv.lock resolves mcp 1.6.0, which speaks only 2024-11-05; install.sh builds
+# that as the "locked" leg. This set is the "current" leg: the newest mcp 1.x,
+# on the first 1.x line that negotiates 2025-11-25. mcp 2.x removed
+# mcp.server.fastmcp, so main.py cannot import it. netmiko stays at the
+# lock's 4.5.0.
+#
+# Regenerate (then bump UPA_CURRENT_MCP in tests/integration/conftest.py):
+#   uv pip compile --universal --python-version 3.13 --generate-hashes \
+#     requirements.in -o requirements.txt
+mcp[cli]==1.30.0
+netmiko==4.5.0
