@@ -38,6 +38,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Changed
 
+- `README.md` rewritten in plain language for network engineers new to MCP: what NetGuard does and why, a diagram, four worked allow/hold/deny examples, an honest status table, commands that run as shown, and a short glossary. Contributor detail moved below.
 - Go 1.25 toolchain: `go.mod` declares `go 1.25.0`, the minimum go-sdk v1.7.0 sets. CI, release and the `Dockerfile` builder follow it (Dockerfile already on golang:1.25-alpine, PR #1).
 - go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod` and imported by `internal/proxy`, so it is linked into `bin/netguard`. The interim `//go:build tools` pin `internal/tools/tools.go` is removed.
 - `release.yaml` pins GoReleaser to v2.18.2 instead of `~> v2`, the version `snapshot.yaml` runs, so a tag releases with the tool the last snapshot exercised (T0.6).

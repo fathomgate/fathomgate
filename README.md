@@ -1,9 +1,98 @@
 # NetGuard (working name)
 
-A policy-enforcing MCP proxy that sits between AI agents and network-device MCP servers. It classifies every tool call by network semantics, resolves the target device's role from a static inventory, hostname patterns or NetBox/Nautobot, evaluates a YAML policy, and forwards, denies, or holds the call for human approval. Every result passes through a secret redactor and lands in a hash-chained audit log.
+**A safety checkpoint between your AI assistant and your network.**
+
+AI assistants such as Claude Code and Cursor can now work on routers, switches and firewalls. They do it through small plug-in programs called **MCP servers**: one might log in over SSH and run commands, another might talk to Junos or Arista EOS directly.
+
+That is useful, and it is also risky. The same connection that lets an assistant run `show interfaces` also lets it push a config change to a core router at 3 a.m. Most network MCP servers have few or no guardrails of their own, and the assistant decides for itself what to run.
+
+NetGuard sits in the middle. The assistant talks to NetGuard instead of talking to the MCP server directly, and NetGuard passes each request on only if your rules allow it.
+
+```
+  AI assistant              NetGuard                       Network MCP server       Your devices
+  (Claude Code, Cursor) ──▶  checks every request  ──────▶  (e.g. netdev-ssh-mcp) ──▶ routers, switches,
+                            · what kind of action?                                     firewalls
+                            · which device, and what role does it play?
+                            · what do your rules say?
+                    ◀────── results come back with passwords and keys masked ◀──────
+```
+
+For every request, NetGuard does one of three things:
+
+- **Allow** it: the request goes through as normal.
+- **Hold** it: nothing happens until a person approves it. If no one approves in time, it expires.
+- **Deny** it: the assistant gets a clear refusal that names the rule responsible, so it can try something else and you can find the rule.
+
+Every decision is written to an audit log that shows if anyone has edited it.
+
+## What that looks like
+
+With the example policy [`prod-approval.yaml`](policies/examples/prod-approval.yaml):
+
+| The assistant asks to… | NetGuard sees | Result |
+| --- | --- | --- |
+| run `show version` on `lab-leaf-01` | a read-only command | **Allowed** by `reads-anywhere` |
+| change the config on `lab-leaf-01` | a config change on a lab device | **Allowed** by `lab-writes-free`, with a dry run and a diff first |
+| change the config on `core-rtr-01` | a config change on a core router | **Holding** under `prod-core-needs-approval` until someone other than the requester approves it, for up to 15 minutes |
+| run a free-form `reload` on `core-rtr-01` | an arbitrary command | **Denied** by `no-exec` |
+
+A few more things happen along the way:
+
+- **Secrets are masked.** If a device replies with a config that contains passwords, SNMP communities or VPN keys, NetGuard replaces them with tokens before the assistant sees them.
+- **The action type comes from what the request actually does, not from the tool's label.** A tool called `run_command` that is sent `show version` counts as a read, and the same tool sent `reload` counts as an arbitrary command. A tool that calls itself "read-only" is not trusted on its word.
+- **Unknown devices get a default.** If NetGuard cannot tell what a device is, your policy's default for unknown targets applies. It never guesses.
+
+## Where it is today
+
+NetGuard is early. The parts are built and tested on their own, but they are not yet wired together:
+
+| Part | Status |
+| --- | --- |
+| The rules engine: policy files, decisions, and a trace of why | Done. You can try it today (below) |
+| Working out what kind of action a request is (per-server profiles, command inspection) | Done |
+| Secret masking for Cisco IOS and NX-OS, Junos, EOS, PAN-OS and FortiOS output | Done |
+| Tamper-evident audit log | Done |
+| Device lookup from an inventory file or hostname patterns (NetBox is optional and comes later) | Done |
+| **The checkpoint itself** (`netguard serve`) | **Passes every request through unchanged for now.** The rules are wired in during the next milestone, M1 |
+| Approvals, dry runs, automatic rollback, a web console | Later milestones |
+
+The full plan is in [ROADMAP.md](ROADMAP.md).
+
+## Try it
+
+You need Go 1.26 or later.
+
+```sh
+make build        # builds bin/netguard
+```
+
+**Ask the rules engine what it would decide.** This needs no network and no devices:
+
+```sh
+bin/netguard policy eval --policy policies/examples/prod-approval.yaml \
+  --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
+  --class WRITE_CONFIG --target core-rtr-01
+```
+
+```
+decision:    hold
+class:       WRITE_CONFIG
+target:      core-rtr-01 (role core, site dfw1, tags prod,critical)
+rule:        prod-core-needs-approval
+obligations: dry_run, diff, timed_rollback
+approval:    ttl 15m0s, approver must differ: true
+trace:
+  - default:session.max_devices      1 of 5 devices
+  - reads-anywhere                   class WRITE_CONFIG not in [READ_OPERATIONAL READ_CONFIG INVENTORY_READ]
+  - lab-writes-free                  target core-rtr-01 tags [prod critical] have none of [lab]
+  * prod-core-needs-approval         matched
+```
+
+The trace lists every rule NetGuard checked, top to bottom, and why each one did or did not apply. The first rule that matches decides.
+
+**Put the checkpoint in front of a real MCP server.** In your assistant's MCP settings (`mcp.json`), point it at NetGuard and tell NetGuard which server to start behind it:
 
 ```jsonc
-// mcp.json — the proxy in front of a real server (M0: pass-through, no policy yet)
 {
   "mcpServers": {
     "netdev": {
@@ -15,43 +104,52 @@ A policy-enforcing MCP proxy that sits between AI agents and network-device MCP 
 }
 ```
 
-## Status
+The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. For now every request passes straight through (see above).
 
-The building blocks are done and tested. The proxy transport forwards `tools/list` and `tools/call` for one stdio upstream with the `<server>.` prefix, but does not run the pipeline yet: in M0 every call is forwarded. See [ROADMAP.md](ROADMAP.md).
-
-| Piece | Package | Try it |
-| --- | --- | --- |
-| Policy DSL, `Evaluate`, trace, `*.test.yaml` runner | `internal/policy` | `netguard policy test policies/examples/prod-approval.test.yaml` |
-| Tool classes, per-server profiles, argument normaliser, fallback command classifier | `internal/classify` | `netguard policy eval --policy … --profile profiles/eos-mcp.yaml --tool run_command --arg hostname=lab-leaf-01 --arg "command=show version"` |
-| Vendor secret patterns, keyed HMAC tokens, fixture corpus | `internal/redact` | `netguard redact --key-file k tests/fixtures/configs/junos.txt` |
-| Hash-chained JSONL, Ed25519 checkpoints, verify | `internal/audit` | `netguard audit keygen && netguard audit verify audit.jsonl --key audit.key.pub` |
-| Resolver chain: static file, hostname patterns, CSV import, NetBox stub | `internal/inventory` | `netguard inventory import --csv devices.csv --out inventory.yaml` |
-| Proxy transport (M0, pass-through) | `internal/proxy` | `netguard serve --server netdev-ssh-mcp --upstream netdev-ssh-mcp` (tools appear as `netdev-ssh-mcp.run_show_command`; arguments for the upstream follow `--`) |
-
-## Build
+**Run a policy's test cases:**
 
 ```sh
-make build        # bin/netguard
-make test         # go test -race ./...
-make policy-test  # every policies/**/*.test.yaml through netguard policy test
-make fixtures-check
-make conformance  # official MCP conformance suite against netguard serve, both eras (needs Node.js)
+bin/netguard policy test policies/examples/prod-approval.test.yaml
 ```
 
-Go 1.25. Direct dependencies: `github.com/goccy/go-yaml`, the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.8.x, pinned to one minor for the proxy) and `golang.org/x/sys` (Windows audit key DACL). See [ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md). The Python companion under `tests/` needs `uv` and is optional.
+**Mask the secrets in a device config.** The sample configs contain only fake secrets:
 
-## How a call is decided
+```sh
+NETGUARD_REDACT_KEY=demo-key bin/netguard redact -q tests/fixtures/configs/junos.txt
+```
+
+A line such as `encrypted-password "$9$…";` comes back as `encrypted-password "<redacted:hmac:7bc878b4ae5b>";`. The same secret always gives the same token under the same key, so you can still tell that two devices share a password without seeing it.
+
+## Words you will see
+
+| Word | Meaning |
+| --- | --- |
+| **MCP** | Model Context Protocol, the standard way AI assistants connect to outside tools. |
+| **MCP server** or **upstream** | A program that gives an assistant tools, such as "run a show command on a device". NetGuard runs it behind itself. |
+| **Agent** | The AI assistant making requests. |
+| **Tool call** | One request from the agent, such as "run `show bgp summary` on `core-rtr-01`". |
+| **Class** | The kind of action: `READ_OPERATIONAL`, `READ_CONFIG`, `WRITE_CONFIG`, `EXEC_ARBITRARY`, `INVENTORY_READ`, `LAB_LIFECYCLE`, `LOCAL_ADMIN`. |
+| **Policy** | A YAML file of rules. Rules are checked in order, and the first match wins. |
+| **Obligation** | Something that must happen with an allowed change, such as `dry_run`, `diff` or `timed_rollback`. |
+| **Profile** | A YAML file per MCP server that tells NetGuard what each of its tools does. See [`profiles/`](profiles/). |
+| **Inventory** | Where NetGuard learns a device's role, site and tags, for example that `core-rtr-01` is a core router in production. |
+
+The full glossary is in [docs/glossary.md](docs/glossary.md).
+
+## For contributors
+
+### How a request is decided
 
 ```
-tools/call ──▶ Normalize (targets, commands, config payload from the server profile)
-           ──▶ Classify  (profile class, downgraded/escalated by inspecting commands)
-           ──▶ Resolve   (inventory.yaml → hostname patterns → NetBox; unknown stays unknown)
-           ──▶ Evaluate  (defaults.unknown_target, session caps, rules in order, first match wins)
-           ──▶ allow / hold / deny, each with a rule id and a full trace
+tool call ──▶ Normalize  work out the targets, commands and config from the server's profile
+          ──▶ Classify   the profile's class, raised or lowered by inspecting the commands
+          ──▶ Resolve    the device's role: inventory.yaml → hostname patterns → NetBox; unknown stays unknown
+          ──▶ Evaluate   unknown-target default, session caps, then the rules in order; first match wins
+          ──▶ allow / hold / deny, each with a rule id and a full trace
 ```
 
 ```yaml
-# policies/examples/prod-approval.yaml
+# policies/examples/prod-approval.yaml (excerpt)
 rules:
   - id: reads-anywhere
     match: { class: [READ_OPERATIONAL, READ_CONFIG, INVENTORY_READ] }
@@ -66,29 +164,38 @@ rules:
     approval: { ttl: 15m, approver_must_differ: true }
 ```
 
-Every denial names its rule. Policies are data; test them with `netguard policy test` and lint them with `tools/policy-lint/policy-lint` without a Go toolchain.
+Policies are data. Test them with `netguard policy test`, or lint them with `tools/policy-lint/policy-lint`, which needs no Go toolchain.
 
-## Layout
+### Build and test
 
-```
-cmd/netguard/          CLI: version, serve (M0 pass-through), policy test|eval, audit verify|keygen, redact, inventory import
-internal/proxy/        go-sdk server toward the agent, stdio client toward the upstream, tool prefixing
-internal/classify/     Class enum, profiles, Normalize, ClassifyCommand
-internal/policy/       Policy types, Load/Parse/Validate, Evaluate, RunTestFile
-internal/redact/       Rules, Redactor, HMAC tokens
-internal/audit/        Event, canonical JSON, Writer, Verify, keys
-internal/inventory/    Resolver, StaticFile, Patterns, Chain, ImportCSV, NetBox stub
-profiles/              one YAML per upstream server (tool → class, param mapping)
-policies/examples/     read-only, lab-open, prod-approval and their *.test.yaml
-tests/                 Python companion: policy_lint, tiered pytest, fixtures/configs
-tools/policy-lint/     launcher for tests/policy_lint
-design/                Fathom tokens + the NetGuard policy layer + console preview
-docs/                  PLAN, PRD, adr/ (10 ADRs), specs/ (8 normative specs), testing/, agents/, research/
-.claude/               11 specialist agents + 8 slash commands that run the build pipeline
-STATUS.md              rendered board for the current milestone (docs/milestones/, docs/handoffs/)
+```sh
+make build        # bin/netguard
+make test         # go test -race ./...
+make policy-test  # every policies/**/*.test.yaml
+make fixtures-check
+make conformance  # the official MCP conformance suite against netguard serve (needs Node.js)
 ```
 
-## Reading order
+Go 1.26 ([ADR 0015](docs/adr/0015-raise-go-floor-to-1-26.md)). NetGuard ships as a single static binary with three direct dependencies: `github.com/goccy/go-yaml`, the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.8.x, pinned to one minor) and `golang.org/x/sys` (Windows file permissions for the audit key). See [ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md). The Python companion under `tests/` is optional and needs `uv`.
+
+### Layout
+
+```
+cmd/netguard/          the CLI: version, serve, policy test|eval, audit verify|keygen, redact, inventory import
+internal/proxy/        the checkpoint: talks MCP to the agent and to the upstream server, prefixes tool names
+internal/classify/     classes, server profiles, working out what a request does
+internal/policy/       policy files, Evaluate, test runner
+internal/redact/       secret patterns per vendor, keyed tokens
+internal/audit/        the tamper-evident log, signing keys, verify
+internal/inventory/    device lookup: inventory file, hostname patterns, CSV import, NetBox stub
+profiles/              one YAML per upstream server
+policies/examples/     read-only, lab-open, prod-approval and their tests
+tests/                 Python companion: policy lint, tiered tests, fixture configs, conformance harness
+design/                console and CLI design system
+docs/                  plan, ADRs, specs, testing, research
+```
+
+### Where to read next
 
 | If you want to | Start at |
 | --- | --- |
@@ -96,16 +203,15 @@ STATUS.md              rendered board for the current milestone (docs/milestones
 | See what ships when | [ROADMAP.md](ROADMAP.md) |
 | Know why a decision was made | [docs/adr/](docs/adr/README.md) |
 | Implement or review an interface | [docs/specs/](docs/specs/) |
-| Contribute a server profile, policy or redaction pattern without Go | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Add a server profile, policy or secret pattern without writing Go | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Work here as a coding agent | [CLAUDE.md](CLAUDE.md), [AGENTS.md](AGENTS.md), [docs/agents/](docs/agents/README.md) |
-| See what is in flight and who has it | [STATUS.md](STATUS.md), then [docs/handoffs/](docs/handoffs/README.md) |
-| See the console design | [design/DESIGN.md](design/DESIGN.md) and `design/preview.html` |
-| Read the research this was built on | [docs/research/](docs/research/) |
+| See what is in progress | [STATUS.md](STATUS.md) |
+| See the console design | [design/DESIGN.md](design/DESIGN.md) |
 
-## Status of the ecosystem this sits in
+## Why this exists
 
-As of September 2026 no vendor-agnostic, network-aware guardrail proxy for MCP exists. Generic MCP gateways enforce policy on tool names and caller identity but cannot see arguments; safety features for network servers are being added to individual servers one pull request at a time. NetGuard is the layer in front of all of them. Details and citations are in [docs/research/01-mcp-proxy-prior-art.md](docs/research/01-mcp-proxy-prior-art.md).
+As of September 2026 there is no vendor-neutral guardrail for AI assistants that understands networks. General MCP gateways can allow or block a tool by its name or by who is calling, but they do not look inside the request. They cannot tell `show version` from `reload`, or a lab switch from a core router. Individual network MCP servers are adding their own safety features one at a time. NetGuard is meant to be one checkpoint in front of all of them. Research and sources are in [docs/research/](docs/research/01-mcp-proxy-prior-art.md).
 
 ## Licence
 
-MIT. NetGuard is a placeholder name; it will change before the first release.
+MIT. "NetGuard" is a placeholder name and will change before the first release.
