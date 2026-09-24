@@ -42,6 +42,46 @@ jobs:
       - name: redaction fixtures
         run: make fixtures-check
 
+  # Official MCP conformance suite against the client-facing side of
+  # `netguard serve`, both protocol eras (T0.4, M0 exit criterion 1). A
+  # required status check on main: its name must stay "mcp-conformance", and
+  # it must run on every pull request, with no `paths:` filter, including
+  # Dependabot's (it needs no secrets). A go-sdk bump rebuilds the fixture
+  # upstream (go-sdk's own conformance everything-server at the go.mod
+  # version) and must pass here before it merges (CONTRIBUTING.md). The
+  # suite version is pinned in tests/conformance/package-lock.json; the
+  # legs, the relay and the baselines are explained in
+  # tests/conformance/README.md. python3 on ubuntu-latest runs relay.py,
+  # which uses the standard library only.
+  conformance:
+    name: mcp-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: conformance suite, 2025-11-25 and 2026-07-28 (control and netguard legs)
+        run: make conformance PYTHON=python3
+      - name: keep results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conformance-results
+          path: tests/conformance/results/
+          retention-days: 7
+
   # The Windows key and log DACL code in internal/audit (T0.12) only compiles
   # and runs on Windows. Hosted windows-latest runners run elevated (the
   # runner account is an administrator with UAC off), so they hold

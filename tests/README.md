@@ -11,6 +11,7 @@ tests/
   unit/                 tier 1: no network
   integration/          tier 2: spawn `netguard serve` + real MCP server (skipped until M0)
   fixtures/configs/     sanitised running-configs with annotated FAKE secrets
+  conformance/          official MCP conformance suite vs netguard serve: relay.py, baselines (make conformance)
 ```
 
 ## Running

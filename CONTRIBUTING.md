@@ -13,7 +13,7 @@ make tools        # installs golangci-lint, goreleaser, uv; creates the Python v
 make test         # tier 1: go test, netguard policy test, pytest tests/unit
 ```
 
-Tier 2 needs Docker: `make test-integration`. Tier 3 needs containerlab and images: see [docs/testing/test-strategy.md](docs/testing/test-strategy.md).
+`make conformance` runs the official MCP conformance suite against `netguard serve` for both protocol eras; it needs Node.js and npm as well as Go and `python3` ([tests/conformance/README.md](tests/conformance/README.md)). Tier 2 needs Docker: `make test-integration`. Tier 3 needs containerlab and images: see [docs/testing/test-strategy.md](docs/testing/test-strategy.md).
 
 ## Ways to contribute
 
@@ -75,6 +75,8 @@ Run `cd tests && uv run pytest` for the Python suite.
 - **Base image pins.** `Dockerfile` (builder and runtime) and `Dockerfile.goreleaser` (the base of every release image) pin each `FROM` as `tag@sha256:<digest>`, where the digest is the multi-arch image index, never a single-platform manifest (a platform digest would break the arm64 image). Dependabot's `docker` entry proposes digest updates for the same tag monthly; review them like any dependency bump. To re-pin by hand, run `docker buildx imagetools inspect <image>:<tag>` (or `crane digest <image>:<tag>`), check that `MediaType` is `application/vnd.oci.image.index.v1+json` and that it lists `linux/amd64` and `linux/arm64`, and use the top-level `Digest`. Keep the distroless digest identical in both files, and do not change a pin to a debug tag: `snapshot.yaml` fails an image that has a shell or does not run as `nonroot`.
 - A change under `.github/workflows/` must pass `make actionlint` (actionlint, pinned in the `Makefile`, config in `.github/actionlint.yaml`). CI runs it on every push and pull request; install `shellcheck` locally to get the same `run:` script checks.
 - CI job `windows` (`ci.yaml`) runs `go vet ./...` and `go test -count=1 ./...` on an elevated `windows-latest` runner with `NETGUARD_REQUIRE_PRIVILEGED_TESTS=1`, then re-runs the `Windows` tests in `internal/audit` with `-v` and fails unless each one prints `--- PASS` and none prints `--- SKIP`. With that variable set, the symlink, dangling-symlink, junction and other-owner DACL tests fail instead of skipping when they cannot run. On an unelevated Windows host without Developer Mode, leave the variable unset and those tests skip; CI is where they must run. There is no `-race` on Windows; the Linux `go` job covers it.
+- CI job `mcp-conformance` (`ci.yaml`) runs `make conformance` on every push to `main` and every pull request, Dependabot's included, with no path filter; it is meant to be a required status check on `main`. It drives the real `netguard serve` binary through the official MCP conformance suite (pinned in `tests/conformance/package-lock.json`) for `2025-11-25` and `2026-07-28`, with go-sdk's own conformance everything-server as the upstream. The run fails on a scored check that is not in `tests/conformance/baseline/`, and on a baseline entry that now passes, so a fix deletes its entry in the same pull request. A change to `internal/proxy` or `cmd/netguard/serve.go` runs it locally first. Keep the job's `name:` as `mcp-conformance`: branch protection matches it by name.
+- **Bumping go-sdk.** A go-sdk bump, including a Dependabot `go-deps` group PR that moves it, must pass `mcp-conformance` before it merges. The bump rebuilds the fixture upstream from the new go-sdk and runs netguard built against it, so a behaviour change on either side shows up as an unexpected failure or a stale baseline entry. Reconcile `tests/conformance/baseline/` in the same pull request with a reason on each changed entry, and compare go-sdk's own `.github/workflows/conformance.yml` `CONFORMANCE_VERSION` with the pin in `tests/conformance/package.json` (a suite bump is its own pull request). A go-sdk minor bump is still its own pull request, and the modules it pulls follow ADR 0011.
 - A change to `.goreleaser.yaml`, `Dockerfile`, `Dockerfile.goreleaser`, `go.mod`, `go.sum` or the release workflows also runs `snapshot.yaml` (a GoReleaser snapshot with no publishing or signing). Locally: `goreleaser release --snapshot --clean --skip=publish,sign` with GoReleaser v2.18.2.
 - Table tests over synthetic requests; no network in `go test`.
 - A change to `Evaluate`, the classifier tables, the audit hash or the redaction token format needs a spec update in the same pull request, and usually an ADR.
@@ -102,7 +104,7 @@ Every commit must carry a `Signed-off-by` line matching the author, certifying t
 
 - One change per pull request. A profile and a redaction pattern are two pull requests.
 - Fill in the [template](.github/PULL_REQUEST_TEMPLATE.md). The checklist asks whether an ADR is needed, whether policy tests and redaction fixtures were updated, and whether docs changed.
-- CI must be green: lint, tier 1, tier 2 (for changes touching `internal/proxy`, profiles or images), DCO.
+- CI must be green: lint, tier 1, `mcp-conformance`, tier 2 (for changes touching `internal/proxy`, profiles or images), DCO.
 - A maintainer reviews within a week. See [GOVERNANCE.md](GOVERNANCE.md).
 
 ## Vocabulary

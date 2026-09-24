@@ -7,6 +7,10 @@ coverage.*
 /netguard
 /netguard.exe
 
+# MCP conformance suite (tests/conformance): npm install and run results
+tests/conformance/node_modules/
+tests/conformance/results/
+
 # Python (tests/, tools/)
 __pycache__/
 *.py[cod]

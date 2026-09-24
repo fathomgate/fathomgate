@@ -1,0 +1,9 @@
+{
+  "name": "netguard-conformance",
+  "private": true,
+  "description": "Pins the official MCP conformance suite that `make conformance` runs against netguard serve (T0.4). See tests/conformance/README.md before bumping.",
+  "license": "MIT",
+  "devDependencies": {
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.11"
+  }
+}
