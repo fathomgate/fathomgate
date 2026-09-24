@@ -13,13 +13,14 @@ until the pipeline is wired at `Proxy.dispatch` (ADR 0012).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 import yaml
 
-from .conftest import REPO, SERVER, FakeDevice
+from .conftest import REPO, SERVER, FakeDevice, serve_args
 
 pytestmark = [pytest.mark.tier2, pytest.mark.netdev_ssh_mcp]
 
@@ -83,6 +84,104 @@ async def test_show_version_reaches_device_through_proxy(proxy_server_params: di
     transcript = (REPO / "tests/fixtures/device/transcripts/eos/show_version.txt").read_text()
     assert _text(result).strip() == transcript.strip()
     assert fake_device.commands() == ["show version"]
+
+
+# --- show running-config (T0.26) ---------------------------------------------
+#
+# The transcript is a real public EOS-4.16 sample with FAKE credentials
+# (tests/fixtures/device/README.md). netdev-ssh-mcp refuses `show run...` in
+# run_show_command ("use the get_config tool"), so this goes through
+# get_config, which sends `show running-config | no-more` for EOS.
+#
+# netdev-ssh-mcp v1.6.6 replaces secrets itself by default (internal/netdev/
+# obfuscate.go): `[h:<first 6 bytes of sha256(value), hex>]`. That hash has no
+# key, so a low-entropy value such as `public` is recovered by hashing a
+# dictionary. It is the upstream's feature, can be switched off with
+# --no-obfuscate, and is not netguard's redaction (keyed HMAC, invariant 4).
+# In M0 netguard redacts nothing, so with --no-obfuscate the agent sees the
+# config exactly as the device sent it.
+
+RUNNING_CONFIG = REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt"
+RUNNING_CONFIG_SECRETS: list[str] = json.loads((REPO / "tests/fixtures/configs/eos-4.16.expect.json").read_text())["secrets"]
+
+
+def _upstream_hash(secret: str) -> str:
+    """netdev-ssh-mcp v1.6.6 hashSecret: unkeyed, 48 bits."""
+    return f"[h:{hashlib.sha256(secret.encode()).digest()[:6].hex()}]"
+
+
+async def _get_running_config(params: dict, port: int):
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    async with stdio_client(StdioServerParameters(**params)) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return await session.call_tool(
+                f"{SERVER}.get_config",
+                {"host": "127.0.0.1", "port": port, "device_type": "eos", "config_type": "running"},
+            )
+
+
+@pytest.fixture
+def no_obfuscate_params(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
+    """netguard serve with the upstream's own secret hashing switched off."""
+    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate")}
+
+
+@pytest.mark.asyncio
+async def test_running_config_reaches_device_through_proxy(proxy_server_params: dict, fake_device: FakeDevice) -> None:
+    """A read-config call with the upstream's defaults: the device gets one
+    `show running-config | no-more`; the agent gets the transcript with
+    exactly the four credentials replaced by the upstream's `[h:...]` hash.
+    netguard changed nothing; the replacement is the upstream's."""
+    result = await _get_running_config(proxy_server_params, fake_device.port)
+
+    assert not result.is_error, _text(result)
+    assert fake_device.commands() == ["show running-config | no-more"]
+    expected = RUNNING_CONFIG.read_text()
+    for s in RUNNING_CONFIG_SECRETS:
+        expected = expected.replace(s, _upstream_hash(s))
+    assert _text(result).strip() == expected.strip()
+    changed = [a for a, b in zip(RUNNING_CONFIG.read_text().splitlines(), _text(result).splitlines(), strict=True) if a != b]
+    assert len(changed) == len(RUNNING_CONFIG_SECRETS) == 4
+
+
+@pytest.mark.asyncio
+async def test_running_config_secrets_reach_agent_in_m0(no_obfuscate_params: dict, fake_device: FakeDevice) -> None:
+    """M0 fact, asserted on purpose: with the upstream's hashing off, every
+    FAKE credential reaches the agent. netguard serve forwards the result
+    untouched; its redactor is not at the serialiser yet (ROADMAP M2).
+    When it is, this test fails and test_running_config_redacted_by_netguard
+    below XPASSes; flip both in that PR."""
+    result = await _get_running_config(no_obfuscate_params, fake_device.port)
+
+    assert not result.is_error, _text(result)
+    assert fake_device.commands() == ["show running-config | no-more"]
+    assert _text(result).strip() == RUNNING_CONFIG.read_text().strip()
+    for s in RUNNING_CONFIG_SECRETS:
+        assert s in _text(result), s
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="M2 (ROADMAP: redactor at the response serialiser; matrix row 15): M0 serve forwards get_config output unredacted",
+)
+@pytest.mark.asyncio
+async def test_running_config_redacted_by_netguard(no_obfuscate_params: dict, fake_device: FakeDevice) -> None:
+    """Row 15 target: even with the upstream's hashing off, no FAKE credential
+    reaches the agent; each is a keyed `<redacted:hmac:...>` token, the same
+    four that `make fixtures-check` proves on tests/fixtures/configs/eos-4.16.txt
+    (cisco-snmp-community x2, cisco-password-type x2). M2 may need a redaction
+    key flag on serve; add it to no_obfuscate_params then."""
+    result = await _get_running_config(no_obfuscate_params, fake_device.port)
+
+    assert not result.is_error, _text(result)
+    text = _text(result)
+    for s in RUNNING_CONFIG_SECRETS:
+        assert s not in text, s
+    assert text.count("<redacted:hmac:") == 4
 
 
 @pytest.mark.asyncio

@@ -23,8 +23,9 @@ Both are fixtures; never point this at anything real.
 
 A command maps to transcripts/<vendor>/<name>.txt where <name> is the
 command lower-cased with runs of non-alphanumerics replaced by `_`
-(`show version` -> `show_version.txt`). An unknown command writes an
-EOS-style `% Invalid input` to stderr and exits 1.
+(`show version` -> `show_version.txt`); a trailing `| no-more` is dropped
+first (`show running-config | no-more` -> `show_running_config.txt`). An
+unknown command writes an EOS-style `% Invalid input` to stderr and exits 1.
 """
 
 from __future__ import annotations
@@ -42,8 +43,17 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_PASSWORD = "FAKE-device-pass"
 
 
+# `| no-more` only turns paging off; the device prints the same text. The
+# upstream's get_config appends it (`show running-config | no-more` for EOS),
+# so it is dropped before the lookup. Other pipes (`| include`, `| json`)
+# change the output and stay part of the name. commands.log keeps the
+# command exactly as sent.
+_NO_MORE = re.compile(r"\s*\|\s*no-more\s*$", re.I)
+
+
 def transcript_name(command: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", command.strip().lower()).strip("_")
+    command = _NO_MORE.sub("", command.strip())
+    return re.sub(r"[^a-z0-9]+", "_", command.lower()).strip("_")
 
 
 class _Server(asyncssh.SSHServer):
