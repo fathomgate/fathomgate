@@ -1,13 +1,13 @@
 module github.com/joshscott13/netguard
 
-go 1.25.0
+go 1.26.0
 
 toolchain go1.26.8
 
 require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
