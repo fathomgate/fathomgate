@@ -342,7 +342,7 @@ func TestProgressRateLimit(t *testing.T) {
 // never more than progressBurst banked.
 func TestProgressBucket(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	r := newProgressRelay(context.Background(), testServer, agentPeer{session: &mcp.ServerSession{}}, "t", func() time.Time { return now })
+	r := newProgressRelay(context.Background(), testServer, agentPeer{session: &mcp.ServerSession{}}, "t", func() time.Time { return now }, progressFinalWait)
 	takes := func() int {
 		n := 0
 		for r.take() {

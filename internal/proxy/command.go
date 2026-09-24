@@ -34,9 +34,9 @@ type Command struct {
 	// Args are passed to the executable verbatim; no shell is involved.
 	Args []string
 	// Env entries (KEY=VALUE) are added to the upstream's environment after
-	// the allow-listed variables inherited from the proxy (see baseEnv),
-	// so they override them. Upstream credentials belong here; nothing from
-	// the agent is ever added.
+	// the allow-listed variables inherited from the proxy (see baseEnv) and
+	// the Secrets, so they override the allow-list. They are for settings
+	// that are not secret; nothing from the agent is ever added.
 	Env []string
 	// Stderr receives the upstream's stderr, one line at a time, each line
 	// prefixed with StderrPrefix and with control characters escaped. Nil
@@ -45,14 +45,37 @@ type Command struct {
 	// StderrPrefix starts every stderr line, for example
 	// "upstream netdev-ssh-mcp: ".
 	StderrPrefix string
+	// Secrets are variables passed to the upstream (`--upstream-env-pass`).
+	// Each is added to the upstream's environment as NAME=value when the
+	// process is built, after the allow-list and before Env, so the value
+	// is never in Env or anything else a Command prints. Every occurrence
+	// of a value of at least MinSecretLen bytes, exact or in one of the
+	// forms encodedForms lists, is replaced by "[redacted:NAME]" in the
+	// upstream's stderr (on the raw bytes, before the line is split or
+	// escaped) and in the upstream's JSON-RPC error messages relayed to the
+	// agent. Shorter values are not scrubbed. Tool results are not
+	// scrubbed (M2, redaction at the response serialiser).
+	Secrets []Secret
 }
 
 // Transport returns a go-sdk CommandTransport for c.
 func (c Command) Transport() *mcp.CommandTransport {
 	cmd := exec.Command(c.Path, c.Args...) //nolint:gosec // G204: the upstream command is operator configuration, not agent input.
-	cmd.Env = append(baseEnv(os.Environ(), runtime.GOOS), c.Env...)
-	if c.Stderr != nil {
-		cmd.Stderr = &lineWriter{w: c.Stderr, prefix: c.StderrPrefix}
+	env := baseEnv(os.Environ(), runtime.GOOS)
+	for _, s := range c.Secrets {
+		env = append(env, s.Name()+"="+s.val())
+	}
+	env = append(env, c.Env...)
+	cmd.Env = env
+	red := NewRedactor(c.Secrets)
+	// With secrets, a lineWriter is installed even when stderr is
+	// discarded: it carries the Redactor that redactorOf finds.
+	if c.Stderr != nil || red != nil {
+		w := c.Stderr
+		if w == nil {
+			w = io.Discard
+		}
+		cmd.Stderr = &lineWriter{w: w, prefix: c.StderrPrefix, red: red, scrub: red.newStream()}
 	}
 	cmd.WaitDelay = waitDelay
 	return &mcp.CommandTransport{Command: cmd}
@@ -60,7 +83,8 @@ func (c Command) Transport() *mcp.CommandTransport {
 
 // Variables an upstream inherits from the proxy. Everything else, including
 // the proxy's own NETGUARD_* settings and any credential in its environment,
-// is withheld unless passed with Command.Env (`--upstream-env`).
+// is withheld unless passed with Command.Env (`--upstream-env`,
+// `--upstream-env-pass`).
 // The LC_ names are the POSIX locale categories; no wildcard.
 var (
 	unixEnvAllow = []string{

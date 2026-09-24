@@ -15,6 +15,11 @@ allow-list of its environment (internal/proxy/command.go baseEnv), so:
 
 Every failure must be a prompt exit 1 with the cause on stderr, never a
 hang. Real upstream: krisiasty/netdev-ssh-mcp at the conftest pin.
+
+The device password reaches netguard the way a client's `env` block puts it
+there (conftest.client_env) and the upstream through
+`--upstream-env-pass DEVICE_PASSWORD` (ADR 0017). An `env -i` launch below
+therefore means "nothing but the client's `env` block".
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import SERVER, FakeDevice, RawClient, serve_args
+from .conftest import DEVICE_PASSWORD, SERVER, FakeDevice, RawClient, client_env, serve_args
 
 pytestmark = [
     pytest.mark.tier2,
@@ -61,7 +66,7 @@ async def test_empty_path_absolute_paths_serve_tools_list(netguard_binary: Path,
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    params = StdioServerParameters(command=str(netguard_binary), args=serve_args(upstream_binary, fake_device), env={"PATH": ""})
+    params = StdioServerParameters(command=str(netguard_binary), args=serve_args(upstream_binary, fake_device), env=client_env({"PATH": ""}))
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -78,8 +83,9 @@ async def test_empty_path_absolute_paths_serve_tools_list(netguard_binary: Path,
 def test_env_i_absolute_paths_serve_tools_list(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> None:
     """`env -i`: no PATH, no HOME at all. netdev-ssh-mcp needs a known_hosts
     path (it derives one from HOME), so SSH_KNOWN_HOSTS is passed with
-    `--upstream-env`; netguard itself needs nothing from the environment."""
-    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, fake_device)], env={})
+    `--upstream-env`; netguard itself needs nothing from the environment
+    beyond the password the client's `env` block sets."""
+    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, fake_device)], env=client_env())
     try:
         assert _list_tools(client) == EXPECTED
     finally:
@@ -89,7 +95,7 @@ def test_env_i_absolute_paths_serve_tools_list(netguard_binary: Path, upstream_b
 def test_env_i_without_home_fails_fast_with_upstream_reason(netguard_binary: Path, upstream_binary: Path) -> None:
     """Same, without SSH_KNOWN_HOSTS: the upstream exits at startup and its
     reason reaches stderr, labelled with the server name."""
-    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, None)], env={})
+    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, None)], env=client_env())
     err = _assert_fails_fast(client)
     assert "upstream netdev-ssh-mcp: configure ssh client:" in err
 
@@ -99,7 +105,7 @@ def test_bare_upstream_name_fails_fast(netguard_binary: Path, upstream_binary: P
     """A bare `--upstream netdev-ssh-mcp` with a stripped PATH: exit 1 and
     "executable file not found in $PATH", before any handshake."""
     env = {"PATH": path} if path else {}
-    client = RawClient([str(netguard_binary), *serve_args(SERVER, None)], env=env)
+    client = RawClient([str(netguard_binary), *serve_args(SERVER, None)], env=client_env(env))
     err = _assert_fails_fast(client)
     assert 'exec: "netdev-ssh-mcp": executable file not found in $PATH' in err
 
@@ -114,7 +120,7 @@ def _launcher(tmp_path: Path, upstream: Path) -> Path:
 
 
 def test_path_lookup_launcher_fails_fast_without_path(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice, tmp_path: Path) -> None:
-    client = RawClient([str(netguard_binary), *serve_args(_launcher(tmp_path, upstream_binary), fake_device)], env={"PATH": "/usr/bin:/bin"})
+    client = RawClient([str(netguard_binary), *serve_args(_launcher(tmp_path, upstream_binary), fake_device)], env=client_env({"PATH": "/usr/bin:/bin"}))
     err = _assert_fails_fast(client)
     assert "upstream netdev-ssh-mcp:" in err and "not found" in err
 
@@ -124,8 +130,26 @@ def test_path_lookup_launcher_works_with_upstream_env_path(netguard_binary: Path
     PATH with `--upstream-env PATH=…`, which overrides the inherited one."""
     path = f"{upstream_binary.parent}{os.pathsep}/usr/bin{os.pathsep}/bin"
     argv = [str(netguard_binary), *serve_args(_launcher(tmp_path, upstream_binary), fake_device, "--upstream-env", f"PATH={path}")]
-    client = RawClient(argv, env={"PATH": "/usr/bin:/bin"})
+    client = RawClient(argv, env=client_env({"PATH": "/usr/bin:/bin"}))
     try:
         assert _list_tools(client) == EXPECTED
     finally:
         client.close()
+
+
+def test_password_is_never_on_the_command_line(upstream_binary: Path, fake_device: FakeDevice) -> None:
+    """ADR 0017: the password reaches the upstream (the other tests log in to
+    the fake device with it) without ever being in netguard's argv."""
+    argv = serve_args(upstream_binary, fake_device)
+    assert not any(DEVICE_PASSWORD in a for a in argv), argv
+    assert argv[argv.index("--upstream-env-pass") + 1] == "DEVICE_PASSWORD"
+
+
+def test_unset_password_exits_2_naming_the_variable(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> None:
+    """A client without the `env` block: netguard refuses to start (exit 2,
+    before anything is spawned) and names the variable, never a value."""
+    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, fake_device)], env={})
+    code, err, _ = client.wait(timeout=FAIL_FAST_SECONDS)
+    assert code == 2, (code, err)
+    assert "--upstream-env-pass DEVICE_PASSWORD: not set in netguard's environment" in err, err
+    assert "upstream netdev-ssh-mcp:" not in err, err  # nothing was spawned

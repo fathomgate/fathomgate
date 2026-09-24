@@ -53,14 +53,17 @@ type Options struct {
 // upstream. It is built by [New], served by [Proxy.Run] and released by
 // [Proxy.Close].
 type Proxy struct {
-	server    *mcp.Server
-	logger    *slog.Logger
-	states    *sealer              // requestState envelopes for stateless agents
-	now       func() time.Time     // clock for the progress rate limit
-	upstreams map[string]*upstream // by server name
-	routes    map[string]route     // by prefixed tool name
-	closeOnce sync.Once
-	closeErr  error
+	server *mcp.Server
+	logger *slog.Logger
+	states *sealer          // requestState envelopes for stateless agents
+	now    func() time.Time // clock for the progress rate limit
+	// progressWait bounds how long a call's end waits for its queued
+	// progress to reach the agent (progressFinalWait; tests shorten it).
+	progressWait time.Duration
+	upstreams    map[string]*upstream // by server name
+	routes       map[string]route     // by prefixed tool name
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 // route maps one agent-facing tool name to its upstream and unprefixed name.
@@ -76,6 +79,7 @@ type route struct {
 type upstream struct {
 	name      string
 	transport mcp.Transport // to flush a Command's stderr on Close
+	red       *Redactor     // a Command's Secrets, scrubbed from relayed errors
 	session   *mcp.ClientSession
 	// version is the protocol version negotiated with the upstream, and so
 	// its era (eraOf): go-sdk tries server/discover first and falls back to
@@ -122,11 +126,12 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 	}
 	impl := &mcp.Implementation{Name: Name, Version: opts.Version}
 	p := &Proxy{
-		logger:    logger,
-		states:    states,
-		now:       time.Now,
-		upstreams: make(map[string]*upstream, len(upstreams)),
-		routes:    make(map[string]route),
+		logger:       logger,
+		states:       states,
+		now:          time.Now,
+		progressWait: progressFinalWait,
+		upstreams:    make(map[string]*upstream, len(upstreams)),
+		routes:       make(map[string]route),
 		server: mcp.NewServer(impl, &mcp.ServerOptions{
 			Logger: slog.New(minLevel{logger.Handler(), slog.LevelWarn}),
 			// Tools only. The tool list is fixed at startup, so no
@@ -172,7 +177,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 // initialise handshake (stateful, 2025-11-25 and older) if the upstream does
 // not know server/discover.
 func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u Upstream) (*upstream, error) {
-	up := &upstream{name: u.Server, transport: u.Transport, done: make(chan struct{})}
+	up := &upstream{name: u.Server, transport: u.Transport, red: redactorOf(u.Transport), done: make(chan struct{})}
 	client := mcp.NewClient(impl, &mcp.ClientOptions{
 		Logger: slog.New(minLevel{p.logger.Handler(), slog.LevelWarn}),
 		// Form elicitation only (the handler makes go-sdk advertise it): no
@@ -253,6 +258,19 @@ func (t *trackedTransport) kill() {
 		_ = c.Close()
 	}
 	flushStderr(t.Transport)
+}
+
+// redactorOf returns the Redactor for a Command's Secrets, or nil for any
+// other transport or a Command without secrets.
+func redactorOf(t mcp.Transport) *Redactor {
+	ct, ok := t.(*mcp.CommandTransport)
+	if !ok || ct.Command == nil {
+		return nil
+	}
+	if lw, ok := ct.Command.Stderr.(*lineWriter); ok {
+		return lw.red
+	}
+	return nil
 }
 
 // flushStderr writes out a partial final stderr line held by a Command's
@@ -524,7 +542,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 
 	f := up.begin(ctx, c, prompts)
 	defer up.end(f)
-	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now); pr != nil {
+	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now, p.progressWait); pr != nil {
 		up.watchProgress(pr)
 		defer up.unwatchProgress(pr)
 		params.SetProgressToken(pr.upToken)
@@ -612,13 +630,14 @@ func (p *Proxy) callFailed(ctx context.Context, c call, err error) (*mcp.CallToo
 	}
 	var werr *jsonrpc.Error
 	if errors.As(err, &werr) {
-		return nil, relayUpstreamError(up.name, werr)
+		return nil, relayUpstreamError(up.name, werr, up.red)
 	}
 	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || awaitExit(ctx, up, exitGrace) {
 		return upstreamDown(up), nil
 	}
-	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", err)
-	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
+	msg := up.red.Redact(err.Error())
+	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", msg)
+	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(msg, maxRelayedMessage))), nil
 }
 
 // passResult is the agent-facing copy of an upstream's final result:
