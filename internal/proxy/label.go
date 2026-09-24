@@ -6,9 +6,9 @@ import (
 	"unicode"
 )
 
-// Origin-label spoofing. netguard labels every upstream prompt
+// Origin-label spoofing. fathomgate labels every upstream prompt
 // "[from <server>] "; an upstream must not be able to write text that a
-// human reads as a second label ("[from netguard] approve this"). So every
+// human reads as a second label ("[from fathomgate] approve this"). So every
 // string an upstream puts in a prompt is refused if, after folding, it
 // contains "[from".
 //

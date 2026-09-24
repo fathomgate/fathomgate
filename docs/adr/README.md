@@ -4,6 +4,8 @@ One record per decision that would be expensive to reverse. Records follow [MADR
 
 To propose one, copy the template to the next number, open a pull request, and link the record from the code or spec it governs. See [GOVERNANCE.md](../../GOVERNANCE.md) for how records are accepted.
 
+Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name NetGuard and the identifiers in that record's scope table (`netguard`, `NETGUARD_*`, `ng3.`, `netguard-orchestrator`), and are left as written; the scope table maps each one to its Fathomgate name.
+
 | Number | Title | Status | Date |
 | --- | --- | --- | --- |
 | [0001](0001-go-core-with-python-companion.md) | Go core with a Python companion | accepted | 2026-09-23 |

@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-// Files NetGuard creates for the audit trail, and how each is protected.
+// Files Fathomgate creates for the audit trail, and how each is protected.
 // The OS-specific halves are in key_unix.go and key_windows.go:
 //
 //	createExclusive(path, flag, ownerOnly) creates path, never following or

@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/joshscott13/netguard/internal/redact"
+	"github.com/fathomgate/fathomgate/internal/redact"
 )
 
 // cmdRedact reads device output from a file or stdin, redacts it with the
@@ -15,7 +15,7 @@ import (
 // rules fired goes to stderr so stdout stays pipeable.
 func cmdRedact(args []string) int {
 	fs := flag.NewFlagSet("redact", flag.ContinueOnError)
-	keyFile := fs.String("key-file", "", "file holding the HMAC key (or set NETGUARD_REDACT_KEY)")
+	keyFile := fs.String("key-file", "", "file holding the HMAC key (or set FATHOMGATE_REDACT_KEY)")
 	quiet := fs.Bool("q", false, "do not print the hit summary")
 	files, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -34,7 +34,7 @@ func cmdRedact(args []string) int {
 		defer func() { _ = f.Close() }()
 		in = f
 	} else if len(files) > 1 {
-		fmt.Fprintln(os.Stderr, "usage: netguard redact --key-file <file> [input-file]")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate redact --key-file <file> [input-file]")
 		return exitUsage
 	}
 	data, err := io.ReadAll(in)
@@ -67,8 +67,8 @@ func loadRedactKey(path string) ([]byte, error) {
 		}
 		return b, nil
 	}
-	if env := os.Getenv("NETGUARD_REDACT_KEY"); env != "" {
+	if env := os.Getenv("FATHOMGATE_REDACT_KEY"); env != "" {
 		return []byte(env), nil
 	}
-	return nil, fmt.Errorf("--key-file is required (or set NETGUARD_REDACT_KEY)")
+	return nil, fmt.Errorf("--key-file is required (or set FATHOMGATE_REDACT_KEY)")
 }

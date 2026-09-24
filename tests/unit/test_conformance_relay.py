@@ -1,11 +1,11 @@
 """Tier 1: tests/conformance/relay.py, the Streamable HTTP front the
-conformance suite drives netguard through (T0.4).
+conformance suite drives fathomgate through (T0.4).
 
-The relay is test harness, so a bug in it could hide a netguard failure or
+The relay is test harness, so a bug in it could hide a fathomgate failure or
 invent one. These tests pin the two message rewrites it is allowed to make
 (request ids, and the tool-name prefix on tools/call only) and the HTTP
 behaviour the suite relies on. The child is a tiny stdio echo server, so no
-netguard, Go or Node is needed.
+fathomgate, Go or Node is needed.
 """
 
 from __future__ import annotations

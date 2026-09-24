@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/joshscott13/netguard/security/advisories/new
+    url: https://github.com/fathomgate/fathomgate/security/advisories/new
     about: Policy, redaction, approval or audit bypasses. Report privately; see SECURITY.md.
   - name: Question or discussion
-    url: https://github.com/joshscott13/netguard/discussions
+    url: https://github.com/fathomgate/fathomgate/discussions
     about: How to write a policy, which upstream to use, whether something is in scope.
   - name: Roadmap
-    url: https://github.com/joshscott13/netguard/blob/main/ROADMAP.md
+    url: https://github.com/fathomgate/fathomgate/blob/main/ROADMAP.md
     about: What is planned for each milestone before asking for it.

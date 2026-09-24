@@ -13,7 +13,7 @@ import (
 // TestPromptLimitAcrossRounds: a stateless upstream that asks four prompts
 // per round, forever, gets two rounds (8 prompts) and then a refusal: the
 // 10-prompt limit counts prompts across every round of a call, whether
-// netguard asks a stateful agent itself or a stateless agent drives the
+// fathomgate asks a stateful agent itself or a stateless agent drives the
 // rounds through the sealed requestState.
 func TestPromptLimitAcrossRounds(t *testing.T) {
 	const perRound = 4
@@ -45,7 +45,7 @@ func TestPromptLimitAcrossRounds(t *testing.T) {
 	}
 }
 
-// TestAskAgentSharesPromptSlot: netguard's own prompts to a stateful agent
+// TestAskAgentSharesPromptSlot: fathomgate's own prompts to a stateful agent
 // (askAgent) take the same per-call slot and count as a stateful
 // upstream's elicitation/create, so neither path can open a prompt beside
 // the other or add up past the limit.

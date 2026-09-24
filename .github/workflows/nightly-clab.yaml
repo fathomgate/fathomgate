@@ -18,7 +18,7 @@ jobs:
     # Change to the real label once a runner with containerlab, docker and
     # the cEOS / SR Linux images is registered.
     runs-on: [self-hosted, clab]
-    if: ${{ vars.NETGUARD_CLAB_ENABLED == 'true' }}
+    if: ${{ vars.FATHOMGATE_CLAB_ENABLED == 'true' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

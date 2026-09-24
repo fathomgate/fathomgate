@@ -312,7 +312,7 @@ func recvOrFail(t *testing.T, c <-chan struct{}, what string) {
 // TestOrphanAttribution: the attribution rule on its own, with a fixed
 // clock. A prompt is attributed only to the sole call in flight, and only
 // while every live orphan on the upstream is that call's session's; an
-// orphan expires. Orphans are keyed by netguard's own key for the agent
+// orphan expires. Orphans are keyed by fathomgate's own key for the agent
 // session (J5); a call whose session can never own another call (a
 // per-request stateless session) has a key of its own, so its record is an
 // ordinary table entry (T0.44). Past maxOrphansPerPrincipal, a principal's
@@ -434,7 +434,7 @@ func TestOrphanAttribution(t *testing.T) {
 	}
 }
 
-// TestAgentSessionKey (J5): the key netguard gives an agent session for the
+// TestAgentSessionKey (J5): the key fathomgate gives an agent session for the
 // ended-call records. A session Proxy.Run serves (stdio, in-memory) is
 // keyed by the key Run gave it, and two Runs on one proxy get two keys
 // (T0.43); a call with no session Run serves and no session id (a
@@ -447,7 +447,7 @@ func TestAgentSessionKey(t *testing.T) {
 	stdio := newHarness(t, nil)
 	// Each local agent's own call leaves an orphan under its own key: l1
 	// for the first Run, l2 for a second one on the same proxy (in-process
-	// only; netguard serve runs one), never one key for both.
+	// only; fathomgate serve runs one), never one key for both.
 	second, _ := connectAgent(t, stdio.proxy, eraSetup{agent: v2025}, &promptLog{})
 	for _, agent := range []*mcp.ClientSession{stdio.agent, second} {
 		if _, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
@@ -523,7 +523,7 @@ func TestHTTPSessionsPerPrincipal(t *testing.T) {
 
 // TestHTTPIdleExpiryCancelsStuckCall (H2): a 2025-era call whose POST was
 // dropped keeps running upstream. go-sdk's idle Close waits for it forever,
-// so netguard's own idle expiry cancels the session's calls and then closes
+// so fathomgate's own idle expiry cancels the session's calls and then closes
 // the session, which frees its slot.
 func TestHTTPIdleExpiryCancelsStuckCall(t *testing.T) {
 	hooks := &blockHooks{blocked: make(chan struct{}, 4), cancelled: make(chan struct{}, 4)}
@@ -787,7 +787,7 @@ func TestHTTPSessionAfterClose(t *testing.T) {
 // TestHTTPPromptAfterFinishedCall is J1 in the re-review of PR #72. Alice
 // calls "late", which returns normally; the upstream keeps working and
 // sends elicitation/create for that finished call afterwards, when bob's
-// call is the only one in flight. Before J1 netguard remembered only
+// call is the only one in flight. Before J1 fathomgate remembered only
 // cancelled calls, so alice's finished call left nothing behind and bob's
 // human was shown alice's prompt. Now every ended call is remembered for
 // OrphanTTL, so the prompt is refused: the upstream gets an error, bob sees
@@ -873,7 +873,7 @@ func TestOrphanTTLSeparateFromIdle(t *testing.T) {
 }
 
 // TestOrphanReapedLogsPrincipal is J3's log: when an ended call stops
-// blocking cross-session attribution, netguard says so at Info and names
+// blocking cross-session attribution, fathomgate says so at Info and names
 // the principal it was blocking for, never the session id.
 func TestOrphanReapedLogsPrincipal(t *testing.T) {
 	buf := newSyncBuffer()
@@ -901,7 +901,7 @@ func TestOrphanReapedLogsPrincipal(t *testing.T) {
 	}
 }
 
-// TestHTTPSessionRegisteredFromResponseHeader is J2: netguard registers the
+// TestHTTPSessionRegisteredFromResponseHeader is J2: fathomgate registers the
 // session a session-less POST's response names, without asking whether it
 // initialised, so no session go-sdk kept is left to go-sdk's longer
 // backstop timer alone. A session go-sdk did not keep (a session-less POST
@@ -912,7 +912,7 @@ func TestHTTPSessionRegisteredFromResponseHeader(t *testing.T) {
 	hd := h.hh
 
 	// A session-less POST that is not an initialise: go-sdk answers it on a
-	// session whose id the response carries and then closes it, so netguard
+	// session whose id the response carries and then closes it, so fathomgate
 	// keeps nothing and frees the slot.
 	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
 	hdr := map[string]string{"Mcp-Protocol-Version": v2025}
@@ -926,7 +926,7 @@ func TestHTTPSessionRegisteredFromResponseHeader(t *testing.T) {
 	})
 
 	// An initialise: the response names the session, go-sdk keeps it, and
-	// netguard registers it under that id with its own idle clock.
+	// fathomgate registers it under that id with its own idle clock.
 	cs := h.connect(t, v2025, tokAlice, nil)
 	hd.mu.Lock()
 	ls := hd.live[cs.ID()]

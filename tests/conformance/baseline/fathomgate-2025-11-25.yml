@@ -1,18 +1,18 @@
-# Expected failures: netguard leg (relay -> netguard serve -> go-sdk
+# Expected failures: fathomgate leg (relay -> fathomgate serve -> go-sdk
 # everything-server), --requirements 2025-11-25 (stateful agent). Format and
 # exit rules: tests/conformance/README.md. An entry that starts passing fails
 # the run, so a fix must delete its entry in the same PR.
 #
 # The control leg for this revision has no entries, so each failure here is a
-# difference netguard makes. Every group names the ADR or board task that
+# difference fathomgate makes. Every group names the ADR or board task that
 # decided it or owns the gap (M0 exit criterion 1). Nothing here is excused
 # as "flaky".
 server:
-  # Undeclared capabilities. Decided in T0.3: netguard declares only `tools`
+  # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # toward the agent and answers -32601 for prompts/*, resources/*,
   # logging/setLevel and completion/complete (profile-schema section 8.2).
   # The 2025-11-25 requirement set assumes the everything-server's full
-  # surface. Owner: mcp-protocol-engineer, if netguard ever proxies prompts
+  # surface. Owner: mcp-protocol-engineer, if fathomgate ever proxies prompts
   # or resources.
   - completion-complete:completion-complete
   - logging-set-level:logging-set-level
@@ -29,26 +29,26 @@ server:
   - resources-unsubscribe:resources-unsubscribe
   # T0.3 (same decision): calls logging/setLevel first (undeclared, -32601)
   # and then expects the upstream's notifications/message to reach the agent;
-  # netguard declares no logging capability and relays no log messages.
+  # fathomgate declares no logging capability and relays no log messages.
   - tools-call-with-logging:tools-call-with-logging
   # ADR 0008: upstream sampling/createMessage is refused (profile-schema
   # section 8.4). By design.
   - tools-call-sampling:tools-call-sampling
-  # ADR 0008 (each side negotiates its own era). Era pairing, not a netguard
-  # refusal, and not fixable on this leg. netguard's upstream client tries
+  # ADR 0008 (each side negotiates its own era). Era pairing, not a fathomgate
+  # refusal, and not fixable on this leg. fathomgate's upstream client tries
   # server/discover first, so this upstream (go-sdk v1.8.0) negotiates
-  # 2026-07-28 with netguard while the agent is on 2025-11-25. These fixture
+  # 2026-07-28 with fathomgate while the agent is on 2025-11-25. These fixture
   # tools call the stateful elicitation/create API, which the fixture's own
   # go-sdk refuses on a 2026 session (`"elicitation/create" cannot be sent
   # while serving a request on protocol version 2026-07-28: return an
   # InputRequests map instead`), and the tool returns that error before
-  # netguard sees a prompt. The path these checks mean, a 2025 upstream
-  # prompting a 2025 agent through netguard, is scored on the
-  # netguard-up2025 leg (T0.19): tools-call-elicitation and
+  # fathomgate sees a prompt. The path these checks mean, a 2025 upstream
+  # prompting a 2025 agent through fathomgate, is scored on the
+  # fathomgate-up2025 leg (T0.19): tools-call-elicitation and
   # elicitation-sep1034-defaults pass there, and era_pairs.py checks the
   # [from conf] label. elicitation-sep1330-enums fails there for a different
-  # reason (go-sdk's schema check and netguard's allow-list; see
-  # netguard-up2025-2025-11-25.yml).
+  # reason (go-sdk's schema check and fathomgate's allow-list; see
+  # fathomgate-up2025-2025-11-25.yml).
   - tools-call-elicitation:tools-call-elicitation
   - elicitation-sep1034-defaults:elicitation-sep1034-general
   - elicitation-sep1330-enums:elicitation-sep1330-general

@@ -16,10 +16,10 @@ import (
 //
 // Error texts here never quote an upstream value (a type, a name, a
 // string): they say what was expected. They reach the agent inside
-// netguard's own refusal, so upstream text in them would read as netguard's.
+// fathomgate's own refusal, so upstream text in them would read as fathomgate's.
 
 const (
-	// maxSchemaInput bounds the upstream schema netguard will parse.
+	// maxSchemaInput bounds the upstream schema fathomgate will parse.
 	maxSchemaInput = 64 << 10
 	// maxSchemaBytes bounds the rebuilt schema sent to the agent.
 	maxSchemaBytes = 16 << 10
@@ -46,7 +46,7 @@ var (
 	errSchemaEnum        = fmt.Errorf("an enum is not an array of 1 to %d plain strings, numbers or booleans", maxSchemaEnum)
 	errSchemaOneOf       = fmt.Errorf("a oneOf is not an array of 1 to %d options, each with a plain const", maxSchemaEnum)
 	errSchemaItems       = errors.New("an array property has no items with an enum")
-	errSchemaLabel       = errors.New("a string reads as an origin label (\"[from\"); only netguard labels prompts")
+	errSchemaLabel       = errors.New("a string reads as an origin label (\"[from\"); only fathomgate labels prompts")
 )
 
 // allowedFormats are the string formats the spec defines for elicitation;

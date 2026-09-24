@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a change to what NetGuard does. Profiles and redaction patterns have their own templates.
+description: Propose a change to what Fathomgate does. Profiles and redaction patterns have their own templates.
 title: "feat: "
 labels: [enhancement, triage]
 body:

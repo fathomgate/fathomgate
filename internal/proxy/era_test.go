@@ -249,7 +249,7 @@ func addEraTools(s *mcp.Server, rec *recorder) {
 		rec.add(req)
 		res := textResult("meta")
 		res.Meta = mcp.Meta{
-			mcp.MetaKeyServerInfo:  map[string]any{"name": "netguard-impostor", "version": "0"},
+			mcp.MetaKeyServerInfo:  map[string]any{"name": "fathomgate-impostor", "version": "0"},
 			"com.example/upstream": "FAKE-upstream-meta",
 		}
 		res.RequestState = "stray-state"
@@ -413,7 +413,7 @@ func TestEraMatrix(t *testing.T) {
 			}
 
 			// tools/call: the agent's _meta stays with the agent; the
-			// upstream sees netguard's own identity and era.
+			// upstream sees fathomgate's own identity and era.
 			res, err := h.agent.CallTool(ctx, &mcp.CallToolParams{
 				Meta:      mcp.Meta{"com.example/trace": "FAKE-agent-trace", "progressToken": "p1"},
 				Name:      "netdev-ssh-mcp.run_show_command",
@@ -433,9 +433,9 @@ func TestEraMatrix(t *testing.T) {
 				}
 			}
 			// The agent asked for progress, so the upstream got a token:
-			// netguard's own, never the agent's.
+			// fathomgate's own, never the agent's.
 			if tok, ok := got.ProgressToken.(string); !ok || tok == "" || tok == "p1" {
-				t.Errorf("upstream progressToken %#v, want netguard's own", got.ProgressToken)
+				t.Errorf("upstream progressToken %#v, want fathomgate's own", got.ProgressToken)
 			}
 			if e.upstream == v2026 && !slices.Contains(got.MetaKeys, mcp.MetaKeyProtocolVersion) {
 				t.Errorf("stateless upstream got no self-describing _meta: %v", got.MetaKeys)
@@ -451,8 +451,8 @@ func TestEraMatrix(t *testing.T) {
 			}
 			if e.agent == v2026 {
 				b, _ := json.Marshal(res.Meta[mcp.MetaKeyServerInfo])
-				if !strings.Contains(string(b), `"name":"netguard"`) {
-					t.Errorf("stateless agent sees serverInfo %s, want netguard's", b)
+				if !strings.Contains(string(b), `"name":"fathomgate"`) {
+					t.Errorf("stateless agent sees serverInfo %s, want fathomgate's", b)
 				}
 			}
 
@@ -464,7 +464,7 @@ func TestEraMatrix(t *testing.T) {
 			prompts := h.prompts.all()
 			if e.agent == v2026 && e.upstream == v2025 {
 				// ADR 0014 decision point: refused, and the agent is told.
-				if !res.IsError || !strings.Contains(text(res), "netguard refused an input request (elicitation) from upstream netdev-ssh-mcp during ask") ||
+				if !res.IsError || !strings.Contains(text(res), "fathomgate refused an input request (elicitation) from upstream netdev-ssh-mcp during ask") ||
 					!strings.Contains(text(res), "ADR 0014") {
 					t.Fatalf("want a labelled refusal, got %v %q", res.IsError, text(res))
 				}
@@ -495,7 +495,7 @@ func TestEraMatrix(t *testing.T) {
 }
 
 // TestMRTRWire drives a stateless agent's MRTR retry by hand: the wire shape
-// of input_required, the sealed requestState, and every retry netguard
+// of input_required, the sealed requestState, and every retry fathomgate
 // refuses before the upstream sees it.
 func TestMRTRWire(t *testing.T) {
 	h := newEraHarness(t, eraSetup{agent: v2026, upstream: v2026, manualMRTR: true})
@@ -521,7 +521,7 @@ func TestMRTRWire(t *testing.T) {
 	}
 	state := first.RequestState
 	if !strings.HasPrefix(state, statePrefix) || strings.Contains(wire, `"requestState":"up-state-pw"`) {
-		t.Fatalf("requestState is not netguard's envelope: %q", state)
+		t.Fatalf("requestState is not fathomgate's envelope: %q", state)
 	}
 	accept := mcp.InputResponseMap{"pw": &mcp.ElicitResult{Action: "accept", Content: map[string]any{"password": agentPassword}, Meta: mcp.Meta{"com.example/agent": "x"}}}
 	tampered := []byte(state)
@@ -575,7 +575,7 @@ func TestMRTRWire(t *testing.T) {
 	}
 }
 
-// TestInputRequestsRefused covers every upstream input request netguard does
+// TestInputRequestsRefused covers every upstream input request fathomgate does
 // not pass on. The upstream's prompt text never reaches the agent.
 func TestInputRequestsRefused(t *testing.T) {
 	cases := []struct {
@@ -585,7 +585,7 @@ func TestInputRequestsRefused(t *testing.T) {
 		tool     string
 		want     string
 	}{
-		{"sampling", v2026, false, "ask_sampling", "netguard refused an input request (sampling) from upstream netdev-ssh-mcp during ask_sampling"},
+		{"sampling", v2026, false, "ask_sampling", "fathomgate refused an input request (sampling) from upstream netdev-ssh-mcp during ask_sampling"},
 		{"roots", v2026, false, "ask_roots", "(roots)"},
 		{"URL elicitation", v2026, false, "ask_url", "(URL elicitation)"},
 		{"nested schema", v2025, false, "ask_nested", "a property type is not"},
@@ -611,7 +611,7 @@ func TestInputRequestsRefused(t *testing.T) {
 }
 
 // TestStatefulAgentMultiRound: a stateful agent cannot take input_required,
-// so netguard asks it with elicitation/create round after round.
+// so fathomgate asks it with elicitation/create round after round.
 func TestStatefulAgentMultiRound(t *testing.T) {
 	h := newEraHarness(t, eraSetup{agent: v2025, upstream: v2026})
 	res, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_twice"})
@@ -662,7 +662,7 @@ func TestStatelessAgentMultiRound(t *testing.T) {
 }
 
 // TestUpstreamElicitationNeedsOneCall: a stateful upstream's
-// elicitation/create names no call, so with two calls in flight netguard
+// elicitation/create names no call, so with two calls in flight fathomgate
 // cannot say whose prompt it is and refuses it. That refusal is only ever
 // added to what the upstream returns: an upstream error stays the
 // upstream's error, and a result the upstream still completes keeps its
@@ -705,7 +705,7 @@ func TestUpstreamElicitationNeedsOneCall(t *testing.T) {
 		t.Fatalf("want the upstream's result, got %v %q", err, text(res))
 	}
 	if got := text(res); !strings.HasPrefix(got, "upstream carried on without an answer") ||
-		!strings.Contains(got, "netguard refused an input request (elicitation) from upstream netdev-ssh-mcp: it cannot be attributed to one call (2 in flight)") {
+		!strings.Contains(got, "fathomgate refused an input request (elicitation) from upstream netdev-ssh-mcp: it cannot be attributed to one call (2 in flight)") {
 		t.Fatalf("result %q", got)
 	}
 	if len(h.prompts.all()) != 0 {
@@ -726,7 +726,7 @@ func TestUpstreamElicitationNeedsOneCall(t *testing.T) {
 
 // TestPromptFlood: go-sdk runs an upstream's incoming requests concurrently,
 // so a hostile stateful upstream can fire many elicitation/create at once.
-// netguard lets one prompt per call be open and at most maxInputRounds per
+// fathomgate lets one prompt per call be open and at most maxInputRounds per
 // call, and refuses the rest.
 func TestPromptFlood(t *testing.T) {
 	const burst = 4

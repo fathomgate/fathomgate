@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshscott13/netguard/internal/proxy"
+	"github.com/fathomgate/fathomgate/internal/proxy"
 )
 
 // serveCanary is a --upstream-env-pass value that must never appear in
-// anything netguard writes. The quote and backslash exercise the escaped
+// anything fathomgate writes. The quote and backslash exercise the escaped
 // and quoted forms.
 const serveCanary = `FAKE-canary-"pw\x9`
 
@@ -35,11 +35,12 @@ func TestParseServeEnvPass(t *testing.T) {
 	base := []string{"--server", "netdev-ssh-mcp", "--upstream", "/opt/bin/netdev-ssh-mcp"}
 	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
 	env := map[string]string{
-		"DEVICE_PASSWORD": serveCanary,
-		"SSH_AUTH_SOCK":   "/tmp/FAKE-agent.sock",
-		"EMPTY":           "",
-		"PATH":            "/usr/bin",
-		"netguard_lower":  "FAKE-lower",
+		"DEVICE_PASSWORD":  serveCanary,
+		"SSH_AUTH_SOCK":    "/tmp/FAKE-agent.sock",
+		"EMPTY":            "",
+		"PATH":             "/usr/bin",
+		"fathomgate_lower": "FAKE-lower",
+		"NETGUARD_OLD":     "FAKE-old",
 	}
 	cases := []struct {
 		name      string
@@ -57,18 +58,21 @@ func TestParseServeEnvPass(t *testing.T) {
 		{name: "repeat is deduplicated", args: with("--upstream-env-pass", "DEVICE_PASSWORD", "--upstream-env-pass", "DEVICE_PASSWORD"),
 			wantEnv: []string{"DEVICE_PASSWORD=" + serveCanary}, wantNames: []string{"DEVICE_PASSWORD"}},
 		{name: "allow-listed name is allowed", args: with("--upstream-env-pass", "PATH"), wantEnv: []string{"PATH=/usr/bin"}, wantNames: []string{"PATH"}},
-		{name: "unset", args: with("--upstream-env-pass", "NOT_THERE"), wantErr: "--upstream-env-pass NOT_THERE: not set in netguard's environment"},
+		{name: "unset", args: with("--upstream-env-pass", "NOT_THERE"), wantErr: "--upstream-env-pass NOT_THERE: not set in fathomgate's environment"},
 		{name: "empty counts as unset", args: with("--upstream-env-pass", "EMPTY"), wantErr: "--upstream-env-pass EMPTY: set but empty"},
 		{name: "NAME=VALUE", args: with("--upstream-env-pass", "DEVICE_PASSWORD="+serveCanary), wantErr: "--upstream-env-pass argument 1 is not a variable name"},
 		{name: "invalid name", args: with("--upstream-env-pass", "OK", "--upstream-env-pass", "bad-name"), wantErr: "--upstream-env-pass argument 2: name must match"},
 		{name: "empty name", args: with("--upstream-env-pass", ""), wantErr: "--upstream-env-pass argument 1: name must match"},
-		{name: "NETGUARD_ on pass", args: with("--upstream-env-pass", "NETGUARD_REDACT_KEY"), wantErr: "--upstream-env-pass NETGUARD_REDACT_KEY: NETGUARD_* variables"},
-		{name: "NETGUARD_ on env", args: with("--upstream-env", "NETGUARD_X="+serveCanary), wantErr: "--upstream-env NETGUARD_X: NETGUARD_* variables"},
-		{name: "bare NETGUARD is not the prefix", args: with("--upstream-env", "NETGUARD=1"), wantEnv: []string{"NETGUARD=1"}},
-		{name: "lower-case netguard_ passes on unix", args: with("--upstream-env-pass", "netguard_lower"),
-			wantEnv: []string{"netguard_lower=FAKE-lower"}, wantNames: []string{"netguard_lower"}},
-		{name: "lower-case netguard_ pass refused on windows", goos: "windows", args: with("--upstream-env-pass", "netguard_lower"), wantErr: "NETGUARD_* variables"},
-		{name: "mixed-case Netguard_ env refused on windows", goos: "windows", args: with("--upstream-env", "Netguard_X=1"), wantErr: "NETGUARD_* variables"},
+		{name: "FATHOMGATE_ on pass", args: with("--upstream-env-pass", "FATHOMGATE_REDACT_KEY"), wantErr: "--upstream-env-pass FATHOMGATE_REDACT_KEY: FATHOMGATE_* variables"},
+		{name: "FATHOMGATE_ on env", args: with("--upstream-env", "FATHOMGATE_X="+serveCanary), wantErr: "--upstream-env FATHOMGATE_X: FATHOMGATE_* variables"},
+		{name: "bare FATHOMGATE is not the prefix", args: with("--upstream-env", "FATHOMGATE=1"), wantEnv: []string{"FATHOMGATE=1"}},
+		// The placeholder prefix is neither reserved nor read (ADR 0019).
+		{name: "NETGUARD_ is an ordinary name", args: with("--upstream-env-pass", "NETGUARD_OLD"),
+			wantEnv: []string{"NETGUARD_OLD=FAKE-old"}, wantNames: []string{"NETGUARD_OLD"}},
+		{name: "lower-case fathomgate_ passes on unix", args: with("--upstream-env-pass", "fathomgate_lower"),
+			wantEnv: []string{"fathomgate_lower=FAKE-lower"}, wantNames: []string{"fathomgate_lower"}},
+		{name: "lower-case fathomgate_ pass refused on windows", goos: "windows", args: with("--upstream-env-pass", "fathomgate_lower"), wantErr: "FATHOMGATE_* variables"},
+		{name: "mixed-case Fathomgate_ env refused on windows", goos: "windows", args: with("--upstream-env", "Fathomgate_X=1"), wantErr: "FATHOMGATE_* variables"},
 		{name: "conflict", args: with("--upstream-env", "DEVICE_PASSWORD=x", "--upstream-env-pass", "DEVICE_PASSWORD"),
 			wantErr: "DEVICE_PASSWORD is given with both --upstream-env and --upstream-env-pass"},
 		{name: "different case is no conflict on unix", args: with("--upstream-env", "device_password=x", "--upstream-env-pass", "DEVICE_PASSWORD"),
@@ -140,7 +144,7 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 	t.Parallel()
 	base := []string{"--server", "netdev-ssh-mcp", "--upstream", "/opt/bin/netdev-ssh-mcp"}
 	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
-	env := map[string]string{"DEVICE_PASSWORD": serveCanary, "NETGUARD_REDACT_KEY": serveCanary, "EMPTY": ""}
+	env := map[string]string{"DEVICE_PASSWORD": serveCanary, "FATHOMGATE_REDACT_KEY": serveCanary, "EMPTY": ""}
 	cases := []struct {
 		name string
 		args []string
@@ -158,10 +162,10 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 		{"flag without value", with("--upstream-env"), "flag at argument 5 needs a value"},
 		{"env bare value", with("--upstream-env", serveCanary), "--upstream-env argument 1 is not KEY=VALUE"},
 		{"env bare value second", with("--upstream-env", "A=1", "--upstream-env", serveCanary), "--upstream-env argument 2 is not KEY=VALUE"},
-		{"env NETGUARD_", with("--upstream-env", "NETGUARD_X="+serveCanary), "--upstream-env NETGUARD_X:"},
+		{"env FATHOMGATE_", with("--upstream-env", "FATHOMGATE_X="+serveCanary), "--upstream-env FATHOMGATE_X:"},
 		{"pass NAME=VALUE", with("--upstream-env-pass", "DEVICE_PASSWORD="+serveCanary), "--upstream-env-pass argument 1 is not a variable name"},
 		{"pass bare value", with("--upstream-env-pass", serveCanary), "--upstream-env-pass argument 1: name must match"},
-		{"pass NETGUARD_", with("--upstream-env-pass", "NETGUARD_REDACT_KEY"), "--upstream-env-pass NETGUARD_REDACT_KEY:"},
+		{"pass FATHOMGATE_", with("--upstream-env-pass", "FATHOMGATE_REDACT_KEY"), "--upstream-env-pass FATHOMGATE_REDACT_KEY:"},
 		{"pass unset", with("--upstream-env-pass", "NOT_THERE"), "--upstream-env-pass NOT_THERE: not set"},
 		{"pass empty", with("--upstream-env-pass", "EMPTY"), "--upstream-env-pass EMPTY: set but empty"},
 		{"conflict", with("--upstream-env", "DEVICE_PASSWORD="+serveCanary, "--upstream-env-pass", "DEVICE_PASSWORD"), "DEVICE_PASSWORD is given with both"},
@@ -189,7 +193,7 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 // serveTestUpstreamEnv makes the test binary act as a leaky upstream: it
 // prints the passed values to stderr and answers every JSON-RPC request with
 // an error whose message carries the password, so startup fails with the
-// upstream's words in netguard's error.
+// upstream's words in fathomgate's error.
 const serveTestUpstreamEnv = "SERVE_TEST_UPSTREAM"
 
 func TestMain(m *testing.M) {
@@ -247,7 +251,7 @@ func (l *lockedBuffer) String() string {
 // End to end through a real child process: the passed value reaches the
 // upstream exactly (its stderr shows the marker, which only an exact match
 // produces), a value under 4 bytes is passed but not scrubbed, and the value
-// is in none of netguard's stderr: not in the relayed lines, not when split
+// is in none of fathomgate's stderr: not in the relayed lines, not when split
 // across writes, not in the startup error that quotes the upstream's
 // JSON-RPC message.
 func TestServeKeepsPassedValuesOffStderr(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 
 	"github.com/goccy/go-yaml"
 
-	"github.com/joshscott13/netguard/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/classify"
 )
 
 // TestFile is the schema of a *.test.yaml file consumed by
-// `netguard policy test`. It lets contributors assert policy behaviour
+// `fathomgate policy test`. It lets contributors assert policy behaviour
 // without a Go toolchain.
 //
 //	policy: prod-approval.yaml        # relative to the test file

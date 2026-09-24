@@ -79,6 +79,7 @@ func TestSealer(t *testing.T) {
 		{"not ours", "FAKE-up-state", errStateMalformed},
 		{"retired ng1", "ng1." + body, errStateRetired},
 		{"retired ng2", "ng2." + body, errStateRetired},
+		{"retired ng3", "ng3." + body, errStateRetired},
 		{"prefix only", statePrefix, errStateMalformed},
 		{"not base64", statePrefix + "!!", errStateMalformed},
 		{"too short", statePrefix + "AAAA", errStateMalformed},

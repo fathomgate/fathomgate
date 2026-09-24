@@ -6,19 +6,19 @@ import (
 	"io"
 	"os"
 
-	"github.com/joshscott13/netguard/internal/inventory"
+	"github.com/fathomgate/fathomgate/internal/inventory"
 )
 
 func cmdInventory(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: netguard inventory import --csv devices.csv --out inventory.yaml")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate inventory import --csv devices.csv --out inventory.yaml")
 		return exitUsage
 	}
 	switch args[0] {
 	case "import":
 		return cmdInventoryImport(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "netguard inventory: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "fathomgate inventory: unknown subcommand %q\n", args[0])
 		return exitUsage
 	}
 }

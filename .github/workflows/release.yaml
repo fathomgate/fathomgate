@@ -67,5 +67,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: set in repo secrets once joshscott13/homebrew-tap exists.
+          # Optional: set in repo secrets once fathomgate/homebrew-tap exists.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

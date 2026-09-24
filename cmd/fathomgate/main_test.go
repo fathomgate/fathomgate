@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/joshscott13/netguard/internal/audit"
+	"github.com/fathomgate/fathomgate/internal/audit"
 )
 
 func repoPath(parts ...string) string {
@@ -29,8 +29,8 @@ func TestRunDispatch(t *testing.T) {
 		{"serve refuses policy in M0", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "x", "--policy", "p.yaml"}, exitUsage},
 		{"serve refuses audit in M0", []string{"serve", "--audit", "a.jsonl"}, exitUsage},
 		{"serve bad upstream env", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "x", "--upstream-env", "NOEQUALS"}, exitUsage},
-		{"serve upstream missing", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "netguard-no-such-upstream-binary"}, exitFail},
-		{"serve bad server name", []string{"serve", "--server", "net.dev", "--upstream", "netguard-no-such-upstream-binary"}, exitUsage},
+		{"serve upstream missing", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "fathomgate-no-such-upstream-binary"}, exitFail},
+		{"serve bad server name", []string{"serve", "--server", "net.dev", "--upstream", "fathomgate-no-such-upstream-binary"}, exitUsage},
 		{"serve positional smuggles policy", []string{"serve", "--server", "s", "--upstream", "x", "extra", "--policy", "p.yaml"}, exitUsage},
 		{"policy no sub", []string{"policy"}, exitUsage},
 		{"policy bad sub", []string{"policy", "frobnicate"}, exitUsage},

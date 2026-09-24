@@ -1,15 +1,15 @@
 # Expected failures: control leg (relay -> go-sdk everything-server, no
-# netguard), --requirements 2026-07-28. Format and exit rules:
+# fathomgate), --requirements 2026-07-28. Format and exit rules:
 # tests/conformance/README.md. An entry that starts passing fails the run.
 #
 # Every entry is an HTTP-transport check. go-sdk's own HTTP handler passes
 # them (go-sdk v1.8.0 conformance/baseline.yml has no server entries); the
-# relay does not implement them, because netguard has no HTTP listener in M0
+# relay does not implement them, because fathomgate has no HTTP listener in M0
 # and imitating go-sdk's HTTP status mapping in the relay would prove
-# nothing about netguard. The same block opens netguard-2026-07-28.yml.
+# nothing about fathomgate. The same block opens fathomgate-2026-07-28.yml.
 # References (M0 exit criterion 1): ADR 0012 (M0 serves the agent over stdio
 # only; ADR 0008's header rules land with Streamable HTTP) and T0.4 (the
-# relay). Revisit when netguard serves Streamable HTTP itself.
+# relay). Revisit when fathomgate serves Streamable HTTP itself.
 server:
   # HTTP status for 2026-era errors (400, 404): the relay answers 200 with
   # the JSON-RPC error in an SSE event.

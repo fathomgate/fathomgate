@@ -1,6 +1,6 @@
 # Glossary
 
-The words NetGuard uses, in the UI, CLI, audit log, specs and docs. One word per concept; no synonyms. Technical values are set in mono.
+The words Fathomgate uses, in the UI, CLI, audit log, specs and docs. One word per concept; no synonyms. Technical values are set in mono.
 
 ## Decisions
 
@@ -53,8 +53,8 @@ Things an `allow` or `hold` decision requires before or during execution.
 
 | Term | Meaning |
 | --- | --- |
-| Proxy | The NetGuard process. MCP server toward the agent, MCP client toward upstreams. |
-| Upstream | A network-device MCP server NetGuard fronts, such as netdev-ssh-mcp or junos-mcp-server. |
+| Proxy | The Fathomgate process. MCP server toward the agent, MCP client toward upstreams. |
+| Upstream | A network-device MCP server Fathomgate fronts, such as netdev-ssh-mcp or junos-mcp-server. |
 | Agent | The MCP client and the model behind it. Untrusted. |
 | Profile | A YAML file in `profiles/` describing one upstream: tool to class, parameter mapping, capability tables. |
 | Policy | The YAML file with `defaults` and ordered `rules` that `Evaluate` reads. |
@@ -73,7 +73,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | Source of truth (SoT) | NetBox or Nautobot. Optional. |
 | Unknown target | A target no provider resolved. Denied for writes and exec by default. |
 | Stale | A device record served from a snapshot because the source of truth was unreachable. Marked `sot: stale` in audit. |
-| Snapshot | The static-format file written by `netguard inventory sync`. |
+| Snapshot | The static-format file written by `fathomgate inventory sync`. |
 | Pending record | The SQLite row that is the source of truth for a held call. |
 | TTL | Time from PENDING to EXPIRED. |
 | Drift guard | Re-running `Prepare` at approval and cancelling if the diff hash changed. |
@@ -111,4 +111,4 @@ Things an `allow` or `hold` decision requires before or during execution.
 | mask, scrub, sanitise (for output) | redact |
 | whitelist, blacklist | allow-list, blocklist |
 | device type, platform (in policy) | vendor |
-| firewall rule, ACL (for NetGuard rules) | rule |
+| firewall rule, ACL (for Fathomgate rules) | rule |

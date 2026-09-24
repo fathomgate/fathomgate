@@ -4,7 +4,7 @@ Instructions for any coding agent (Codex, Cursor, Copilot, Claude Code, Gemini C
 
 ## What this is
 
-NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MCP servers. Go core (`go 1.26.0`, ADR 0015; direct dependencies `github.com/goccy/go-yaml` and `github.com/modelcontextprotocol/go-sdk` v1.8.x, and `golang.org/x/sys` for the Windows audit key DACL), single static binary, Python companion under `tests/` and `tools/` only.
+Fathomgate is a policy-enforcing MCP proxy between AI agents and network-device MCP servers. Go core (`go 1.26.0`, ADR 0015; direct dependencies `github.com/goccy/go-yaml` and `github.com/modelcontextprotocol/go-sdk` v1.8.x, and `golang.org/x/sys` for the Windows audit key DACL), single static binary, Python companion under `tests/` and `tools/` only.
 
 ## Before you change anything
 
@@ -24,7 +24,7 @@ NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MC
 go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check
 ```
 
-All six must pass. A change to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod` also runs `make conformance` (needs Node.js and npm). `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
+All six must pass. A change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod` also runs `make conformance` (needs Node.js and npm). `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
 
 ## Rules
 
@@ -55,5 +55,5 @@ All six must pass. A change to `internal/proxy`, `cmd/netguard/serve.go` or `go.
 ## Don't
 
 - Don't mark a test-matrix case validated against a mock; it needs the named real upstream server.
-- `netguard serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
-- Don't brand assets around the name NetGuard; it is a placeholder.
+- `fathomgate serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
+- The product is Fathomgate: one word, capital F only, never "FathomGate" and never shortened to "Fathom" (ADR 0019). Records written before ADR 0019 say NetGuard and stay as written.

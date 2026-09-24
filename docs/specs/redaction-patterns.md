@@ -13,9 +13,9 @@ Decision record: [ADR 0006](../adr/0006-keyed-hmac-redaction.md). Fixture corpus
 - `hmac` is `HMAC-SHA256(key, secret_bytes)` truncated to the first 12 lower-case hex characters.
 - `key` is the per-deployment redaction key (32 random bytes) read from `redact.key_file` or the environment variable named by `redact.key_env`. Startup fails without one; there is no unkeyed mode.
 - `secret_bytes` is the matched secret group only, not the whole line, so `password 7 0822455D0A16` on two devices yields the same token.
-- The console renders the token as `hmac:3f9a1b2c4d5e` in the `ng-redacted` style. The CLI and audit blobs keep the angle-bracket form.
+- The console renders the token as `hmac:3f9a1b2c4d5e` in the `fg-redacted` style. The CLI and audit blobs keep the angle-bracket form.
 
-An operator who needs to compare a value against a known secret runs `netguard redact token <secret>` locally to get the token. There is no reverse operation.
+An operator who needs to compare a value against a known secret runs `fathomgate redact token <secret>` locally to get the token. There is no reverse operation.
 
 ## 2. Pattern table
 

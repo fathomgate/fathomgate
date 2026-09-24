@@ -59,7 +59,7 @@ devices:
 
 ### 3.1 CSV import
 
-`netguard inventory import devices.csv [--out inventory.yaml]` reads a header row and the columns below. Column names are case-insensitive. Unrecognised columns are ignored with a warning.
+`fathomgate inventory import devices.csv [--out inventory.yaml]` reads a header row and the columns below. Column names are case-insensitive. Unrecognised columns are ignored with a warning.
 
 | Column | Maps to | Notes |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ sot:
 | --- | --- |
 | `kind` | `netbox` uses `/api/dcim/devices/?name=`; `nautobot` uses `/api/dcim/devices/?name=`. Both return `role`, `site` (or `location`), `tags[]`, `status`, `platform`. |
 | `cache_ttl` | Per-target positive and negative cache. |
-| `snapshot` | Written by `netguard inventory sync`, which pages through every device and writes the static-file format with `source: snapshot`. |
+| `snapshot` | Written by `fathomgate inventory sync`, which pages through every device and writes the static-file format with `source: snapshot`. |
 | `stale_max_age` | If non-zero and the snapshot is older, resolution from it fails and the target is `unknown`. |
 
 Lookup order inside the provider: cache, then live REST, then snapshot. A live failure (connection error, 5xx, timeout) is logged once per `cache_ttl` and the snapshot is used. Every record from the snapshot has `stale: true`, and every decision that used one carries `sot: stale` in its audit event. A 404 from a live lookup is a definitive `unknown` and is not overridden by the snapshot.
@@ -158,7 +158,7 @@ After expansion, `targets_count` in `when` conditions is the expanded count, so 
 
 | Command | Effect |
 | --- | --- |
-| `netguard inventory import <csv> [--out file]` | Section 3.1 |
-| `netguard inventory sync` | Section 6, writes the snapshot |
-| `netguard inventory resolve <name>...` | Prints the record and which provider supplied each field; the debugging tool for "why was this denied as unknown" |
-| `netguard inventory lint <file>` | Validates the static file |
+| `fathomgate inventory import <csv> [--out file]` | Section 3.1 |
+| `fathomgate inventory sync` | Section 6, writes the snapshot |
+| `fathomgate inventory resolve <name>...` | Prints the record and which provider supplied each field; the debugging tool for "why was this denied as unknown" |
+| `fathomgate inventory lint <file>` | Validates the static file |

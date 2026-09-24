@@ -43,4 +43,4 @@ formatters:
     - goimports
   settings:
     goimports:
-      local-prefixes: [github.com/joshscott13/netguard]
+      local-prefixes: [github.com/fathomgate/fathomgate]

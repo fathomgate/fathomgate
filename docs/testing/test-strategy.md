@@ -1,12 +1,12 @@
 # Test strategy
 
-Three tiers. Tier 1 runs on every commit with no network and proves the policy, classifier, redactor and audit chain are correct. Tier 2 runs on every pull request against the real open-source MCP servers in containers and proves NetGuard speaks to them correctly. Tier 3 runs nightly on a self-hosted runner with containerlab and proves that dry-run, rollback and watchdog behaviour is real on a device. Every case in the [test matrix](test-matrix.md) names the real server it is validated against, so nothing is tested only against a mock.
+Three tiers. Tier 1 runs on every commit with no network and proves the policy, classifier, redactor and audit chain are correct. Tier 2 runs on every pull request against the real open-source MCP servers in containers and proves Fathomgate speaks to them correctly. Tier 3 runs nightly on a self-hosted runner with containerlab and proves that dry-run, rollback and watchdog behaviour is real on a device. Every case in the [test matrix](test-matrix.md) names the real server it is validated against, so nothing is tested only against a mock.
 
 ## Tiers
 
 | Tier | What is real | What is faked | How it runs | Speed | Gate |
 | --- | --- | --- | --- | --- | --- |
-| 1 Policy unit | Nothing; synthetic `tools/call` requests | Upstream server (recording fake over go-sdk in-memory transport), device, clock | `go test ./...` table tests; `netguard policy test policies/`; Python `pytest tests/unit` for `policy-lint` parity | Seconds | Every commit |
+| 1 Policy unit | Nothing; synthetic `tools/call` requests | Upstream server (recording fake over go-sdk in-memory transport), device, clock | `go test ./...` table tests; `fathomgate policy test policies/`; Python `pytest tests/unit` for `policy-lint` parity | Seconds | Every commit |
 | 2 Real server, fake device | The upstream MCP server: its tool schemas, transport, error shapes, era | The device: a Python asyncssh fake SSH server returning canned show output and echoing config lines; a fake eAPI HTTP server for eos-mcp | testcontainers-go starts each server image over Streamable HTTP; pytest drives the proxy with the python-sdk `Client` | Minutes | Every pull request |
 | 3 Real server, real device | Everything | Nothing | containerlab topology with cEOS and Nokia SR Linux; Python assertion helpers over scrapli confirm device state | Nightly | `nightly-clab` workflow, self-hosted runner |
 
@@ -20,12 +20,12 @@ Three tiers. Tier 1 runs on every commit with no network and proves the policy, 
 - The proxy's own MCP surface, tested through go-sdk's in-memory transport with a fake upstream that records calls, returns tool errors with rule ids and `input_required` results with `requestState`.
 - Property tests: no policy in `policies/examples/` ever yields allow for `EXEC_ARBITRARY` on a target with role `core`; no `deny` decision ever carries obligations.
 
-Run: `make test` (equals `go test ./... && netguard policy test policies/ && pytest tests/unit`).
+Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && pytest tests/unit`).
 
 ## Tier 2: what it proves
 
 - `tools/list` from each real upstream matches its profile: every listed tool has a profile entry and every profiled tool exists. A mismatch fails the build and is the drift signal for upstream schema changes.
-- Both eras initialise: netdev-ssh-mcp (go-sdk, 2026 era; `tests/integration/test_passthrough.py`, CI job `client-smoke`) and upa/mcp-netmiko-server (FastMCP, 2025 era; `tests/integration/test_upa_netmiko.py`, CI job `tier2-upa`), each asserted from netguard's `upstream ready` log line, with a 2025-11-25 and a 2026-07-28 agent in front of the 2025 upstream.
+- Both eras initialise: netdev-ssh-mcp (go-sdk, 2026 era; `tests/integration/test_passthrough.py`, CI job `client-smoke`) and upa/mcp-netmiko-server (FastMCP, 2025 era; `tests/integration/test_upa_netmiko.py`, CI job `tier2-upa`), each asserted from fathomgate's `upstream ready` log line, with a 2025-11-25 and a 2026-07-28 agent in front of the 2025 upstream.
 - The official conformance suite passes against the proxy's client-facing side, with every remaining failure baselined against an ADR or a board task (see "Conformance suite" below; it runs on every pull request and needs no Docker).
 - End-to-end decisions: a `reload` through eos-mcp `run_command` is denied with `no-exec`; a `show running-config` through ntunes `send_command` comes back redacted; an unknown `host` on netdev-ssh-mcp is denied.
 - Approval flow against junos-mcp-server with the fake SSH device standing in for the router: hold, approve via CLI, approve after TTL refused, drift cancelled, MRTR accept forwards.
@@ -38,11 +38,11 @@ Fake device: `tests/fixtures/device/fake_ssh.py` is a Python asyncssh server. To
 
 ## Conformance suite
 
-The official MCP conformance suite (`@modelcontextprotocol/conformance`, pinned in `tests/conformance/package-lock.json`) runs against the client-facing side of the real `netguard serve` binary for both protocol eras, `2025-11-25` and `2026-07-28`, each scored by that revision's frozen requirement set. Two upstreams stand behind netguard, both go-sdk's own conformance everything-server: one built from the go-sdk version in `go.mod`, which negotiates `2026-07-28` with netguard, and one built from go-sdk v1.6.1, the last release without `2026-07-28`, which speaks only `2025-11-25` (pinned in the test-only module `tests/conformance/upstream-2025`; the root `go.mod` does not change). Between them all four agent-era x upstream-era pairs run through the real binary. The suite speaks only Streamable HTTP, so `tests/conformance/relay.py` fronts the stdio proxy, and a control leg runs the same relay in front of each fixture alone: a failure only on a netguard leg is netguard's. `tests/conformance/era_pairs.py` covers the two upstream-prompt cells the suite cannot reach for the 2025 upstream: the `[from <server>]` label on a relayed prompt, and the ADR 0014 refusal to a stateless agent, checked word for word.
+The official MCP conformance suite (`@modelcontextprotocol/conformance`, pinned in `tests/conformance/package-lock.json`) runs against the client-facing side of the real `fathomgate serve` binary for both protocol eras, `2025-11-25` and `2026-07-28`, each scored by that revision's frozen requirement set. Two upstreams stand behind fathomgate, both go-sdk's own conformance everything-server: one built from the go-sdk version in `go.mod`, which negotiates `2026-07-28` with fathomgate, and one built from go-sdk v1.6.1, the last release without `2026-07-28`, which speaks only `2025-11-25` (pinned in the test-only module `tests/conformance/upstream-2025`; the root `go.mod` does not change). Between them all four agent-era x upstream-era pairs run through the real binary. The suite speaks only Streamable HTTP, so `tests/conformance/relay.py` fronts the stdio proxy, and a control leg runs the same relay in front of each fixture alone: a failure only on a fathomgate leg is fathomgate's. `tests/conformance/era_pairs.py` covers the two upstream-prompt cells the suite cannot reach for the 2025 upstream: the `[from <server>]` label on a relayed prompt, and the ADR 0014 refusal to a stateless agent, checked word for word.
 
-- Passes means every scored check passes except those in `tests/conformance/baseline/`, each listed per check with its reason: capabilities netguard does not declare, input requests it refuses, log messages it does not relay, answers it will not forward without its `requestState`, the era pairing and tool prefix, the elicitation schema allow-list, 2026-era checks a 2025 upstream cannot serve, and HTTP-transport checks that belong to the relay. Each names the ADR or board task behind it. A baseline entry that starts passing fails the run.
+- Passes means every scored check passes except those in `tests/conformance/baseline/`, each listed per check with its reason: capabilities fathomgate does not declare, input requests it refuses, log messages it does not relay, answers it will not forward without its `requestState`, the era pairing and tool prefix, the elicitation schema allow-list, 2026-era checks a 2025 upstream cannot serve, and HTTP-transport checks that belong to the relay. Each names the ADR or board task behind it. A baseline entry that starts passing fails the run.
 - It needs Go, Node.js, npm and `python3`, and no network beyond installing the suite. It runs as the `mcp-conformance` job in `ci.yaml` on every push and pull request, including Dependabot's, so a go-sdk bump cannot merge without it.
-- Not covered: anything about netguard's own HTTP handling, which does not exist in M0 (T0.32 moves the suite onto the listener), and a FastMCP upstream: the 2025 fixture is go-sdk's server held on an older release, not a different SDK.
+- Not covered: anything about fathomgate's own HTTP handling, which does not exist in M0 (T0.32 moves the suite onto the listener), and a FastMCP upstream: the 2025 fixture is go-sdk's server held on an older release, not a different SDK.
 - It proves the proxy's MCP surface, not an upstream: matrix rows 1 and 2 still need their named real servers.
 
 Run: `make conformance`. Details, legs and how to change a baseline: [tests/conformance/README.md](../../tests/conformance/README.md).
@@ -58,7 +58,7 @@ Run: `make test-clab` on a host with containerlab, Docker and the images. The wo
 
 ## Containerlab notes
 
-- Topology: `tests/clab/netguard.clab.yml` with two cEOS nodes (`lab-sw-01`, `lab-sw-02`), one SR Linux node (`lab-srl-01`) and a Linux node running the fake NetBox stub. Management network `172.20.20.0/24`.
+- Topology: `tests/clab/fathomgate.clab.yml` with two cEOS nodes (`lab-sw-01`, `lab-sw-02`), one SR Linux node (`lab-srl-01`) and a Linux node running the fake NetBox stub. Management network `172.20.20.0/24`.
 - Startup: cEOS takes 60 to 120 seconds to reach a usable CLI; the helper `tests/clab/wait_ready.py` polls `show version` over scrapli before tests begin.
 - Assertion helpers: `tests/clab/assert_device.py` exposes `running_config_contains`, `session_exists`, `checkpoint_exists`, `commit_timer_active`. They connect with scrapli, never through the proxy, so a proxy bug cannot hide a device fact.
 - Cleanup: `containerlab destroy --cleanup` runs in an `always()` step so a failed night does not leave nodes for the next.
@@ -77,7 +77,7 @@ cEOS-lab images are downloaded from arista.com with an Arista account and cannot
 ## What is not tested
 
 - Performance under many concurrent agents. The target is a handful of sessions; a benchmark in tier 1 guards classify plus evaluate latency only.
-- Real NetBox. Tier 2 uses a recorded-response stub; the resolver's HTTP client is small enough for that to be sufficient. Shops with NetBox validate with `netguard inventory resolve`.
+- Real NetBox. Tier 2 uses a recorded-response stub; the resolver's HTTP client is small enough for that to be sufficient. Shops with NetBox validate with `fathomgate inventory resolve`.
 - The console's visual output beyond rendering both themes without console errors. Design review uses `design/preview.html`.
 
 ## Adding a test

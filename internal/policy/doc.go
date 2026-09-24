@@ -1,9 +1,9 @@
-// Package policy implements the NetGuard YAML policy DSL and its evaluator.
+// Package policy implements the Fathomgate YAML policy DSL and its evaluator.
 //
 // It is the fourth stage of the pipeline (normalise -> classify -> resolve
 // role -> evaluate). Evaluate is a pure function from a Policy and a Request
 // to a Decision, so it can be unit-tested without a proxy, a device or a
-// network, and so contributors can test policies with `netguard policy test`
+// network, and so contributors can test policies with `fathomgate policy test`
 // over *.test.yaml files without a Go toolchain.
 //
 // Semantics, in order:

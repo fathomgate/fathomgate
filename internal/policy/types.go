@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshscott13/netguard/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/classify"
 )
 
 // Effect is the outcome of a rule or decision.

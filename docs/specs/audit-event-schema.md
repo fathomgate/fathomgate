@@ -1,6 +1,6 @@
 # Audit event schema
 
-Normative specification for the NetGuard audit log. The log is JSONL: one canonicalised record per line. Tool-call records have `type: "call"` and carry `seq`, `prev_hash` and `hash`. A checkpoint record `{type: checkpoint, seq, hash, sig}` is appended every N events, signed with Ed25519. `netguard audit verify` replays the chain. OCSF and CEF are exporters, never the native format. Raw device output never enters the log.
+Normative specification for the Fathomgate audit log. The log is JSONL: one canonicalised record per line. Tool-call records have `type: "call"` and carry `seq`, `prev_hash` and `hash`. A checkpoint record `{type: checkpoint, seq, hash, sig}` is appended every N events, signed with Ed25519. `fathomgate audit verify` replays the chain. OCSF and CEF are exporters, never the native format. Raw device output never enters the log.
 
 This document describes what `internal/audit` (`event.go`, `hash.go`, `writer.go`, `verify.go`) implements. Fields the plan calls for but the Go struct does not yet carry are listed separately and marked planned (M4). Decision record: [ADR 0005](../adr/0005-hash-chained-jsonl-audit.md).
 
@@ -98,7 +98,7 @@ Written after every `CheckpointEvery` events (a writer option; `0` disables chec
 | `hash` | That record's `hash`. MUST equal the chain's current hash. |
 | `sig` | Base64 (standard alphabet) Ed25519 signature over `canonical({"type":"checkpoint","seq":<seq>,"hash":"<hash>"})`, that is over the bytes `{"hash":"<hash>","seq":<seq>,"type":"checkpoint"}`. |
 
-Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. `SaveKey` guarantees:
+Keys are generated with `fathomgate audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. `SaveKey` guarantees:
 
 - It never overwrites. An existing path, including a symlink, fails with an error wrapping `fs.ErrExist` and the file is left untouched. There is no `--force`.
 - Unix (`key_unix.go`): created with `O_CREATE | O_EXCL` and mode `0600`, then `Chmod(0600)` on the open descriptor, so the umask cannot widen it.
@@ -111,7 +111,7 @@ Planned (M4): time-based checkpoint interval, `key_id` for rotation, a `ts` on t
 
 ## 6. Verify algorithm
 
-`netguard audit verify <audit.jsonl> [--key audit.pub] [--json]` (`verify.go`).
+`fathomgate audit verify <audit.jsonl> [--key audit.pub] [--json]` (`verify.go`).
 
 1. Start with `last_seq = 0`, `last_hash = genesis`. A missing file is an empty, valid chain.
 2. For each non-blank line, read `type` and `seq`.
@@ -141,7 +141,7 @@ Exporters read the JSONL and emit one record per `call` record. They never write
 | `severity_id` | `1` Informational for allow, `3` Medium for hold, `4` High for deny (from `decision`) |
 | `status_id` | `1` Success for executed, `2` Failure for failed or denied, `99` Other for held, expired, cancelled (from `status`) |
 | `time` | `ts` as epoch milliseconds |
-| `metadata.product.name` | `NetGuard` |
+| `metadata.product.name` | `Fathomgate` |
 | `metadata.product.version` | proxy version |
 | `metadata.version` | `1.3.0` |
 | `metadata.uid` | `event_id` |
@@ -157,7 +157,7 @@ Exporters read the JSONL and emit one record per `call` record. They never write
 
 ### 8.2 CEF
 
-Header: `CEF:0|NetGuard|NetGuard|<version>|<class>|<decision> <tool>|<severity>|` where severity is 3 for allow, 6 for hold, 8 for deny.
+Header: `CEF:0|Fathomgate|Fathomgate|<version>|<class>|<decision> <tool>|<severity>|` where severity is 3 for allow, 6 for hold, 8 for deny.
 
 | CEF extension | Source |
 | --- | --- |

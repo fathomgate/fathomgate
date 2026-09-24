@@ -17,7 +17,7 @@ Link the issue, ADR or spec section. If this changes behaviour, say which decisi
 ## Checklist
 
 - [ ] ADR: this change does not alter a spec, the class list, a decision word, a trust boundary or a format; or an ADR is included or linked.
-- [ ] Policy tests: any change to `internal/policy` or `policies/` comes with `*.test.yaml` cases, and `netguard policy test policies/` passes.
+- [ ] Policy tests: any change to `internal/policy` or `policies/` comes with `*.test.yaml` cases, and `fathomgate policy test policies/` passes.
 - [ ] Classification tests: any change to allow-lists, blocklists or profiles has a positive and a negative case, and the worked examples in `docs/specs/classification.md` are updated if a row changed.
 - [ ] Redaction fixtures: any new or changed pattern has an annotated line in `tests/fixtures/configs/`, and no real secret appears anywhere in this pull request.
 - [ ] Profile parity: a profile change was checked against the upstream's `tools/list` (tier 2) or the source line is cited in `notes`.

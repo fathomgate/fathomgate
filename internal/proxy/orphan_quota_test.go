@@ -229,7 +229,7 @@ func TestOrphanQuotaPerPrincipal(t *testing.T) {
 			t.Fatalf("reaped %+v at t0+ttl; want alice's keyed records only", o)
 		}
 	}
-	// It refuses alice's own session too: netguard cannot tell which of her
+	// It refuses alice's own session too: fathomgate cannot tell which of her
 	// sessions its calls were. Bob's record (live until t0+1.5ttl) refuses
 	// her as well, so the exact set is what shows her overflow record
 	// counts against her: it fails if attribute skips the caller's own
@@ -329,7 +329,7 @@ func TestUnattributedRefusalLog(t *testing.T) {
 		}
 	}
 	logs := buf.String()
-	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 1 || !strings.Contains(logs, `in_flight_of="[alice bob]"`) || !strings.Contains(logs, "suppressed=0") {
+	if n := strings.Count(logs, "fathomgate refused an upstream input request"); n != 1 || !strings.Contains(logs, `in_flight_of="[alice bob]"`) || !strings.Contains(logs, "suppressed=0") {
 		t.Fatalf("%d refusal lines within one interval; want 1 with in_flight_of=[alice bob] suppressed=0:\n%s", n, logs)
 	}
 	clk.Add(refusalLogInterval)
@@ -337,7 +337,7 @@ func TestUnattributedRefusalLog(t *testing.T) {
 		t.Fatal("a prompt with two calls in flight was relayed")
 	}
 	logs = buf.String()
-	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 2 || !strings.Contains(logs, "suppressed=4") {
+	if n := strings.Count(logs, "fathomgate refused an upstream input request"); n != 2 || !strings.Contains(logs, "suppressed=4") {
 		t.Fatalf("%d refusal lines after the interval; want 2, the second with suppressed=4:\n%s", n, logs)
 	}
 	// Another principal set is its own line, at once.
@@ -408,14 +408,14 @@ func TestAttributedRefusalRateLimited(t *testing.T) {
 		}
 	}
 	logs := buf.String()
-	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 1 || !strings.Contains(logs, "attributed=true principal=alice suppressed=0") {
+	if n := strings.Count(logs, "fathomgate refused an upstream input request"); n != 1 || !strings.Contains(logs, "attributed=true principal=alice suppressed=0") {
 		t.Fatalf("%d attributed refusal lines within one interval; want 1 naming alice:\n%s", n, logs)
 	}
 	clk.Add(refusalLogInterval)
 	if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
 		t.Fatal("a prompt was relayed to an agent without form elicitation")
 	}
-	if logs := buf.String(); strings.Count(logs, "netguard refused an upstream input request") != 2 || !strings.Contains(logs, "suppressed=4") {
+	if logs := buf.String(); strings.Count(logs, "fathomgate refused an upstream input request") != 2 || !strings.Contains(logs, "suppressed=4") {
 		t.Fatalf("after the interval; want a second line with suppressed=4:\n%s", logs)
 	}
 	up.end(f, clk.Now(), time.Time{})
@@ -423,7 +423,7 @@ func TestAttributedRefusalRateLimited(t *testing.T) {
 
 // TestStatelessSessionHasNoID pins what N1 in the security review of
 // PR #82 relies on: the session go-sdk's stateless handler gives a
-// 2026-era request has no id, so it can never be keyed "s<id>". netguard
+// 2026-era request has no id, so it can never be keyed "s<id>". fathomgate
 // also checks the era (agentSessionKey), but a go-sdk bump that gives
 // these sessions ids should fail here, loudly.
 func TestStatelessSessionHasNoID(t *testing.T) {

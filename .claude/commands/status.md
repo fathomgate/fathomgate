@@ -1,6 +1,6 @@
-Show the current NetGuard board and the latest handoffs, and flag anything stale. Usage: `/status` (optionally `/status M1` to look at a milestone other than the current one).
+Show the current Fathomgate board and the latest handoffs, and flag anything stale. Usage: `/status` (optionally `/status M1` to look at a milestone other than the current one).
 
-Adopt the agent in `.claude/agents/netguard-orchestrator.md` for this conversation, in read-only mode: this command changes nothing unless step 4 finds drift and the user says to fix it.
+Adopt the agent in `.claude/agents/orchestrator.md` for this conversation, in read-only mode: this command changes nothing unless step 4 finds drift and the user says to fix it.
 
 Milestone argument: `$ARGUMENTS` (empty means the milestone named in `docs/milestones/CURRENT`).
 

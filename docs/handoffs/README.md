@@ -10,6 +10,8 @@ Work state lives in the repo, not in anyone's chat window. Three files carry it:
 
 `docs/milestones/CURRENT` names the milestone `STATUS.md` renders.
 
+Notes written before [ADR 0019](../adr/0019-rename-to-fathomgate.md) use the placeholder name NetGuard and the identifiers in that record's scope table (`netguard`, `NETGUARD_*`, `ng3.`, the slug `netguard-orchestrator`), and are left as written, file names included; the scope table maps each one to its Fathomgate name.
+
 ## Task states
 
 `open` → `in progress` → `in review` → `merged` → `validated`. Side states: `blocked` (derived when a `blocked_by` task is not yet merged, or set explicitly) and `dropped`.
@@ -33,7 +35,7 @@ Slash commands: `/status` prints the board and the latest handoffs; `/handoff <t
 
 ## Slugs
 
-Agents: `netguard-orchestrator`, `mcp-protocol-engineer`, `policy-engineer`, `network-safety-engineer`, `security-reviewer`, `go-reviewer`, `test-engineer`, `design-guardian`, `docs-writer`, `release-engineer`, `upstream-server-scout`. A human is their GitHub handle (`joshscott13`).
+Agents: `orchestrator`, `mcp-protocol-engineer`, `policy-engineer`, `network-safety-engineer`, `security-reviewer`, `go-reviewer`, `test-engineer`, `design-guardian`, `docs-writer`, `release-engineer`, `upstream-server-scout`. A human is their GitHub handle (`joshscott13`).
 
 ## GitHub mirror
 

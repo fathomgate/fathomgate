@@ -1,9 +1,9 @@
 """Streamable HTTP front for a stdio MCP server, for the conformance suite.
 
 The official MCP conformance suite (@modelcontextprotocol/conformance) tests a
-server only over Streamable HTTP (`conformance server --url`). `netguard
+server only over Streamable HTTP (`conformance server --url`). `fathomgate
 serve` speaks stdio toward the agent in M0. This relay turns one into the
-other so the suite can drive the real `netguard serve` binary, stdio
+other so the suite can drive the real `fathomgate serve` binary, stdio
 transport included.
 
 It is deliberately dumb. JSON-RPC messages are forwarded byte-for-byte in
@@ -16,11 +16,11 @@ meaning, with two exceptions, both listed here and nowhere else:
    notification that names the request. Ids of requests the *child* sends
    (elicitation, sampling) are not touched.
 2. `--tool-prefix P`. The suite calls fixed tool names (`test_simple_text`);
-   netguard exposes every upstream tool as `<server>.<tool>` (profile-schema
+   fathomgate exposes every upstream tool as `<server>.<tool>` (profile-schema
    section 8.1). With `--tool-prefix conf`, a `tools/call` whose name has no
    `.` gets `conf.` prepended. Nothing else is renamed: `tools/list` reaches
-   the suite with netguard's prefixed names, unmodified. The control leg
-   (relay straight to the fixture, no netguard) runs without a prefix.
+   the suite with fathomgate's prefixed names, unmodified. The control leg
+   (relay straight to the fixture, no fathomgate) runs without a prefix.
 
 Process model, matching how an agent uses a stdio server:
 
@@ -29,7 +29,7 @@ Process model, matching how an agent uses a stdio server:
   that child; DELETE ends it.
 - A POST with no session header and no `initialize` (2026 era, stateless,
   `_meta` on every request) goes to one shared child. It must be one process:
-  netguard seals `requestState` under a per-process key, so an MRTR retry has
+  fathomgate seals `requestState` under a per-process key, so an MRTR retry has
   to reach the process that issued it.
 
 Every POST that carries a request is answered as `text/event-stream`: each
@@ -39,10 +39,10 @@ response. GET is answered 405, which the transport spec allows.
 
 What the relay does NOT prove: anything about HTTP itself. Header
 validation, DNS-rebinding protection, SSE resumption and multiple streams
-are the relay's behaviour here, not netguard's, because netguard has no HTTP
+are the relay's behaviour here, not fathomgate's, because fathomgate has no HTTP
 listener in M0. `tests/conformance/README.md` lists the scenarios this
 affects. The control leg runs the same relay in front of the fixture alone,
-so a failure that appears only with netguard in the path is netguard's.
+so a failure that appears only with fathomgate in the path is fathomgate's.
 
 Standard library only; run with `python3 relay.py --port 3001 -- cmd args`.
 """

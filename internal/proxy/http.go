@@ -90,7 +90,7 @@ type HTTPOptions struct {
 	// named: names are 1 to 64 characters from [A-Za-z0-9_.:-]. Each token
 	// is at least 32 bytes of printable ASCII without spaces, and no two
 	// names share a token. Tokens must be random (for example the output of
-	// `openssl rand -hex 32`); netguard checks their shape, not their
+	// `openssl rand -hex 32`); fathomgate checks their shape, not their
 	// entropy. A principal is attribution only (audit, requestState
 	// binding): never an approver identity (CLAUDE.md invariant 6).
 	Tokens map[string][]byte
@@ -173,7 +173,7 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 }
 
 // ErrMCPGODEBUG is the refusal of the HTTP listener when MCPGODEBUG is set,
-// even to an empty value. [Proxy.HTTPHandler] returns it, and cmd/netguard
+// even to an empty value. [Proxy.HTTPHandler] returns it, and cmd/fathomgate
 // runs the same check first, and returns this same error, so it can exit 2
 // before it starts the upstream. It is exported so that there is one
 // refusal text in one place (K4 in the re-review of PR #72).
@@ -271,7 +271,7 @@ func principalOf(req *mcp.CallToolRequest) string {
 // issued over the listener, whose principal is never empty
 // (TestTransportOfFailsClosed). The other direction does not fail closed:
 // a listener call that arrived with no Extra at all would bind as the
-// local agent's {stdio, ""}. That is safe only while `netguard serve` never
+// local agent's {stdio, ""}. That is safe only while `fathomgate serve` never
 // runs Proxy.Run and the listener in one process (ADR 0016); T0.31 must
 // fix or re-state it.
 func transportOf(req *mcp.CallToolRequest) agentTransport {
@@ -359,7 +359,7 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 	// TestHTTPProgressNeverFollowsResult). Neither has an EventStore (no
 	// resumption), and neither sets DisableLocalhostProtection.
 	//
-	// go-sdk's own SessionTimeout stays set as a backstop, but netguard
+	// go-sdk's own SessionTimeout stays set as a backstop, but fathomgate
 	// runs its own idle expiry on the same clock (liveSession): go-sdk's
 	// idle Close waits for the session's calls instead of cancelling them,
 	// so a call stuck upstream would pin the session and its slot forever.
@@ -541,7 +541,7 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 			h.logger.Info("agent session deleted; cancelling its calls", "session", shortHash(sid), "principal", principal, "calls", n)
 		}
 	case r.Method == http.MethodPost && sid != "":
-		// A POST on the session's own principal's behalf pauses netguard's
+		// A POST on the session's own principal's behalf pauses fathomgate's
 		// idle expiry, as it pauses go-sdk's; another principal's gets 403
 		// from go-sdk and touches nothing. That includes a POST that
 		// arrives before the session is registered (beginPOST).
@@ -591,7 +591,7 @@ func (h *httpHandler) acquirePOST(principal string) (func(), bool) {
 // reserveSession takes one stateful session slot, overall and for
 // principal, or returns nil and the reason for the 503. go-sdk has no
 // session cap and Server.Sessions also lists stateless requests' sessions,
-// so netguard counts its own.
+// so fathomgate counts its own.
 func (h *httpHandler) reserveSession(principal string) (func(), string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -618,16 +618,16 @@ func (h *httpHandler) reserveSession(principal string) (func(), string) {
 
 // settleSession runs after the stateful handler served a session-less POST.
 // If go-sdk kept the session, the slot is held until the session ends: by
-// DELETE, netguard's idle expiry (liveSession) or Proxy.Close. Otherwise the
+// DELETE, fathomgate's idle expiry (liveSession) or Proxy.Close. Otherwise the
 // slot is released now.
 //
 // A session go-sdk kept is one whose id the response carries and which is
 // still among the server's sessions: go-sdk names the new session in the
 // response of every session-less POST, and closes it again at the end of
-// that request unless it was an initialise. Netguard registers whatever is
+// that request unless it was an initialise. Fathomgate registers whatever is
 // left, without asking for initialise parameters (J2 in the re-review of
 // PR #72): go-sdk's own idle timer is the longer of the two, so a session
-// netguard did not register would be invisible to its idle accounting, which
+// fathomgate did not register would be invisible to its idle accounting, which
 // is what cancels a call stuck upstream.
 //
 // The goroutine that waits for the session to end is tracked by callLimits
@@ -739,7 +739,7 @@ func (h *httpHandler) beginPOST(sid, principal string) func() {
 	}
 }
 
-// liveSession is netguard's idle expiry for one stateful session (H2 in the
+// liveSession is fathomgate's idle expiry for one stateful session (H2 in the
 // review of PR #68). It mirrors go-sdk's: the clock runs while no POST for
 // the session is in progress (a GET stream does not stop it) and is reset
 // when the last one ends. When it runs out, the session's calls are

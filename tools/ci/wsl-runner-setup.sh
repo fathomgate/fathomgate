@@ -24,4 +24,4 @@ for i in 1 2 3; do
   sudo ./svc.sh start
 done
 
-echo "done; check with: gh api repos/joshscott13/netguard/actions/runners -q '.runners[]|.name+\" \"+.status'"
+echo "done; check with: gh api repos/fathomgate/fathomgate/actions/runners -q '.runners[]|.name+\" \"+.status'"

@@ -485,8 +485,8 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 // TestStartupExitStatus (T0.25): an upstream that dies during startup is
 // reported with its exit status, not only as a closed connection, and its
 // last stderr line still reaches the operator. An upstream that answered
-// with an error and exits only because netguard closed its stdin gets no
-// status: that exit is netguard's doing (S4 in the review of PR #77).
+// with an error and exits only because fathomgate closed its stdin gets no
+// status: that exit is fathomgate's doing (S4 in the review of PR #77).
 func TestStartupExitStatus(t *testing.T) {
 	cases := []struct {
 		mode, phase, status string // status "": none may be reported
@@ -497,7 +497,7 @@ func TestStartupExitStatus(t *testing.T) {
 		{"listerror", "tools/list", "", "FAKE tools/list failure"},
 		// A line that is not JSON-RPC is a read error, not end of stream:
 		// the upstream is still there, go-sdk closes the connection, and the
-		// exit 0 that follows is netguard's doing (N2).
+		// exit 0 that follows is fathomgate's doing (N2).
 		{"garbage", "connect", "", ""},
 	}
 	for _, tc := range cases {

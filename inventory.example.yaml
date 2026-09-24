@@ -1,5 +1,5 @@
-# Example static inventory for NetGuard. Copy to inventory.yaml and edit, or
-# generate one with `netguard inventory import --csv devices.csv --out inventory.yaml`.
+# Example static inventory for Fathomgate. Copy to inventory.yaml and edit, or
+# generate one with `fathomgate inventory import --csv devices.csv --out inventory.yaml`.
 #
 # devices: resolved first, exact (case-insensitive) hostname match.
 # roles:   hostname regexes tried next for anything not listed; first pattern

@@ -13,4 +13,4 @@ uv run python -m policy_lint ../policies/examples/prod-approval.yaml
 ```
 
 It validates shape (keys, enums, durations). Behaviour is tested with
-`netguard policy test`.
+`fathomgate policy test`.

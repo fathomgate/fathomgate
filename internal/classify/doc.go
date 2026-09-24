@@ -1,7 +1,7 @@
 // Package classify assigns a network-semantic class to every MCP tool call
 // before the policy engine sees it.
 //
-// It is the second stage of the NetGuard pipeline
+// It is the second stage of the Fathomgate pipeline
 // (normalise -> classify -> resolve role -> evaluate policy). The package
 // contains three cooperating pieces:
 //

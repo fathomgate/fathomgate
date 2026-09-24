@@ -7,14 +7,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/joshscott13/netguard/internal/classify"
-	"github.com/joshscott13/netguard/internal/inventory"
-	"github.com/joshscott13/netguard/internal/policy"
+	"github.com/fathomgate/fathomgate/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/inventory"
+	"github.com/fathomgate/fathomgate/internal/policy"
 )
 
 func cmdPolicy(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: netguard policy <test|eval> ...")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate policy <test|eval> ...")
 		return exitUsage
 	}
 	switch args[0] {
@@ -23,7 +23,7 @@ func cmdPolicy(args []string) int {
 	case "eval":
 		return cmdPolicyEval(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "netguard policy: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "fathomgate policy: unknown subcommand %q\n", args[0])
 		return exitUsage
 	}
 }
@@ -38,7 +38,7 @@ func cmdPolicyTest(args []string) int {
 		return exitUsage
 	}
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: netguard policy test <file.test.yaml>...")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate policy test <file.test.yaml>...")
 		return exitUsage
 	}
 	total, failed := 0, 0

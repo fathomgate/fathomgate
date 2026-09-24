@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joshscott13/netguard/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/classify"
 )
 
 // Evaluate applies the policy to the request and returns a Decision with a

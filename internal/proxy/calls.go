@@ -75,11 +75,11 @@ func (l *callLimits) admit(ctx context.Context, principal string, ss *mcp.Server
 	sc := l.sessions[ss]
 	switch {
 	case l.closed:
-		return nil, nil, toolError(fmt.Sprintf("netguard refused %s: netguard is shutting down", tool))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: fathomgate is shutting down", tool))
 	case sc != nil && len(sc.calls) >= l.perSession:
-		return nil, nil, toolError(fmt.Sprintf("netguard refused %s: %d calls are already in flight on this session (limit %d); retry when one finishes", tool, len(sc.calls), l.perSession))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight on this session (limit %d); retry when one finishes", tool, len(sc.calls), l.perSession))
 	case l.principals[principal] >= l.perPrincipal:
-		return nil, nil, toolError(fmt.Sprintf("netguard refused %s: %d calls are already in flight for principal %s (limit %d); retry when one finishes", tool, l.principals[principal], principal, l.perPrincipal))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight for principal %s (limit %d); retry when one finishes", tool, l.principals[principal], principal, l.perPrincipal))
 	}
 	if sc == nil {
 		sc = &sessionCalls{principal: principal, calls: make(map[*admittedCall]struct{})}

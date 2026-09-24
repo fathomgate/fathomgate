@@ -1,4 +1,4 @@
-"""Tier 2: `tools/list` and `tools/call` pass through `netguard serve` to the
+"""Tier 2: `tools/list` and `tools/call` pass through `fathomgate serve` to the
 real upstream krisiasty/netdev-ssh-mcp (pinned in conftest), which reaches
 the fake SSH device.
 
@@ -43,7 +43,7 @@ async def test_tools_list_passes_through_with_prefix(proxy_server_params: dict) 
     async with stdio_client(StdioServerParameters(**proxy_server_params)) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
-            assert init.server_info.name == "netguard"
+            assert init.server_info.name == "fathomgate"
             tools = (await session.list_tools()).tools
 
     names = [t.name for t in tools]
@@ -57,17 +57,17 @@ async def test_tools_list_passes_through_with_prefix(proxy_server_params: dict) 
     assert {"host", "command", "port"} <= set(show.input_schema["required"])
 
 
-def test_upstream_negotiates_2026_07_28_stateless(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> None:
+def test_upstream_negotiates_2026_07_28_stateless(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> None:
     """Row 2, the 2026-era half (the 2025-era half is test_upa_netmiko.py):
-    netguard's `server/discover` succeeds against netdev-ssh-mcp (go-sdk), so
+    fathomgate's `server/discover` succeeds against netdev-ssh-mcp (go-sdk), so
     it logs `upstream ready ... protocol=2026-07-28 era=stateless`, and a
     2025-11-25 agent still initialises in front of it."""
-    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, fake_device)], client_env(dict(os.environ)))
+    client = RawClient([str(fathomgate_binary), *serve_args(upstream_binary, fake_device)], client_env(dict(os.environ)))
     try:
         init = client.initialize()
         assert init["result"]["protocolVersion"] == "2025-11-25"
         # wait() -> communicate() closes stdin (the agent disconnects), so
-        # netguard exits 0; do not close it here first (Python 3.12 then
+        # fathomgate exits 0; do not close it here first (Python 3.12 then
         # raises on the flush of a closed pipe).
         code, err, _ = client.wait(timeout=20)
     finally:
@@ -79,7 +79,7 @@ def test_upstream_negotiates_2026_07_28_stateless(netguard_binary: Path, upstrea
 
 
 def test_profile_matches_upstream_tools() -> None:
-    """The profile netguard will classify with (M1) names exactly the tools
+    """The profile fathomgate will classify with (M1) names exactly the tools
     the pinned upstream lists."""
     profile = yaml.safe_load((REPO / "profiles" / "netdev-ssh-mcp.yaml").read_text())
     assert profile["server"] == SERVER
@@ -119,8 +119,8 @@ async def test_show_version_reaches_device_through_proxy(proxy_server_params: di
 # obfuscate.go): `[h:<first 6 bytes of sha256(value), hex>]`. That hash has no
 # key, so a low-entropy value such as `public` is recovered by hashing a
 # dictionary. It is the upstream's feature, can be switched off with
-# --no-obfuscate, and is not netguard's redaction (keyed HMAC, invariant 4).
-# In M0 netguard redacts nothing, so with --no-obfuscate the agent sees the
+# --no-obfuscate, and is not fathomgate's redaction (keyed HMAC, invariant 4).
+# In M0 fathomgate redacts nothing, so with --no-obfuscate the agent sees the
 # config exactly as the device sent it.
 
 RUNNING_CONFIG = REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt"
@@ -146,9 +146,9 @@ async def _get_running_config(params: dict, port: int):
 
 
 @pytest.fixture
-def no_obfuscate_params(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
-    """netguard serve with the upstream's own secret hashing switched off."""
-    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate"), "env": client_env()}
+def no_obfuscate_params(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
+    """fathomgate serve with the upstream's own secret hashing switched off."""
+    return {"command": str(fathomgate_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate"), "env": client_env()}
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_running_config_reaches_device_through_proxy(proxy_server_params: 
     """A read-config call with the upstream's defaults: the device gets one
     `show running-config | no-more`; the agent gets the transcript with
     exactly the four credentials replaced by the upstream's `[h:...]` hash.
-    netguard changed nothing; the replacement is the upstream's."""
+    fathomgate changed nothing; the replacement is the upstream's."""
     result = await _get_running_config(proxy_server_params, fake_device.port)
 
     assert not result.is_error, _text(result)
@@ -172,9 +172,9 @@ async def test_running_config_reaches_device_through_proxy(proxy_server_params: 
 @pytest.mark.asyncio
 async def test_running_config_secrets_reach_agent_in_m0(no_obfuscate_params: dict, fake_device: FakeDevice) -> None:
     """M0 fact, asserted on purpose: with the upstream's hashing off, every
-    FAKE credential reaches the agent. netguard serve forwards the result
+    FAKE credential reaches the agent. fathomgate serve forwards the result
     untouched; its redactor is not at the serialiser yet (ROADMAP M2).
-    When it is, this test fails and test_running_config_redacted_by_netguard
+    When it is, this test fails and test_running_config_redacted_by_fathomgate
     below XPASSes; flip both in that PR."""
     result = await _get_running_config(no_obfuscate_params, fake_device.port)
 
@@ -191,7 +191,7 @@ async def test_running_config_secrets_reach_agent_in_m0(no_obfuscate_params: dic
     reason="M2 (ROADMAP: redactor at the response serialiser; matrix row 15): M0 serve forwards get_config output unredacted",
 )
 @pytest.mark.asyncio
-async def test_running_config_redacted_by_netguard(no_obfuscate_params: dict, fake_device: FakeDevice) -> None:
+async def test_running_config_redacted_by_fathomgate(no_obfuscate_params: dict, fake_device: FakeDevice) -> None:
     """Row 15 target: even with the upstream's hashing off, no FAKE credential
     reaches the agent; each is a keyed `<redacted:hmac:...>` token, the same
     four that `make fixtures-check` proves on tests/fixtures/configs/eos-4.16.txt
@@ -209,7 +209,7 @@ async def test_running_config_redacted_by_netguard(no_obfuscate_params: dict, fa
 @pytest.mark.asyncio
 async def test_upstream_tool_error_passes_through(proxy_server_params: dict, fake_device: FakeDevice) -> None:
     """The upstream's own refusal comes back as a tool error (isError), not a
-    protocol error, and nothing reaches the device. In M0 netguard makes no
+    protocol error, and nothing reaches the device. In M0 fathomgate makes no
     decision here: this is the upstream's check, not a `deny`."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client

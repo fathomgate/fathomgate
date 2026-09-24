@@ -21,7 +21,7 @@ const waitDelay = 2 * time.Second
 // before it kills it). It is go-sdk's default, set explicitly so a go-sdk
 // change cannot move it unnoticed: exitGrace (2 s), the time a failed
 // startup gives an upstream to end on its own, must stay shorter, so that
-// an upstream still running when that grace ends is killed by netguard,
+// an upstream still running when that grace ends is killed by fathomgate,
 // not signalled by go-sdk first, and an exit status go-sdk caused is never
 // reported as the upstream's (proxy.go, trackedTransport.kill).
 const terminateDuration = 5 * time.Second
@@ -99,7 +99,7 @@ func (c Command) Transport() *mcp.CommandTransport {
 }
 
 // Variables an upstream inherits from the proxy. Everything else, including
-// the proxy's own NETGUARD_* settings and any credential in its environment,
+// the proxy's own FATHOMGATE_* settings and any credential in its environment,
 // is withheld unless passed with Command.Env (`--upstream-env`,
 // `--upstream-env-pass`).
 // The LC_ names are the POSIX locale categories; no wildcard.

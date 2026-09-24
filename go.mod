@@ -1,4 +1,4 @@
-module github.com/joshscott13/netguard
+module github.com/fathomgate/fathomgate
 
 go 1.26.0
 

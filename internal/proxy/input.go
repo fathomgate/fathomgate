@@ -54,12 +54,12 @@ const (
 // Run records the session and gives it a key of its own, "l1" for the
 // first Run, so every call on it is recognised as that session's whether or
 // not the proxy also has an HTTP listener (S1 in the security review of
-// T0.40). `netguard serve` calls Run once (ADR 0012: one agent session owns
+// T0.40). `fathomgate serve` calls Run once (ADR 0012: one agent session owns
 // the process); tests that run two agents on one proxy get two keys, never
 // one shared by both.
 const localKeyPrefix = "l"
 
-// requestKeyPrefix tags the attribution key netguard makes up for a call
+// requestKeyPrefix tags the attribution key fathomgate makes up for a call
 // whose agent session it cannot name: a per-request session of the
 // stateless era over the listener (which serves exactly one request), a
 // call with no session at all, or a local call whose context ended while
@@ -71,7 +71,7 @@ const localKeyPrefix = "l"
 // (a stateful session over the listener) and "l<n>" (a local agent).
 const requestKeyPrefix = "r"
 
-// agentSessionKey is the id netguard gives the agent session behind a call,
+// agentSessionKey is the id fathomgate gives the agent session behind a call,
 // for the ended-call records an upstream keeps (J5 in the re-review of
 // PR #72). Those records outlive the sessions they name, so they hold an id
 // and never a *mcp.ServerSession, which would keep a closed session, and
@@ -83,7 +83,7 @@ const requestKeyPrefix = "r"
 //   - A session Proxy.Run serves is a local agent: the key Run gave it
 //     (localKeyPrefix and the Run's number).
 //   - A stateful session over the HTTP listener has a session id, unique for
-//     all time (go-sdk generates 130 random bits and netguard never reuses
+//     all time (go-sdk generates 130 random bits and fathomgate never reuses
 //     one); that id, tagged "s", is the key. A stateless agent's session
 //     is never keyed by an id, even if go-sdk ever gives it one.
 //   - Anything else gets a key of its own that no other call gets
@@ -91,7 +91,7 @@ const requestKeyPrefix = "r"
 //     listener, a call with no session at all, or a local call whose
 //     context ended before Run recorded its session. Its record is foreign
 //     to every later call, since no later call has its key, so a session
-//     netguard cannot name gets the most blocking answer, never the local
+//     fathomgate cannot name gets the most blocking answer, never the local
 //     agent's (S5 in the same review); and it is an ordinary table entry,
 //     pruned, logged and attributed to its principal like any other
 //     (T0.44).
@@ -126,11 +126,11 @@ func (p *Proxy) requestKey() string {
 }
 
 // promptLabel is the origin label every upstream prompt carries. Server
-// names cannot be "netguard" (ValidateServerName), so no upstream can wear
+// names cannot be "fathomgate" (ValidateServerName), so no upstream can wear
 // the proxy's own label.
 func promptLabel(server string) string { return "[from " + server + "] " }
 
-// refusal is netguard declining to pass an upstream input request on. Its
+// refusal is fathomgate declining to pass an upstream input request on. Its
 // text is safe to show the agent: it names the upstream and the kind of
 // request, never the upstream's prompt.
 type refusal struct {
@@ -144,9 +144,9 @@ func newRefusal(server, tool, kind string, reason error) *refusal {
 
 func (r *refusal) Error() string {
 	if r.tool == "" {
-		return fmt.Sprintf("netguard refused an input request (%s) from upstream %s: %v", r.kind, r.server, r.reason)
+		return fmt.Sprintf("fathomgate refused an input request (%s) from upstream %s: %v", r.kind, r.server, r.reason)
 	}
-	return fmt.Sprintf("netguard refused an input request (%s) from upstream %s during %s: %v", r.kind, r.server, r.tool, r.reason)
+	return fmt.Sprintf("fathomgate refused an input request (%s) from upstream %s during %s: %v", r.kind, r.server, r.tool, r.reason)
 }
 
 func (r *refusal) Unwrap() error { return r.reason }
@@ -155,7 +155,7 @@ var errFormOnly = errors.New("only form elicitation is passed to the agent")
 
 // relabelInputRequests checks every input request of an upstream
 // input_required result and returns the agent-facing copies, or the reason
-// netguard will not pass them on.
+// fathomgate will not pass them on.
 func relabelInputRequests(server, tool string, reqs mcp.InputRequestMap) (mcp.InputRequestMap, *refusal) {
 	if len(reqs) > maxInputRequests {
 		return nil, newRefusal(server, tool, "input_required", fmt.Errorf("more than %d input requests", maxInputRequests))
@@ -203,7 +203,7 @@ func relabelElicit(server, tool string, ep *mcp.ElicitParams) (*mcp.ElicitParams
 		return nil, newRefusal(server, tool, "URL elicitation", errFormOnly)
 	}
 	if hasOriginLabel(ep.Message) {
-		return nil, newRefusal(server, tool, "elicitation", errors.New("the message reads as an origin label (\"[from\"); only netguard labels prompts"))
+		return nil, newRefusal(server, tool, "elicitation", errors.New("the message reads as an origin label (\"[from\"); only fathomgate labels prompts"))
 	}
 	schema, err := relabelSchema(server, ep.RequestedSchema)
 	if err != nil {
@@ -247,7 +247,7 @@ type retryErrorData struct {
 }
 
 // invalidRetry is the JSON-RPC invalid-params error for an MRTR retry
-// netguard will not forward.
+// fathomgate will not forward.
 func invalidRetry(prefixed, reason string, detail error) error {
 	d := retryErrorData{Tool: clip(prefixed), Reason: reason, Detail: detail.Error()}
 	data, err := json.Marshal(d)
@@ -286,7 +286,7 @@ func (p *Proxy) resume(c call) (resumed, error) {
 	// A state that opens was issued to this transport and principal, so
 	// these two are a retry that kept its state and changed the call it
 	// resumes. They are logged like a state that does not open (T0.48, L2
-	// in the security review of PR #85), with netguard's own reason words:
+	// in the security review of PR #85), with fathomgate's own reason words:
 	// the log names neither the tool the state was issued for nor any
 	// argument.
 	switch {
@@ -315,13 +315,13 @@ func (p *Proxy) resume(c call) (resumed, error) {
 	return resumed{responses: out, upState: st.Up, round: st.Round, prompts: st.Prompts}, nil
 }
 
-// warnState logs a requestState netguard refused, naming the principal and
+// warnState logs a requestState fathomgate refused, naming the principal and
 // transport that presented it, so an operator can tell whose client
 // replays, forges or holds stale states, or keeps a valid state and changes
 // the call it resumes (errStateOtherTool, errStateOtherArgs). A state
 // issued to another principal or transport cannot be told from a forgery
 // (errStateAuth), so the line says what failed, never whose state it was.
-// err is always one of netguard's fixed reasons, never text from the
+// err is always one of fathomgate's fixed reasons, never text from the
 // envelope or the arguments.
 //
 // It is rate-limited like the refusal lines (refusalLog), since the agent
@@ -339,7 +339,7 @@ func (p *Proxy) warnState(c call, err error) {
 	if lost > 0 {
 		args = append(args, "suppressed_lost", lost)
 	}
-	p.logger.Warn("netguard refused a requestState", args...)
+	p.logger.Warn("fathomgate refused a requestState", args...)
 }
 
 // askAgent puts relabelled input requests to a stateful agent as
@@ -374,8 +374,8 @@ func (p *Proxy) askAgent(ctx context.Context, c call, f *inflight, reqs mcp.Inpu
 			p.logger.Warn("relaying an upstream prompt to the agent failed", "server", c.up.name, "tool", c.tool, "error", err)
 			// The error can quote the upstream's schema (a validation
 			// failure names properties and values), so it stays in the log;
-			// netguard's own text names only the server and tool.
-			return nil, toolError(fmt.Sprintf("netguard could not relay an input request from upstream %s during %s to the agent: the client did not answer it, or its answer did not fit the form",
+			// fathomgate's own text names only the server and tool.
+			return nil, toolError(fmt.Sprintf("fathomgate could not relay an input request from upstream %s during %s to the agent: the client did not answer it, or its answer did not fit the form",
 				c.up.name, c.tool)), nil
 		}
 		out[id] = r
@@ -396,10 +396,10 @@ type inflight struct {
 	principal  string // attribution only (call.principal)
 	sessionKey string // the agent session, for attribution (agentSessionKey)
 
-	// refused is netguard's refusal of this call's own prompt. The upstream
+	// refused is fathomgate's refusal of this call's own prompt. The upstream
 	// may fail the call because of it, so it may replace an upstream error.
 	refused *refusal
-	// note is a refusal of a prompt netguard did not attribute to this call:
+	// note is a refusal of a prompt fathomgate did not attribute to this call:
 	// one that could not be attributed to one call, or one the orphan rule
 	// refused (the ADR 0014 wording included). It is only ever appended to a
 	// result, never put in place of an upstream error or result: this call
@@ -427,9 +427,9 @@ func (u *upstream) begin(ctx context.Context, c call, prompts int) *inflight {
 }
 
 // orphan is what an upstream remembers of a call one agent session made
-// that has ended. The upstream may still be working on it: netguard cannot
+// that has ended. The upstream may still be working on it: fathomgate cannot
 // tell, whether the call was cancelled (by the agent, a dropped POST, a
-// deleted or expired session, or netguard shutting down, after which go-sdk
+// deleted or expired session, or fathomgate shutting down, after which go-sdk
 // returns at once and sends notifications/cancelled, which the upstream may
 // ignore) or answered (the upstream may have left a job running, and go-sdk
 // can dispatch a result before a prompt the upstream sent just before it).
@@ -458,7 +458,7 @@ type orphan struct {
 // maxOrphansPerPrincipal of them per upstream (T0.44). Past that, its
 // further ended calls are folded into one overflow record of its own,
 // which is foreign to every call, that principal's own sessions included:
-// netguard no longer knows which of its sessions they were, and refusing
+// fathomgate no longer knows which of its sessions they were, and refusing
 // is the safe answer. It fails closed, it is attributed to the principal,
 // it is pruned and logged like any record, and it cannot crowd out another
 // principal's records, so another principal's session is never pushed
@@ -758,7 +758,7 @@ func (p *Proxy) warnRefusal(u *upstream, r *refusal, attributed bool, class stri
 	if lost > 0 {
 		args = append(args, "suppressed_lost", lost)
 	}
-	p.logger.Warn("netguard refused an upstream input request", args...)
+	p.logger.Warn("fathomgate refused an upstream input request", args...)
 }
 
 // logPrincipal is how a principal is named in a log line: the local agent,
@@ -850,7 +850,7 @@ func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
 }
 
 // withRefusals appends the refusals recorded during a call to its final
-// result, so the agent learns what netguard declined on its behalf.
+// result, so the agent learns what fathomgate declined on its behalf.
 func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResult {
 	for _, r := range []*refusal{own, note} {
 		if r != nil {
@@ -890,8 +890,8 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			//
 			// The refusal goes in s's note slot, never its own slot (S3 in
 			// the security review of T0.40): the orphan rule fired, so this
-			// is exactly a prompt netguard could NOT attribute to s, and the
-			// own slot would put netguard's text in place of the upstream's
+			// is exactly a prompt fathomgate could NOT attribute to s, and the
+			// own slot would put fathomgate's text in place of the upstream's
 			// error. As a note it is only appended to a result s completes;
 			// an upstream error stays the upstream's. It goes to s alone,
 			// not to every call in flight (refuse with a nil call), because
@@ -940,7 +940,7 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		if err != nil {
 			p.logger.Warn("relaying an upstream prompt to the agent failed", "server", u.name, "tool", f.tool, "error", err)
 			// The agent's error text stays with the proxy.
-			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "netguard: the client did not answer the elicitation"}
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "fathomgate: the client did not answer the elicitation"}
 		}
 		return res, nil
 	}

@@ -110,7 +110,7 @@ func accepted() mcp.InputResponseMap {
 }
 
 // askForState calls netdev-ssh-mcp.ask with args and returns the
-// requestState netguard issued.
+// requestState fathomgate issued.
 func askForState(t *testing.T, cs *mcp.ClientSession, args map[string]any) string {
 	t.Helper()
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask", Arguments: args})
@@ -146,18 +146,20 @@ func TestHTTPRequestStateBoundToPrincipal(t *testing.T) {
 
 	_, err := retry(bob, args, state)
 	wantStateRefused(t, err, errStateAuth, "alice", "up-state", upstreamPrompt)
-	buf.waitFor(t, "netguard refused a requestState")
+	buf.waitFor(t, "fathomgate refused a requestState")
 	log := buf.String()
 	if !strings.Contains(log, "principal=bob") || !strings.Contains(log, "transport=http") || strings.Contains(log, "alice") {
 		t.Errorf("refusal log should name the presenter (bob, http) and never the issuer: %s", log)
 	}
 
-	// An envelope version netguard no longer issues: ng2 is what netguard
-	// issued before T0.30. The key is per process, so none can verify
-	// after the upgrade; the agent is told to call again without it.
-	ng2 := "ng2." + strings.TrimPrefix(state, statePrefix)
-	_, err = retry(alice, args, ng2)
-	wantStateRefused(t, err, errStateRetired, "up-state", upstreamPrompt)
+	// Envelope versions fathomgate no longer issues: ng2 is what it issued
+	// before T0.30, ng3 before the rename (ADR 0019). The key is per
+	// process, so none can verify after the upgrade; the agent is told to
+	// call again without it.
+	for _, retired := range []string{"ng2.", "ng3."} {
+		_, err = retry(alice, args, retired+strings.TrimPrefix(state, statePrefix))
+		wantStateRefused(t, err, errStateRetired, "up-state", upstreamPrompt)
+	}
 
 	if n := len(h.rec.all()); n != before {
 		t.Fatalf("upstream saw %d refused retries", n-before)
@@ -263,7 +265,7 @@ func TestCallCarriesTransportAndPrincipal(t *testing.T) {
 // TestProgressRelayPerSession: three agent sessions (a stateful session and
 // a stateless request over the listener, and the local agent) call the same
 // upstream at once with the same progressToken. Each relay belongs to its
-// own request, the upstream sees three distinct tokens of netguard's, and
+// own request, the upstream sees three distinct tokens of fathomgate's, and
 // each agent gets only its own call's progress: ownership is shown by what
 // each agent receives, since the relay keeps no owner record beyond its
 // unique token and its request's session and context (T0.48). Each call
@@ -349,7 +351,7 @@ func TestProgressRelayPerSession(t *testing.T) {
 	}
 
 	// All three are in flight: three relays under three distinct tokens of
-	// netguard's, none the agents' shared "p", each writing to its own
+	// fathomgate's, none the agents' shared "p", each writing to its own
 	// request's session.
 	up.mu.Lock()
 	sessions := map[*mcp.ServerSession]bool{}
@@ -481,7 +483,7 @@ func TestTransportOfFailsClosed(t *testing.T) {
 
 // TestTamperedRetryLogged: a retry from the principal the state was issued
 // to, with a state that opens but changed arguments or another tool, is
-// refused -32602 and logged at Warn with netguard's own reason, naming the
+// refused -32602 and logged at Warn with fathomgate's own reason, naming the
 // presenter and no argument value or envelope content, under the refusal
 // rate limiter (T0.48, L2 in the security review of PR #85). Nothing
 // reaches the upstream. The limiter runs on the proxy's injected clock, so
@@ -515,7 +517,7 @@ func TestTamperedRetryLogged(t *testing.T) {
 	stateLines := func() []string {
 		var lines []string
 		for line := range strings.Lines(buf.String()) {
-			if strings.Contains(line, "netguard refused a requestState") {
+			if strings.Contains(line, "fathomgate refused a requestState") {
 				lines = append(lines, line)
 			}
 		}

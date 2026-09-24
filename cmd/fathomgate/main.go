@@ -1,15 +1,15 @@
-// Command netguard is the NetGuard CLI and (from M0 onward) the proxy itself.
+// Command fathomgate is the Fathomgate CLI and (from M0 onward) the proxy itself.
 //
 // Subcommands:
 //
-//	netguard version
-//	netguard serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- ARGS...]
-//	netguard policy test <file.test.yaml>...
-//	netguard policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D...
-//	netguard audit verify <audit.jsonl> [--key audit.pub]
-//	netguard audit keygen --out audit.key [--pub audit.pub]
-//	netguard redact --key-file k [file]
-//	netguard inventory import --csv devices.csv --out inventory.yaml
+//	fathomgate version
+//	fathomgate serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- ARGS...]
+//	fathomgate policy test <file.test.yaml>...
+//	fathomgate policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D...
+//	fathomgate audit verify <audit.jsonl> [--key audit.pub]
+//	fathomgate audit keygen --out audit.key [--pub audit.pub]
+//	fathomgate redact --key-file k [file]
+//	fathomgate inventory import --csv devices.csv --out inventory.yaml
 //
 // Exit codes: 0 success (or allow), 1 failure (or deny, or a failing test),
 // 2 usage or internal error, 3 hold.
@@ -46,7 +46,7 @@ func run(args []string) int {
 	}
 	switch args[0] {
 	case "version", "--version", "-v":
-		fmt.Printf("netguard %s (commit %s, built %s)\n", version, commit, date)
+		fmt.Printf("fathomgate %s (commit %s, built %s)\n", version, commit, date)
 		return exitOK
 	case "serve":
 		return cmdServe(args[1:])
@@ -62,33 +62,33 @@ func run(args []string) int {
 		usage()
 		return exitOK
 	default:
-		fmt.Fprintf(os.Stderr, "netguard: unknown command %q\n\n", args[0])
+		fmt.Fprintf(os.Stderr, "fathomgate: unknown command %q\n\n", args[0])
 		usage()
 		return exitUsage
 	}
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `netguard: a policy-enforcing MCP proxy for network-device MCP servers
+	fmt.Fprint(os.Stderr, `fathomgate: a policy-enforcing MCP proxy for network-device MCP servers
 
 Usage:
-  netguard version
-  netguard serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
-  netguard policy test <file.test.yaml>...
-  netguard policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D [--target D2] [--json]
-  netguard policy eval --policy p.yaml --profile profiles/S.yaml --tool T --arg k=v [--arg k=v] ...
-  netguard audit verify <audit.jsonl> [--key audit.pub] [--json]
-  netguard audit keygen --out audit.key [--pub audit.pub]
-  netguard redact --key-file <file> [input-file]
-  netguard inventory import --csv devices.csv --out inventory.yaml
+  fathomgate version
+  fathomgate serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
+  fathomgate policy test <file.test.yaml>...
+  fathomgate policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D [--target D2] [--json]
+  fathomgate policy eval --policy p.yaml --profile profiles/S.yaml --tool T --arg k=v [--arg k=v] ...
+  fathomgate audit verify <audit.jsonl> [--key audit.pub] [--json]
+  fathomgate audit keygen --out audit.key [--pub audit.pub]
+  fathomgate redact --key-file <file> [input-file]
+  fathomgate inventory import --csv devices.csv --out inventory.yaml
 
-Run "netguard <command> -h" for flags.
+Run "fathomgate <command> -h" for flags.
 `)
 }
 
 // fail prints an error in the CLI's voice and returns the usage exit code.
 func fail(err error) int {
-	fmt.Fprintf(os.Stderr, "netguard: %v\n", err)
+	fmt.Fprintf(os.Stderr, "fathomgate: %v\n", err)
 	return exitUsage
 }
 
