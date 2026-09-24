@@ -56,6 +56,7 @@ type Proxy struct {
 	server    *mcp.Server
 	logger    *slog.Logger
 	states    *sealer              // requestState envelopes for stateless agents
+	now       func() time.Time     // clock for the progress rate limit
 	upstreams map[string]*upstream // by server name
 	routes    map[string]route     // by prefixed tool name
 	closeOnce sync.Once
@@ -84,8 +85,9 @@ type upstream struct {
 	err     error
 	closing atomic.Bool
 
-	mu    sync.Mutex
-	calls map[*inflight]struct{} // calls in flight, for elicitation/create
+	mu       sync.Mutex
+	calls    map[*inflight]struct{}    // calls in flight, for elicitation/create
+	progress map[string]*progressRelay // by netguard's progress token (progress.go)
 }
 
 // exited reports whether the upstream session has ended.
@@ -122,6 +124,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 	p := &Proxy{
 		logger:    logger,
 		states:    states,
+		now:       time.Now,
 		upstreams: make(map[string]*upstream, len(upstreams)),
 		routes:    make(map[string]route),
 		server: mcp.NewServer(impl, &mcp.ServerOptions{
@@ -180,6 +183,9 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// Do not let go-sdk answer MRTR input requests on our behalf;
 		// forward relabels them and puts them to the agent itself.
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
+		// Progress for netguard's own tokens only, rebuilt for the agent
+		// (progress.go).
+		ProgressNotificationHandler: p.upstreamProgress(up),
 	})
 	tt := &trackedTransport{Transport: u.Transport}
 	cs, err := client.Connect(ctx, tt, nil)
@@ -423,6 +429,9 @@ type call struct {
 	tool      string          // unprefixed upstream tool name
 	arguments json.RawMessage // as received from the agent, not yet parsed
 	agent     agentPeer
+	// progressToken is the agent's own progressToken, or nil. It is never
+	// sent upstream; netguard issues its own (progress.go).
+	progressToken any
 
 	// An MRTR retry from a stateless agent: its answers and the
 	// requestState netguard issued. Both are empty on a first call.
@@ -431,17 +440,38 @@ type call struct {
 }
 
 // handler is the go-sdk tool handler for one route. The agent's _meta is
-// read for era detection only (go-sdk does that) and never forwarded.
+// read for era detection (go-sdk does that) and for its progressToken, and
+// never forwarded.
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		c := call{up: r.up, tool: r.tool, agent: agentOf(req)}
-		if req.Params != nil {
-			c.arguments = req.Params.Arguments
-			c.inputResponses = req.Params.InputResponses
-			c.requestState = req.Params.RequestState
+		c, ignored := newCall(r, req)
+		if ignored > 0 {
+			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
 		}
 		return p.dispatch(ctx, c)
 	}
+}
+
+// newCall is what dispatch sees of one agent tools/call. inputResponses
+// that arrive without a requestState answer prompts netguard never relayed
+// (T0.18): they are cleared here, before dispatch, so no later stage (M1's
+// pipeline and audit included) can read or act on them as answers
+// (invariant 6: nothing the agent supplies stands in for a human). The call
+// then goes up as a first call and an upstream that needs input asks again.
+// It returns how many answers it cleared.
+func newCall(r route, req *mcp.CallToolRequest) (call, int) {
+	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req)}
+	ignored := 0
+	if req.Params != nil {
+		c.arguments = req.Params.Arguments
+		c.requestState = req.Params.RequestState
+		if c.requestState != "" {
+			c.inputResponses = req.Params.InputResponses
+		} else {
+			ignored = len(req.Params.InputResponses)
+		}
+	}
+	return c, ignored
 }
 
 // dispatch is the seam where the M1 pipeline plugs in. From M1 it runs
@@ -459,7 +489,9 @@ func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, erro
 // Nothing of the agent's request crosses except the tool name and
 // arguments, and on an MRTR retry the allow-listed answers (resume). The
 // upstream sees netguard's own identity, era and capabilities: go-sdk adds
-// them to _meta toward a stateless upstream.
+// them to _meta toward a stateless upstream. If the agent asked for
+// progress, the upstream gets a progressToken netguard issued, never the
+// agent's (progress.go).
 //
 // Outcomes, in order: an upstream request for input is relabelled and put
 // to the agent (input_required for a stateless agent, elicitation/create
@@ -474,7 +506,9 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		params.Arguments = c.arguments
 	}
 	round, prompts := 0, 0
-	if c.requestState != "" || len(c.inputResponses) > 0 {
+	// Only a retry with netguard's requestState carries answers; newCall
+	// has already cleared any sent without one (T0.18).
+	if c.requestState != "" {
 		rs, err := p.resume(c)
 		if err != nil {
 			return nil, err
@@ -490,6 +524,11 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 
 	f := up.begin(ctx, c, prompts)
 	defer up.end(f)
+	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now); pr != nil {
+		up.watchProgress(pr)
+		defer up.unwatchProgress(pr)
+		params.SetProgressToken(pr.upToken)
+	}
 	for ; ; round++ {
 		res, err := up.session.CallTool(ctx, params)
 		own, note := up.refusalsFor(f)

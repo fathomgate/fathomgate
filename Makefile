@@ -67,17 +67,22 @@ vet: ## go vet + gofmt check
 	$(GO) vet ./...
 	@out=$$(gofmt -l . 2>/dev/null); if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
 
-# Runs under the go.mod toolchain and for the CI target (linux/amd64), so a
-# local run reports what CI reports whatever Go and host you have. Build tags
-# change the result: syscall field types differ per OS and arch, so nolintlint
-# can disagree between targets. Override with LINT_GOOS / LINT_GOARCH.
-LINT_GOOS   ?= linux
-LINT_GOARCH ?= amd64
-LINT_ENV    := GOTOOLCHAIN=$(GO_TOOLCHAIN) GOOS=$(LINT_GOOS) GOARCH=$(LINT_GOARCH)
+# Runs under the go.mod toolchain once per target in LINT_TARGETS, so a local
+# run reports what CI reports whatever Go and host you have. Build tags change
+# the result (syscall field types differ per OS and arch, which is how T0.24
+# got past a linux/amd64-only lint), so every supported target is linted.
+# LINT_GOOS (and optionally LINT_GOARCH, default amd64) lint just one target.
+ifdef LINT_GOOS
+LINT_TARGETS ?= $(LINT_GOOS)/$(or $(LINT_GOARCH),amd64)
+endif
+LINT_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-lint: $(GOLANGCI_LINT) ## golangci-lint at GOLANGCI_LINT_VERSION (sha256-verified release binary) for LINT_GOOS/LINT_GOARCH
-	$(LINT_ENV) $(GOLANGCI_LINT) config verify
-	$(LINT_ENV) $(GOLANGCI_LINT) run ./...
+lint: $(GOLANGCI_LINT) ## golangci-lint at GOLANGCI_LINT_VERSION (sha256-verified release binary) for each of LINT_TARGETS
+	GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GOLANGCI_LINT) config verify
+	@set -e; for t in $(LINT_TARGETS); do \
+		echo "golangci-lint run ./... for $$t"; \
+		GOTOOLCHAIN=$(GO_TOOLCHAIN) GOOS=$${t%/*} GOARCH=$${t#*/} $(GOLANGCI_LINT) run ./...; \
+	done
 
 # Download into a temp dir, compare the sha256 with the pin, and only then
 # unpack and move the binary into place, so a failed or mismatched download

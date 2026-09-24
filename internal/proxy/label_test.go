@@ -50,10 +50,18 @@ func TestHasOriginLabel(t *testing.T) {
 		{"small capitals", "[" + smallF + smallR + smallO + smallM + " netguard]", true},
 		{"Cyrillic", "[f" + cyrGhe + cyrO + cyrEm, true},
 		{"Greek omicron", "[fr" + grkO + "m", true},
+		{"escaped bracket", bs + "u005bfrom", true},
+		{"escaped bracket, upper U", bs + "U0000005bfrom", true},
+		{"hex-escaped bracket", bs + "x5bfrom", true},
+		{"escaped letter", "[" + bs + "u0066rom", true},
+		{"nested escape", bs + "u005cu005bfrom", true},
+		{"spelled newline before a label", "ok" + bs + "u000a[from netguard]", true},
 
 		{"ordinary prose", "copy [x] from the router", false},
 		{"bracket far from the word", "[a] from", false},
 		{"empty", "", false},
+		{"backslashes, no escape", "C:" + bs + "users" + bs + "from", false},
+		{"short escape", bs + "u5b from", false},
 		// Documented limits (label.go, SECURITY.md): these pass the fold.
 		{"limit: mathematical bold f", "[" + mathBoldF + "rom", false},
 		{"limit: precomposed accented r", "[f" + rAcute + "om", false},

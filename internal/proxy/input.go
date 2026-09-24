@@ -181,14 +181,15 @@ type resumed struct {
 	prompts   int                  // prompts put to the human so far in this call
 }
 
-// resume verifies a stateless agent's MRTR retry and returns what to send
-// the upstream. Any mismatch is a JSON-RPC invalid-params error and nothing
-// reaches the upstream.
+// resume verifies a stateless agent's MRTR retry, which carries a
+// requestState, and returns what to send the upstream. A requestState that
+// fails any check, or an answer to an outstanding input request that is not
+// an allow-listed elicitation result, is a JSON-RPC invalid-params error and
+// nothing reaches the upstream. Answers to ids that are not outstanding are
+// ignored and never forwarded (SEP-2322: ignore what is not recognised); the
+// upstream decides whether a missing answer means asking again.
 func (p *Proxy) resume(c call) (resumed, error) {
 	name := prefixName(c.up.name, c.tool)
-	if c.requestState == "" {
-		return resumed{}, invalidRetry(name, reasonInvalidRequestState, errors.New("inputResponses sent without the requestState netguard issued"))
-	}
 	st, err := p.states.open(c.requestState)
 	if err != nil {
 		return resumed{}, invalidRetry(name, reasonInvalidRequestState, err)
@@ -202,7 +203,7 @@ func (p *Proxy) resume(c call) (resumed, error) {
 	out := make(mcp.InputResponseMap, len(c.inputResponses))
 	for id, r := range c.inputResponses {
 		if !slices.Contains(st.IDs, id) {
-			return resumed{}, invalidRetry(name, reasonInvalidInputResponse, fmt.Errorf("no input request %q is outstanding", clip(id)))
+			continue
 		}
 		er, ok := r.(*mcp.ElicitResult)
 		if !ok {

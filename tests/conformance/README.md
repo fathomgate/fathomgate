@@ -87,16 +87,22 @@ gaps are listed too. Scenarios the requirement set marks `not_scored` (the
 tasks extension, `pending` scenarios, `added-after-release`) run and are
 reported but cannot fail the run, so they are not listed.
 
-Every entry says why it fails, in one of six groups:
+Every entry says why it fails, in one of six groups, and names the ADR or
+board task that decided it or owns the gap:
 
-| Group | Scenarios (netguard leg) | Why | Reference |
+| Group | Scenarios (netguard leg) | Why | ADR or task |
 | --- | --- | --- | --- |
-| Undeclared capabilities | prompts, resources, completion, logging, caching hints on those lists, `sep-2164-resource-not-found`, `non-tool-request` | netguard declares `tools` only and answers `-32601` | profile-schema section 8.2 |
-| Refused input requests | `tools-call-sampling`; `input-required-result-basic-sampling`, `basic-list-roots`, `multiple-input-requests`, `capability-check` | Sampling and roots from an upstream are refused; only form elicitation is relayed | profile-schema section 8.4, ADR 0008 |
-| Not relayed | `tools-call-with-progress` (both), `tools-call-with-logging` | The agent's `progressToken` is `_meta`, which never crosses; no logging capability | profile-schema section 8.4 ("Limits of this section") |
-| Strict retries (SHOULD) | `ignore-extra-params`, `missing-input-response` | Retries without netguard's `requestState`, or missing an answer, get `-32602` rather than being ignored or re-asked | profile-schema section 8.2 |
-| Pairing and prefix | `tools-call-elicitation`, `elicitation-sep1034-defaults`, `elicitation-sep1330-enums` (2025); `server-stateless:sep-2575-server-rejects-undeclared-capability` (2026) | The fixture's legacy elicitation tools refuse on a 2026 upstream session; the suite looks up an unprefixed tool name in `tools/list` | ADR 0008, profile-schema section 8.1 |
-| HTTP transport (both legs, 2026) | 12 `server-stateless` checks: HTTP 400/404 status mapping and the `MCP-Protocol-Version` header | The relay's HTTP behaviour, not netguard's; netguard has no HTTP listener in M0 | This file |
+| Undeclared capabilities | prompts, resources, completion, logging, caching hints on those lists, `sep-2164-resource-not-found`, `non-tool-request` | netguard declares `tools` only and answers `-32601` (profile-schema section 8.2) | T0.3 |
+| Refused input requests | `tools-call-sampling`; `input-required-result-basic-sampling`, `basic-list-roots`, `multiple-input-requests`, `capability-check` | Sampling and roots from an upstream are refused; only form elicitation is relayed (profile-schema section 8.4) | ADR 0008, T0.3 |
+| Not relayed | `tools-call-with-logging` (2025) | No logging capability, so no log messages are relayed | T0.3 |
+| Unsolicited answers (SHOULD) | `ignore-extra-params` (2026) | `inputResponses` sent without netguard's `requestState` are ignored and never forwarded, so the upstream asks again instead of completing (profile-schema section 8.2) | T0.18, ADR 0014 |
+| Pairing and prefix | `tools-call-elicitation`, `elicitation-sep1034-defaults`, `elicitation-sep1330-enums` (2025); `server-stateless:sep-2575-server-rejects-undeclared-capability` (2026) | The fixture's legacy elicitation tools refuse on a 2026 upstream session; the suite looks up an unprefixed tool name in `tools/list` (profile-schema section 8.1) | T0.19 (pairing); ADR 0012, T0.4 (prefix) |
+| HTTP transport (both legs, 2026) | 12 `server-stateless` checks: HTTP 400/404 status mapping and the `MCP-Protocol-Version` header | The relay's HTTP behaviour, not netguard's; netguard has no HTTP listener in M0 | ADR 0012, T0.4 |
+
+Progress (`tools-call-with-progress`) passes in both eras since T0.17:
+netguard gives the upstream its own progress token and relays the
+upstream's notifications under the agent's token (profile-schema section
+8.4). `missing-input-response` passes since T0.18.
 
 A baseline entry is not a pass. "The conformance suite passes on the
 client-facing side" (M0 exit criterion 1) means: every scored check passes

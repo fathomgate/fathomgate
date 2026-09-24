@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 7 · blocked 1 · merged 18
+Tasks: open 5 · blocked 6 · in review 1 · merged 21
 
 ## In flight
 
@@ -26,20 +26,27 @@ Tasks: open 7 · blocked 1 · merged 18
 | T0.14 | Move the build toolchain to Go 1.26 now that Go 1.25 is out of support | `go.mod` | release-engineer | go-reviewer, security-reviewer | merged | — | — | [0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md) |
 | T0.15 | Pin the Dockerfile builder and distroless base images by digest | `Dockerfile` | release-engineer | go-reviewer, security-reviewer | merged | T0.14 | — | — |
 | T0.16 | Update the ADR 0011 module table for golang.org/x/sys as a direct dependency | `docs/adr` | docs-writer | go-reviewer | merged | T0.12 | — | — |
-| T0.17 | Relay upstream progress notifications to the agent with a proxy-issued progress token | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | T0.4 | 2 | — |
-| T0.18 | Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | T0.4 | 2 | — |
+| T0.17 | Relay upstream progress notifications to the agent with a proxy-issued progress token | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | merged | T0.4 | 2 | — |
+| T0.18 | Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.4 | 2 | — |
 | T0.19 | Conformance coverage for a 2025-11-25 upstream behind netguard | `tests/conformance` | test-engineer | go-reviewer | open | T0.4 | 2 | — |
 | T0.20 | Evaluate installing golangci-lint via go run so the checksum database verifies it | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | merged | — | — | — |
 | T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | blocked | T0.4 | — | — |
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | merged | — | — | — |
 | T0.23 | Keep device passwords off the netguard command line (upstream secrets from a file or the environment) | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 22 | — |
-| T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | — | — | — |
+| T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | — |
 | T0.25 | Report the upstream's exit status when it dies at startup, not only EOF | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | — | 22 | — |
-| T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | open | — | 22 | — |
+| T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | in review | — | 22 | — |
+| T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | open | — | 15 | — |
+| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.27 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Exit criteria
 
-- [ ] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task (ticked once T0.17 and T0.18 are resolved)
+- [x] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task — met 2026-09-23 (T0.4 PR
 - [ ] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
 - [ ] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
 - [ ] GoReleaser produces linux/darwin/windows binaries on a tag

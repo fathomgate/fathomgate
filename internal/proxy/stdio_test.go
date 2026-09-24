@@ -390,7 +390,8 @@ func TestRuneCut(t *testing.T) {
 
 // TestStdioUpstreamEras is the era matrix over a real child process: the
 // upstream is spawned over stdio pinned to each era, and an agent of each era
-// negotiates, calls, and answers the upstream's prompt through netguard.
+// negotiates, calls, gets the upstream's progress, and answers the
+// upstream's prompt through netguard.
 func TestStdioUpstreamEras(t *testing.T) {
 	for _, e := range eras {
 		t.Run("agent "+e.agent+" upstream "+e.upstream, func(t *testing.T) {
@@ -414,7 +415,8 @@ func TestStdioUpstreamEras(t *testing.T) {
 				t.Fatalf("stdio upstream negotiated %s, want %s", got, e.upstream)
 			}
 			prompts := &promptLog{}
-			agent, _ := connectAgent(t, p, eraSetup{agent: e.agent}, prompts)
+			progress := newProgressLog()
+			agent, _ := connectAgent(t, p, eraSetup{agent: e.agent, progress: progress}, prompts)
 			if got := agent.InitializeResult().ProtocolVersion; got != e.agent {
 				t.Fatalf("agent negotiated %s, want %s", got, e.agent)
 			}
@@ -424,6 +426,9 @@ func TestStdioUpstreamEras(t *testing.T) {
 			if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
 				t.Fatalf("round trip: %v %q", err, text(res))
 			}
+
+			// Progress crosses the real child under netguard's token (T0.17).
+			checkProgress(t, agent, progress)
 
 			res, err = agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
 			if err != nil {

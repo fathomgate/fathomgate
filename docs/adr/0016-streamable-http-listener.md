@@ -1,8 +1,8 @@
 # ADR 0016: A Streamable HTTP listener for `netguard serve`, loopback-only and token-authenticated
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-23
-- Deciders: Josh Scott (maintainer; decided that netguard gets an HTTP listener toward the agent); proposed by mcp-protocol-engineer
+- Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer
 - Amends: [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md) (adds flags and one exported method; nothing in it is withdrawn) and the sentence "The agent side is stdio" in [profile-schema section 8.3](../specs/profile-schema.md#83-netguard-serve-flags)
 
 ## Context
@@ -108,17 +108,17 @@ One export is added to ADR 0012's set: `(*Proxy).HTTPHandler(HTTPOptions) (http.
 
 The listener goes on the **M0 board**, but it is **not an M0 exit criterion**. M0's criteria are met over stdio and should not wait for it. It belongs in M0 because it is transport work at the same layer as T0.2 and T0.3, it gives the conformance criterion a real HTTP measurement instead of a relay's, and it has to exist before M1 wires the pipeline in behind `Proxy.dispatch`, which is transport-neutral. The security argument for waiting until M1 is met by keeping M0 loopback-only and token-only. Remote binding waits for M1.
 
-Proposed tasks for the orchestrator to add to `docs/milestones/M0.yaml` once this record is accepted:
+Tasks on the M0 board. Their ids were renumbered on acceptance, because the board already used T0.28 and T0.29. Board task T0.28, the slow-agent stall, lands first:
 
 | Id | Title | Package | Owner | Reviewers | Blocked by | Matrix |
 | --- | --- | --- | --- | --- | --- | --- |
-| T0.27 | `(*Proxy).HTTPHandler`: era dispatcher over two go-sdk handlers, Host, Origin, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | this ADR accepted | 23 |
-| T0.28 | Bind the sealed `requestState` to the principal (`ng3.`), carry transport and principal on `call`, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | T0.27 | 2, 23 |
-| T0.29 | `netguard serve --listen`, `--listen-token-file`, `NETGUARD_LISTEN_TOKEN`; refused M1 flags; `MCPGODEBUG` refusal; `http.Server` limits, connection cap, `listening` line, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | T0.27 | 23 |
-| T0.30 | Conformance against the listener: auth-and-prefix shim, control leg on `everything-server -http`, delete `relay.py`, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | T0.29 | 1, 2 |
-| T0.31 | Matrix row 23 (tier 2 over HTTP, Claude Code `type: http`), profile-schema 8.5 "HTTP listener", SECURITY.md gap rows, README and install.md snippets | `tests/integration`, `docs` | test-engineer | docs-writer, security-reviewer | T0.29 | 23 |
+| T0.27 | `(*Proxy).HTTPHandler`: era dispatcher over two go-sdk handlers, Host, Origin, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | T0.28 (slow-agent stall, security review S2 on PR #53) | 23 |
+| T0.30 | Bind the sealed `requestState` to the principal (`ng3.`), carry transport and principal on `call`, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | T0.27 | 2, 23 |
+| T0.31 | `netguard serve --listen`, `--listen-token-file`, `NETGUARD_LISTEN_TOKEN`; refused M1 flags; `MCPGODEBUG` refusal; `http.Server` limits, connection cap, `listening` line, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | T0.27 | 23 |
+| T0.32 | Conformance against the listener: auth-and-prefix shim, control leg on `everything-server -http`, delete `relay.py`, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | T0.31 | 1, 2 |
+| T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code `type: http`), profile-schema 8.5 "HTTP listener", SECURITY.md gap rows, README and install.md snippets | `tests/integration`, `docs` | test-engineer | docs-writer, security-reviewer | T0.31 | 23 |
 
-T0.17 (progress relay) should land after T0.28, or in the same series, so its token map is keyed per request from the start. For M1, the tasks that lift `--listen-remote` and `--listen-host` are added with the M1 board, after the pipeline is wired.
+T0.17 (progress relay) has already merged (PR #53) and issues a fresh upstream token per agent request, so T0.30 only has to key the relay per session as well. For M1, the tasks that lift `--listen-remote` and `--listen-host` are added with the M1 board, after the pipeline is wired.
 
 ## Consequences
 
@@ -166,12 +166,14 @@ T0.17 (progress relay) should land after T0.28, or in the same series, so its to
 | Place the whole listener in M1 | The conformance criterion would keep measuring a relay through M0, and M1 would add a transport and the policy pipeline in the same milestone. Loopback-only in M0 carries no more risk than the stdio path. |
 | HTTP upstreams in the same step | Outbound TLS, credentials and egress are separate decisions with a separate validation target (matrix row 17). |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **TLS for M1 remote mode.** Built-in TLS (`--listen-tls-cert`, `--listen-tls-key`, standard library only), or TLS always terminated in front (Caddy, nginx, a service mesh), with netguard serving plain HTTP on a private interface?
-2. **M0 exit.** Should matrix row 23 and "conformance runs against the listener" become an M0 exit criterion, or stay board tasks outside it as proposed here?
-3. **Principals.** Keep one static token until an OAuth resource-server record, or allow several named tokens now (a repeatable `--listen-token-file name=path`)? That would let M4 audit tell agents apart and let an MRTR answer from a second principal count as a different approver.
-4. **The conformance shim.** Is a two-rule shim (token and prefix) acceptable in the netguard leg, or should the suite be patched upstream (`--header`, a tool-name map) and the shim dropped when that lands?
+Accepted by the maintainer on 2026-09-23, with these answers:
+
+1. **TLS for M1 remote mode: built in, standard library only, and required off loopback.** `--listen-tls-cert` and `--listen-tls-key` (`crypto/tls`, no new dependency) land with the M1 tasks that lift `--listen-remote`. A non-loopback bind without them exits 2. Terminating TLS in front is still possible, but only behind a loopback bind.
+2. **M0 exit: no.** Matrix row 23 and conformance against the listener stay M0 board tasks outside the exit criteria. M0 closes on stdio.
+3. **Principals: several named tokens now, for attribution only.** `--listen-token-file` is repeatable as `name=path`, and the principal name is carried on `call` for the M4 audit line and bound into `requestState` (T0.30). A principal is **never** an approver identity. Approver identity stays server-side (CLAUDE.md invariant 6), so an MRTR answer from a second principal does not satisfy `approver_must_differ`.
+4. **Conformance shim: accepted.** The two-rule shim (token and tool prefix) runs in the netguard leg. The test-engineer files an upstream request for a suite header option and a tool-name map, and the shim is removed when both exist.
 
 ## References
 

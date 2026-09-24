@@ -244,6 +244,7 @@ func addEraTools(s *mcp.Server, rec *recorder) {
 	}))
 	s.AddTool(&mcp.Tool{Name: "ask_busy", InputSchema: objectSchema}, asking(mcp.InputRequestMap{}))
 	s.AddTool(&mcp.Tool{Name: "ask_forever", InputSchema: objectSchema}, asking(mcp.InputRequestMap{"pw": promptFor("pw")}))
+	addProgressTools(s, rec)
 	s.AddTool(&mcp.Tool{Name: "with_meta", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		rec.add(req)
 		res := textResult("meta")
@@ -276,6 +277,7 @@ type eraSetup struct {
 	hooks           *blockHooks
 	extra           func(*mcp.Server) // adds test-specific upstream tools
 	gate            <-chan struct{}   // if set, the agent answers a prompt only once it closes (or after 5s)
+	progress        *progressLog      // if set, the agent records the progress notifications it gets
 }
 
 type eraHarness struct {
@@ -340,6 +342,9 @@ func connectAgent(t *testing.T, p *Proxy, s eraSetup, prompts *promptLog) (*mcp.
 	}
 	if s.manualMRTR {
 		opts.MultiRoundTrip = &mcp.MultiRoundTripOptions{Disabled: true}
+	}
+	if s.progress != nil {
+		opts.ProgressNotificationHandler = s.progress.record
 	}
 	tap := &wireTap{Transport: pinAgent(s.agent, agCliT)}
 	agent, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, opts).Connect(ctx, tap, nil)
@@ -418,9 +423,14 @@ func TestEraMatrix(t *testing.T) {
 				t.Fatalf("upstream saw %+v, want run_show_command at %s from %s", got, e.upstream, Name)
 			}
 			for _, k := range got.MetaKeys {
-				if !strings.HasPrefix(k, "io.modelcontextprotocol/") {
+				if !strings.HasPrefix(k, "io.modelcontextprotocol/") && k != "progressToken" {
 					t.Errorf("agent _meta key %q reached the upstream", k)
 				}
+			}
+			// The agent asked for progress, so the upstream got a token:
+			// netguard's own, never the agent's.
+			if tok, ok := got.ProgressToken.(string); !ok || tok == "" || tok == "p1" {
+				t.Errorf("upstream progressToken %#v, want netguard's own", got.ProgressToken)
 			}
 			if e.upstream == v2026 && !slices.Contains(got.MetaKeys, mcp.MetaKeyProtocolVersion) {
 				t.Errorf("stateless upstream got no self-describing _meta: %v", got.MetaKeys)
@@ -523,10 +533,8 @@ func TestMRTRWire(t *testing.T) {
 	}{
 		{"tampered state", "ask", args, string(tampered), accept, reasonInvalidRequestState},
 		{"upstream's raw state", "ask", args, "up-state-pw", accept, reasonInvalidRequestState},
-		{"responses without state", "ask", args, "", accept, reasonInvalidRequestState},
 		{"changed arguments", "ask", map[string]any{"host": "lab-sw-01"}, state, accept, reasonInvalidRequestState},
 		{"state for another tool", "ask_twice", args, state, accept, reasonInvalidRequestState},
-		{"unknown input id", "ask", args, state, mcp.InputResponseMap{"zz": &mcp.ElicitResult{Action: "accept"}}, reasonInvalidInputResponse},
 		{"action outside the allow-list", "ask", args, state, mcp.InputResponseMap{"pw": &mcp.ElicitResult{Action: "approve"}}, reasonInvalidInputResponse},
 		{"sampling answer", "ask", args, state, mcp.InputResponseMap{"pw": &mcp.CreateMessageResult{Role: "assistant", Model: "m", Content: &mcp.TextContent{Text: "x"}}}, reasonInvalidInputResponse}, //nolint:staticcheck // SA1019: a deprecated sampling answer must be refused
 	}

@@ -39,6 +39,14 @@ Runs that moved a row forward without closing it. A row becomes `passing` only w
 - CI: the `client-smoke` job ran the same suite green on the pull request, against the linux_amd64 release binary (sha256 `256ab497…75621`): [run 35947953383](https://github.com/joshscott13/netguard/actions/runs/35947953383/job/107470027880).
 - To be `passing`: `client-smoke` green on `main`. To tick exit criterion 2: a person does the install.md check in Claude Code and in Cursor.
 
+**Rows 1 and 15, 2026-09-23 (T0.26).** Upstream: krisiasty/netdev-ssh-mcp v1.6.6, a `go install …@v1.6.6` build (go1.27.1). Device: the fake SSH device with a new `show running-config` transcript: a real public Arista vEOS EOS-4.16.6M sample from HPE documentation, with its two SNMP communities and two type-5 hashes replaced by FAKE values (provenance in `tests/fixtures/device/README.md`). netguard at `2459c3a` plus this change, macOS arm64. `uv run --extra integration pytest integration -m tier2`: 13 passed, 2 skipped (the M1 cases), 1 xfailed (the row 15 case).
+
+- Row 1: a read-config call through netguard. The upstream refuses `show run…` in `run_show_command` and points to `get_config`, so the test calls `netdev-ssh-mcp.get_config` (`device_type: eos`, `config_type: running`). The device receives one `show running-config | no-more`. The fake device now drops a trailing `| no-more` when it looks up a transcript.
+- The upstream replaces secrets itself by default (`internal/netdev/obfuscate.go`): each value becomes `[h:<first 6 bytes of sha256, hex>]`. The test pins that: the agent gets the transcript with exactly four lines changed, and each one carries that hash. The hash has no key, so a guessable value such as the sample's original `public` can be recovered with a dictionary. It is not netguard's redaction and does not count toward row 15.
+- With the upstream's `--no-obfuscate` (passed after `--`), the agent gets all four FAKE credentials unchanged. That is the M0 fact, and the test asserts it on purpose: `netguard serve` forwards results as they are.
+- Row 15 (tier 1): the same text, with rule annotations, is the redaction fixture `tests/fixtures/configs/eos-4.16.txt`. `make fixtures-check` shows the redactor catches all four in EOS-4.16 syntax (`cisco-snmp-community` 2, `cisco-password-type` 2), with no hits anywhere else in the config. The original published values give the same four hits.
+- Row 15 (tier 2): `test_running_config_redacted_by_netguard` is a strict xfail until the redactor runs at the response serialiser (ROADMAP M2). When it runs there, the case XPASSes, strict mode fails it, and `test_running_config_secrets_reach_agent_in_m0` fails with it. Flip both in that PR. Row 15 stays `planned`.
+
 ## Coverage by component
 
 | Component | Cases |

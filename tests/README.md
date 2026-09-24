@@ -47,7 +47,8 @@ a mock.
 - Tier 1: live (`unit/`, plus the Go suites).
 - Tier 2: live for netdev-ssh-mcp v1.6.6 (CI job `client-smoke`, no Docker).
   `integration/test_passthrough.py` covers matrix row 1 (prefixed `tools/list`
-  and a read-only call through to the fake device);
+  and read-only `show version` and `get_config` calls through to the fake
+  device; the row 15 `get_config` redaction case is a strict xfail until M2);
   `integration/test_launcher_path.py` covers row 22 (the PATH-stripped
   launcher). The M1 decision and audit cases are skipped until the pipeline
   is wired. Without `NETGUARD_UPSTREAM` the tier 2 tests skip; CI sets
