@@ -106,6 +106,8 @@ The trace lists every rule NetGuard checked, top to bottom, and why each one did
 
 The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. For now every request passes straight through (see above).
 
+Step-by-step setup for Claude Code and Cursor, device credentials, and what to do if the client can't find netguard or the server, is in [docs/install.md](docs/install.md).
+
 **Run a policy's test cases:**
 
 ```sh
