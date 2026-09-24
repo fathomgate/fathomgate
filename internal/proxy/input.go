@@ -582,6 +582,18 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			// say that instead: nothing crosses to a human either way, and
 			// "this client cannot take a server-initiated prompt" is the
 			// answer the upstream and the agent can act on (ADR 0014).
+			//
+			// This ordering is deliberate (T0.40, accepted by the
+			// orchestrator). Since J1 remembers every call that ends, a
+			// stateless agent's earlier request leaves a live orphan on
+			// almost every upstream it touches, so without this the
+			// documented ADR 0014 refusal would be replaced by the
+			// attribution refusal for practically every 2026-era agent, and
+			// the era_pairs conformance check (a 2026 agent against a 2025
+			// upstream) would read the wrong text. The prompt is refused
+			// either way; only the reason differs. The refusal is recorded
+			// against that call because it is the only call that could have
+			// received the prompt at all.
 			if s := at.sole; s != nil {
 				if err := promptable(s); err != nil {
 					return nil, p.refuse(u, s, newRefusal(u.name, s.tool, "elicitation", err))
