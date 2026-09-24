@@ -1,13 +1,14 @@
 package main
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/joshscott13/netguard/internal/proxy"
 )
 
 // The server side of the Streamable HTTP listener (ADR 0016: cmd/netguard
@@ -106,16 +107,15 @@ func (c *limitedConn) Close() error {
 	return err
 }
 
-// errMCPGODEBUG is the refusal of --listen when MCPGODEBUG is set.
-var errMCPGODEBUG = errors.New("MCPGODEBUG is set: its go-sdk compatibility switches (allowsessionsinstateless=1 among them) would change transport security without appearing on the command line; unset it to use the HTTP listener")
-
 // checkListenEnvironment refuses an environment that would change go-sdk's
 // transport behaviour unseen: MCPGODEBUG set to anything, even empty.
-// proxy.HTTPHandler refuses it too; serve runs this first so it can exit 2
-// with the variable named before starting the upstream (T0.31).
+// proxy.HTTPHandler refuses it too, with this same error value, so there is
+// one refusal text (K4 in the re-review of PR #72); serve runs this first so
+// it can exit 2 with the variable named before starting the upstream
+// (T0.31).
 func checkListenEnvironment(lookup lookupEnvFunc) error {
 	if _, set := lookup("MCPGODEBUG"); set {
-		return errMCPGODEBUG
+		return proxy.ErrMCPGODEBUG
 	}
 	return nil
 }

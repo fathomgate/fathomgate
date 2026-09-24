@@ -26,9 +26,9 @@ import (
 // built by HTTPHandler and read by Proxy.handler; stdio has none.
 type callLimits struct {
 	perSession, perPrincipal int
-	// orphanTTL is how long a call the agent abandoned keeps blocking the
+	// orphanTTL is how long a call that has ended keeps blocking the
 	// attribution of an upstream prompt to another agent session
-	// (HTTPOptions.SessionTimeout; input.go).
+	// (HTTPOptions.OrphanTTL; input.go).
 	orphanTTL time.Duration
 
 	mu         sync.Mutex

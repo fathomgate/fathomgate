@@ -73,6 +73,7 @@ const (
 	defaultMaxCallsPerSession      = 8
 	defaultMaxCallsPerPrincipal    = 32
 	defaultSessionTimeout          = 30 * time.Minute
+	defaultOrphanTTL               = 5 * time.Minute
 	defaultWriteTimeout            = 10 * time.Second
 	defaultBodyReadTimeout         = 30 * time.Second
 	// maxRequestBodyBytes is the body limit; go-sdk answers 413 past it.
@@ -111,11 +112,15 @@ type HTTPOptions struct {
 	MaxCallsPerSession   int
 	MaxCallsPerPrincipal int
 	// SessionTimeout closes a stateful session with no POST in progress for
-	// this long, cancelling any call still running on it first. It is also
-	// how long a call the agent abandoned (cancelled before the upstream
-	// answered) keeps a stateful upstream's prompt from being attributed to
-	// another agent session (profile-schema section 8.4).
+	// this long, cancelling any call still running on it first.
 	SessionTimeout time.Duration
+	// OrphanTTL is how long a call that has ended keeps a stateful
+	// upstream's prompt from being attributed to another agent session,
+	// because the upstream may still be working on it (profile-schema
+	// section 8.4). It is separate from SessionTimeout and much shorter by
+	// default (5 minutes against 30): an idle session costs one slot, while
+	// an orphan refuses other agents' prompts.
+	OrphanTTL time.Duration
 	// WriteTimeout bounds each write (and flush) to the agent. A write that
 	// cannot complete in time fails and the connection is dropped.
 	WriteTimeout time.Duration
@@ -152,6 +157,7 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 		def  time.Duration
 	}{
 		{"SessionTimeout", &o.SessionTimeout, defaultSessionTimeout},
+		{"OrphanTTL", &o.OrphanTTL, defaultOrphanTTL},
 		{"WriteTimeout", &o.WriteTimeout, defaultWriteTimeout},
 		{"BodyReadTimeout", &o.BodyReadTimeout, defaultBodyReadTimeout},
 	}
@@ -166,9 +172,12 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 	return o, nil
 }
 
-// errMCPGODEBUG is HTTPHandler's refusal when MCPGODEBUG is set, even to an
-// empty value. cmd/netguard runs the same check first so it can exit 2.
-var errMCPGODEBUG = errors.New("proxy: MCPGODEBUG is set: its go-sdk compatibility switches (allowsessionsinstateless=1 among them) would change transport security without appearing on the command line; unset it to use the HTTP listener")
+// ErrMCPGODEBUG is the refusal of the HTTP listener when MCPGODEBUG is set,
+// even to an empty value. [Proxy.HTTPHandler] returns it, and cmd/netguard
+// runs the same check first, and returns this same error, so it can exit 2
+// before it starts the upstream. It is exported so that there is one
+// refusal text in one place (K4 in the re-review of PR #72).
+var ErrMCPGODEBUG = errors.New("MCPGODEBUG is set: its go-sdk compatibility switches (allowsessionsinstateless=1 among them) would change transport security without appearing on the command line; unset it to use the HTTP listener")
 
 // tokenEntry is one configured token, kept only as its digest.
 type tokenEntry struct {
@@ -284,7 +293,7 @@ type httpHandler struct {
 // flight and closes every agent session, which ends those streams.
 func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 	if _, set := os.LookupEnv("MCPGODEBUG"); set {
-		return nil, errMCPGODEBUG
+		return nil, ErrMCPGODEBUG
 	}
 	o, err := opts.resolved()
 	if err != nil {
@@ -296,7 +305,7 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 	}
 	o.Tokens = nil // only digests are kept
 	limits := newCallLimits(o.MaxCallsPerSession, o.MaxCallsPerPrincipal)
-	limits.orphanTTL = o.SessionTimeout
+	limits.orphanTTL = o.OrphanTTL
 	if !p.limits.CompareAndSwap(nil, limits) {
 		return nil, errors.New("proxy: HTTPHandler was already built for this proxy")
 	}
@@ -577,10 +586,18 @@ func (h *httpHandler) reserveSession(principal string) (func(), string) {
 }
 
 // settleSession runs after the stateful handler served a session-less POST.
-// If go-sdk kept the session (an initialise: the response names it and the
-// session has its initialise parameters), the slot is held until the session
-// ends: by DELETE, netguard's idle expiry (liveSession) or Proxy.Close.
-// Otherwise the slot is released now.
+// If go-sdk kept the session, the slot is held until the session ends: by
+// DELETE, netguard's idle expiry (liveSession) or Proxy.Close. Otherwise the
+// slot is released now.
+//
+// A session go-sdk kept is one whose id the response carries and which is
+// still among the server's sessions: go-sdk names the new session in the
+// response of every session-less POST, and closes it again at the end of
+// that request unless it was an initialise. Netguard registers whatever is
+// left, without asking for initialise parameters (J2 in the re-review of
+// PR #72): go-sdk's own idle timer is the longer of the two, so a session
+// netguard did not register would be invisible to its idle accounting, which
+// is what cancels a call stuck upstream.
 //
 // The goroutine that waits for the session to end is tracked by callLimits
 // and joined by Proxy.Close. If the proxy is already closing, the session is
@@ -590,7 +607,7 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 	var kept *mcp.ServerSession
 	if sid != "" {
 		for ss := range h.p.server.Sessions() {
-			if ss.ID() == sid && ss.InitializeParams() != nil {
+			if ss.ID() == sid {
 				kept = ss
 				break
 			}
@@ -625,7 +642,12 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 		return
 	}
 	ls.arm()
-	h.logger.Info("agent session opened", "session", shortHash(sid), "principal", principal, "protocol", kept.InitializeParams().ProtocolVersion)
+	// A session that has not initialised yet has no negotiated protocol.
+	protocol := ""
+	if ip := kept.InitializeParams(); ip != nil {
+		protocol = ip.ProtocolVersion
+	}
+	h.logger.Info("agent session opened", "session", shortHash(sid), "principal", principal, "protocol", protocol)
 }
 
 // liveSession returns the open stateful session sid if it belongs to
@@ -647,6 +669,13 @@ func (h *httpHandler) liveSession(sid, principal string) *liveSession {
 // Close waits for calls in flight and a call stuck upstream would otherwise
 // hold the session, and its slot, forever. The timer's callback is owned by
 // the session; it returns once the session is closed.
+//
+// The idle clock is a real-time clock (time.AfterFunc), not the proxy's
+// Proxy.now, which tests replace to drive the progress rate limit and the
+// orphan expiry. It has to be: it must fire on its own, with no request to
+// carry a clock reading in, and it mirrors go-sdk's timer, which is
+// real-time too. Tests shorten SessionTimeout instead of moving a clock
+// (K3 in the re-review of PR #72).
 type liveSession struct {
 	h         *httpHandler
 	ss        *mcp.ServerSession

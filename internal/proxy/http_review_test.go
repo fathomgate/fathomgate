@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -17,14 +18,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Regression tests for the security and Go reviews of PR #68 (T0.38).
+// Regression tests for the security and Go reviews of PR #68 (T0.38) and
+// their re-review (T0.40).
 
-// orphanHooks drive the "orphan" and "b_work" tools of a stateful upstream
-// that ignores cancellation. "orphan" reports that it started, waits for
-// release whatever happens to its request, and then asks for input with a
-// server-initiated elicitation/create ("confirm-A"), reporting what came
-// back. "b_work" reports that it started and returns when bRelease fires or
-// its request is cancelled.
+// orphanHooks drive the "orphan", "late" and "b_work" tools of a stateful
+// upstream that ignores cancellation. "orphan" reports that it started,
+// waits for release whatever happens to its request, and then asks for
+// input with a server-initiated elicitation/create ("confirm-A"), reporting
+// what came back. "late" answers at once and asks for input afterwards, as
+// a background job on the upstream does. "b_work" reports that it started
+// and returns when bRelease fires or its request is cancelled.
 type orphanHooks struct {
 	started  chan struct{}
 	release  chan struct{}
@@ -58,20 +61,40 @@ func (o *orphanHooks) free() { o.once.Do(func() { close(o.release) }) }
 
 const orphanPrompt = "confirm-A"
 
+// confirmSchema is the requested schema of the upstream's prompts.
+var confirmSchema = map[string]any{
+	"type":       "object",
+	"properties": map[string]any{"confirm": map[string]any{"type": "string"}},
+}
+
 func (o *orphanHooks) tools(s *mcp.Server) {
 	s.AddTool(&mcp.Tool{Name: "orphan", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		o.started <- struct{}{}
 		<-o.release
 		// An upstream that ignores notifications/cancelled and asks anyway.
 		res, err := req.Session.Elicit(context.WithoutCancel(ctx), &mcp.ElicitParams{
-			Message: orphanPrompt,
-			RequestedSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"confirm": map[string]any{"type": "string"}},
-			},
+			Message:         orphanPrompt,
+			RequestedSchema: confirmSchema,
 		})
 		o.answer <- orphanAnswer{res, err}
 		return textResult("orphan done"), nil
+	})
+	s.AddTool(&mcp.Tool{Name: "late", InputSchema: objectSchema}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// A call that finishes normally and whose upstream keeps working:
+		// the prompt follows the result (J1).
+		ss := req.Session
+		go func() {
+			<-o.release
+			res, err := ss.Elicit(context.Background(), &mcp.ElicitParams{
+				Message:         orphanPrompt,
+				RequestedSchema: confirmSchema,
+			})
+			select {
+			case o.answer <- orphanAnswer{res, err}:
+			default: // the test has what it needs; do not block a shutdown
+			}
+		}()
+		return textResult("late done"), nil
 	})
 	s.AddTool(&mcp.Tool{Name: "b_work", InputSchema: objectSchema}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		o.bStarted <- struct{}{}
@@ -107,12 +130,32 @@ func (r *promptRecorder) prompts() []string {
 	return append([]string(nil), r.seen...)
 }
 
-// orphans is the number of live orphans on up, and whether up has no call
-// in flight.
+// attributed is the call a prompt may be relayed to at now, or nil and the
+// reason it may not be: attribute also returns the sole call in flight when
+// the orphan rule refuses it, which only upstreamElicitation needs.
+func attributed(up *upstream, now time.Time) (*inflight, error) {
+	at := up.attribute(now)
+	if at.err != nil {
+		return nil, at.err
+	}
+	return at.sole, nil
+}
+
+// orphans is the number of orphan table entries on up, and whether up has
+// no call in flight.
 func orphans(up *upstream) (n int, idle bool) {
 	up.mu.Lock()
 	defer up.mu.Unlock()
 	return len(up.orphans), len(up.calls) == 0
+}
+
+// orphanBucket reports whether up's shared overflow entry is live now. A
+// call from a session that can never own another call (a per-request
+// session of a stateless agent) is recorded there rather than in the table.
+func orphanBucket(up *upstream) bool {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	return time.Now().Before(up.orphanOverflow)
 }
 
 // TestHTTPAbandonedCallPrompt is the proof of concept of H1 in the security
@@ -176,7 +219,7 @@ func TestHTTPAbandonedCallPrompt(t *testing.T) {
 			if b.err != nil || b.res.IsError || !strings.Contains(text(b.res), "b done") {
 				t.Fatalf("bob's call: %v %q", b.err, text(b.res))
 			}
-			if !strings.Contains(text(b.res), "a call another agent session abandoned may still be running") {
+			if !strings.Contains(text(b.res), "another agent session's call on this upstream has ended recently") {
 				t.Fatalf("bob's result lacks the refusal note: %q", text(b.res))
 			}
 			if strings.Contains(text(b.res), orphanPrompt) || strings.Contains(text(b.res), "alice") {
@@ -251,7 +294,9 @@ func abandonCall(t *testing.T, agent *mcp.ClientSession, o *orphanHooks, up *ups
 	}
 	waitFor(t, "the proxy to record the abandoned call", func() bool {
 		n, idle := orphans(up)
-		return n == 1 && idle
+		// A stateful agent's session is in the table; a stateless agent's
+		// per-request session goes to the shared overflow entry.
+		return idle && (n == 1 || orphanBucket(up))
 	})
 }
 
@@ -268,26 +313,29 @@ func recvOrFail(t *testing.T, c <-chan struct{}, what string) {
 // clock. A prompt is attributed only to the sole call in flight, and only
 // while every live orphan on the upstream is that call's session's; an
 // orphan expires, and past maxOrphans one overflow entry blocks every
-// session until it expires.
+// session until it expires. Orphans are keyed by netguard's own key for the
+// agent session (J5), and a call whose session can never own another call
+// (the empty key of a per-request stateless session) goes to the overflow
+// entry rather than into the table.
 func TestOrphanAttribution(t *testing.T) {
-	sA, sB := &mcp.ServerSession{}, &mcp.ServerSession{}
+	const sA, sB = "sA", "sB"
 	t0 := time.Unix(1_000_000, 0)
 	ttl := time.Minute
 	up := &upstream{name: testServer}
-	callOn := func(ss *mcp.ServerSession) *inflight {
-		return up.begin(context.Background(), call{agent: agentPeer{session: ss}, tool: "t", principal: "p"}, 0)
+	callOn := func(key string) *inflight {
+		return up.begin(context.Background(), call{sessionKey: key, tool: "t", principal: "p"}, 0)
 	}
 
-	if f, err := up.attribute(t0); f != nil || err == nil {
+	if f, err := attributed(up, t0); f != nil || err == nil {
 		t.Fatal("a prompt with no call in flight was attributed")
 	}
 	a := callOn(sA)
-	up.end(a, t0, t0.Add(ttl)) // sA abandons a call
+	up.end(a, t0, t0.Add(ttl)) // sA ends a call
 	b := callOn(sB)
-	if f, err := up.attribute(t0.Add(ttl / 2)); f != nil || !errors.Is(err, errAbandonedElsewhere) {
-		t.Fatalf("sB's call got a prompt while sA's abandoned call may be running: %v, %v", f, err)
+	if f, err := attributed(up, t0.Add(ttl/2)); f != nil || !errors.Is(err, errEndedElsewhere) {
+		t.Fatalf("sB's call got a prompt while sA's ended call may be running: %v, %v", f, err)
 	}
-	if f, err := up.attribute(t0.Add(ttl)); f != b || err != nil {
+	if f, err := attributed(up, t0.Add(ttl)); f != b || err != nil {
 		t.Fatalf("after the orphan expired: %v, %v; want sB's call", f, err)
 	}
 	up.end(b, t0.Add(ttl), time.Time{})
@@ -296,44 +344,104 @@ func TestOrphanAttribution(t *testing.T) {
 	a = callOn(sA)
 	up.end(a, t0, t0.Add(ttl))
 	a2 := callOn(sA)
-	if f, err := up.attribute(t0.Add(time.Second)); f != a2 || err != nil {
+	if f, err := attributed(up, t0.Add(time.Second)); f != a2 || err != nil {
 		t.Fatalf("same session: %v, %v", f, err)
 	}
 	// Two calls in flight are never attributed.
 	b = callOn(sB)
-	if f, _ := up.attribute(t0.Add(time.Second)); f != nil {
+	if f, _ := attributed(up, t0.Add(time.Second)); f != nil {
 		t.Fatal("a prompt was attributed with two calls in flight")
 	}
 	up.end(a2, t0, time.Time{})
 	up.end(b, t0, time.Time{})
 
+	// A session that can never own another call leaves no table entry, and
+	// blocks every session while it is live.
+	up = &upstream{name: testServer}
+	up.end(callOn(""), t0, t0.Add(ttl))
+	if n, _ := orphans(up); n != 0 || !up.orphanOverflow.Equal(t0.Add(ttl)) {
+		t.Fatalf("a per-request session left %d table entries, overflow until %v", n, up.orphanOverflow)
+	}
+	c := callOn(sA)
+	if f, err := attributed(up, t0.Add(ttl/2)); f != nil || !errors.Is(err, errEndedElsewhere) {
+		t.Fatalf("a per-request session's ended call did not block: %v, %v", f, err)
+	}
+	if f, _ := attributed(up, t0.Add(ttl)); f != c {
+		t.Fatal("a per-request session's ended call did not expire")
+	}
+	up.end(c, t0.Add(ttl), time.Time{})
+
 	// Past maxOrphans, the overflow entry stands for every other session.
 	up = &upstream{name: testServer}
-	for range maxOrphans + 1 {
-		f := callOn(&mcp.ServerSession{})
-		up.end(f, t0, t0.Add(ttl))
+	for i := range maxOrphans + 1 {
+		up.end(callOn(fmt.Sprintf("s%d", i)), t0, t0.Add(ttl))
 	}
 	if n, _ := orphans(up); n != maxOrphans || !up.orphanOverflow.Equal(t0.Add(ttl)) {
 		t.Fatalf("%d orphans, overflow until %v", n, up.orphanOverflow)
 	}
-	c := callOn(sA)
+	c = callOn(sA)
 	up.mu.Lock()
 	clear(up.orphans) // only the overflow entry is left
 	up.mu.Unlock()
-	if f, _ := up.attribute(t0.Add(time.Second)); f != nil {
+	if f, _ := attributed(up, t0.Add(time.Second)); f != nil {
 		t.Fatal("the overflow entry did not block attribution")
 	}
-	if f, _ := up.attribute(t0.Add(ttl)); f != c {
+	if f, _ := attributed(up, t0.Add(ttl)); f != c {
 		t.Fatal("the overflow entry did not expire")
 	}
-	// A full table of expired orphans is pruned rather than overflowing.
+	// A full table of expired orphans is pruned rather than overflowing,
+	// and every orphan reaped is reported to the caller, which logs it
+	// (J3, K2).
 	up = &upstream{name: testServer}
-	for range maxOrphans {
-		up.end(callOn(&mcp.ServerSession{}), t0, t0.Add(ttl))
+	for i := range maxOrphans {
+		if reaped := up.end(callOn(fmt.Sprintf("s%d", i)), t0, t0.Add(ttl)); len(reaped) != 0 {
+			t.Fatalf("filling the table reaped %d orphans", len(reaped))
+		}
 	}
-	up.end(callOn(sA), t0.Add(ttl), t0.Add(2*ttl))
+	reaped := up.end(callOn(sA), t0.Add(ttl), t0.Add(2*ttl))
+	if len(reaped) != maxOrphans || reaped[0].principal != "p" {
+		t.Fatalf("%d orphans reaped, first %+v; want %d, principal p", len(reaped), reaped[0], maxOrphans)
+	}
 	if n, _ := orphans(up); n != 1 || !up.orphanOverflow.IsZero() {
 		t.Fatalf("after pruning: %d orphans, overflow %v; want 1 and none", n, up.orphanOverflow)
+	}
+}
+
+// TestAgentSessionKey (J5): the key netguard gives an agent session for the
+// ended-call records. A local agent (stdio, in-memory) is keyed by
+// localAgentKey; a call that arrived over the listener with no session id
+// comes from a per-request session of the stateless era, which can never
+// own another call, and is keyed by the empty key; a stateful session over
+// the listener is keyed by its session id.
+func TestAgentSessionKey(t *testing.T) {
+	stdio := newHarness(t, nil).proxy
+	if got := stdio.agentSessionKey(call{}); got != localAgentKey {
+		t.Errorf("stdio: key %q, want %q", got, localAgentKey)
+	}
+	h := newHTTPHarness(t, httpSetup{upstream: v2025})
+	for _, principal := range []string{"alice", ""} {
+		// Over the listener a call with no session id is a session of its
+		// own, whether or not its principal reached this far.
+		if got := h.proxy.agentSessionKey(call{principal: principal}); got != "" {
+			t.Errorf("listener, principal %q: key %q, want the empty key", principal, got)
+		}
+	}
+	cs := h.connect(t, v2025, tokAlice, nil)
+	if _, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
+		t.Fatal(err)
+	}
+	up := h.proxy.upstreams[testServer]
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	if len(up.orphans) != 1 {
+		t.Fatalf("%d orphans after one call, want 1", len(up.orphans))
+	}
+	for key := range up.orphans {
+		// Tagged, so it can collide with neither the empty key nor
+		// localAgentKey, and never the session itself (J5).
+		if key == "" || key == localAgentKey || !strings.Contains(key, cs.ID()) {
+			t.Fatalf("orphan key %q does not name session %q", key, cs.ID())
+		}
 	}
 }
 
@@ -616,5 +724,166 @@ func TestHTTPSessionAfterClose(t *testing.T) {
 		if resp, _ := h.do(t, h.request(ctx, "POST", tokAlice, hdr, body)); resp.StatusCode != 404 {
 			t.Fatalf("the session opened while closing is still there: status %d", resp.StatusCode)
 		}
+	}
+}
+
+// TestHTTPPromptAfterFinishedCall is J1 in the re-review of PR #72. Alice
+// calls "late", which returns normally; the upstream keeps working and
+// sends elicitation/create for that finished call afterwards, when bob's
+// call is the only one in flight. Before J1 netguard remembered only
+// cancelled calls, so alice's finished call left nothing behind and bob's
+// human was shown alice's prompt. Now every ended call is remembered for
+// OrphanTTL, so the prompt is refused: the upstream gets an error, bob sees
+// only the note on his result, and neither human is prompted.
+func TestHTTPPromptAfterFinishedCall(t *testing.T) {
+	o := newOrphanHooks(t)
+	h := newHTTPHarness(t, httpSetup{upstream: v2025, extra: o.tools})
+	up := h.proxy.upstreams[testServer]
+	alicePrompts := &promptRecorder{answer: "FAKE-alice-yes"}
+	bobPrompts := &promptRecorder{answer: "FAKE-bob-yes"}
+	alice := h.connect(t, v2025, tokAlice, alicePrompts.opts())
+	bob := h.connect(t, v2025, tokBob, bobPrompts.opts())
+
+	res, err := alice.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.late"})
+	if err != nil || res.IsError || !strings.Contains(text(res), "late done") {
+		t.Fatalf("alice's call: %v %q", err, text(res))
+	}
+	waitFor(t, "the proxy to record the finished call", func() bool {
+		n, idle := orphans(up)
+		return n == 1 && idle
+	})
+
+	type out struct {
+		res *mcp.CallToolResult
+		err error
+	}
+	bobDone := make(chan out, 1)
+	go func() {
+		res, err := bob.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.b_work"})
+		bobDone <- out{res, err}
+	}()
+	recvOrFail(t, o.bStarted, "bob's call to reach the upstream")
+
+	o.free()
+	var ans orphanAnswer
+	select {
+	case ans = <-o.answer:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the upstream's prompt was not answered or refused")
+	}
+	if ans.err == nil {
+		t.Fatalf("the upstream got an answer to the prompt of a finished call: %+v", ans.res)
+	}
+	if got := bobPrompts.prompts(); len(got) != 0 {
+		t.Fatalf("bob's human was shown %q: another session's prompt", got)
+	}
+	if got := alicePrompts.prompts(); len(got) != 0 {
+		t.Fatalf("alice was shown %q after her call had returned", got)
+	}
+	o.bRelease <- struct{}{}
+	var b out
+	select {
+	case b = <-bobDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bob's call did not return")
+	}
+	if b.err != nil || b.res.IsError || !strings.Contains(text(b.res), "b done") {
+		t.Fatalf("bob's call: %v %q", b.err, text(b.res))
+	}
+	if !strings.Contains(text(b.res), "another agent session's call on this upstream has ended recently") {
+		t.Fatalf("bob's result lacks the refusal note: %q", text(b.res))
+	}
+	if strings.Contains(text(b.res), orphanPrompt) || strings.Contains(text(b.res), "alice") {
+		t.Fatalf("the refusal note quotes the prompt or names the other principal: %q", text(b.res))
+	}
+}
+
+// TestOrphanTTLSeparateFromIdle is J3: the orphan TTL is its own option
+// with its own, much shorter default, so a 30-minute idle session does not
+// keep an ended call blocking other sessions' prompts for 30 minutes.
+func TestOrphanTTLSeparateFromIdle(t *testing.T) {
+	h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{SessionTimeout: time.Hour}})
+	if got := h.proxy.orphanTTL(); got != defaultOrphanTTL {
+		t.Fatalf("orphan TTL %v with SessionTimeout an hour; want the default %v", got, defaultOrphanTTL)
+	}
+	if defaultOrphanTTL != 5*time.Minute || defaultOrphanTTL >= defaultSessionTimeout {
+		t.Fatalf("the orphan TTL default is %v; want 5 minutes, shorter than the idle timeout %v", defaultOrphanTTL, defaultSessionTimeout)
+	}
+	// On stdio there is no listener, so the same default applies.
+	if got := newHarness(t, nil).proxy.orphanTTL(); got != defaultOrphanTTL {
+		t.Fatalf("stdio orphan TTL %v, want %v", got, defaultOrphanTTL)
+	}
+}
+
+// TestOrphanReapedLogsPrincipal is J3's log: when an ended call stops
+// blocking cross-session attribution, netguard says so at Info and names
+// the principal it was blocking for, never the session id.
+func TestOrphanReapedLogsPrincipal(t *testing.T) {
+	buf := newSyncBuffer()
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	h := newHTTPHarness(t, httpSetup{logger: logger, opts: HTTPOptions{OrphanTTL: 50 * time.Millisecond}})
+	// A stateful agent: its session is in the orphan table, so an entry is
+	// reaped by name. A stateless agent's per-request sessions share the
+	// overflow entry, which names no principal.
+	cs := h.connect(t, v2025, tokAlice, nil)
+	ctx := context.Background()
+	call := func() {
+		t.Helper()
+		if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call()
+	time.Sleep(100 * time.Millisecond) // past the orphan TTL
+	call()                             // its end prunes the first call's record
+	buf.waitFor(t, "no longer blocks prompt attribution")
+	logs := buf.String()
+	if !strings.Contains(logs, "principal=alice") || !strings.Contains(logs, "server=netdev-ssh-mcp") {
+		t.Fatalf("the reap log does not name the principal and the server:\n%s", logs)
+	}
+}
+
+// TestHTTPSessionRegisteredFromResponseHeader is J2: netguard registers the
+// session a session-less POST's response names, without asking whether it
+// initialised, so no session go-sdk kept is left to go-sdk's longer
+// backstop timer alone. A session go-sdk did not keep (a session-less POST
+// that is not an initialise) frees its slot again.
+func TestHTTPSessionRegisteredFromResponseHeader(t *testing.T) {
+	h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{MaxSessions: 1, MaxSessionsPerPrincipal: 1}})
+	ctx := context.Background()
+	hd := h.hh
+
+	// A session-less POST that is not an initialise: go-sdk answers it on a
+	// session whose id the response carries and then closes it, so netguard
+	// keeps nothing and frees the slot.
+	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	hdr := map[string]string{"Mcp-Protocol-Version": v2025}
+	if resp, body := h.do(t, h.request(ctx, "POST", tokAlice, hdr, ping)); resp.StatusCode != 200 {
+		t.Fatalf("session-less ping: status %d, body %q", resp.StatusCode, clip(body))
+	}
+	waitFor(t, "the slot of a session go-sdk did not keep to be freed", func() bool {
+		hd.mu.Lock()
+		defer hd.mu.Unlock()
+		return hd.sessions == 0 && len(hd.live) == 0
+	})
+
+	// An initialise: the response names the session, go-sdk keeps it, and
+	// netguard registers it under that id with its own idle clock.
+	cs := h.connect(t, v2025, tokAlice, nil)
+	hd.mu.Lock()
+	ls := hd.live[cs.ID()]
+	sessions := hd.sessions
+	hd.mu.Unlock()
+	if ls == nil || sessions != 1 {
+		t.Fatalf("live entry %v, %d sessions; want the session registered", ls, sessions)
+	}
+	if ls.principal != "alice" {
+		t.Fatalf("live session principal %q, want alice", ls.principal)
+	}
+	ls.mu.Lock()
+	armed := ls.timer != nil && !ls.stopped
+	ls.mu.Unlock()
+	if !armed {
+		t.Fatal("the registered session has no idle clock")
 	}
 }

@@ -96,11 +96,14 @@ type upstream struct {
 	mu       sync.Mutex
 	calls    map[*inflight]struct{}    // calls in flight, for elicitation/create
 	progress map[string]*progressRelay // by netguard's progress token (progress.go)
-	// orphans are the agent sessions whose calls ended without an upstream
-	// response (cancelled by the agent, a dropped POST or netguard) while
-	// the upstream may still be working on them, each until its expiry;
-	// orphanOverflow stands for every session past maxOrphans (input.go).
-	orphans        map[*mcp.ServerSession]orphan
+	// orphans are the agent sessions that have ended a call on this
+	// upstream, which may still be working on it, each until its expiry.
+	// They are keyed by netguard's own key for the agent session
+	// (agentSessionKey), never by the session itself, which would keep a
+	// closed session alive for the whole TTL. orphanOverflow stands for
+	// every session past maxOrphans and for every session that can never
+	// own another call (input.go).
+	orphans        map[string]orphan
 	orphanOverflow time.Time
 }
 
@@ -480,6 +483,10 @@ type call struct {
 	// attribution only, for the M4 audit line and (T0.30) the sealed
 	// requestState: never an approver identity (invariant 6).
 	principal string
+	// sessionKey is netguard's own key for the agent session behind the
+	// call, used to attribute a stateful upstream's prompt (input.go). The
+	// tool handler sets it from Proxy.agentSessionKey.
+	sessionKey string
 
 	// An MRTR retry from a stateless agent: its answers and the
 	// requestState netguard issued. Both are empty on a first call.
@@ -493,6 +500,7 @@ type call struct {
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		c, ignored := newCall(r, req)
+		c.sessionKey = p.agentSessionKey(c)
 		if ignored > 0 {
 			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
 		}
@@ -589,31 +597,29 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		up.watchProgress(pr)
 		params.SetProgressToken(pr.upToken)
 	}
-	// abandoned is set when the call ends with no upstream response
-	// because its context was cancelled: the upstream may still be working
-	// on it, and may yet send a prompt for it (H1 in the review of PR #68).
-	abandoned := false
 	// One deferred function, so the order is explicit: the call leaves the
-	// upstream's in-flight set first (as an orphan if abandoned, in the same
-	// step, so no prompt can find the upstream with neither), and only then
-	// waits (up to progressWait) for its progress to reach the agent. The
-	// other way round (T1 in the review of PR #63), a stalled agent kept a
-	// stale entry there for that long, and a stateful upstream's prompt for
-	// another agent's call was refused as unattributable in the meantime.
+	// upstream's in-flight set first (and becomes an orphan of its agent
+	// session in the same step, so no prompt can find the upstream with
+	// neither), and only then waits (up to progressWait) for its progress to
+	// reach the agent. The other way round (T1 in the review of PR #63), a
+	// stalled agent kept a stale entry there for that long, and a stateful
+	// upstream's prompt for another agent's call was refused as
+	// unattributable in the meantime.
+	//
+	// Every call that ends becomes an orphan, whether it was cancelled or
+	// the upstream answered it: the upstream may have left a job running, or
+	// go-sdk may dispatch a prompt the upstream sent just before its result
+	// after that result, and either way the prompt must not reach another
+	// agent session's human (J1 in the re-review of PR #72).
 	defer func() {
 		now := p.now()
-		var orphanUntil time.Time
-		if abandoned {
-			orphanUntil = now.Add(p.orphanTTL())
-		}
-		up.end(f, now, orphanUntil)
+		p.logReaped(up, up.end(f, now, now.Add(p.orphanTTL())))
 		up.unwatchProgress(pr) // no-op when pr is nil
 	}()
 	for ; ; round++ {
 		res, err := up.session.CallTool(ctx, params)
 		own, note := up.refusalsFor(f)
 		if err != nil {
-			abandoned = ctx.Err() != nil
 			if own != nil && ctx.Err() == nil {
 				// The upstream failed after netguard refused this call's own
 				// prompt: the refusal is the reason, so say that instead.
@@ -680,14 +686,18 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	}
 }
 
-// orphanTTL is how long an abandoned call keeps blocking cross-session
-// prompt attribution: the HTTP listener's SessionTimeout, or its default on
-// stdio (where one agent session owns the process, so it never blocks).
+// orphanTTL is how long a call that has ended keeps blocking cross-session
+// prompt attribution: the HTTP listener's OrphanTTL, or its default on
+// stdio (where one agent session owns the process, so it never blocks). It
+// is deliberately much shorter than the listener's idle SessionTimeout: an
+// orphan refuses prompts to other agent sessions, so it must expire soon
+// after the upstream could still be working on the call (J3 in the
+// re-review of PR #72).
 func (p *Proxy) orphanTTL() time.Duration {
 	if l := p.limits.Load(); l != nil && l.orphanTTL > 0 {
 		return l.orphanTTL
 	}
-	return defaultSessionTimeout
+	return defaultOrphanTTL
 }
 
 // callFailed maps a failed upstream call to what the agent sees.

@@ -36,10 +36,47 @@ const (
 	// maxPromptsPerCall caps the prompts one call may put to the human,
 	// across every path and every MRTR round.
 	maxPromptsPerCall = 10
-	// maxOrphans caps the agent sessions an upstream remembers abandoned
-	// calls for; past it, one overflow entry stands for all the others.
+	// maxOrphans caps the agent sessions an upstream remembers ended calls
+	// for; past it, one overflow entry stands for all the others.
 	maxOrphans = 1024
 )
+
+// localAgentKey is the attribution key of the local agent session: stdio
+// (and the in-memory transport in tests), where one agent session owns the
+// process (ADR 0012), so every call on it is the same session's.
+const localAgentKey = "local"
+
+// agentSessionKey is the id netguard gives the agent session behind a call,
+// for the ended-call records an upstream keeps (J5 in the re-review of
+// PR #72). Those records outlive the sessions they name, so they hold an id
+// and never a *mcp.ServerSession, which would keep a closed session, and
+// everything it references, alive for the whole TTL.
+//
+//   - A stateful session over the HTTP listener has a session id, unique for
+//     all time (go-sdk generates 130 random bits and netguard never reuses
+//     one); that id, tagged, is the key.
+//   - A session with no id, where the proxy has an HTTP listener, is a
+//     per-request session of the stateless era. Such a session serves exactly
+//     one request, so it can never own another call: its key is empty and its
+//     record goes to the shared bucket (upstream.orphanOverflow), which is
+//     foreign to every later call.
+//   - Everything else is the local agent (stdio, in-memory), which has no
+//     session id and one session per process.
+//
+// The listener is recognised from the proxy, not only from the call's
+// principal, so a call that somehow reached it unauthenticated would be
+// keyed as its own session rather than grouped with the local agent's.
+func (p *Proxy) agentSessionKey(c call) string {
+	if ss := c.agent.session; ss != nil {
+		if id := ss.ID(); id != "" {
+			return "s" + id
+		}
+	}
+	if c.principal != "" || p.limits.Load() != nil {
+		return ""
+	}
+	return localAgentKey
+}
 
 // promptLabel is the origin label every upstream prompt carries. Server
 // names cannot be "netguard" (ValidateServerName), so no upstream can wear
@@ -266,14 +303,15 @@ func (p *Proxy) askAgent(ctx context.Context, c call, f *inflight, reqs mcp.Inpu
 // inflight is one call open on an upstream. A stateful upstream's
 // elicitation/create names no call, so the proxy attributes it to the only
 // call in flight on that upstream, and refuses it when there is not exactly
-// one, or when a call another agent session abandoned may still be running
-// upstream (attribute). All fields after principal are guarded by
-// upstream.mu.
+// one, or when another agent session's call on that upstream has ended
+// recently and the upstream may still be working on it (attribute). All
+// fields after sessionKey are guarded by upstream.mu.
 type inflight struct {
-	ctx       context.Context // the agent's request context
-	agent     agentPeer
-	tool      string
-	principal string // attribution only (call.principal)
+	ctx        context.Context // the agent's request context
+	agent      agentPeer
+	tool       string
+	principal  string // attribution only (call.principal)
+	sessionKey string // the agent session, for attribution (agentSessionKey)
 
 	// refused is netguard's refusal of this call's own prompt. The upstream
 	// may fail the call because of it, so it may replace an upstream error.
@@ -293,7 +331,7 @@ type inflight struct {
 // begin registers a call as in flight on u, with the prompts an earlier
 // round of the same call already put to the human.
 func (u *upstream) begin(ctx context.Context, c call, prompts int) *inflight {
-	f := &inflight{ctx: ctx, agent: c.agent, tool: c.tool, principal: c.principal, prompts: prompts}
+	f := &inflight{ctx: ctx, agent: c.agent, tool: c.tool, principal: c.principal, sessionKey: c.sessionKey, prompts: prompts}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.calls == nil {
@@ -303,45 +341,58 @@ func (u *upstream) begin(ctx context.Context, c call, prompts int) *inflight {
 	return f
 }
 
-// orphan is what an upstream remembers of the calls one agent session
-// abandoned: a call that ended with no upstream response because it was
-// cancelled (by the agent, a dropped POST, a deleted or expired session, or
-// netguard shutting down). go-sdk returns from such a call at once and
-// sends notifications/cancelled, but the upstream may ignore that, keep
-// working and later ask for input for it. Until expires, such a prompt may
-// belong to this session, so it is never put to another (H1 in the review
-// of PR #68).
+// orphan is what an upstream remembers of a call one agent session made
+// that has ended. The upstream may still be working on it: netguard cannot
+// tell, whether the call was cancelled (by the agent, a dropped POST, a
+// deleted or expired session, or netguard shutting down, after which go-sdk
+// returns at once and sends notifications/cancelled, which the upstream may
+// ignore) or answered (the upstream may have left a job running, and go-sdk
+// can dispatch a result before a prompt the upstream sent just before it).
+// So every ended call is remembered, not only a cancelled one (J1 in the
+// re-review of PR #72, widening H1 in the review of PR #68). Until expires,
+// a prompt may belong to that session, so it is never put to another.
 type orphan struct {
 	principal string // attribution only, for the log
 	expires   time.Time
 }
 
-// end removes f from the calls in flight at now. A non-zero orphanUntil records
-// f's agent session as having abandoned a call on u until then, in the same
-// critical section, so no prompt finds f gone and its orphan not yet there.
-func (u *upstream) end(f *inflight, now, orphanUntil time.Time) {
+// end removes f from the calls in flight at now and, when expires is after
+// now, records f's agent session as having ended a call on u until then, in
+// the same critical section, so no prompt finds f gone and its orphan not
+// yet there. It also forgets the orphans that have expired by now (K2 in
+// the re-review of PR #72) and returns them, so the caller can log them
+// outside the lock.
+//
+// A call whose agent session can never own another call (a per-request
+// session of the stateless era: agentSessionKey returns "") is remembered
+// in the shared bucket, which is foreign to every later call, so a busy
+// stateless agent adds no entries to the table.
+func (u *upstream) end(f *inflight, now, expires time.Time) []orphan {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	delete(u.calls, f)
-	if orphanUntil.IsZero() {
-		return
+	reaped := u.pruneOrphans(now)
+	if !now.Before(expires) {
+		return reaped
 	}
-	ss := f.agent.session
+	key := f.sessionKey
+	if key == "" {
+		u.orphanOverflow = later(u.orphanOverflow, expires)
+		return reaped
+	}
 	if u.orphans == nil {
-		u.orphans = make(map[*mcp.ServerSession]orphan)
+		u.orphans = make(map[string]orphan)
 	}
-	if o, ok := u.orphans[ss]; ok {
-		u.orphans[ss] = orphan{principal: f.principal, expires: later(o.expires, orphanUntil)}
-		return
-	}
-	if len(u.orphans) >= maxOrphans {
-		u.pruneOrphans(now)
+	if o, ok := u.orphans[key]; ok {
+		u.orphans[key] = orphan{principal: f.principal, expires: later(o.expires, expires)}
+		return reaped
 	}
 	if len(u.orphans) >= maxOrphans {
-		u.orphanOverflow = later(u.orphanOverflow, orphanUntil)
-		return
+		u.orphanOverflow = later(u.orphanOverflow, expires)
+		return reaped
 	}
-	u.orphans[ss] = orphan{principal: f.principal, expires: orphanUntil}
+	u.orphans[key] = orphan{principal: f.principal, expires: expires}
+	return reaped
 }
 
 // later returns the later of a and b.
@@ -352,13 +403,24 @@ func later(a, b time.Time) time.Time {
 	return b
 }
 
-// pruneOrphans forgets orphans that have expired by now. Callers hold mu.
-func (u *upstream) pruneOrphans(now time.Time) {
-	for ss, o := range u.orphans {
+// pruneOrphans forgets the orphans that have expired by now and returns
+// them. Callers hold mu.
+func (u *upstream) pruneOrphans(now time.Time) []orphan {
+	var reaped []orphan
+	for key, o := range u.orphans {
 		if !now.Before(o.expires) {
-			delete(u.orphans, ss)
+			reaped = append(reaped, o)
+			delete(u.orphans, key)
 		}
 	}
+	return reaped
+}
+
+// prune forgets the orphans that have expired by now and returns them.
+func (u *upstream) prune(now time.Time) []orphan {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.pruneOrphans(now)
 }
 
 // refusalsFor reads f's own refusal and its unattributed note.
@@ -368,38 +430,66 @@ func (u *upstream) refusalsFor(f *inflight) (own, note *refusal) {
 	return f.refused, f.note
 }
 
-// attribute returns the call a stateful upstream's elicitation/create
-// belongs to, or nil and the reason it cannot be attributed. The request
+// attribute reports the call a stateful upstream's elicitation/create may
+// be relayed to, or the reason it may not be. The request
 // names no call, so it is attributed only when every call that could have
 // sent it belongs to one agent session: exactly one call in flight on u,
-// and every live orphan on u (a call abandoned while the upstream may still
-// be working on it) left by that call's session. Anything else is refused
-// rather than risk putting one agent session's prompt to another's human,
-// whose answer would then go back as the answer to the first's (H1 in the
-// review of PR #68). A stateless agent's requests each have a session of
-// their own, so its orphan blocks every other call until it expires.
-func (u *upstream) attribute(now time.Time) (*inflight, error) {
+// and every live orphan on u (a call that has ended while the upstream may
+// still be working on it) left by that call's session. Anything else is
+// refused rather than risk putting one agent session's prompt to another's
+// human, whose answer would then go back as the answer to the first's (H1
+// in the review of PR #68, widened by J1 in the re-review of PR #72: a
+// prompt is refused even when the call it could belong to ended normally).
+// A stateless agent's requests each have a session of their own, so each of
+// its ended calls blocks every other call until it expires.
+//
+// It reads the orphans without pruning them, so it can run under a clock
+// the caller chooses; end prunes.
+func (u *upstream) attribute(now time.Time) attribution {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if len(u.calls) != 1 {
-		return nil, fmt.Errorf("it cannot be attributed to one call (%d in flight)", len(u.calls))
+		return attribution{err: fmt.Errorf("it cannot be attributed to one call (%d in flight)", len(u.calls))}
 	}
 	var f *inflight
 	for c := range u.calls {
 		f = c
 	}
-	u.pruneOrphans(now)
 	foreign := now.Before(u.orphanOverflow)
-	for ss := range u.orphans {
-		if ss == nil || ss != f.agent.session {
+	for key, o := range u.orphans {
+		if now.Before(o.expires) && key != f.sessionKey {
 			foreign = true
 			break
 		}
 	}
 	if foreign {
-		return nil, errAbandonedElsewhere
+		return attribution{sole: f, err: errEndedElsewhere}
 	}
-	return f, nil
+	return attribution{sole: f}
+}
+
+// attribution is what attribute found. A prompt may be relayed only when
+// err is nil, and then to sole. sole is also set when there is exactly one
+// call in flight but the orphan rule refuses it: the caller may word its
+// refusal from that call, and must not relay anything to it.
+type attribution struct {
+	sole *inflight
+	err  error
+}
+
+// promptable reports why f's agent cannot be shown any prompt from this
+// upstream, or nil when it can.
+func promptable(f *inflight) error {
+	switch {
+	case f.agent.stateless():
+		// ADR 0014 (accepted): converting this into input_required would
+		// mean holding the upstream call open across agent requests;
+		// deferred to matrix row 17.
+		return errStatelessClient
+	case !f.agent.canElicit:
+		return errNoFormElicitation
+	}
+	return nil
 }
 
 // promptsSoFar is the number of prompts f has put to the human.
@@ -429,6 +519,17 @@ func (u *upstream) endPrompt(f *inflight) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	f.prompting = false
+}
+
+// logReaped logs the orphans an upstream has just forgotten, naming the
+// principal each of them was blocking cross-session attribution for (J3 in
+// the re-review of PR #72). It is Info: an operator who saw a refused
+// prompt needs to see when the block lifted.
+func (p *Proxy) logReaped(u *upstream, reaped []orphan) {
+	for _, o := range reaped {
+		p.logger.Info("an ended call no longer blocks prompt attribution on this upstream",
+			"server", u.name, "principal", o.principal)
+	}
 }
 
 // refuse records r against f, or, when the request could not be attributed
@@ -472,18 +573,37 @@ func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResu
 // the call cancels the prompt.
 func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 	return func(upCtx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-		f, why := u.attribute(p.now())
-		if f == nil {
-			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", why))
+		now := p.now()
+		p.logReaped(u, u.prune(now))
+		at := u.attribute(now)
+		if at.err != nil {
+			// When one call is in flight but the orphan rule refuses it,
+			// and its agent could not have been shown any prompt anyway,
+			// say that instead: nothing crosses to a human either way, and
+			// "this client cannot take a server-initiated prompt" is the
+			// answer the upstream and the agent can act on (ADR 0014).
+			//
+			// This ordering is deliberate (T0.40, accepted by the
+			// orchestrator). Since J1 remembers every call that ends, a
+			// stateless agent's earlier request leaves a live orphan on
+			// almost every upstream it touches, so without this the
+			// documented ADR 0014 refusal would be replaced by the
+			// attribution refusal for practically every 2026-era agent, and
+			// the era_pairs conformance check (a 2026 agent against a 2025
+			// upstream) would read the wrong text. The prompt is refused
+			// either way; only the reason differs. The refusal is recorded
+			// against that call because it is the only call that could have
+			// received the prompt at all.
+			if s := at.sole; s != nil {
+				if err := promptable(s); err != nil {
+					return nil, p.refuse(u, s, newRefusal(u.name, s.tool, "elicitation", err))
+				}
+			}
+			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", at.err))
 		}
-		switch {
-		case f.agent.stateless():
-			// ADR 0014 (accepted): converting this into input_required
-			// would mean holding the upstream call open across agent
-			// requests; deferred to matrix row 17.
-			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errStatelessClient))
-		case !f.agent.canElicit:
-			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errNoFormElicitation))
+		f := at.sole
+		if err := promptable(f); err != nil {
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", err))
 		}
 		var ep *mcp.ElicitParams
 		if req != nil {
@@ -526,7 +646,7 @@ var (
 	// both the upstream and the agent.
 	errStatelessClient = errors.New("this client speaks the stateless era (2026-07-28) and cannot receive a server-initiated prompt; see ADR 0014")
 	errTooManyPrompts  = fmt.Errorf("more than %d prompts in one call", maxPromptsPerCall)
-	// errAbandonedElsewhere names no session or principal: the text reaches
+	// errEndedElsewhere names no session or principal: the text reaches
 	// the upstream and every agent with a call in flight on it.
-	errAbandonedElsewhere = errors.New("it cannot be attributed to one call: a call another agent session abandoned may still be running on this upstream")
+	errEndedElsewhere = errors.New("it cannot be attributed to one call: another agent session's call on this upstream has ended recently and the upstream may still be working on it")
 )
