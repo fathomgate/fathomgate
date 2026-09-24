@@ -72,7 +72,9 @@ const (
 // transport write that ignores cancellation (go-sdk's stdio and in-memory
 // transports check the context only before writing) returns when the agent
 // reads again or its connection closes, so a sender can outlive its call by
-// that long, and never more than one per call.
+// that long, and never more than one per call. Over Streamable HTTP every
+// write has a deadline (HTTPOptions.WriteTimeout, http.go), so a stuck
+// write fails within it and the sender exits.
 type progressRelay struct {
 	server     string
 	upToken    string // netguard's token, as sent to the upstream
@@ -232,10 +234,26 @@ func (r *progressRelay) run() {
 // the queue, nothing more is accepted, and finish waits up to finalWait for
 // the sender to write what is queued, so the call's result follows it. If
 // the agent has not read it all by then, the rest of the queue is dropped
-// and the sender starts no further write. A write already in progress holds
-// the agent transport's write lock, so the result, written next by go-sdk,
-// still comes after it. The caller has already removed the relay from its
-// upstream, so no new notification can find it.
+// and the sender starts no further write. The caller has already removed the
+// relay from its upstream, so no new notification can find it.
+//
+// Ordering after a give-up (T2 in the review of PR #63). A write already in
+// progress holds the agent transport's write lock, so the result, written
+// next by go-sdk, comes after it. That does not cover a sender that has
+// taken a notification off the queue but is still waiting for the write
+// lock when finish gives up: the result can take the lock first, and the
+// notification is then written after it.
+//   - On stdio this is accepted: the agent can receive at most one progress
+//     notification for a token whose call has already returned, which the
+//     MCP spec lets it ignore.
+//   - On Streamable HTTP it cannot happen: go-sdk removes the request's
+//     stream mapping when it writes the result, and closes the stream before
+//     releasing the stream's lock, so the late write is refused ("write to
+//     closed stream", or "stream not connected or already closed";
+//     streamableServerConn.Write and stream.deliverLocked in go-sdk v1.8
+//     mcp/streamable.go). It is never sent to the standalone stream either.
+//     TestHTTPProgressNeverFollowsResult pins this, so a go-sdk upgrade that
+//     changes the routing fails CI.
 func (r *progressRelay) finish() {
 	defer r.cancelSend()
 	r.mu.Lock()

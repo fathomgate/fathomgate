@@ -28,6 +28,14 @@
 // upstream's dispatch (progress.go, T0.28). The normative rules are in docs/specs/profile-schema.md
 // section 8.4.
 //
+// Streamable HTTP toward the agent (T0.27, ADR 0016): [Proxy.HTTPHandler]
+// serves /mcp for both eras through two go-sdk handlers (stateful and
+// stateless) behind a dispatcher, after a Host check, an Origin refusal and
+// bearer-token authentication, with caps on POSTs, stateful sessions and
+// tool calls per session and per principal, and a deadline on every write
+// to the agent (http.go, calls.go; profile-schema section 8.5). A principal
+// is attribution only, never an approver.
+//
 // Everything read from an upstream (tool names, descriptions, schemas,
 // annotations, results, error messages) is untrusted data. Names outside the
 // MCP character set are refused; everything else passes through unchanged
