@@ -346,7 +346,7 @@ tasks:
     matrix: []
     notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR. Folded into T0.38. Merged with T0.38 in PR #72.'
   - id: T0.38
-    title: Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)
+    title: 'Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)'
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
@@ -360,17 +360,26 @@ tasks:
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: in progress
+    adr: "0018"
     matrix: [2]
-    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. Needs an ADR first (it changes the negotiation in ADR 0008). Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed.'
+    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. ADR 0018 accepted by the maintainer 2026-09-24 (PR #74), so code may open. It bounds the first Connect at 5 s, retries only on deadline exceeded, kills and respawns the upstream, and reconnects with ClientSessionOptions.ProtocolVersion 2025-11-25 so go-sdk goes straight to initialize, with one warn line and no CLI flag in M0. ADR 0018 supersedes nothing; it amends ADR 0008 and ADR 0012 by dated cross-reference. It also forces the Upstream shape in ADR 0012''s API list to change, because restarting needs something that builds a transport more than once and an mcp.CommandTransport holds one exec.Cmd: the owning task picks the shape and records it in ADR 0012 and profile-schema 8.3 when the code lands. Update profile-schema 8.3 and 8.4 in the same PR. Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed, and matrix row 2 loses its T0.39 caveat (T0.41).'
   - id: T0.40
-    title: Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text)
+    title: 'Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text)'
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     adr: "0016"
     matrix: [23]
-    notes: 'J1 (medium) a stateful prompt sent after its call finished normally (background job, or result-before-prompt dispatch race in go-sdk) still reaches another session''s human: track every ended call per session, not only cancelled ones. J2 register liveSession when a session-less POST''s response carries Mcp-Session-Id; go-sdk backstop timer longer than netguard''s. J3 separate shorter orphan TTL (default 5 min, orchestrator recommendation pending maintainer confirmation), Info log naming the blocking principal, threat-model row accepted. J5 key orphans by a netguard-assigned session id, not the pointer. J6 ADR 0016 principal text amendment. K2 prune orphans in end(); K3 comment on real-time idle clock; K4 single MCPGODEBUG refusal text. J4 (shutdown grace) stays in T0.31. Held for re-review. Blocks T0.30 and T0.31.'
+    notes: 'J1 (medium) a stateful prompt sent after its call finished normally (background job, or result-before-prompt dispatch race in go-sdk) still reaches another session''s human: track every ended call per session, not only cancelled ones. J2 register liveSession when a session-less POST''s response carries Mcp-Session-Id; go-sdk backstop timer longer than netguard''s. J3 separate shorter orphan TTL (default 5 min, orchestrator recommendation pending maintainer confirmation), Info log naming the blocking principal, threat-model row accepted. J5 key orphans by a netguard-assigned session id, not the pointer. J6 ADR 0016 principal text amendment. K2 prune orphans in end(); K3 comment on real-time idle clock; K4 single MCPGODEBUG refusal text. J4 (shutdown grace) stays in T0.31. Merged in PR #75 2026-09-24, before its security review: post-merge security review pending (handoff 2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.40). ADR 0016 gains three amendment rows: J6 principal text, HTTPOptions.OrphanTTL default 5 min, and proxy.ErrMCPGODEBUG. Orchestrator ruling 2026-09-24: that export-surface growth stays an in-place amendment of ADR 0016, which owns the surface, not a new record, because 0016''s decision (one exported entry point; limits as constants, not flags) is unchanged and its own 2026-09-23 row set the precedent with MaxSessionsPerPrincipal; the K4 row now says the one-export framing reads as one entry point plus its options type, its path constant and one sentinel error. The 5-minute orphan TTL is still the orchestrator recommendation, not a maintainer decision. No longer blocks T0.30 and T0.31.'
+  - id: T0.41
+    title: Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG
+    package: docs/testing
+    owner: test-engineer
+    reviewers: [docs-writer]
+    state: open
+    matrix: [2]
+    notes: 'Found by docs-writer while writing ADR 0018. Row 2 says three different things: its Status cell reads passing, its own prose ends "so the row stays open", and the CHANGELOG entry for T0.34 says row 2 stays planned. The legend at test-matrix.md line 3 allows only planned, passing and skipped, so "open" is not a status word at all. This matters because M0 exit criterion 3 is ticked as met and cites row 2. Orchestrator reading, to confirm or overturn rather than to apply blind: the tick is sound, because the criterion names the 2025-11-25 and 2026-07-28 eras and the failing case is a 2024-11-05 lockfile, which is neither and is tracked as T0.39; on that reading the cell stays passing and the prose should say the 2024-11-05 case falls outside the criterion instead of saying the row is open. Pick one word, make the cell, the prose and the CHANGELOG agree, and do not invent a fourth status. Row 2 loses its T0.39 caveat when T0.39 lands, so sequence this after T0.39 or write it to survive that.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

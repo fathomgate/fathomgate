@@ -50,3 +50,11 @@ Conformance was green on all four legs, both revisions, no baseline entry change
 1. Is 5 minutes the right bound, given that J1 makes every ordinary call end block cross-session prompts, or should the TTL for a call the upstream *answered* be shorter than for one that was cancelled?
 2. Is the ADR 0014 exception (look-at-this-first #2) acceptable, or should an orphan-refused prompt always carry the unattributed wording?
 3. `localAgentKey` assumes one stdio agent session per process (ADR 0012). Is that assumption worth enforcing in code (refuse a second agent session on a stdio proxy) rather than documenting?
+
+## Resolved after this note was written (orchestrator, 2026-09-24)
+
+The export-surface question above is answered: **no new ADR**. The growth stays an in-place amendment of ADR 0016, because that record owns the surface, its decision (one exported entry point; limits as constants, not flags) is unchanged, and its own 2026-09-23 row set the precedent by recording `MaxSessionsPerPrincipal` the same way. The K4 amendment row on `main` now says the "one export" framing reads as one entry point plus its options type, its path constant and one sentinel error, so the earlier row's closed list of three cannot mislead. This differs from the ADR 0012 and 0008 cross-references to ADR 0018 because there a separate record already existed to carry the change; here the growth is internal to the surface ADR 0016 itself owns.
+
+Question 1 above (is 5 minutes right) is still open and is the maintainer's, not the reviewer's, to settle. The reviewer should say whether the bound is *safe*, not whether it is convenient.
+
+PR #75 merged at 2026-09-24 14:37Z as `6a00fc3`, before this security review ran. The review is therefore **post-merge**; a finding becomes a new board task, not a change request on a closed PR.
