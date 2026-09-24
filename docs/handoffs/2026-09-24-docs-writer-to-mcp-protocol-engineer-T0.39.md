@@ -11,6 +11,7 @@
 - `docs/adr/0018-bound-server-discover-then-initialize-only.md`, status `proposed`: bound go-sdk's `server/discover` probe at 5 seconds; on a deadline, restart the upstream and connect again with `&mcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"}` so go-sdk skips the probe; one `warn` line; the second attempt is the last; no CLI flag and no profile field in M0.
 - Index row in `docs/adr/README.md`.
 - The record amends [ADR 0008](../adr/0008-dual-era-mcp-support.md) and the profile-schema 8.4 bullet "Upstream, once at connect", and names the `proxy.Upstream` change that [ADR 0012](../adr/0012-serve-cli-and-proxy-api-for-m0.md)'s API list will need.
+- Dated `Amendments` cross-reference rows in ADR 0012 and ADR 0008 (orchestrator ruling, 2026-09-24): both stay `accepted`, neither is superseded, and ADR 0018 says so in its Decision section, citing GOVERNANCE.md line 28.
 - Four alternatives closed, two recorded as open: a flag or per-upstream field to force the era, and the upstream fix in go-sdk and the Python SDK (the T0.36 path).
 
 ## Look at this first

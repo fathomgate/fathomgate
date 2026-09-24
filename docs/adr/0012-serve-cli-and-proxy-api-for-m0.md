@@ -54,6 +54,14 @@ We will ship `netguard serve --server <name> --upstream <path> [--upstream-env K
 | Export `(*Proxy).Tools()` | Only tests and one log line used it; the tool count is now logged by `New` itself. |
 | A YAML config file now | New schema and spec for one upstream with three settings; revisit when M1 adds policy and inventory. |
 
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-24 | Pointer, not a new shape: the `Upstream{Server, Transport}` shape in this record's API list is changed by [ADR 0018](0018-bound-server-discover-then-initialize-only.md). Restarting an upstream needs something that can build a transport more than once, and an `mcp.CommandTransport` holds one `exec.Cmd`, which cannot be started twice. The new shape is not written here: the owning task chooses it and records it when the code lands | ADR 0018 (T0.39) changes one clause of this record, not the whole of it, so this record stays `accepted` and a reader who lands here first is not left with a stale API list |
+
 ## References
 
 - [ADR 0002, standalone proxy](0002-standalone-proxy-not-gateway-plugin.md)
