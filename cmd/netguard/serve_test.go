@@ -24,7 +24,7 @@ func TestParseServe(t *testing.T) {
 		{name: "repeated upstream-env", args: with("--upstream-env", "A=1", "--upstream-env", "B=x=y"), wantEnv: []string{"A=1", "B=x=y"}},
 		{name: "upstream-env empty value", args: with("--upstream-env", "A="), wantEnv: []string{"A="}},
 		{name: "upstream-env no equals", args: with("--upstream-env", "NOEQUALS"), wantErr: "--upstream-env argument 1 is not KEY=VALUE"},
-		{name: "upstream-env empty key", args: with("--upstream-env", "=v"), wantErr: `--upstream-env "": key must match`},
+		{name: "upstream-env empty key", args: with("--upstream-env", "=v"), wantErr: "--upstream-env argument 1: key must match"},
 		{name: "upstream-env underscore key", args: with("--upstream-env", "_A1=v"), wantEnv: []string{"_A1=v"}},
 		{name: "upstream-env digit first", args: with("--upstream-env", "1A=v"), wantErr: "[A-Za-z_]"},
 		{name: "upstream-env dash in key", args: with("--upstream-env", "A-B=v"), wantErr: "[A-Za-z_]"},
@@ -34,19 +34,19 @@ func TestParseServe(t *testing.T) {
 		{name: "empty upstream", args: []string{"--server", "s", "--upstream", ""}, wantErr: "required"},
 		{name: "blank upstream", args: []string{"--server", "s", "--upstream", "  "}, wantErr: "not an executable path"},
 		{name: "upstream is --", args: []string{"--server", "s", "--upstream", "--"}, wantErr: "not an executable path"},
-		{name: "positional without --", args: with("extra"), wantErr: `unexpected argument "extra"`},
+		{name: "positional without --", args: with("extra"), wantErr: "unexpected argument 5; arguments for the upstream go after --"},
 		{name: "reserved --policy", args: with("--policy", "p.yaml"), wantErr: "--policy"},
 		{name: "reserved -audit=x", args: with("-audit=a.jsonl"), wantErr: "--audit"},
 		{name: "reserved flags listed together", args: with("--inventory", "i", "--profiles", "p"), wantErr: "--inventory, --profiles"},
 		// S1: the flag parser stops at "extra", so --policy is not parsed as a flag.
 		{name: "reserved after a positional", args: with("extra", "--policy", "p.yaml"), wantErr: "--policy"},
-		{name: "reserved after --", args: with("--", "--policy=p.yaml"), wantErr: "--policy=p.yaml"},
+		{name: "reserved after --", args: with("--", "--policy=p.yaml"), wantErr: "--policy not enforced"},
 		{name: "missing upstream", args: []string{"--server", "s"}, wantErr: "required"},
 		{name: "missing server", args: []string{"--upstream", "x"}, wantErr: "required"},
 		{name: "dotted server", args: []string{"--server", "net.dev", "--upstream", "x"}, wantErr: "--server"},
 		{name: "server with space", args: []string{"--server", "net dev", "--upstream", "x"}, wantErr: "--server"},
 		{name: "reserved server name", args: []string{"--server", "NetGuard", "--upstream", "x"}, wantErr: "reserved"},
-		{name: "unknown flag", args: with("--bogus"), wantErr: "bogus"},
+		{name: "unknown flag", args: with("--bogus"), wantErr: "unknown flag at argument 5"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

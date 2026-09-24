@@ -88,11 +88,12 @@ exits with status 2 and names the variable, never its value):
 
 netguard also removes the value from what the upstream prints on stderr:
 if the upstream logs the password, the line shows
-`[redacted:DEVICE_PASSWORD]` instead. This covers the exact value and the
-value inside a quoted string (Go `%q`, JSON). A value shorter than 4 bytes
-is not removed, because it would match too much ordinary text.
-Do not rely on this for anything but the upstream's stderr: a tool result
-that contains the password still reaches the client.
+`[redacted:DEVICE_PASSWORD]` instead. The same goes for an error message
+the upstream sends back to the client. This covers the exact value and the
+common ways a log writes it (quoted as in Go or JSON, percent-encoded,
+Python escapes). A value shorter than 4 bytes is not removed, because it
+would match too much ordinary text. Do not rely on this for anything else:
+a tool result that contains the password still reaches the client.
 
 The password is still in the client's config file, in the `env` block
 instead of the arguments. So:

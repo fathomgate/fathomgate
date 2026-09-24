@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/joshscott13/netguard/internal/proxy"
 )
 
 // serveCanary is a --upstream-env-pass value that must never appear in
@@ -106,14 +108,26 @@ func TestParseServeEnvPass(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(cfg.upstreamEnv, tc.wantEnv) {
-				t.Errorf("upstream env %q, want %q", cfg.upstreamEnv, tc.wantEnv)
+			// What the child gets after the allow-list: the passed
+			// variables, then --upstream-env, as proxy.Command builds it.
+			child := proxy.Command{Path: "x", Env: cfg.upstreamEnv, Secrets: cfg.secrets}.Transport().Command.Env
+			n := len(cfg.secrets) + len(cfg.upstreamEnv)
+			if n > len(child) || !slices.Equal(child[len(child)-n:], tc.wantEnv) {
+				t.Errorf("child env tail %q, want %q", child[max(0, len(child)-n):], tc.wantEnv)
 			}
 			if !slices.Equal(cfg.passNames, tc.wantNames) {
 				t.Errorf("pass names %q, want %q", cfg.passNames, tc.wantNames)
 			}
 			if len(cfg.secrets) != len(tc.wantNames) {
 				t.Errorf("%d secrets, want %d", len(cfg.secrets), len(tc.wantNames))
+			}
+			for _, e := range cfg.upstreamEnv {
+				if strings.Contains(e, "FAKE-canary") {
+					t.Errorf("a passed value is in upstreamEnv: %q", cfg.upstreamEnv)
+				}
+			}
+			if strings.Contains(fmt.Sprintf("%v %+v %#v", cfg, cfg, cfg), "FAKE-canary") {
+				t.Error("formatting serveConfig printed a passed value")
 			}
 		})
 	}
@@ -132,7 +146,16 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"env key malformed", with("--upstream-env", "DEVICE-PASSWORD="+serveCanary), `--upstream-env "DEVICE-PASSWORD": key must match`},
+		{"env key malformed", with("--upstream-env", "DEVICE-PASSWORD="+serveCanary), "--upstream-env argument 1: key must match"},
+		// E2: a key that is itself the start of a value.
+		{"env key is part of the value", with("--upstream-env", "A=1", "--upstream-env", "FAKE-canary@x="+serveCanary), "--upstream-env argument 2: key must match"},
+		// E1: a password typed as its own argument after a name.
+		{"env value as separate argument", with("--upstream-env", "DEVICE_PASSWORD", serveCanary), "unexpected argument 7; arguments for the upstream go after --"},
+		{"pass value as separate argument", with("--upstream-env-pass", "DEVICE_PASSWORD", serveCanary), "unexpected argument 7; arguments for the upstream go after --"},
+		{"dash-prefixed value as separate argument", with("--upstream-env", "DEVICE_PASSWORD", "-"+serveCanary), "unknown flag at argument 7"},
+		{"double-dash-prefixed value", with("--" + serveCanary + "=x"), "unknown flag at argument 5"},
+		{"bad flag syntax", with("---" + serveCanary), "bad flag syntax at argument 5"},
+		{"flag without value", with("--upstream-env"), "flag at argument 5 needs a value"},
 		{"env bare value", with("--upstream-env", serveCanary), "--upstream-env argument 1 is not KEY=VALUE"},
 		{"env bare value second", with("--upstream-env", "A=1", "--upstream-env", serveCanary), "--upstream-env argument 2 is not KEY=VALUE"},
 		{"env NETGUARD_", with("--upstream-env", "NETGUARD_X="+serveCanary), "--upstream-env NETGUARD_X:"},
