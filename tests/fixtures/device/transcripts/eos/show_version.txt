@@ -1,0 +1,16 @@
+Arista vEOS-lab
+Hardware version:
+Serial number: FAKE0000SN01
+Hardware MAC address: 0200.0000.0001
+System MAC address: 0200.0000.0001
+
+Software image version: 4.32.2F
+Architecture: x86_64
+Internal build version: 4.32.2F-FAKE
+Image format version: 1.0
+Image optimization: None
+
+Uptime: 1 day, 2 hours and 3 minutes
+Total memory: 4005400 kB
+Free memory: 2500000 kB
+

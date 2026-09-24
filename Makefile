@@ -25,6 +25,23 @@ GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
 GOVULNCHECK_VERSION ?= v1.8.0
 ACTIONLINT_VERSION  ?= v1.7.12
 
+# golangci-lint is the upstream release binary, not a source build (upstream
+# supports only its binaries). `make lint` downloads the archive for the host
+# once and checks it against the sha256 pinned below before unpacking it; CI
+# runs the same target (T0.20, CONTRIBUTING.md "Bumping golangci-lint"). The
+# hashes are the release's checksums.txt lines. v2.9.0 is the first release
+# built with Go 1.26; it must be built with a Go minor at least the go.mod
+# toolchain's, or it refuses to run.
+GOLANGCI_LINT_VERSION             := 2.9.0
+GOLANGCI_LINT_SHA256_linux_amd64  := 493aaaca2eba6c8bcef847d92716bbd91bbac4b22cdbb0ab5b6a581b32946091
+GOLANGCI_LINT_SHA256_linux_arm64  := 94e80cdb51c73c20a313bd3afa1fb23137728813c19fd730248a1e8678fcc46d
+GOLANGCI_LINT_SHA256_darwin_amd64 := ba29a353be54a74c45946763983808dc8305eeeca73db1761b5ab112f87f8157
+GOLANGCI_LINT_SHA256_darwin_arm64 := a86eabba3507deddd21f2a01a1df2a0ee5bc5c8178d4165cdcaaad8597358760
+GOLANGCI_LINT_PLATFORM            := $(shell $(GO) env GOHOSTOS)-$(shell $(GO) env GOHOSTARCH)
+GOLANGCI_LINT_SHA256              := $(GOLANGCI_LINT_SHA256_$(subst -,_,$(GOLANGCI_LINT_PLATFORM)))
+GOLANGCI_LINT_DIR                 := $(BIN_DIR)/tools/golangci-lint-$(GOLANGCI_LINT_VERSION)-$(GOLANGCI_LINT_PLATFORM)
+GOLANGCI_LINT                     := $(GOLANGCI_LINT_DIR)/golangci-lint
+
 # MCP conformance (T0.4). The suite version is pinned in
 # tests/conformance/package.json and package-lock.json (npm ci). The fixture
 # upstream is go-sdk's own conformance everything-server at the go-sdk
@@ -50,8 +67,42 @@ vet: ## go vet + gofmt check
 	$(GO) vet ./...
 	@out=$$(gofmt -l . 2>/dev/null); if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
 
-lint: ## golangci-lint (falls back to vet if not installed)
-	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run ./...; else echo "golangci-lint not installed; running go vet"; $(MAKE) vet; fi
+# Runs under the go.mod toolchain and for the CI target (linux/amd64), so a
+# local run reports what CI reports whatever Go and host you have. Build tags
+# change the result: syscall field types differ per OS and arch, so nolintlint
+# can disagree between targets. Override with LINT_GOOS / LINT_GOARCH.
+LINT_GOOS   ?= linux
+LINT_GOARCH ?= amd64
+LINT_ENV    := GOTOOLCHAIN=$(GO_TOOLCHAIN) GOOS=$(LINT_GOOS) GOARCH=$(LINT_GOARCH)
+
+lint: $(GOLANGCI_LINT) ## golangci-lint at GOLANGCI_LINT_VERSION (sha256-verified release binary) for LINT_GOOS/LINT_GOARCH
+	$(LINT_ENV) $(GOLANGCI_LINT) config verify
+	$(LINT_ENV) $(GOLANGCI_LINT) run ./...
+
+# Download into a temp dir, compare the sha256 with the pin, and only then
+# unpack and move the binary into place, so a failed or mismatched download
+# leaves nothing behind for the next run to trust.
+$(GOLANGCI_LINT):
+	@set -eu; \
+	want='$(GOLANGCI_LINT_SHA256)'; \
+	name='golangci-lint-$(GOLANGCI_LINT_VERSION)-$(GOLANGCI_LINT_PLATFORM)'; \
+	if [ -z "$$want" ]; then \
+		echo "no pinned golangci-lint sha256 for $(GOLANGCI_LINT_PLATFORM); see CONTRIBUTING.md"; exit 1; \
+	fi; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	url="https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/$$name.tar.gz"; \
+	echo "downloading $$url"; \
+	curl -fsSL --proto '=https' --tlsv1.2 -o "$$tmp/$$name.tar.gz" "$$url"; \
+	if command -v sha256sum >/dev/null 2>&1; then got=$$(sha256sum "$$tmp/$$name.tar.gz"); \
+	else got=$$(shasum -a 256 "$$tmp/$$name.tar.gz"); fi; \
+	got=$${got%% *}; \
+	if [ "$$got" != "$$want" ]; then \
+		echo "golangci-lint sha256 mismatch for $$name.tar.gz: got $$got, want $$want"; exit 1; \
+	fi; \
+	echo "sha256 OK $$got"; \
+	tar -xzf "$$tmp/$$name.tar.gz" -C "$$tmp" "$$name/golangci-lint"; \
+	mkdir -p '$(GOLANGCI_LINT_DIR)'; \
+	mv "$$tmp/$$name/golangci-lint" '$(GOLANGCI_LINT)'
 
 # GOTOOLCHAIN is set to the go.mod toolchain so govulncheck scans the standard
 # library that ships, whatever Go is installed locally (older or newer). The Go

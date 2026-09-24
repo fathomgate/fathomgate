@@ -7,7 +7,7 @@ title: Pass-through proxy
 status: in progress
 opened: 2026-09-23
 exit_criteria:
-  - Official MCP conformance suite passes on the client-facing side
+  - Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task (ticked once T0.17 and T0.18 are resolved)
   - Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
   - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
   - GoReleaser produces linux/darwin/windows binaries on a tag
@@ -53,15 +53,16 @@ tasks:
     state: merged
     blocked_by: [T0.2]
     matrix: [1, 2]
-    notes: 'Merged in PR #44 2026-09-23 (post-merge review by go-reviewer pending). make conformance and CI job mcp-conformance run @modelcontextprotocol/conformance 0.2.0-alpha.11 (lockfile-pinned; the version go-sdk v1.8.0 pins) for 2025-11-25 and 2026-07-28 against the real netguard serve, upstream go-sdk conformance/everything-server; tests/conformance/relay.py (stdlib) fronts stdio because the suite is HTTP-only; a control leg without netguard proves the relay transparent. netguard leg: 2025 11/30 scenarios clean, 2026 16/37; every other scored check is a per-check baseline entry with a reason, and a stale entry fails the run. Findings split out as T0.17 (progress), T0.18 (retry strictness), T0.19 (2025-era upstream coverage). Required-check switch is T0.21. Exit criterion 1 stays unticked until the maintainer rules on the baseline. Rows 1 and 2 not validated.'
+    notes: 'Merged in PR #44 2026-09-23 (post-merge review by go-reviewer pending). make conformance and CI job mcp-conformance run @modelcontextprotocol/conformance 0.2.0-alpha.11 (lockfile-pinned; the version go-sdk v1.8.0 pins) for 2025-11-25 and 2026-07-28 against the real netguard serve, upstream go-sdk conformance/everything-server; tests/conformance/relay.py (stdlib) fronts stdio because the suite is HTTP-only; a control leg without netguard proves the relay transparent. netguard leg: 2025 11/30 scenarios clean, 2026 16/37; every other scored check is a per-check baseline entry with a reason, and a stale entry fails the run. Findings split out as T0.17 (progress), T0.18 (retry strictness), T0.19 (2025-era upstream coverage). Required-check switch is T0.21. Exit criterion 1 stays unticked until the maintainer rules on the baseline. Rows 1 and 2 not validated. Post-merge review waived by joshscott13 2026-09-23. Exit criterion 1 reworded 2026-09-23 (maintainer): passes with every remaining failure baselined against an ADR or a board task; ticked once T0.17 and T0.18 are resolved.'
   - id: T0.5
     title: Client smoke — Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case
     package: tests/integration
     owner: test-engineer
     reviewers: [release-engineer]
-    state: open
+    state: merged
     blocked_by: [T0.3]
     matrix: [22]
+    notes: 'Merged in PR #51 2026-09-23. CI job client-smoke drives netguard serve in front of the real krisiasty/netdev-ssh-mcp v1.6.6 (linux_amd64 release, sha256-pinned) with a new fake SSH device (tests/fixtures/device/, show-only, canned FAKE transcript): tools/list returns the five prefixed tools, a read-only run_show_command reaches the device once, reload is refused by the upstream with nothing sent; the job cannot pass by skipping. Stripped-PATH cases fail fast with a clear stderr cause, never hang. Claude Code 2.1.236 (print mode, empty PATH) listed all five tools through netguard; the tool call did not run (client OAuth expired, not touched). docs/install.md covers Claude Code, Cursor, the PATH case and a manual Check it works step. Exit criterion 2 stays unticked until the maintainer runs that step in Claude Code and Cursor. Rows 1 and 22 stay planned. Follow-ups T0.23 to T0.26.'
   - id: T0.6
     title: Verify GoReleaser snapshot and distroless image build with the new toolchain
     package: .goreleaser.yaml
@@ -150,7 +151,7 @@ tasks:
     state: merged
     blocked_by: [T0.14]
     matrix: []
-    notes: 'From the T0.14 review. gcr.io/distroless/static-debian12:nonroot in Dockerfile.goreleaser ships in release images and is only tag-pinned, and so is the golang builder in Dockerfile. Pin both as tag@sha256 (Dependabot docker updates keep digest pins current). Optionally install golangci-lint via go run ...@vX so the checksum database verifies it. Merged in PR #36 2026-09-23 (post-merge review pending). golang:1.26-alpine@sha256:8ac98ca5... (go1.26.8) and gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872... (same digest in Dockerfile and Dockerfile.goreleaser), both multi-arch OCI index digests from docker buildx imagetools inspect, cross-checked against each registry. Existing Dependabot docker entry covers both files. Both release images built for amd64 and arm64 and run as nonroot; GoReleaser snapshot green in CI. golangci-lint via go run split out as T0.20.'
+    notes: 'From the T0.14 review. gcr.io/distroless/static-debian12:nonroot in Dockerfile.goreleaser ships in release images and is only tag-pinned, and so is the golang builder in Dockerfile. Pin both as tag@sha256 (Dependabot docker updates keep digest pins current). Optionally install golangci-lint via go run ...@vX so the checksum database verifies it. Merged in PR #36 2026-09-23 (post-merge review pending). golang:1.26-alpine@sha256:8ac98ca5... (go1.26.8) and gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872... (same digest in Dockerfile and Dockerfile.goreleaser), both multi-arch OCI index digests from docker buildx imagetools inspect, cross-checked against each registry. Existing Dependabot docker entry covers both files. Both release images built for amd64 and arm64 and run as nonroot; GoReleaser snapshot green in CI. golangci-lint via go run split out as T0.20. Post-merge review waived by joshscott13 2026-09-23.'
   - id: T0.16
     title: Update the ADR 0011 module table for golang.org/x/sys as a direct dependency
     package: docs/adr
@@ -159,7 +160,7 @@ tasks:
     state: merged
     blocked_by: [T0.12]
     matrix: []
-    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR. Also (from T0.3): main is on go-sdk v1.8.0 since Dependabot #28, so the ADR 0011 title, context and table header naming v1.7.0 (and CLAUDE.md/AGENTS.md "pinned to the v1.7 minor") are stale; the module rows are unchanged, since go-sdk v1.8.0 has the same go.mod (go.sum go.mod hash identical) and pulls no new or bumped modules. Merged in PR #37 2026-09-23 (post-merge review pending). ADR 0011 amended in place (facts only; title no longer names a go-sdk version); maintainer approved the in-place amendment, and GOVERNANCE.md plus docs/adr/README.md now allow fact-only amendments dated in an Amendments section. Pin wording is one go-sdk minor, currently v1.8, in CLAUDE.md, AGENTS.md, README.md and ARCHITECTURE.md. x/sys row moved to v0.48.0 (Dependabot #39) in the board-sync PR. Remaining stale v1.7 mentions split out as T0.22.'
+    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR. Also (from T0.3): main is on go-sdk v1.8.0 since Dependabot #28, so the ADR 0011 title, context and table header naming v1.7.0 (and CLAUDE.md/AGENTS.md "pinned to the v1.7 minor") are stale; the module rows are unchanged, since go-sdk v1.8.0 has the same go.mod (go.sum go.mod hash identical) and pulls no new or bumped modules. Merged in PR #37 2026-09-23 (post-merge review pending). ADR 0011 amended in place (facts only; title no longer names a go-sdk version); maintainer approved the in-place amendment, and GOVERNANCE.md plus docs/adr/README.md now allow fact-only amendments dated in an Amendments section. Pin wording is one go-sdk minor, currently v1.8, in CLAUDE.md, AGENTS.md, README.md and ARCHITECTURE.md. x/sys row moved to v0.48.0 (Dependabot #39) in the board-sync PR. Remaining stale v1.7 mentions split out as T0.22. Post-merge review waived by joshscott13 2026-09-23.'
   - id: T0.17
     title: Relay upstream progress notifications to the agent with a proxy-issued progress token
     package: internal/proxy
@@ -192,26 +193,58 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: merged
     matrix: []
-    notes: 'From T0.15. CI uses golangci-lint-action, which downloads a release binary; golangci-lint discourages source builds. Decide between go run ...@vX, verifying the release checksum, or keeping the action, and record the reason.'
+    notes: 'From T0.15. CI uses golangci-lint-action, which downloads a release binary; golangci-lint discourages source builds. Decide between go run ...@vX, verifying the release checksum, or keeping the action, and record the reason. Merged in PR #48 2026-09-23. golangci-lint-action v9.3.0 extracted the release archive unverified, so CI runs make lint, which downloads golangci-lint v2.9.0 and checks the archive against sha256 pins in the Makefile before unpacking; checksums.txt is unsigned upstream, so bumps verify each archive with gh attestation verify (CONTRIBUTING.md). Found T0.24.'
   - id: T0.21
     title: Mark mcp-conformance as a required status check on main
     package: .github/workflows
     owner: joshscott13
     reviewers: [release-engineer]
-    state: open
+    state: blocked
     blocked_by: [T0.4]
     matrix: []
-    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead.'
+    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead. Maintainer go-ahead 2026-09-23. Blocked: branch protection and rulesets both return 403 on a private repository without GitHub Pro. Unblocks when the maintainer upgrades the plan or makes the repository public; the job already runs on every PR, so until then it is a gate by convention (CONTRIBUTING.md).'
   - id: T0.22
     title: Sweep remaining stale go-sdk v1.7 and go 1.24 mentions
     package: docs
     owner: docs-writer
     reviewers: [go-reviewer]
+    state: merged
+    matrix: []
+    notes: 'From T0.16: internal/proxy/doc.go comment (v1.7.x), .claude/agents/go-reviewer.md (v1.7, go 1.24), .claude/agents/mcp-protocol-engineer.md, ROADMAP.md line 10 (M0 status text also stale on T0.3). Leave accepted ADR reference labels and historical records alone. ROADMAP.md M0 row and Unblocking list were refreshed in the exit-criteria PR, so that item is done. Merged in PR #47 2026-09-23. Agent definitions and /milestone no longer name go-sdk v1.7 or go 1.24; go-reviewer reads the Go version from go.mod; green lists include make conformance. Surfaced the go 1.26.0 floor, settled by ADR 0015 (PR #49).'
+  - id: T0.23
+    title: Keep device passwords off the netguard command line (upstream secrets from a file or the environment)
+    package: cmd/netguard
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code.'
+  - id: T0.24
+    title: Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
     state: open
     matrix: []
-    notes: 'From T0.16: internal/proxy/doc.go comment (v1.7.x), .claude/agents/go-reviewer.md (v1.7, go 1.24), .claude/agents/mcp-protocol-engineer.md, ROADMAP.md line 10 (M0 status text also stale on T0.3). Leave accepted ADR reference labels and historical records alone.'
+    notes: 'From T0.20. //nolint:unconvert at key_unix.go:90 is reported unused by nolintlint when linting for darwin or linux/arm64, because the stat field type differs by platform. CI lints linux/amd64 and is clean, so make lint defaults to that target. Fix without weakening the key-file checks.'
+  - id: T0.25
+    title: Report the upstream's exit status when it dies at startup, not only EOF
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. When the upstream exits during initialize, netguard prints connection closed ... EOF; the real cause is only in the upstream''s own stderr line. Add the exit status (and keep upstream text escaped, as T0.3 does for startup errors).'
+  - id: T0.26
+    title: Replace the synthetic fake-device transcript with a sanitised real EOS capture
+    package: tests/fixtures/device
+    owner: network-safety-engineer
+    reviewers: [test-engineer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

@@ -105,8 +105,9 @@ upstream's notifications under the agent's token (profile-schema section
 8.4). `missing-input-response` passes since T0.18.
 
 A baseline entry is not a pass. "The conformance suite passes on the
-client-facing side" means: every scored check passes except those listed
-here, each for a recorded reason.
+client-facing side" (M0 exit criterion 1) means: every scored check passes
+except those listed here, and each listed check points at an ADR or a
+board task. A reason that is only a gap, not a design choice, needs a task.
 
 ## Changing things
 
