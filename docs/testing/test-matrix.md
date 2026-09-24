@@ -4,7 +4,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 
 | # | Case | Tier | Upstream server | Expected | Milestone | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | planned; ran locally against v1.6.6, see [run notes](#run-notes) |
+| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
 | 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned |
 | 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
 | 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
@@ -25,11 +25,17 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | 19 | Audit tamper | 1 | none | `netguard audit verify` fails on an edited line and names it; exit status 1 | M4 | planned |
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
-| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind netguard | Proxy starts and serves `tools/list`; no ENOENT | M0 | planned; ran locally against v1.6.6 (python-sdk client; Claude Code 2.1.236 `tools/list` only), not validated, see [run notes](#run-notes) |
+| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind netguard | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
 
 ## Run notes
 
 Runs that moved a row forward without closing it. A row becomes `passing` only when its case runs green in CI against the named real server; rows 1 and 22 also need the manual real-client check in [install.md](../install.md#check-it-works) before M0 exit criterion 2 can be ticked.
+- **2026-09-23, rows 1 and 22 passing, M0 exit criterion 2 met.** Upstream `krisiasty/netdev-ssh-mcp` v1.6.6 (`go install`), netguard from `main`, fake EOS device (`tests/fixtures/device/fake_ssh.py`, port 22022). The maintainer asked each client, in plain words, for `show version` on `127.0.0.1` port 22022 device type `eos`; each answer contained `Serial number: FAKE0000SN01`, and the device's `commands.log` recorded exactly one `show version` per client (two lines in total).
+  - **Claude Code 2.1.236**, `claude mcp add` with absolute paths, run from a terminal.
+  - **Claude Desktop 2.7032.0**, `claude_desktop_config.json` with absolute paths, started from the Dock (the PATH-stripped launch, row 22).
+  - CI job `tier2 client smoke (netdev-ssh-mcp)` green on `main` at `b4c3b4e`.
+  - Cursor was not installed on the test Mac; Claude Desktop is the second client. Cursor stays documented in `docs/install.md` but unexercised.
+
 
 **Rows 1 and 22, 2026-09-23 (T0.5).** Upstream: krisiasty/netdev-ssh-mcp v1.6.6, both the release binary `netdev-ssh-mcp_1.6.6_darwin_arm64` (sha256 `42b4f18a…b4493`, commit `be3e3634`) and a `go install …@v1.6.6` build. Device: `tests/fixtures/device/fake_ssh.py` (EOS persona, exec channel). netguard at `20781c7`, macOS arm64. `uv run --extra integration pytest integration -m tier2`: 11 passed, 2 skipped (the M1 cases).
 
