@@ -386,6 +386,11 @@ func TestProgressMessage(t *testing.T) {
 		{"ok" + bs + "u000aapprove", "[from netdev-ssh-mcp] ok" + bs + bs + "u000aapprove"},
 		{"C:" + bs + "flash", "[from netdev-ssh-mcp] C:" + bs + bs + "flash"},
 	}
+	for _, s := range append(markupSpoofs, nestedEscape(maxDecodePasses+1)) {
+		if got := progressMessage(testServer, s); got != "" {
+			t.Errorf("progressMessage(%q) = %q, want the message dropped", s, got)
+		}
+	}
 	for _, c := range cases {
 		if got := progressMessage(testServer, c.in); got != c.want {
 			t.Errorf("progressMessage(%q) = %q, want %q", c.in, got, c.want)
