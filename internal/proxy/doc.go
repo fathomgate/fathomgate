@@ -23,8 +23,9 @@
 // (state.go), or as elicitation/create to a stateful one (input.go).
 // Progress (T0.17) crosses as netguard's own notifications: the upstream gets
 // a token netguard issued, and its notifications for that token reach the
-// agent under the agent's token, rate-limited and with the message labelled
-// (progress.go). The normative rules are in docs/specs/profile-schema.md
+// agent under the agent's token, rate-limited and with the message labelled,
+// written by a sender goroutine per call so a slow agent never stalls the
+// upstream's dispatch (progress.go, T0.28). The normative rules are in docs/specs/profile-schema.md
 // section 8.4.
 //
 // Everything read from an upstream (tool names, descriptions, schemas,
