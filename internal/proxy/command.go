@@ -45,6 +45,15 @@ type Command struct {
 	// StderrPrefix starts every stderr line, for example
 	// "upstream netdev-ssh-mcp: ".
 	StderrPrefix string
+	// Secrets are values passed in Env that must not reach the operator's
+	// terminal or logs through the upstream's stderr. Every occurrence of
+	// a value of at least MinSecretLen bytes, exact or in a common quoted
+	// form (Go %q, JSON string escaping), is replaced by "[redacted:NAME]"
+	// on the raw stderr bytes, before the line is split or escaped.
+	// Shorter values are not scrubbed. Secrets does not add
+	// anything to the upstream's environment; the values must also be in
+	// Env.
+	Secrets []Secret
 }
 
 // Transport returns a go-sdk CommandTransport for c.
@@ -52,7 +61,7 @@ func (c Command) Transport() *mcp.CommandTransport {
 	cmd := exec.Command(c.Path, c.Args...) //nolint:gosec // G204: the upstream command is operator configuration, not agent input.
 	cmd.Env = append(baseEnv(os.Environ(), runtime.GOOS), c.Env...)
 	if c.Stderr != nil {
-		cmd.Stderr = &lineWriter{w: c.Stderr, prefix: c.StderrPrefix}
+		cmd.Stderr = &lineWriter{w: c.Stderr, prefix: c.StderrPrefix, scrub: newScrubber(c.Secrets)}
 	}
 	cmd.WaitDelay = waitDelay
 	return &mcp.CommandTransport{Command: cmd}
@@ -60,7 +69,8 @@ func (c Command) Transport() *mcp.CommandTransport {
 
 // Variables an upstream inherits from the proxy. Everything else, including
 // the proxy's own NETGUARD_* settings and any credential in its environment,
-// is withheld unless passed with Command.Env (`--upstream-env`).
+// is withheld unless passed with Command.Env (`--upstream-env`,
+// `--upstream-env-pass`).
 // The LC_ names are the POSIX locale categories; no wildcard.
 var (
 	unixEnvAllow = []string{

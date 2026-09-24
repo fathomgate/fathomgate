@@ -103,10 +103,15 @@ const maxStderrLine = 4096
 // maxStderrLine bytes accumulate (cut back to a whole UTF-8 character), or
 // Flush is called. Writes never fail, so a broken log sink cannot stall the
 // upstream's stderr.
+//
+// With scrub set, known values are replaced by their markers on the raw
+// bytes first, before lines are split, cut or escaped, so neither the
+// maxStderrLine cut nor escaping can hide a value from the scrubber.
 type lineWriter struct {
 	mu     sync.Mutex
 	w      io.Writer
 	prefix string
+	scrub  *scrubber
 	buf    []byte
 	split  bool // the current line was already cut at maxStderrLine
 }
@@ -115,6 +120,15 @@ func (l *lineWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	n := len(p)
+	if l.scrub != nil {
+		p = l.scrub.write(p, false)
+	}
+	l.feed(p)
+	return n, nil
+}
+
+// feed splits already scrubbed bytes into lines. The caller holds l.mu.
+func (l *lineWriter) feed(p []byte) {
 	for len(p) > 0 {
 		i := bytes.IndexByte(p, '\n')
 		chunk := p
@@ -137,13 +151,16 @@ func (l *lineWriter) Write(p []byte) (int, error) {
 		}
 		l.split = false
 	}
-	return n, nil
 }
 
-// Flush writes out a partial line, if any, as a line of its own.
+// Flush writes out a partial line, if any, as a line of its own, after
+// releasing what the scrubber held back.
 func (l *lineWriter) Flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.scrub != nil {
+		l.feed(l.scrub.write(nil, true))
+	}
 	if len(l.buf) > 0 {
 		l.emit()
 	}
