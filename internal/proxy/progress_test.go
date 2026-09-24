@@ -342,7 +342,13 @@ func TestProgressRateLimit(t *testing.T) {
 // never more than progressBurst banked.
 func TestProgressBucket(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	r := newProgressRelay(context.Background(), call{up: &upstream{name: testServer}, agent: agentPeer{session: &mcp.ServerSession{}}, progressToken: "t"}, func() time.Time { return now }, progressFinalWait)
+	u := &upstream{name: testServer}
+	r := newProgressRelay(context.Background(), call{up: u, agent: agentPeer{session: &mcp.ServerSession{}}, progressToken: "t"}, func() time.Time { return now }, progressFinalWait)
+	if r.upToken != "" {
+		t.Fatalf("token %q drawn before watchProgress", r.upToken)
+	}
+	u.watchProgress(r)
+	defer u.unwatchProgress(r)
 	takes := func() int {
 		n := 0
 		for r.take() {
@@ -361,7 +367,8 @@ func TestProgressBucket(t *testing.T) {
 	if n := takes(); n != progressBurst {
 		t.Fatalf("after an hour %d, want the burst cap %d", n, progressBurst)
 	}
-	if r.upToken == "" || r.upToken == "t" {
+	// At least 128 random bits: rand.Text gives 26 base32 characters.
+	if len(r.upToken) < 26 || r.upToken == "t" || u.progress[r.upToken] != r {
 		t.Fatalf("upstream token %q is not netguard's own", r.upToken)
 	}
 }
