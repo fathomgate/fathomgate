@@ -40,6 +40,8 @@ archives:
     files:
       - LICENSE
       - NOTICE
+      # `**/*` needs at least one directory level, so the index is listed too.
+      - THIRD_PARTY_LICENSES/README.md
       - THIRD_PARTY_LICENSES/**/*
       - TRADEMARKS.md
       - README.md

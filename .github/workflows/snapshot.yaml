@@ -18,6 +18,7 @@ on:
       - .github/workflows/snapshot.yaml
       - LICENSE
       - NOTICE
+      - TRADEMARKS.md
       - THIRD_PARTY_LICENSES/**
       - tools/licences/**
 
@@ -67,19 +68,19 @@ jobs:
       - name: every archive carries LICENSE, NOTICE and THIRD_PARTY_LICENSES (ADR 0020)
         run: |
           set -eu
-          for a in dist/fathomgate_*.tar.gz; do
-            tar -tzf "$a" > contents.txt
-            for f in LICENSE NOTICE TRADEMARKS.md THIRD_PARTY_LICENSES/README.md THIRD_PARTY_LICENSES/go/LICENSE; do
-              grep -qx "$f" contents.txt || { echo "$a lacks $f"; exit 1; }
-            done
+          { printf '%s\n' LICENSE NOTICE TRADEMARKS.md; find THIRD_PARTY_LICENSES -type f; } | sort > want.txt
+          missing=0
+          for a in dist/fathomgate_*.tar.gz dist/fathomgate_*.zip; do
+            case "$a" in
+              *.zip) unzip -Z1 "$a" | sort > have.txt ;;
+              *) tar -tzf "$a" | sort > have.txt ;;
+            esac
+            if ! comm -23 want.txt have.txt | grep . ; then continue; fi
+            echo "::error::$a lacks the files above"
+            missing=1
           done
-          for a in dist/fathomgate_*.zip; do
-            unzip -Z1 "$a" > contents.txt
-            for f in LICENSE NOTICE TRADEMARKS.md THIRD_PARTY_LICENSES/README.md THIRD_PARTY_LICENSES/go/LICENSE; do
-              grep -qx "$f" contents.txt || { echo "$a lacks $f"; exit 1; }
-            done
-          done
-          rm contents.txt
+          rm -f want.txt have.txt
+          exit "$missing"
       - name: binaries are static, trimmed and built without cgo
         run: |
           set -eu
