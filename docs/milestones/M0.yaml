@@ -205,7 +205,7 @@ tasks:
     state: blocked
     blocked_by: [T0.4]
     matrix: []
-    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead. Maintainer go-ahead 2026-09-23. Blocked: branch protection and rulesets both return 403 on a private repository without GitHub Pro. Unblocks when the maintainer upgrades the plan or makes the repository public; the job already runs on every PR, so until then it is a gate by convention (CONTRIBUTING.md).'
+    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead. Maintainer go-ahead 2026-09-23. Blocked: branch protection and rulesets both return 403 on a private repository without GitHub Pro. Unblocks when the maintainer upgrades the plan or makes the repository public; the job already runs on every PR, so until then it is a gate by convention (CONTRIBUTING.md). Before making the repository public (one way to unblock this): wait until krisiasty/netdev-ssh-mcp has shipped a fix for the obfuscation leaks recorded in T0.29, or trim the leaked-line detail from docs/research/02-network-mcp-servers.md first. The removed upstream report draft is in git history; rewrite history only if the repository goes public before the fix.'
   - id: T0.22
     title: Sweep remaining stale go-sdk v1.7 and go 1.24 mentions
     package: docs
@@ -269,9 +269,9 @@ tasks:
     package: profiles
     owner: upstream-server-scout
     reviewers: [security-reviewer]
-    state: open
+    state: merged
     matrix: [15]
-    notes: 'From T0.26. netdev-ssh-mcp v1.6.6 replaces secrets with [h:<first 6 bytes of sha256>] unless started with --no-obfuscate (internal/netdev/obfuscate.go). The hash is unkeyed, so short common values (public, private) are recoverable by hashing a word list; it does not meet invariant 4 and NetGuard must not rely on it. Note it in profiles/netdev-ssh-mcp.yaml comments and docs/research, and decide whether install docs recommend leaving it on in M0 (defence in depth) or off once NetGuard redacts (M2).'
+    notes: 'From T0.26. netdev-ssh-mcp v1.6.6 replaces secrets with [h:<first 6 bytes of sha256>] unless started with --no-obfuscate (internal/netdev/obfuscate.go). The hash is unkeyed, so short common values (public, private) are recoverable by hashing a word list; it does not meet invariant 4 and NetGuard must not rely on it. Note it in profiles/netdev-ssh-mcp.yaml comments and docs/research, and decide whether install docs recommend leaving it on in M0 (defence in depth) or off once NetGuard redacts (M2). Merged in PR #61 2026-09-23. Worse than first reported: several patterns hash a keyword (sha512, 7, ascii-text) and leave the secret in clear (eos 5/13, ios-xe 3/22, nxos 5/13, junos 7/13 fixture secrets), others are missed; NetGuard rules catch all. The upstream report is sent privately by the maintainer, not filed publicly; its draft was removed from the repo in a follow-up PR. M2 redaction must not skip lines holding an [h:...] token.'
   - id: T0.30
     title: Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4
     package: internal/proxy
