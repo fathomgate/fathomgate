@@ -22,8 +22,10 @@ func foreignOrphan(p *Proxy) {
 	defer up.mu.Unlock()
 	if up.orphans == nil {
 		up.orphans = make(map[string]orphan)
+		up.orphansOf = make(map[string]int)
 	}
 	up.orphans["sforeign"] = orphan{principal: "bob", expires: p.now().Add(time.Hour)}
+	up.orphansOf["bob"]++
 }
 
 // expireOrphan ages the orphan key left on up to just before now on p's
@@ -140,10 +142,10 @@ func TestLocalAgentOwnOrphanWithListener(t *testing.T) {
 	up := h.proxy.upstreams[testServer]
 	up.mu.Lock()
 	_, own := up.orphans[localKeyPrefix+"1"]
-	shared := up.orphanOverflow
+	n := len(up.orphans)
 	up.mu.Unlock()
-	if !own || !shared.IsZero() {
-		t.Fatalf("after the stdio agent's call: own orphan %v, shared entry until %v; want its own key and no shared entry", own, shared)
+	if !own || n != 1 {
+		t.Fatalf("after the stdio agent's call: own orphan %v, %d orphans; want its own key only", own, n)
 	}
 	res, err := h.agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
 	if err != nil {
@@ -160,7 +162,7 @@ func TestLocalAgentOwnOrphanWithListener(t *testing.T) {
 // TestLocalKeyDuringConnect (T0.43, kept at the security reviewer's
 // request): a stdio tools/call that go-sdk dispatches while Run is still
 // connecting, before it has recorded its session, waits for the record and
-// is keyed l1, never the empty key. The Run is held between Connect and the
+// is keyed l1, never a key of its own. The Run is held between Connect and the
 // record by a test hook while the agent initialises and calls; the call's
 // handler must be seen waiting before the hook lets Run go on.
 func TestLocalKeyDuringConnect(t *testing.T) {
@@ -229,14 +231,15 @@ func TestLocalKeyDuringConnect(t *testing.T) {
 	up := p.upstreams[testServer]
 	up.mu.Lock()
 	_, own := up.orphans[localKeyPrefix+"1"]
-	n, shared := len(up.orphans), up.orphanOverflow
+	n, over := len(up.orphans), len(up.overflow)
 	up.mu.Unlock()
-	if !own || n != 1 || !shared.IsZero() {
-		t.Fatalf("call made during connect: l1 orphan %v, %d orphans, shared entry until %v; want l1 only", own, n, shared)
+	if !own || n != 1 || over != 0 {
+		t.Fatalf("call made during connect: l1 orphan %v, %d orphans, %d overflow records; want l1 only", own, n, over)
 	}
 
 	// A request still waiting for a connecting Run when its context ends
-	// gets the empty key: it fails closed into the shared entry.
+	// gets no local key; agentSessionKey then gives it a key of its own
+	// (T0.44), foreign to the local agent's, so it fails closed.
 	stuck := make(chan struct{})
 	p.localMu.Lock()
 	p.connecting[stuck] = struct{}{}
@@ -244,7 +247,10 @@ func TestLocalKeyDuringConnect(t *testing.T) {
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	if got := p.localKey(cctx, &mcp.ServerSession{}); got != "" {
-		t.Fatalf("key %q for a request whose context ended while waiting, want the empty key", got)
+		t.Fatalf("local key %q for a request whose context ended while waiting, want none", got)
+	}
+	if got := p.agentSessionKey(cctx, call{agent: agentPeer{session: &mcp.ServerSession{}}}); !strings.HasPrefix(got, requestKeyPrefix) {
+		t.Fatalf("key %q for a request whose context ended while waiting, want a %q key of its own", got, requestKeyPrefix)
 	}
 	p.localMu.Lock()
 	delete(p.connecting, stuck)
@@ -255,7 +261,7 @@ func TestLocalKeyDuringConnect(t *testing.T) {
 // PR #78): while a Run is connecting (an entry in p.connecting that is
 // never released here), a call over the HTTP listener is neither delayed
 // nor mis-keyed. A stateful session's call is keyed by its session id and
-// a stateless call goes to the shared entry, both without waiting, so no
+// a stateless call by a key of its own (T0.44), both without waiting, so no
 // listener call sits outside the call caps behind a stdio connect.
 func TestListenerCallNeverWaitsForRun(t *testing.T) {
 	h := newHTTPHarness(t, httpSetup{upstream: v2025})
@@ -294,8 +300,11 @@ func TestListenerCallNeverWaitsForRun(t *testing.T) {
 		}
 		up.mu.Lock()
 		_, keyed := up.orphans["s"+cs.ID()]
-		shared := p.now().Before(up.orphanOverflow)
-		for key := range up.orphans {
+		perRequest := 0
+		for key, o := range up.orphans {
+			if strings.HasPrefix(key, requestKeyPrefix) && o.principal == "alice" {
+				perRequest++
+			}
 			if strings.HasPrefix(key, localKeyPrefix) {
 				t.Errorf("agent %s: listener call keyed %q, a local agent's key", era, key)
 			}
@@ -304,8 +313,8 @@ func TestListenerCallNeverWaitsForRun(t *testing.T) {
 		switch {
 		case era == v2025 && !keyed:
 			t.Errorf("stateful call not keyed by its session id %q", cs.ID())
-		case era == v2026 && !shared:
-			t.Error("stateless call did not go to the shared entry")
+		case era == v2026 && perRequest != 1:
+			t.Errorf("stateless call left %d per-request entries for alice, want 1", perRequest)
 		}
 	}
 }

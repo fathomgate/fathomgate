@@ -155,6 +155,9 @@ type httpSetup struct {
 	hooks    *blockHooks
 	extra    func(*mcp.Server)
 	logger   *slog.Logger
+	// now, if set, is the proxy's clock. It is installed before the
+	// handler serves anything, so no request can race with it.
+	now func() time.Time
 }
 
 type httpHarness struct {
@@ -187,6 +190,9 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test", Logger: s.logger})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if s.now != nil {
+		p.now = s.now
 	}
 	opts := s.opts
 	if opts.Tokens == nil {
@@ -614,8 +620,9 @@ func TestHTTPEraMatrix(t *testing.T) {
 			}
 			res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
 			if e.agent == v2026 && e.upstream == v2025 {
-				// The run_show_command above left an orphan in the shared
-				// entry, so the orphan rule refuses the prompt with the
+				// The run_show_command above left an orphan under its own
+				// per-request key (T0.44), foreign to this request's, so the
+				// orphan rule refuses the prompt with the
 				// ADR 0014 wording, as a note (S3 in the security review of
 				// T0.40). go-sdk's upstream then fails the call, and the
 				// agent gets that upstream error, relayed and labelled, not

@@ -149,13 +149,12 @@ func orphans(up *upstream) (n int, idle bool) {
 	return len(up.orphans), len(up.calls) == 0
 }
 
-// orphanBucket reports whether up's shared overflow entry is live now. A
-// call from a session that can never own another call (a per-request
-// session of a stateless agent) is recorded there rather than in the table.
-func orphanBucket(up *upstream) bool {
+// overflows is the number of overflow records on up: principals whose
+// ended calls went past maxOrphansPerPrincipal (T0.44).
+func overflows(up *upstream) int {
 	up.mu.Lock()
 	defer up.mu.Unlock()
-	return time.Now().Before(up.orphanOverflow)
+	return len(up.overflow)
 }
 
 // TestHTTPAbandonedCallPrompt is the proof of concept of H1 in the security
@@ -294,9 +293,10 @@ func abandonCall(t *testing.T, agent *mcp.ClientSession, o *orphanHooks, up *ups
 	}
 	waitFor(t, "the proxy to record the abandoned call", func() bool {
 		n, idle := orphans(up)
-		// A stateful agent's session is in the table; a stateless agent's
-		// per-request session goes to the shared overflow entry.
-		return idle && (n == 1 || orphanBucket(up))
+		// A stateful agent's session is in the table under its session id,
+		// a stateless agent's per-request session under a key of its own
+		// (T0.44).
+		return idle && n == 1
 	})
 }
 
@@ -312,11 +312,13 @@ func recvOrFail(t *testing.T, c <-chan struct{}, what string) {
 // TestOrphanAttribution: the attribution rule on its own, with a fixed
 // clock. A prompt is attributed only to the sole call in flight, and only
 // while every live orphan on the upstream is that call's session's; an
-// orphan expires, and past maxOrphans one overflow entry blocks every
-// session until it expires. Orphans are keyed by netguard's own key for the
-// agent session (J5), and a call whose session can never own another call
-// (the empty key of a per-request stateless session) goes to the overflow
-// entry rather than into the table.
+// orphan expires. Orphans are keyed by netguard's own key for the agent
+// session (J5); a call whose session can never own another call (a
+// per-request stateless session) has a key of its own, so its record is an
+// ordinary table entry (T0.44). Past maxOrphansPerPrincipal, a principal's
+// further ended calls go to that principal's overflow record, which blocks
+// every session until it expires and is pruned and reported like any
+// record.
 func TestOrphanAttribution(t *testing.T) {
 	const sA, sB = "sA", "sB"
 	t0 := time.Unix(1_000_000, 0)
@@ -355,12 +357,13 @@ func TestOrphanAttribution(t *testing.T) {
 	up.end(a2, t0, time.Time{})
 	up.end(b, t0, time.Time{})
 
-	// A session that can never own another call leaves no table entry, and
-	// blocks every session while it is live.
+	// A per-request session's ended call is an ordinary table entry under
+	// its own key (T0.44): it blocks every other session while it is live,
+	// and expires.
 	up = &upstream{name: testServer}
-	up.end(callOn(""), t0, t0.Add(ttl))
-	if n, _ := orphans(up); n != 0 || !up.orphanOverflow.Equal(t0.Add(ttl)) {
-		t.Fatalf("a per-request session left %d table entries, overflow until %v", n, up.orphanOverflow)
+	up.end(callOn(requestKeyPrefix+"1"), t0, t0.Add(ttl))
+	if n, _ := orphans(up); n != 1 || overflows(up) != 0 {
+		t.Fatalf("a per-request session left %d table entries and %d overflow records; want 1 and none", n, overflows(up))
 	}
 	c := callOn(sA)
 	if f, err := attributed(up, t0.Add(ttl/2)); f != nil || !errors.Is(err, errEndedElsewhere) {
@@ -371,39 +374,63 @@ func TestOrphanAttribution(t *testing.T) {
 	}
 	up.end(c, t0.Add(ttl), time.Time{})
 
-	// Past maxOrphans, the overflow entry stands for every other session.
+	// Past maxOrphansPerPrincipal, the principal's overflow record stands
+	// for its further ended calls and blocks every session until it
+	// expires.
 	up = &upstream{name: testServer}
-	for i := range maxOrphans + 1 {
+	for i := range maxOrphansPerPrincipal + 1 {
 		up.end(callOn(fmt.Sprintf("s%d", i)), t0, t0.Add(ttl))
 	}
-	if n, _ := orphans(up); n != maxOrphans || !up.orphanOverflow.Equal(t0.Add(ttl)) {
-		t.Fatalf("%d orphans, overflow until %v", n, up.orphanOverflow)
+	if n, _ := orphans(up); n != maxOrphansPerPrincipal || overflows(up) != 1 {
+		t.Fatalf("%d orphans, %d overflow records; want %d and 1", n, overflows(up), maxOrphansPerPrincipal)
 	}
 	c = callOn(sA)
 	up.mu.Lock()
-	clear(up.orphans) // only the overflow entry is left
+	clear(up.orphans) // only the overflow record is left
+	clear(up.orphansOf)
 	up.mu.Unlock()
 	if f, _ := attributed(up, t0.Add(time.Second)); f != nil {
-		t.Fatal("the overflow entry did not block attribution")
+		t.Fatal("the overflow record did not block attribution")
 	}
 	if f, _ := attributed(up, t0.Add(ttl)); f != c {
-		t.Fatal("the overflow entry did not expire")
+		t.Fatal("the overflow record did not expire")
 	}
-	// A full table of expired orphans is pruned rather than overflowing,
-	// and every orphan reaped is reported to the caller, which logs it
-	// (J3, K2).
+	up.end(c, t0.Add(ttl), time.Time{})
+
+	// A full quota of expired orphans, and the expired overflow record
+	// past it, are pruned rather than blocking, and every one reaped is
+	// reported to the caller, which logs it with its principal (J3, K2).
+	// The overflow record is reaped too (S4 in the security review of
+	// T0.40: the shared entry it replaces was never reaped or logged).
 	up = &upstream{name: testServer}
-	for i := range maxOrphans {
-		if reaped := up.end(callOn(fmt.Sprintf("s%d", i)), t0, t0.Add(ttl)); len(reaped) != 0 {
+	for i := range maxOrphansPerPrincipal + 2 {
+		if reaped, _ := up.end(callOn(fmt.Sprintf("s%d", i)), t0, t0.Add(ttl)); len(reaped) != 0 {
 			t.Fatalf("filling the table reaped %d orphans", len(reaped))
 		}
 	}
-	reaped := up.end(callOn(sA), t0.Add(ttl), t0.Add(2*ttl))
-	if len(reaped) != maxOrphans || reaped[0].principal != "p" {
-		t.Fatalf("%d orphans reaped, first %+v; want %d, principal p", len(reaped), reaped[0], maxOrphans)
+	reaped, overflowed := up.end(callOn(sA), t0.Add(ttl), t0.Add(2*ttl))
+	var keyed, over int
+	for _, o := range reaped {
+		if o.principal != "p" {
+			t.Fatalf("reaped %+v; want principal p", o)
+		}
+		if o.overflow > 0 {
+			over++
+			if o.overflow != 2 {
+				t.Fatalf("the overflow record stood for %d ended calls, want 2", o.overflow)
+			}
+		} else {
+			keyed++
+		}
 	}
-	if n, _ := orphans(up); n != 1 || !up.orphanOverflow.IsZero() {
-		t.Fatalf("after pruning: %d orphans, overflow %v; want 1 and none", n, up.orphanOverflow)
+	if keyed != maxOrphansPerPrincipal || over != 1 || overflowed {
+		t.Fatalf("reaped %d keyed and %d overflow records, overflowed %v; want %d, 1 and false", keyed, over, overflowed, maxOrphansPerPrincipal)
+	}
+	up.mu.Lock()
+	count := up.orphansOf["p"]
+	up.mu.Unlock()
+	if n, _ := orphans(up); n != 1 || overflows(up) != 0 || count != 1 {
+		t.Fatalf("after pruning: %d orphans (counted %d), %d overflow records; want 1, 1 and none", n, count, overflows(up))
 	}
 }
 
@@ -412,8 +439,9 @@ func TestOrphanAttribution(t *testing.T) {
 // keyed by the key Run gave it, and two Runs on one proxy get two keys
 // (T0.43); a call with no session Run serves and no session id (a
 // per-request session of the stateless era over the listener, or no session
-// at all) is keyed by the empty key, the shared entry; a stateful session
-// over the listener is keyed by its session id.
+// at all) gets a key of its own, tagged requestKeyPrefix, that no other
+// call gets (T0.44); a stateful session over the listener is keyed by its
+// session id.
 func TestAgentSessionKey(t *testing.T) {
 	ctx := context.Background()
 	stdio := newHarness(t, nil)
@@ -430,23 +458,30 @@ func TestAgentSessionKey(t *testing.T) {
 	sup.mu.Lock()
 	_, l1 := sup.orphans[localKeyPrefix+"1"]
 	_, l2 := sup.orphans[localKeyPrefix+"2"]
-	n, shared := len(sup.orphans), sup.orphanOverflow
+	n, over := len(sup.orphans), len(sup.overflow)
 	sup.mu.Unlock()
-	if !l1 || !l2 || n != 2 || !shared.IsZero() {
-		t.Errorf("two local agents: l1 %v, l2 %v, %d orphans, shared entry until %v; want l1 and l2 only", l1, l2, n, shared)
+	if !l1 || !l2 || n != 2 || over != 0 {
+		t.Errorf("two local agents: l1 %v, l2 %v, %d orphans, %d overflow records; want l1 and l2 only", l1, l2, n, over)
 	}
-	// No session: the shared entry, never a local agent's key (S5).
-	if got := stdio.proxy.agentSessionKey(ctx, call{}); got != "" {
-		t.Errorf("stdio, no session: key %q, want the empty key", got)
-	}
-	h := newHTTPHarness(t, httpSetup{upstream: v2025})
-	for _, principal := range []string{"alice", ""} {
-		// Over the listener a call with no session id gets the shared
-		// entry, foreign to every call including its own, whether or not
-		// its principal reached this far.
-		if got := h.proxy.agentSessionKey(ctx, call{principal: principal}); got != "" {
-			t.Errorf("listener, principal %q: key %q, want the empty key", principal, got)
+	// No session: a key of its own, never a local agent's key (S5), and
+	// never the same key twice, so it is foreign to every later call.
+	seen := map[string]bool{}
+	fresh := func(where, got string) {
+		t.Helper()
+		if !strings.HasPrefix(got, requestKeyPrefix) || len(got) == len(requestKeyPrefix) || seen[got] {
+			t.Errorf("%s: key %q, want a fresh %q key", where, got, requestKeyPrefix)
 		}
+		seen[got] = true
+	}
+	fresh("stdio, no session", stdio.proxy.agentSessionKey(ctx, call{}))
+	fresh("stdio, no session again", stdio.proxy.agentSessionKey(ctx, call{}))
+	h := newHTTPHarness(t, httpSetup{upstream: v2025})
+	seen = map[string]bool{} // keys are unique per proxy, whose upstreams hold them
+	for _, principal := range []string{"alice", "alice", ""} {
+		// Over the listener a call with no session id gets a key of its
+		// own, foreign to every other call, whether or not its principal
+		// reached this far.
+		fresh("listener, principal "+principal, h.proxy.agentSessionKey(ctx, call{principal: principal}))
 	}
 	cs := h.connect(t, v2025, tokAlice, nil)
 	if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
@@ -459,9 +494,9 @@ func TestAgentSessionKey(t *testing.T) {
 		t.Fatalf("%d orphans after one call, want 1", len(up.orphans))
 	}
 	for key := range up.orphans {
-		// Tagged, so it can collide with neither the empty key nor a local
-		// agent's key, and never the session itself (J5).
-		if key == "" || strings.HasPrefix(key, localKeyPrefix) || !strings.Contains(key, cs.ID()) {
+		// Tagged, so it can collide with neither a per-request key nor a
+		// local agent's key, and never the session itself (J5).
+		if key != "s"+cs.ID() || strings.HasPrefix(key, localKeyPrefix) || strings.HasPrefix(key, requestKeyPrefix) {
 			t.Fatalf("orphan key %q does not name session %q", key, cs.ID())
 		}
 	}
@@ -845,8 +880,9 @@ func TestOrphanReapedLogsPrincipal(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	h := newHTTPHarness(t, httpSetup{logger: logger, opts: HTTPOptions{OrphanTTL: 50 * time.Millisecond}})
 	// A stateful agent: its session is in the orphan table, so an entry is
-	// reaped by name. A stateless agent's per-request sessions share the
-	// overflow entry, which names no principal.
+	// reaped by name. A stateless agent's per-request sessions are table
+	// entries too (T0.44), reaped and logged the same way
+	// (TestHTTPStatelessOrphanPerRequest).
 	cs := h.connect(t, v2025, tokAlice, nil)
 	ctx := context.Background()
 	call := func() {

@@ -51,7 +51,7 @@ func TestPromptLimitAcrossRounds(t *testing.T) {
 // the other or add up past the limit.
 func TestAskAgentSharesPromptSlot(t *testing.T) {
 	ctx := context.Background()
-	p := &Proxy{logger: discardLogger()}
+	p := &Proxy{logger: discardLogger(), now: time.Now}
 	up := &upstream{name: testServer}
 	c := call{up: up, tool: "ask"}
 	reqs := mcp.InputRequestMap{"pw": &mcp.ElicitParams{Message: "m"}}
