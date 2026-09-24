@@ -68,11 +68,11 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.40 | [T0.40 ready for re-review: an upstream prompt for a call that ended normally no longer reaches another session's human](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.40.md) |
 | 2026-09-23 | test-engineer | joshscott13 | T0.5 | [T0.5 merged: exit criterion 2 needs one manual tool call in Claude Code and one in Cursor](docs/handoffs/2026-09-23-test-engineer-to-joshscott13-T0.5.md) |
 | 2026-09-23 | test-engineer | go-reviewer | T0.4 | [T0.4 merged before review: post-merge review of the MCP conformance job, and the baseline for exit criterion 1](docs/handoffs/2026-09-23-test-engineer-to-go-reviewer-T0.4.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.9 | [T0.9 ready for review: nightly-clab.yaml was invalid YAML, now parses and stays skipped](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.9.md) |
 | 2026-09-23 | release-engineer | go-reviewer | T0.6 | [T0.6, T0.10, T0.11 ready for review: govulncheck, actionlint and a GoReleaser snapshot job in CI](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.6.md) |
-| 2026-09-23 | release-engineer | go-reviewer | T0.15 | [T0.15 merged before review: post-merge check of the base image digest pins](docs/handoffs/2026-09-23-release-engineer-to-go-reviewer-T0.15.md) |
 
 ## How to update
 
