@@ -59,9 +59,10 @@ tasks:
     package: tests/integration
     owner: test-engineer
     reviewers: [release-engineer]
-    state: open
+    state: merged
     blocked_by: [T0.3]
     matrix: [22]
+    notes: 'Merged in PR #51 2026-09-23. CI job client-smoke drives netguard serve in front of the real krisiasty/netdev-ssh-mcp v1.6.6 (linux_amd64 release, sha256-pinned) with a new fake SSH device (tests/fixtures/device/, show-only, canned FAKE transcript): tools/list returns the five prefixed tools, a read-only run_show_command reaches the device once, reload is refused by the upstream with nothing sent; the job cannot pass by skipping. Stripped-PATH cases fail fast with a clear stderr cause, never hang. Claude Code 2.1.236 (print mode, empty PATH) listed all five tools through netguard; the tool call did not run (client OAuth expired, not touched). docs/install.md covers Claude Code, Cursor, the PATH case and a manual Check it works step. Exit criterion 2 stays unticked until the maintainer runs that step in Claude Code and Cursor. Rows 1 and 22 stay planned. Follow-ups T0.23 to T0.26.'
   - id: T0.6
     title: Verify GoReleaser snapshot and distroless image build with the new toolchain
     package: .goreleaser.yaml
@@ -192,9 +193,9 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: merged
     matrix: []
-    notes: 'From T0.15. CI uses golangci-lint-action, which downloads a release binary; golangci-lint discourages source builds. Decide between go run ...@vX, verifying the release checksum, or keeping the action, and record the reason.'
+    notes: 'From T0.15. CI uses golangci-lint-action, which downloads a release binary; golangci-lint discourages source builds. Decide between go run ...@vX, verifying the release checksum, or keeping the action, and record the reason. Merged in PR #48 2026-09-23. golangci-lint-action v9.3.0 extracted the release archive unverified, so CI runs make lint, which downloads golangci-lint v2.9.0 and checks the archive against sha256 pins in the Makefile before unpacking; checksums.txt is unsigned upstream, so bumps verify each archive with gh attestation verify (CONTRIBUTING.md). Found T0.24.'
   - id: T0.21
     title: Mark mcp-conformance as a required status check on main
     package: .github/workflows
@@ -209,9 +210,41 @@ tasks:
     package: docs
     owner: docs-writer
     reviewers: [go-reviewer]
+    state: merged
+    matrix: []
+    notes: 'From T0.16: internal/proxy/doc.go comment (v1.7.x), .claude/agents/go-reviewer.md (v1.7, go 1.24), .claude/agents/mcp-protocol-engineer.md, ROADMAP.md line 10 (M0 status text also stale on T0.3). Leave accepted ADR reference labels and historical records alone. ROADMAP.md M0 row and Unblocking list were refreshed in the exit-criteria PR, so that item is done. Merged in PR #47 2026-09-23. Agent definitions and /milestone no longer name go-sdk v1.7 or go 1.24; go-reviewer reads the Go version from go.mod; green lists include make conformance. Surfaced the go 1.26.0 floor, settled by ADR 0015 (PR #49).'
+  - id: T0.23
+    title: Keep device passwords off the netguard command line (upstream secrets from a file or the environment)
+    package: cmd/netguard
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code.'
+  - id: T0.24
+    title: Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
     state: open
     matrix: []
-    notes: 'From T0.16: internal/proxy/doc.go comment (v1.7.x), .claude/agents/go-reviewer.md (v1.7, go 1.24), .claude/agents/mcp-protocol-engineer.md, ROADMAP.md line 10 (M0 status text also stale on T0.3). Leave accepted ADR reference labels and historical records alone. ROADMAP.md M0 row and Unblocking list were refreshed in the exit-criteria PR, so that item is done.'
+    notes: 'From T0.20. //nolint:unconvert at key_unix.go:90 is reported unused by nolintlint when linting for darwin or linux/arm64, because the stat field type differs by platform. CI lints linux/amd64 and is clean, so make lint defaults to that target. Fix without weakening the key-file checks.'
+  - id: T0.25
+    title: Report the upstream's exit status when it dies at startup, not only EOF
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. When the upstream exits during initialize, netguard prints connection closed ... EOF; the real cause is only in the upstream''s own stderr line. Add the exit status (and keep upstream text escaped, as T0.3 does for startup errors).'
+  - id: T0.26
+    title: Replace the synthetic fake-device transcript with a sanitised real EOS capture
+    package: tests/fixtures/device
+    owner: network-safety-engineer
+    reviewers: [test-engineer]
+    state: open
+    matrix: [22]
+    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
