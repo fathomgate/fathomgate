@@ -16,7 +16,7 @@ The project is a standalone MCP proxy (stdio and Streamable HTTP on both sides) 
 | Approval | Persisted pending record with TTL; approve via CLI, HMAC webhook, or in-band MRTR elicitation | Copies HCP Terraform's Needs Confirmation state and AWX approval-node timeouts |
 | Audit | JSONL hash chain plus periodically signed checkpoints | CloudTrail digest pattern; OCSF and CEF as exporters, never the native format |
 | First upstreams | netdev-ssh-mcp (read-only reference), then junos-mcp-server and ntunes/netmiko-mcp-server | Covers the read-only, write-with-guardrails, and write-with-no-safety cases |
-| Working name | NetGuard (placeholder; rename before first release). Fathomgate is proposed in [ADR 0019](adr/0019-rename-to-fathomgate.md) | NetGuard: short, says what it does. Fathomgate: no software product, package or registered mark uses it (searches of 2026-09-24), and it extends the Fathom design system |
+| Working name | NetGuard (placeholder; rename before first release). renamed to Fathomgate by [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24) | NetGuard: short, says what it does. Fathomgate: no software product, package or registered mark uses it (searches of 2026-09-24), and it extends the Fathom design system |
 
 What makes it unclaimed: safety features for network MCP servers are being bolted into individual servers one PR at a time (Junos `block.cmd`, OPNsense read-only mode merged 2026-09-19, UniFi read-only mode). No project sits in front of all of them.
 
@@ -300,7 +300,7 @@ netguard/
 
 ## Open questions and risks
 
-- [ ] Name: NetGuard is a placeholder and collides with existing products; pick something searchable before the first public commit. Proposed: Fathomgate, with the scope of the rename, in [ADR 0019](adr/0019-rename-to-fathomgate.md) (status `proposed`, 2026-09-24)
+- [x] Name: NetGuard is a placeholder and collides with existing products; pick something searchable before the first public commit. Decided: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24); the rename itself is board task T0.49
 - [ ] Which MCP clients the first users run decides whether MRTR elicitation approval is in M3 or deferred; CLI and webhook approval ship regardless
 - [ ] Whether the stale-snapshot window for an unreachable source of truth should be capped (deny everything after N hours) or left to the operator
 - [ ] Key custody for audit checkpoints and the redaction HMAC: file, OS keyring or KMS

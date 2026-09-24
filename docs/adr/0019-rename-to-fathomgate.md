@@ -1,8 +1,8 @@
 # ADR 0019: Rename the product from NetGuard to Fathomgate
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-24
-- Deciders: Josh Scott (maintainer; chose the name `fathomgate` on 2026-09-24); proposed by docs-writer. The scope below is a recommendation for the maintainer to accept or change. Reviewers: release-engineer (module path, artefacts), mcp-protocol-engineer (sealed-state prefix, reserved name), security-reviewer (the checklist in *If the repository is made public*), design-guardian (display name and voice)
+- Deciders: Josh Scott (maintainer; chose the name `fathomgate` on 2026-09-24); accepted with the scope below on 2026-09-24); proposed by docs-writer. Reviewers: release-engineer (module path, artefacts), mcp-protocol-engineer (sealed-state prefix, reserved name), security-reviewer (the checklist in *If the repository is made public*), design-guardian (display name and voice)
 
 ## Context
 
