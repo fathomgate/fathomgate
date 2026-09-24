@@ -393,7 +393,7 @@ func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResu
 // so the per-call slot is what stops a burst. The agent's cancellation of
 // the call cancels the prompt.
 func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-	return func(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	return func(upCtx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 		f, n := u.sole()
 		if f == nil {
 			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", fmt.Errorf("it cannot be attributed to one call (%d in flight)", n)))
@@ -419,9 +419,15 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", err))
 		}
 		defer u.endPrompt(f)
-		ctx, cancel := context.WithCancel(ctx)
+		// The prompt goes out under the agent's call context, not the
+		// upstream request's: over Streamable HTTP, go-sdk puts a
+		// server-to-client request on the POST stream of the request whose
+		// context it carries, and on no stream at all otherwise. It is
+		// cancelled by either side: the agent's cancellation of the call or
+		// the upstream's of its request.
+		ctx, cancel := context.WithCancel(f.ctx)
 		defer cancel()
-		stop := context.AfterFunc(f.ctx, cancel)
+		stop := context.AfterFunc(upCtx, cancel)
 		defer stop()
 		res, err := f.agent.session.Elicit(ctx, clean)
 		if err == nil {

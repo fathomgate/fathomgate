@@ -228,6 +228,14 @@ func TestProgressStuckAgent(t *testing.T) {
 				t.Fatalf("A got its result without reading: %v", o.err)
 			default:
 			}
+			// Since T1 the call leaves the in-flight set before finish
+			// waits, so wait for finish to give up as well: A must lose the
+			// rest of its queue.
+			waitFor(t, "A's relay to give up waiting", func() bool {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				return r.abandoned
+			})
 
 			// The upstream's next request (elicitation/create for B's call)
 			// and B's result still flow, and the prompt is B's alone.
@@ -355,5 +363,82 @@ func TestUntilToken(t *testing.T) {
 	now = now.Add(time.Second / progressRate)
 	if d := r.untilToken(); d != time.Millisecond {
 		t.Fatalf("with a token due waits %v, want the 1ms floor", d)
+	}
+}
+
+// TestEndBeforeFinish (T1 in the review of PR #63): a call leaves its
+// upstream's in-flight set before it waits for its progress to reach the
+// agent. Agent A stops reading with progress queued and its call ends; while
+// A's relay is still waiting (a long final wait here), agent B's call gets
+// the stateful upstream's elicitation/create attributed to it. Before the
+// fix A's stale entry made two calls in flight, and B's prompt was refused.
+func TestEndBeforeFinish(t *testing.T) {
+	for _, agentEra := range []string{v2025, v2026} {
+		t.Run("agent "+agentEra, func(t *testing.T) {
+			bg := context.Background()
+			gate := newReadGate()
+			h := newEraHarness(t, eraSetup{agent: agentEra, upstream: v2025, reads: gate, progress: newProgressLog(), extra: addAskDirect})
+			h.proxy.progressWait = 30 * time.Second
+			promptsB := &promptLog{}
+			agentB, _ := connectAgent(t, h.proxy, eraSetup{agent: v2025}, promptsB)
+			t.Cleanup(gate.resume)
+			up := h.proxy.upstreams[testServer]
+
+			gate.pause()
+			params := &mcp.CallToolParams{Name: "netdev-ssh-mcp.progress_flood"}
+			params.SetProgressToken("stuck")
+			aDone := make(chan error, 1)
+			go func() {
+				_, err := h.agent.CallTool(bg, params)
+				aDone <- err
+			}()
+			var r *progressRelay
+			waitFor(t, "the relay to read the whole flood", func() bool {
+				r = relayAt(up, floodSize)
+				return r != nil
+			})
+			if _, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.progress_release"}); err != nil {
+				t.Fatalf("release: %v", err)
+			}
+			// A's call is in the window: finish has started and is still
+			// waiting on A.
+			waitFor(t, "A's relay to start finishing", func() bool {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				return r.done
+			})
+
+			res, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
+			if err != nil || res.IsError {
+				t.Fatalf("B's call: %v %q", err, text(res))
+			}
+			if got := text(res); got != "upstream got an answer" {
+				t.Fatalf("B's result %q: its prompt was not attributed to it", got)
+			}
+			if n := len(promptsB.all()); n != 1 {
+				t.Fatalf("B saw %d prompts, want 1", n)
+			}
+			r.mu.Lock()
+			abandoned := r.abandoned
+			r.mu.Unlock()
+			select {
+			case <-r.exited:
+				t.Fatal("A's sender finished before B's call; the window was not tested")
+			default:
+			}
+			if abandoned {
+				t.Fatal("A's relay gave up before B's call; the window was not tested")
+			}
+
+			gate.resume()
+			select {
+			case err := <-aDone:
+				if err != nil {
+					t.Fatalf("A's call: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("A's call did not return once A read again")
+			}
+		})
 	}
 }
