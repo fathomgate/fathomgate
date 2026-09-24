@@ -1,5 +1,6 @@
 # NetGuard build and test entry points. Tier 1 (no network) is everything here
-# except release-snapshot, which needs goreleaser installed.
+# except release-snapshot, which needs goreleaser installed, and conformance,
+# which needs Node.js and npm (it installs the pinned suite from the registry).
 
 BINARY   := netguard
 MODULE   := github.com/joshscott13/netguard
@@ -24,7 +25,17 @@ GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
 GOVULNCHECK_VERSION ?= v1.8.0
 ACTIONLINT_VERSION  ?= v1.7.12
 
-.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check status status-check release-snapshot clean help
+# MCP conformance (T0.4). The suite version is pinned in
+# tests/conformance/package.json and package-lock.json (npm ci). The fixture
+# upstream is go-sdk's own conformance everything-server at the go-sdk
+# version in go.mod, so a go-sdk bump rebuilds it in lockstep.
+CONFORMANCE_DIR     := tests/conformance
+CONFORMANCE_SERVER  := $(BIN_DIR)/conformance/everything-server
+CONFORMANCE_REVS    ?= 2025-11-25 2026-07-28
+CONFORMANCE_LEGS    ?= control netguard
+NPM                 ?= npm
+
+.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -79,11 +90,35 @@ fixtures-check: build ## Every redaction fixture must have an expect file and re
 	done; echo "fixtures ok"
 	$(GO) test -count=1 -run 'TestFixtureCorpus' ./internal/redact/
 
+# Every leg and revision runs even if an earlier one fails; the target fails
+# at the end if any did. tests/conformance/README.md explains the legs and the
+# baselines.
+conformance: build conformance-deps ## Official MCP conformance suite against netguard serve, both eras (needs Node.js)
+	@failed=""; \
+	for rev in $(CONFORMANCE_REVS); do \
+		for leg in $(CONFORMANCE_LEGS); do \
+			NETGUARD_BIN=$(CURDIR)/$(BIN_DIR)/$(BINARY) CONFORMANCE_SERVER=$(CURDIR)/$(CONFORMANCE_SERVER) PYTHON="$(PYTHON)" \
+				$(CONFORMANCE_DIR)/run.sh $$leg $$rev || failed="$$failed $$leg/$$rev"; \
+		done; \
+	done; \
+	if [ -n "$$failed" ]; then echo "conformance failed:$$failed"; exit 1; fi; \
+	echo "conformance ok: $(CONFORMANCE_LEGS) x $(CONFORMANCE_REVS)"
+
+conformance-deps: $(CONFORMANCE_SERVER) $(CONFORMANCE_DIR)/node_modules/.package-lock.json
+
+# A file target: rebuilt whenever go.mod or go.sum changes (a go-sdk bump).
+$(CONFORMANCE_SERVER): go.mod go.sum
+	@mkdir -p $(dir $@)
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -o $@ github.com/modelcontextprotocol/go-sdk/conformance/everything-server
+
+$(CONFORMANCE_DIR)/node_modules/.package-lock.json: $(CONFORMANCE_DIR)/package.json $(CONFORMANCE_DIR)/package-lock.json
+	cd $(CONFORMANCE_DIR) && $(NPM) ci --ignore-scripts --no-audit --no-fund
+
 release-snapshot: ## Local GoReleaser dry run (needs goreleaser)
 	goreleaser release --snapshot --clean --skip=publish
 
 clean: ## Remove build outputs
-	rm -rf $(BIN_DIR) dist
+	rm -rf $(BIN_DIR) dist $(CONFORMANCE_DIR)/node_modules $(CONFORMANCE_DIR)/results
 
 status: ## Re-render STATUS.md from docs/milestones/<CURRENT>.yaml and docs/handoffs/
 	$(PYTHON) tools/status/render.py

@@ -26,7 +26,7 @@ Run: `make test` (equals `go test ./... && netguard policy test policies/ && pyt
 
 - `tools/list` from each real upstream matches its profile: every listed tool has a profile entry and every profiled tool exists. A mismatch fails the build and is the drift signal for upstream schema changes.
 - Both eras initialise: netdev-ssh-mcp (go-sdk, 2026 era) and upa/mcp-netmiko-server (FastMCP, 2025 era).
-- The official conformance suite passes against the proxy's client-facing side.
+- The official conformance suite passes against the proxy's client-facing side (see "Conformance suite" below; it runs on every pull request and needs no Docker).
 - End-to-end decisions: a `reload` through eos-mcp `run_command` is denied with `no-exec`; a `show running-config` through ntunes `send_command` comes back redacted; an unknown `host` on netdev-ssh-mcp is denied.
 - Approval flow against junos-mcp-server with the fake SSH device standing in for the router: hold, approve via CLI, approve after TTL refused, drift cancelled, MRTR accept forwards.
 - A modified tool description quarantines the server and writes a `quarantine` event.
@@ -35,6 +35,17 @@ Run: `make test` (equals `go test ./... && netguard policy test policies/ && pyt
 Run: `make test-integration` (needs Docker). Images are built from pinned upstream commits in `tests/images/`; the pin is bumped by a weekly scheduled workflow that opens a pull request when tier 2 still passes, and an issue when it does not.
 
 Fake device: `tests/fakedevice/` is a Python asyncssh server. It selects a vendor persona from the username suffix (`admin@eos`, `admin@junos`), answers `show` commands from `tests/fakedevice/responses/<vendor>/`, echoes config lines, and simulates `commit confirmed`, `configure session` and `checkpoint` state so drift and rollback paths can be exercised without an image. It never needs a licence.
+
+## Conformance suite
+
+The official MCP conformance suite (`@modelcontextprotocol/conformance`, pinned in `tests/conformance/package-lock.json`) runs against the client-facing side of the real `netguard serve` binary for both protocol eras, `2025-11-25` and `2026-07-28`, each scored by that revision's frozen requirement set. The upstream behind netguard is go-sdk's own conformance everything-server, built from the go-sdk version in `go.mod`. The suite speaks only Streamable HTTP, so `tests/conformance/relay.py` fronts the stdio proxy, and a control leg runs the same relay in front of the fixture alone: a failure only on the netguard leg is netguard's.
+
+- Passes means every scored check passes except those in `tests/conformance/baseline/`, each listed per check with its reason: capabilities netguard does not declare, input requests it refuses, progress it does not relay, strict `requestState` retries, the era pairing, and HTTP-transport checks that belong to the relay. A baseline entry that starts passing fails the run.
+- It needs Go, Node.js, npm and `python3`, and no network beyond installing the suite. It runs as the `mcp-conformance` job in `ci.yaml` on every push and pull request, including Dependabot's, so a go-sdk bump cannot merge without it.
+- Not covered: a 2025-era upstream behind netguard (the fixture always negotiates `2026-07-28` with netguard; tier 1 covers all four era pairs), and anything about netguard's own HTTP handling, which does not exist in M0.
+- It proves the proxy's MCP surface, not an upstream: matrix rows 1 and 2 still need their named real servers.
+
+Run: `make conformance`. Details, legs and how to change a baseline: [tests/conformance/README.md](../../tests/conformance/README.md).
 
 ## Tier 3: what it proves
 

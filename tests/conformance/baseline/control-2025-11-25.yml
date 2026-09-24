@@ -1,0 +1,7 @@
+# Expected failures: control leg (relay -> go-sdk everything-server, no
+# netguard), --requirements 2025-11-25. Format and exit rules:
+# tests/conformance/README.md. An entry that starts passing fails the run.
+#
+# Empty: through the relay, the fixture passes every scored 2025-11-25
+# scenario, so the relay is transparent for this revision.
+server: []

@@ -1,0 +1,53 @@
+# Expected failures: netguard leg (relay -> netguard serve -> go-sdk
+# everything-server), --requirements 2025-11-25 (stateful agent). Format and
+# exit rules: tests/conformance/README.md. An entry that starts passing fails
+# the run, so a fix must delete its entry in the same PR.
+#
+# The control leg for this revision has no entries, so each failure here is a
+# difference netguard makes. Every one is a documented M0 decision, not a
+# regression; the owner and the reference are next to each group. Nothing
+# here is excused as "flaky".
+server:
+  # Undeclared capabilities. netguard declares only `tools` toward the agent
+  # (docs/specs/profile-schema.md section 8.2) and answers -32601 for
+  # prompts/*, resources/*, logging/setLevel and completion/complete (the
+  # T0.4 finding fixed in T0.3). The 2025-11-25 requirement set assumes the
+  # everything-server's full surface. Owner: mcp-protocol-engineer, if
+  # netguard ever proxies prompts or resources.
+  - completion-complete:completion-complete
+  - logging-set-level:logging-set-level
+  - prompts-list:prompts-list
+  - prompts-get-simple:prompts-get-simple
+  - prompts-get-with-args:prompts-get-with-args
+  - prompts-get-embedded-resource:prompts-get-embedded-resource
+  - prompts-get-with-image:prompts-get-with-image
+  - resources-list:resources-list
+  - resources-read-text:resources-read-text
+  - resources-read-binary:resources-read-binary
+  - resources-templates-read:resources-templates-read
+  - resources-subscribe:resources-subscribe
+  - resources-unsubscribe:resources-unsubscribe
+  # Calls logging/setLevel first (undeclared, -32601) and then expects the
+  # upstream's notifications/message to reach the agent; netguard relays no
+  # logging notifications (no logging capability).
+  - tools-call-with-logging:tools-call-with-logging
+  # Progress is not relayed: the agent's progressToken is in _meta, and no
+  # _meta crosses the proxy (profile-schema section 8.4, "Limits of this
+  # section"). Finding for mcp-protocol-engineer: relaying progress needs a
+  # proxy-issued token, which is a change to section 8.4.
+  - tools-call-with-progress:tools-call-with-progress
+  # Upstream sampling/createMessage is refused (profile-schema section 8.4;
+  # ADR 0008). By design.
+  - tools-call-sampling:tools-call-sampling
+  # Era pairing, not a netguard refusal. netguard's upstream client tries
+  # server/discover first, so everything-server negotiates 2026-07-28 with
+  # netguard while the agent is on 2025-11-25 (ADR 0008: each side negotiates
+  # its own era). These fixture tools use the stateful elicitation/create
+  # API, which go-sdk refuses on a 2026 session ("cannot be sent while
+  # serving a request on protocol version 2026-07-28"), and the tool returns
+  # that error. The relabelled relay of an upstream prompt to a 2025 agent is
+  # covered by internal/proxy tier 1 tests, not by this suite; a 2025-only
+  # upstream leg is the follow-up that would cover it here.
+  - tools-call-elicitation:tools-call-elicitation
+  - elicitation-sep1034-defaults:elicitation-sep1034-general
+  - elicitation-sep1330-enums:elicitation-sep1330-general

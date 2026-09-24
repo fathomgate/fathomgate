@@ -35,6 +35,7 @@ make build        # bin/netguard
 make test         # go test -race ./...
 make policy-test  # every policies/**/*.test.yaml through netguard policy test
 make fixtures-check
+make conformance  # official MCP conformance suite against netguard serve, both eras (needs Node.js)
 ```
 
 Go 1.25. Direct dependencies: `github.com/goccy/go-yaml` and the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.7.x, pinned for the M0 proxy). The Python companion under `tests/` needs `uv` and is optional.
