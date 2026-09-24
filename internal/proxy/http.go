@@ -263,7 +263,14 @@ func principalOf(req *mcp.CallToolRequest) string {
 // on every JSON-RPC request it serves (both handlers; streamable.go), and
 // the listener's authentication sets TokenInfo; the stdio and in-memory
 // transports set neither. Anything else is a session Proxy.Run serves.
-func transportOf(req *mcp.CallToolRequest) string {
+//
+// It fails closed. A request with a principal (TokenInfo) is http whether
+// or not go-sdk set the header, so a go-sdk that stopped setting it cannot
+// make a listener call read as stdio. A request with no Extra is stdio and
+// has no principal either (principalOf), and that binding cannot open a
+// state issued over the listener, whose principal is never empty
+// (TestTransportOfFailsClosed).
+func transportOf(req *mcp.CallToolRequest) agentTransport {
 	if req != nil && req.Extra != nil && (req.Extra.Header != nil || req.Extra.TokenInfo != nil) {
 		return transportHTTP
 	}

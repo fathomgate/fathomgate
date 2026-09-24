@@ -283,11 +283,19 @@ func (p *Proxy) resume(c call) (resumed, error) {
 		p.warnState(c, err)
 		return resumed{}, invalidRetry(name, reasonInvalidRequestState, err)
 	}
+	// A state that opens was issued to this transport and principal, so
+	// these two are a retry that kept its state and changed the call it
+	// resumes. They are logged like a state that does not open (T0.48, L2
+	// in the security review of PR #85), with netguard's own reason words:
+	// the log names neither the tool the state was issued for nor any
+	// argument.
 	switch {
 	case st.Server != c.up.name || st.Tool != c.tool:
+		p.warnState(c, errStateOtherTool)
 		return resumed{}, invalidRetry(name, reasonInvalidRequestState, fmt.Errorf("requestState was issued for %s", clip(prefixName(st.Server, st.Tool))))
 	case st.Args != argsDigest(c.arguments):
-		return resumed{}, invalidRetry(name, reasonInvalidRequestState, errors.New("arguments differ from the call that asked for input"))
+		p.warnState(c, errStateOtherArgs)
+		return resumed{}, invalidRetry(name, reasonInvalidRequestState, errStateOtherArgs)
 	}
 	out := make(mcp.InputResponseMap, len(c.inputResponses))
 	for id, r := range c.inputResponses {
@@ -307,20 +315,37 @@ func (p *Proxy) resume(c call) (resumed, error) {
 	return resumed{responses: out, upState: st.Up, round: st.Round, prompts: st.Prompts}, nil
 }
 
-// warnState logs a requestState netguard refused to open, naming the
-// principal and transport that presented it, so an operator can tell whose
-// client replays, forges or holds stale states. A state issued to another
-// principal or transport cannot be told from a forgery (errStateAuth), so
-// the line says what failed, never whose state it was. It is rate-limited
-// like the refusal lines (refusalLog), since the agent decides how often it
-// happens.
+// errStateOtherTool and errStateOtherArgs are the reasons warnState logs
+// for a state that opened but was issued for another call: netguard's own
+// words, naming nothing read from the envelope or the arguments. The agent
+// is told which prefixed tool the state was issued for (its own earlier
+// call); the log says only that it was another.
+var (
+	errStateOtherTool = errors.New("requestState was issued for another tool")
+	errStateOtherArgs = errors.New("arguments differ from the call that asked for input")
+)
+
+// warnState logs a requestState netguard refused, naming the principal and
+// transport that presented it, so an operator can tell whose client
+// replays, forges or holds stale states, or keeps a valid state and changes
+// the call it resumes (errStateOtherTool, errStateOtherArgs). A state
+// issued to another principal or transport cannot be told from a forgery
+// (errStateAuth), so the line says what failed, never whose state it was.
+// err is always one of netguard's fixed reasons, never text from the
+// envelope or the arguments.
+//
+// It is rate-limited like the refusal lines (refusalLog), since the agent
+// decides how often it happens. The limiter key is the server, transport,
+// principal and reason, and has no tool: a client that cycles through an
+// upstream's tools gets one line per reason per refusalLogInterval, not one
+// per tool. The line itself names the tool it was refused on.
 func (p *Proxy) warnState(c call, err error) {
-	key := "state\x00" + c.up.name + "\x00" + c.transport + "\x00" + c.principal + "\x00" + err.Error()
+	key := "state\x00" + c.up.name + "\x00" + string(c.transport) + "\x00" + c.principal + "\x00" + err.Error()
 	ok, suppressed, lost := p.refusalLog.allow(key, p.now())
 	if !ok {
 		return
 	}
-	args := []any{"server", c.up.name, "tool", c.tool, "transport", c.transport, "principal", logPrincipal(c.principal), "reason", err, "suppressed", suppressed}
+	args := []any{"server", c.up.name, "tool", c.tool, "transport", string(c.transport), "principal", logPrincipal(c.principal), "reason", err, "suppressed", suppressed}
 	if lost > 0 {
 		args = append(args, "suppressed_lost", lost)
 	}
@@ -757,7 +782,8 @@ func logPrincipal(principal string) string {
 
 const (
 	// refusalLogInterval is the least time between two Warn lines for the
-	// same unattributed refusal (warnRefusal).
+	// same key: a refused upstream input request (warnRefusal) or a refused
+	// requestState (warnState).
 	refusalLogInterval = 10 * time.Second
 	// maxRefusalLogKeys bounds the rate limiter's memory. Past it, entries
 	// older than refusalLogInterval are dropped, and if that frees nothing,
@@ -768,8 +794,9 @@ const (
 	maxRefusalLogKeys = 1024
 )
 
-// refusalLimiter rate-limits the Warn lines of refusals (warnRefusal).
-// The zero value is ready to use.
+// refusalLimiter rate-limits the Warn lines of refusals: of upstream input
+// requests (warnRefusal) and of requestStates (warnState), in one table;
+// warnState's keys start with "state". The zero value is ready to use.
 type refusalLimiter struct {
 	mu   sync.Mutex
 	last map[string]refusalLogEntry

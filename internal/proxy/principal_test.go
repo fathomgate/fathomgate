@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -64,7 +66,7 @@ func TestSealerBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range []string{"alice", transportHTTP} {
+	for _, v := range []string{"alice", string(transportHTTP)} {
 		if strings.Contains(token, v) || strings.Contains(string(raw), v) {
 			t.Errorf("token reveals %q", v)
 		}
@@ -210,8 +212,12 @@ func TestRequestStateBoundToTransport(t *testing.T) {
 	}
 }
 
-// TestCallCarriesTransportAndPrincipal: the call dispatch receives names the
-// transport and principal it arrived with, in each era.
+// TestCallCarriesTransportAndPrincipal: newCall, which builds the call the
+// tool handler hands to dispatch, gives each tools/call the transport and
+// principal it arrived with: a stateful (2025-era) and a stateless
+// (2026-era) client over the listener, and the local agent. The test runs
+// newCall itself, from a receiving middleware, on the same request go-sdk
+// then passes to the tool handler; it does not intercept dispatch.
 func TestCallCarriesTransportAndPrincipal(t *testing.T) {
 	h := newHTTPHarness(t, httpSetup{})
 	var mu sync.Mutex
@@ -258,13 +264,16 @@ func TestCallCarriesTransportAndPrincipal(t *testing.T) {
 // a stateless request over the listener, and the local agent) call the same
 // upstream at once with the same progressToken. Each relay belongs to its
 // own request, the upstream sees three distinct tokens of netguard's, and
-// each agent gets only its own call's progress. Each call holds its result
-// until its agent has had all three notifications, since one sent just
-// before a result may be dispatched after it and dropped (8.4).
+// each agent gets only its own call's progress: ownership is shown by what
+// each agent receives, since the relay keeps no owner record beyond its
+// unique token and its request's session and context (T0.48). Each call
+// holds its result until its agent has had all three notifications, since
+// one sent just before a result may be dispatched after it and dropped
+// (8.4).
 func TestProgressRelayPerSession(t *testing.T) {
 	arrived := make(chan struct{}, 3)
-	start := make(chan struct{})
-	release := map[string]chan struct{}{"alice": make(chan struct{}), "bob": make(chan struct{}), "local": make(chan struct{})}
+	start := newGate()
+	release := map[string]*gate{"alice": newGate(), "bob": newGate(), "local": newGate()}
 	tagged := func(s *mcp.Server) {
 		s.AddTool(&mcp.Tool{Name: "progress_tagged", InputSchema: objectSchema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var a struct {
@@ -273,7 +282,7 @@ func TestProgressRelayPerSession(t *testing.T) {
 			_ = json.Unmarshal(req.Params.Arguments, &a)
 			arrived <- struct{}{}
 			select {
-			case <-start:
+			case <-start.ch:
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -281,7 +290,7 @@ func TestProgressRelayPerSession(t *testing.T) {
 				_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{ProgressToken: req.Params.GetProgressToken(), Progress: float64(i), Message: a.Who})
 			}
 			select {
-			case <-release[a.Who]:
+			case <-release[a.Who].ch:
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -304,6 +313,16 @@ func TestProgressRelayPerSession(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(map[string]string)
 	var mu sync.Mutex
+	// On a failure below, open every gate so the upstream handlers return
+	// and the calls end, then wait for them, before the harness closes. It
+	// runs first (cleanups run last-registered first).
+	t.Cleanup(func() {
+		start.open()
+		for _, g := range release {
+			g.open()
+		}
+		wg.Wait()
+	})
 	for who, cs := range agents {
 		wg.Go(func() {
 			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
@@ -322,37 +341,30 @@ func TestProgressRelayPerSession(t *testing.T) {
 		select {
 		case <-arrived:
 		case <-time.After(5 * time.Second):
-			close(start)
 			t.Fatal("the three calls did not all reach the upstream")
 		}
 	}
 
-	// All three are in flight: three relays, three tokens, three owners.
+	// All three are in flight: three relays under three distinct tokens of
+	// netguard's, none the agents' shared "p", each writing to its own
+	// request's session.
 	up.mu.Lock()
-	owners := map[stateBinding]string{}
+	sessions := map[*mcp.ServerSession]bool{}
 	for tok, r := range up.progress {
 		if tok != r.upToken || tok == "p" {
 			t.Errorf("relay mapped under %q has token %q", tok, r.upToken)
 		}
-		owners[stateBinding{r.transport, r.principal}] = r.sessionKey
+		sessions[r.session] = true
 	}
+	relays := len(up.progress)
 	up.mu.Unlock()
-	if len(owners) != 3 {
-		t.Fatalf("relays %v, want one per agent request", owners)
+	if relays != 3 || len(sessions) != 3 {
+		t.Fatalf("%d relays on %d agent sessions, want one relay per agent request", relays, len(sessions))
 	}
-	for b, prefix := range map[stateBinding]string{
-		{transportHTTP, "alice"}: "s",
-		{transportHTTP, "bob"}:   requestKeyPrefix,
-		{transportStdio, ""}:     localKeyPrefix,
-	} {
-		if key, ok := owners[b]; !ok || !strings.HasPrefix(key, prefix) {
-			t.Errorf("relay of %+v owned by session %q, want a %q key", b, key, prefix)
-		}
-	}
-	close(start)
+	start.open()
 	for who, l := range logs {
 		l.waitN(t, 3)
-		close(release[who])
+		release[who].open()
 	}
 	wg.Wait()
 
@@ -386,22 +398,25 @@ func TestProgressRelayPerSession(t *testing.T) {
 	}
 }
 
-// TestWatchProgressNeverSharesToken: a relay whose token is already mapped
-// draws a fresh one; the relay already mapped keeps its token, and ending
-// either removes only its own mapping.
+// TestWatchProgressNeverSharesToken: watchProgress draws every token; a
+// relay whose token is already mapped draws a fresh one; the relay already
+// mapped keeps its token, and ending either removes only its own mapping.
 func TestWatchProgressNeverSharesToken(t *testing.T) {
 	u := &upstream{name: testServer}
-	mk := func(key string) *progressRelay {
-		return newProgressRelay(context.Background(), call{up: u, agent: agentPeer{session: &mcp.ServerSession{}}, progressToken: "p", sessionKey: key}, time.Now, 0)
+	mk := func() *progressRelay {
+		return newProgressRelay(context.Background(), call{up: u, agent: agentPeer{session: &mcp.ServerSession{}}, progressToken: "p"}, time.Now, 0)
 	}
-	a, b := mk("s-a"), mk("s-b")
-	b.upToken = a.upToken
+	a, b := mk(), mk()
+	if a.upToken != "" || b.upToken != "" {
+		t.Fatalf("tokens drawn before watchProgress: %q %q", a.upToken, b.upToken)
+	}
 	u.watchProgress(a)
+	b.upToken = a.upToken // force the collision watchProgress must redraw
 	u.watchProgress(b)
-	if b.upToken == a.upToken || u.progress[a.upToken] != a || u.progress[b.upToken] != b {
+	if a.upToken == "" || b.upToken == a.upToken || u.progress[a.upToken] != a || u.progress[b.upToken] != b {
 		t.Fatalf("token shared or replaced: a=%q b=%q", a.upToken, b.upToken)
 	}
-	stale := mk("s-c")
+	stale := mk()
 	stale.upToken = a.upToken
 	u.unwatchProgress(stale) // not the relay mapped under a's token
 	if u.progress[a.upToken] != a {
@@ -411,5 +426,117 @@ func TestWatchProgressNeverSharesToken(t *testing.T) {
 	u.unwatchProgress(a)
 	if len(u.progress) != 0 {
 		t.Fatalf("%d mappings left", len(u.progress))
+	}
+}
+
+// gate is a channel a test opens once, from any number of places (the test
+// body, or a cleanup after a failure).
+type gate struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func newGate() *gate { return &gate{ch: make(chan struct{})} }
+
+func (g *gate) open() { g.once.Do(func() { close(g.ch) }) }
+
+// TestTransportOfFailsClosed pins transportOf and principalOf on the
+// requests go-sdk could hand the tool handler. A principal always means the
+// listener, with or without the header go-sdk sets today; a request with no
+// Extra at all is stdio with no principal, and that binding cannot open a
+// state issued over the listener.
+func TestTransportOfFailsClosed(t *testing.T) {
+	alice := &auth.TokenInfo{UserID: "alice"}
+	for _, tc := range []struct {
+		name string
+		req  *mcp.CallToolRequest
+		want stateBinding
+	}{
+		{"no request", nil, stateBinding{transportStdio, ""}},
+		{"no Extra", &mcp.CallToolRequest{}, stateBinding{transportStdio, ""}},
+		{"empty Extra", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{}}, stateBinding{transportStdio, ""}},
+		{"header only", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: http.Header{}}}, stateBinding{transportHTTP, ""}},
+		{"principal, no header", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice}}, stateBinding{transportHTTP, "alice"}},
+		{"principal and header", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice, Header: http.Header{}}}, stateBinding{transportHTTP, "alice"}},
+	} {
+		if got := (stateBinding{transportOf(tc.req), principalOf(tc.req)}); got != tc.want {
+			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+
+	s := testSealer(t, time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC))
+	st := sealedState{Server: testServer, Tool: "ask", Args: argsDigest(nil), IDs: []string{"pw"}}
+	token, err := s.seal(st, stateBinding{transportHTTP, "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noExtra := &mcp.CallToolRequest{}
+	if _, err := s.open(token, stateBinding{transportOf(noExtra), principalOf(noExtra)}); !errors.Is(err, errStateAuth) {
+		t.Fatalf("a request with no Extra opened alice's http state: %v", err)
+	}
+}
+
+// TestTamperedRetryLogged: a retry from the principal the state was issued
+// to, with a state that opens but changed arguments or another tool, is
+// refused -32602 and logged at Warn with netguard's own reason, naming the
+// presenter and no argument value or envelope content, under the refusal
+// rate limiter (T0.48, L2 in the security review of PR #85). Nothing
+// reaches the upstream.
+func TestTamperedRetryLogged(t *testing.T) {
+	buf := newSyncBuffer()
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	h := newHTTPHarness(t, httpSetup{logger: logger})
+	alice := h.connect(t, v2026, tokAlice, manualMRTR())
+	args := map[string]any{"host": "core-rtr-01"}
+	const tamperedValue = "FAKE-tampered-host-7f3a"
+	tampered := map[string]any{"host": tamperedValue}
+
+	state := askForState(t, alice, args)
+	before := len(h.rec.all())
+
+	// Changed arguments, twice: one line, the repeat held back.
+	for range 2 {
+		_, err := retry(alice, tampered, state)
+		wantStateRefused(t, err, errStateOtherArgs, tamperedValue, "core-rtr-01", "up-state", upstreamPrompt)
+	}
+	buf.waitFor(t, errStateOtherArgs.Error())
+
+	// The same state on another tool: the agent is told which tool the
+	// state was issued for; the log only that it was another.
+	_, err := alice.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_twice", Arguments: args, RequestState: state, InputResponses: accepted()})
+	wantStateRefused(t, err, errors.New("requestState was issued for netdev-ssh-mcp.ask"), "up-state", upstreamPrompt)
+	buf.waitFor(t, errStateOtherTool.Error())
+
+	if n := len(h.rec.all()); n != before {
+		t.Fatalf("upstream saw %d refused retries", n-before)
+	}
+	log := buf.String()
+	var lines []string
+	for line := range strings.Lines(log) {
+		if strings.Contains(line, "netguard refused a requestState") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want one line per reason (the repeat held back by the limiter), got %d:\n%s", len(lines), log)
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, "transport=http") || !strings.Contains(line, "principal=alice") || !strings.Contains(line, "server="+testServer) {
+			t.Errorf("line does not name the presenter: %s", line)
+		}
+		for _, leak := range []string{tamperedValue, "core-rtr-01", "host", agentPassword, "up-state", "netdev-ssh-mcp.ask"} {
+			if strings.Contains(line, leak) {
+				t.Errorf("line carries %q: %s", leak, line)
+			}
+		}
+	}
+	if !strings.Contains(lines[0], "tool=ask ") || !strings.Contains(lines[1], "tool=ask_twice ") {
+		t.Errorf("each line should name the tool its retry was refused on:\n%s", log)
+	}
+
+	// The honest retry still crosses once.
+	res, err := retry(alice, args, state)
+	if err != nil || res.IsError || !strings.Contains(text(res), "answered state=up-state-pw pw=accept:"+agentPassword) {
+		t.Fatalf("honest retry: %v %q", err, text(res))
 	}
 }

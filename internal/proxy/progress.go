@@ -76,20 +76,16 @@ const (
 // write has a deadline (HTTPOptions.WriteTimeout, http.go), so a stuck
 // write fails within it and the sender exits.
 type progressRelay struct {
-	server     string
-	upToken    string // netguard's token, as sent to the upstream
-	agentToken any    // the agent's token, returned verbatim
+	server string
+	// upToken is netguard's token, as sent to the upstream. watchProgress
+	// draws it, fresh for every agent request and never one already mapped
+	// on the upstream, so a relay belongs to exactly one agent request, and
+	// so to one session and one principal (ADR 0016). That ownership is
+	// the token's uniqueness plus session and ctx below, which are the
+	// request's own; the relay keeps no other record of its owner.
+	upToken    string
+	agentToken any // the agent's token, returned verbatim
 	session    *mcp.ServerSession
-	// sessionKey, transport and principal name the one agent request the
-	// relay belongs to (ADR 0016: session or stateless POST, and
-	// principal). The upstream names only upToken, which is fresh for
-	// every agent request, so a relay is keyed per request and therefore
-	// per session; these fields keep that owner on the relay, and
-	// watchProgress never maps one token to two relays, so a token can
-	// never reach two sessions.
-	sessionKey string
-	transport  string
-	principal  string
 	ctx        context.Context // the agent's request context
 	now        func() time.Time
 	finalWait  time.Duration // how long finish waits for the sender
@@ -114,9 +110,10 @@ type progressRelay struct {
 	exited    chan struct{}                     // closed when the sender returns
 }
 
-// newProgressRelay returns the relay for call c, with a fresh random token
-// for the upstream, owned by c's agent request. It returns nil when the
-// agent sent no usable token.
+// newProgressRelay returns the relay for call c, writing to c's agent
+// session under ctx, c's request context. It has no upstream token until
+// watchProgress draws one. It returns nil when the agent sent no usable
+// token.
 func newProgressRelay(ctx context.Context, c call, now func() time.Time, finalWait time.Duration) *progressRelay {
 	if c.progressToken == nil || c.agent.session == nil || c.up == nil {
 		return nil
@@ -125,12 +122,8 @@ func newProgressRelay(ctx context.Context, c call, now func() time.Time, finalWa
 	sendCtx, cancel := context.WithCancel(ctx)
 	return &progressRelay{
 		server:     c.up.name,
-		upToken:    rand.Text(),
 		agentToken: c.progressToken,
 		session:    c.agent.session,
-		sessionKey: c.sessionKey,
-		transport:  c.transport,
-		principal:  c.principal,
 		ctx:        ctx,
 		now:        now,
 		finalWait:  finalWait,
@@ -355,12 +348,16 @@ func agentProgressToken(req *mcp.CallToolRequest) any {
 	return nil
 }
 
-// watchProgress registers r on u, so upstream notifications naming its token
-// find it. A token already mapped (to another request, and so possibly to
-// another agent session) is never shared or replaced: r draws a fresh one.
-// At 128 random bits that does not happen in practice; the loop makes the
-// one-token-one-request property hold by construction rather than by odds.
-// It runs before the token is sent upstream.
+// watchProgress draws r's upstream token and registers r on u under it, so
+// upstream notifications naming the token find it. It is the only place a
+// token is drawn: at least 128 random bits (crypto/rand.Text gives 26
+// base32 characters, 130 bits), redrawn while it is already mapped on u (to
+// another request, and so possibly to another agent session), so a mapping
+// is never shared or replaced. A collision does not happen in practice; the
+// loop makes the one-token-one-request property hold by construction rather
+// than by odds. A token set before the call (tests do, to force a
+// collision) is kept unless it is already mapped. It runs before the token
+// is sent upstream.
 func (u *upstream) watchProgress(r *progressRelay) {
 	if r == nil {
 		return
@@ -370,7 +367,7 @@ func (u *upstream) watchProgress(r *progressRelay) {
 	if u.progress == nil {
 		u.progress = make(map[string]*progressRelay)
 	}
-	for u.progress[r.upToken] != nil {
+	for r.upToken == "" || u.progress[r.upToken] != nil {
 		r.upToken = rand.Text()
 	}
 	u.progress[r.upToken] = r

@@ -115,8 +115,9 @@ type Proxy struct {
 	locals     map[*mcp.ServerSession]string
 	connecting map[chan struct{}]struct{}
 	runs       int
-	// refusalLog rate-limits the Warn lines of refusals netguard could not
-	// attribute to one call (input.go).
+	// refusalLog rate-limits the Warn lines of refused upstream input
+	// requests (warnRefusal) and refused requestStates (warnState), both in
+	// input.go.
 	refusalLog refusalLimiter
 	// requestKeys numbers the keys requestKey makes up for calls whose
 	// agent session netguard cannot name (input.go).
@@ -988,7 +989,7 @@ type call struct {
 
 	// transport is the agent transport the call arrived on:
 	// transportStdio or transportHTTP (transportOf).
-	transport string
+	transport agentTransport
 	// principal names the bearer token the request arrived with over the
 	// HTTP listener (HTTPOptions.Tokens); it is "" on stdio. It is
 	// attribution only, for the M4 audit line, and binds the sealed

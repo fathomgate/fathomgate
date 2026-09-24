@@ -81,13 +81,18 @@ var (
 	errStateTooLarge = errors.New("the sealed requestState would exceed the size netguard accepts")
 )
 
-// Agent transports, as a call carries them (call.transport) and as the
-// envelope binds them. transportStdio is a session Proxy.Run serves
-// (`netguard serve` passes it the stdio transport; tests an in-memory one);
-// transportHTTP is a request over the HTTP listener (HTTPHandler).
+// agentTransport is the agent transport a call arrived on, as a call
+// carries it (call.transport) and as the envelope binds it
+// (stateBinding.transport). It is one of the two constants below, never a
+// value read from a request.
+type agentTransport string
+
+// transportStdio is a session Proxy.Run serves (`netguard serve` passes it
+// the stdio transport; tests an in-memory one); transportHTTP is a request
+// over the HTTP listener (HTTPHandler).
 const (
-	transportStdio = "stdio"
-	transportHTTP  = "http"
+	transportStdio agentTransport = "stdio"
+	transportHTTP  agentTransport = "http"
 )
 
 // stateBinding is the agent side a requestState is issued to: the
@@ -99,7 +104,7 @@ const (
 // state to it keeps one token's holder from replaying another's, and says
 // nothing about who answered.
 type stateBinding struct {
-	transport string
+	transport agentTransport
 	principal string
 }
 
@@ -112,7 +117,7 @@ type stateBinding struct {
 func (b stateBinding) aad() []byte {
 	out := make([]byte, 0, len(statePrefix)+len(b.transport)+len(b.principal)+2)
 	out = append(out, statePrefix...)
-	out = append(out, b.transport...)
+	out = append(out, string(b.transport)...)
 	out = append(out, 0)
 	out = append(out, b.principal...)
 	return append(out, 0)
