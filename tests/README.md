@@ -10,6 +10,7 @@ tests/
   policy_lint/          validate policy YAML against the DSL schema (python -m policy_lint)
   unit/                 tier 1: no network
   integration/          tier 2: spawn `netguard serve` + real MCP server + fake device
+    upstreams/          pinned install recipes for upstreams without a release binary
   fixtures/configs/     sanitised running-configs with annotated FAKE secrets
   fixtures/device/      fake SSH device (asyncssh) and its canned transcripts
   conformance/          official MCP conformance suite vs netguard serve: relay.py, baselines (make conformance)
@@ -23,8 +24,15 @@ uv run --extra dev pytest unit -q            # tier 1
 uv run python -m policy_lint ../policies/examples/prod-approval.yaml
 # tier 2: needs bin/netguard (make build) and netdev-ssh-mcp v1.6.6, either the
 # release binary or `go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6`
-NETGUARD_UPSTREAM=/abs/path/to/netdev-ssh-mcp uv run --extra integration pytest integration -m tier2 -v
+NETGUARD_UPSTREAM=/abs/path/to/netdev-ssh-mcp uv run --extra integration pytest integration -m "tier2 and netdev_ssh_mcp" -v
+# tier 2 against upa/mcp-netmiko-server: install.sh (git, uv) prints the three
+# NETGUARD_UPA_* variables the tests read
+export $(integration/upstreams/upa-mcp-netmiko-server/install.sh /tmp/upa)
+uv run --extra integration pytest integration -m "tier2 and upa_mcp_netmiko_server" -v
 ```
+
+Each upstream's cases skip when its variables are unset, so either set runs
+alone; `-m tier2` runs both.
 
 Policy *behaviour* is tested by the Go binary, not by Python:
 `netguard policy test policies/examples/prod-approval.test.yaml` (or
@@ -53,4 +61,14 @@ a mock.
   launcher). The M1 decision and audit cases are skipped until the pipeline
   is wired. Without `NETGUARD_UPSTREAM` the tier 2 tests skip; CI sets
   `NETGUARD_TIER2_REQUIRED=1` so they cannot skip there.
+- Tier 2: live for upa/mcp-netmiko-server at commit `96e8ff3` (CI job
+  `tier2-upa`, no Docker). `integration/test_upa_netmiko.py` covers the
+  2025-era half of matrix row 2. With mcp 1.30.0 (hash-pinned
+  `integration/upstreams/upa-mcp-netmiko-server/requirements.txt`), netguard
+  negotiates 2025-11-25 stateful with it, lists `upa.<tool>`, and a 2025 and
+  a 2026 agent each run `show version` once on the fake device through
+  netmiko. With the upstream's own `uv.lock` (mcp 1.6.0), netguard cannot
+  start in front of it; that case is a strict xfail (see test-matrix.md
+  row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
+  at 2026-07-28 stateless).
 - Tier 3: workflow skeleton only.

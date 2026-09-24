@@ -1,8 +1,15 @@
-"""Tier 2 fixtures: spawn `netguard serve` in front of the real upstream
-krisiasty/netdev-ssh-mcp, pinned to NETDEV_SSH_MCP_VERSION, with the fake
-SSH device (tests/fixtures/device/fake_ssh.py) standing in for the router.
+"""Tier 2 fixtures: spawn `netguard serve` in front of a real upstream, with
+the fake SSH device (tests/fixtures/device/fake_ssh.py) standing in for the
+router. Two upstreams, each pinned, each skipped on its own when not
+installed (CI requires both):
 
-Setup (the CI job `client-smoke` does the same):
+- krisiasty/netdev-ssh-mcp, pinned to NETDEV_SSH_MCP_VERSION (go-sdk, 2026
+  era; NETGUARD_UPSTREAM, below);
+- upa/mcp-netmiko-server, pinned to UPA_COMMIT (FastMCP, 2025 era;
+  NETGUARD_UPA_*, see upa_install and
+  integration/upstreams/upa-mcp-netmiko-server/install.sh).
+
+netdev-ssh-mcp setup (the CI job `client-smoke` does the same):
 
     make build
     GOBIN=$PWD/.upstream go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6
@@ -20,6 +27,7 @@ on it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -45,9 +53,26 @@ DEVICE_USERNAME = "admin"
 DEVICE_PASSWORD = "FAKE-device-pass"
 
 
+# upa/mcp-netmiko-server (T0.34, matrix row 2). It has no releases, so the
+# pin is a commit, plus main.py's sha256 (the server is that one file). Bump
+# these, install.sh and test-matrix.md together.
+UPA_COMMIT = "96e8ff321cc839eeb525474736439ddc2ebc795c"
+UPA_MAIN_SHA256 = "07e55298409e91dea62e2f245fad37be75e71a0dd8df9027f97ba0c7cca7babb"
+# The two dependency sets the upstream runs with (install.sh): "current" is
+# integration/upstreams/upa-mcp-netmiko-server/requirements.txt, "locked" is
+# the upstream's own uv.lock.
+UPA_CURRENT_MCP = "1.30.0"
+UPA_LOCKED_MCP = "1.6.0"
+# The tool prefix. Short on purpose: the upstream's longest tool name
+# (set_config_commands_and_commit_or_save) is 38 characters, and Claude Code's
+# `mcp__<key>__<server>_<tool>` must stay within 64.
+UPA_SERVER = "upa"
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "tier2: real MCP server, fake device")
     config.addinivalue_line("markers", "netdev_ssh_mcp: validated against krisiasty/netdev-ssh-mcp")
+    config.addinivalue_line("markers", "upa_mcp_netmiko_server: validated against upa/mcp-netmiko-server")
 
 
 @pytest.fixture(scope="session")
@@ -100,6 +125,51 @@ def upstream_binary() -> Path:
     if version != NETDEV_SSH_MCP_VERSION:
         pytest.fail(f"{path} is netdev-ssh-mcp {version!r}; these rows are pinned to {NETDEV_SSH_MCP_VERSION}")
     return path
+
+
+@dataclass
+class UpaInstall:
+    main: Path  # main.py at UPA_COMMIT
+    python: Path  # the "current" leg: mcp UPA_CURRENT_MCP
+    locked_python: Path  # the "locked" leg: the upstream's uv.lock, mcp UPA_LOCKED_MCP
+
+
+def _mcp_version(python: Path) -> str:
+    out = subprocess.run(
+        [str(python), "-c", "from importlib.metadata import version; print(version('mcp'))"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return out.stdout.strip() or out.stderr.strip()
+
+
+@pytest.fixture(scope="session")
+def upa_install() -> UpaInstall:
+    """upa/mcp-netmiko-server as install.sh lays it out, checked against the pins."""
+    names = ("NETGUARD_UPA_DIR", "NETGUARD_UPA_PYTHON", "NETGUARD_UPA_LOCKED_PYTHON")
+    values = {n: os.environ.get(n, "") for n in names}
+    missing = [n for n, v in values.items() if not v]
+    hint = "integration/upstreams/upa-mcp-netmiko-server/install.sh DEST prints them"
+    if missing and os.environ.get("NETGUARD_TIER2_REQUIRED") == "1":
+        pytest.fail(f"NETGUARD_TIER2_REQUIRED=1 but {', '.join(missing)} not set ({hint})")
+    if missing:
+        pytest.skip(f"{', '.join(missing)} not set ({hint})")
+    main = Path(values["NETGUARD_UPA_DIR"]) / "main.py"
+    if not main.is_file():
+        pytest.fail(f"{main} does not exist")
+    digest = hashlib.sha256(main.read_bytes()).hexdigest()
+    if digest != UPA_MAIN_SHA256:
+        pytest.fail(f"{main} has sha256 {digest}; row 2 is pinned to upa/mcp-netmiko-server {UPA_COMMIT} ({UPA_MAIN_SHA256})")
+    for name, want in (("NETGUARD_UPA_PYTHON", UPA_CURRENT_MCP), ("NETGUARD_UPA_LOCKED_PYTHON", UPA_LOCKED_MCP)):
+        got = _mcp_version(Path(values[name]))
+        if got != want:
+            pytest.fail(f"{name}={values[name]} has mcp {got!r}; want {want}")
+    return UpaInstall(
+        main=main.resolve(),
+        python=Path(values["NETGUARD_UPA_PYTHON"]),
+        locked_python=Path(values["NETGUARD_UPA_LOCKED_PYTHON"]),
+    )
 
 
 @dataclass
