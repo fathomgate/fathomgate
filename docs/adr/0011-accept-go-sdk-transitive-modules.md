@@ -19,7 +19,7 @@ go-sdk `v1.7.0` declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.
 | `github.com/yosida95/uritemplate/v3` | `v3.0.2` | `go.mod` indirect | `mcp` → `uritemplate/v3` (resource templates) |
 | `golang.org/x/oauth2` | `v0.35.0` | `go.mod` indirect | `mcp` → `golang.org/x/oauth2` (Streamable HTTP client, `mcp/streamable.go`) |
 | `golang.org/x/sync` | `v0.20.0` | `go.mod` indirect | `mcp` → `golang.org/x/sync/errgroup` |
-| `golang.org/x/sys` | `v0.47.0` | `go.mod` direct (T0.12) | `internal/audit` → `golang.org/x/sys/windows` (audit key and log DACL, Windows only); also `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` on every platform |
+| `golang.org/x/sys` | `v0.48.0` | `go.mod` direct (T0.12) | `internal/audit` → `golang.org/x/sys/windows` (audit key and log DACL, Windows only); also `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` on every platform |
 | `golang.org/x/time` | `v0.15.0` | `go.mod` indirect | `mcp` → `golang.org/x/time/rate` (log rate limiting, `mcp/logging.go`) |
 | `github.com/golang-jwt/jwt/v5` | `v5.3.1` | `go.sum` only | `go-sdk/oauthex.test` (go-sdk tests only) |
 | `github.com/google/go-cmp` | `v0.7.0` | `go.sum` only | `go-sdk/mcp.test` (go-sdk tests only) |
@@ -31,8 +31,8 @@ We will accept go-sdk (accepted at `v1.7.0`, now `v1.8.0`) and the eleven module
 
 1. **No cgo.** `CGO_ENABLED=0` builds succeed for `linux/amd64`, `linux/arm64`, `darwin/arm64` and `windows/amd64`. Verified 2026-09-23 with `go1.26.7` against the Go 1.25.0 module floor, on `go-sdk/mcp` and `./internal/tools` (`-tags tools`) at T0.1. Re-verified 2026-09-23 with `go1.27.0` on `./cmd/netguard` at go-sdk `v1.8.0` and `golang.org/x/sys` `v0.47.0` (T0.16). A module that breaks this property is a regression, and fixing it needs a new ADR.
 2. **Recorded justification.** The "Why" column above is the `go mod why -m` output. Any PR that adds or removes a module in `go.mod` updates this table or supersedes this record.
-3. **Update watch.** `.github/dependabot.yml` already watches `gomod` weekly and groups all modules under `go-deps`. The transitive modules are covered with no config change. A go-sdk minor bump is still its own PR (CLAUDE.md); `go.mod` holds one go-sdk minor at a time, currently `v1.8`.
-4. **Vulnerability scan.** `govulncheck ./...` belongs in CI as a follow-up. This record does not add it.
+3. **Update watch.** `.github/dependabot.yml` already watches `gomod` weekly and groups all modules under `go-deps`. The transitive modules are covered with no config change. A go-sdk minor bump is still its own PR (CLAUDE.md); `go.mod` holds one go-sdk minor at a time, currently `v1.8`. Since T0.4, every go-sdk bump, Dependabot's included, must pass the `mcp-conformance` CI job before it merges (CONTRIBUTING.md).
+4. **Vulnerability scan.** `govulncheck ./...` runs in CI (`make vulncheck`, added by T0.10) on every pull request and weekly.
 
 ## Consequences
 
@@ -69,6 +69,7 @@ This section records factual corrections. It does not change the decision, the m
 | --- | --- | --- | --- |
 | 2026-09-23 | T0.16 | `golang.org/x/sys` row: `v0.41.0` indirect via `segmentio/asm` became `v0.47.0` direct, with both import paths | T0.12 (PR #33) imports `golang.org/x/sys/windows` in `internal/audit` for the key-file DACL and moved to `v0.47.0` for GO-2026-5024 |
 | 2026-09-23 | T0.16 | Title, Context, Decision and guardrail 3 no longer name go-sdk `v1.7.0` as current; the table is re-checked at `53701e9` | Dependabot PR #28 moved go-sdk to `v1.8.0`. Its `go.mod` is identical to `v1.7.0`'s, so no module row changed |
+| 2026-09-23 | board sync | `golang.org/x/sys` row: `v0.47.0` became `v0.48.0`; guardrail 3 names the `mcp-conformance` gate; guardrail 4 records that govulncheck runs in CI | Dependabot PR #39 bumped x/sys with no import change; T0.4 (PR #44) added the conformance job; T0.10 (PR #19) added govulncheck |
 | 2026-09-23 | T0.16 | Guardrail 1 re-verified on `./cmd/netguard`; the `internal/tools` and binary-size lines are marked as T0.1 facts | T0.2 removed `internal/tools/tools.go` and links go-sdk into `bin/netguard` |
 
 ## References
