@@ -27,7 +27,7 @@ So the gap is one cell: a stateless agent calling a stateful upstream that elici
 
 In M0 we will refuse a stateful upstream's server-initiated `elicitation/create` while the calling agent is stateless. The upstream gets a JSON-RPC error and the agent gets a labelled tool error. "Parking" the upstream call (option B) is deferred to matrix row 17 and must meet the requirements below before it is built.
 
-- The upstream gets a JSON-RPC error. The agent gets a tool result with `isError: true` and the text `netguard refused an input request (elicitation) from upstream <server> during <tool>: this client speaks 2026-07-28 and cannot receive a server-initiated prompt; see ADR 0014`. The upstream's prompt is never shown.
+- The upstream gets a JSON-RPC error. The agent gets a tool result with `isError: true` and the text `netguard refused an input request (elicitation) from upstream <server> during <tool>: this client speaks the stateless era (2026-07-28) and cannot receive a server-initiated prompt; see ADR 0014`. The upstream's prompt is never shown.
 - netguard never answers `decline` or `cancel` on the user's behalf.
 - Everything else in ADR 0008's translation rules is implemented as written. The mechanics (the sealed `requestState` envelope, the schema allow-list, the `_meta` allow-lists and the limits) are normative in [profile-schema section 8.4](../specs/profile-schema.md#84-protocol-eras-_meta-and-input-requests).
 - This record amends ADR 0008's clause "or converted to an `input_required` result for a 2026-era client" until a later record decides parking.
@@ -65,6 +65,14 @@ Requirements for option B, if row 17 needs it:
 | C. Answer the upstream `decline` or `cancel` for the user | The proxy would speak for the human, and the upstream may treat `decline` as consent to a fallback path. |
 | D. Pin the agent to the stateful era | The agent chooses its era; the proxy serves what it asks for. |
 | E. Advertise no elicitation to stateful upstreams | Gives up the stateful-agent case, which works today, to avoid one refusal. |
+
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-23 | The quoted refusal text now reads "this client speaks the stateless era (2026-07-28) …" | It matches `errStatelessClient` in `internal/proxy/input.go`, which `tests/conformance/era_pairs.py` (T0.19) asserts |
 
 ## References
 

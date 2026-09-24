@@ -186,10 +186,10 @@ tasks:
     package: tests/conformance
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.4]
     matrix: [2]
-    notes: 'From T0.4: the fixture upstream always negotiates 2026-07-28 with netguard, and neither go-sdk v1.8 nor the Python SDK 2.2.0 can be held on 2025, so the stateless-agent x stateful-upstream and stateful x stateful paths are only covered by tier 1 tests. Find or build a 2025-only fixture upstream (e.g. a pinned older SDK in tests/, no new Go dependency).'
+    notes: 'From T0.4: the fixture upstream always negotiates 2026-07-28 with netguard, and neither go-sdk v1.8 nor the Python SDK 2.2.0 can be held on 2025, so the stateless-agent x stateful-upstream and stateful x stateful paths are only covered by tier 1 tests. Find or build a 2025-only fixture upstream (e.g. a pinned older SDK in tests/, no new Go dependency). Merged in PR #66 2026-09-23: go-sdk conformance everything-server v1.6.1 (last release before 2026-07-28 support) in a test-only nested module tests/conformance/upstream-2025/ (root go.mod unchanged; judged test tooling, not a dependency), new legs control-up2025 and netguard-up2025 for both agent eras; era_pairs.py asserts the 2025 agent gets the labelled prompt and the 2026 agent gets the ADR 0014 refusal. tools-call-elicitation and elicitation-sep1034-defaults pass on the new leg; sep1330-enums fails there for a different reason (T0.35, T0.36). CI job ~45 s. Row 2 still needs the real 2025 upstream: T0.34.'
   - id: T0.20
     title: Evaluate installing golangci-lint via go run so the checksum database verifies it
     package: .github/workflows
@@ -312,6 +312,38 @@ tasks:
     blocked_by: [T0.31]
     adr: "0016"
     matrix: [23]
+  - id: T0.34
+    title: Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [mcp-protocol-engineer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'Gates M0 exit criterion 3. T0.19 proved all four era pairs against go-sdk fixtures only; M0 validates_against names upa/mcp-netmiko-server as the real 2025-era upstream, and a matrix case is validated only against the named real server. Pin the upstream version, run it behind netguard with the fake device (or a netmiko-compatible fake), check initialize fallback (protocol=2025-11-25 era=stateful), prefixed tools/list, a read-only call, and both agent eras. Needs a profile if none exists (upstream-server-scout).'
+  - id: T0.35
+    title: Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline.'
+  - id: T0.36
+    title: Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects
+    package: docs
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer]
+    state: open
+    matrix: []
+    notes: 'From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead.'
+  - id: T0.37
+    title: Note in the Command.Secrets godoc that the built transport holds passed values in its Env
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer]
+    state: open
+    matrix: []
+    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
