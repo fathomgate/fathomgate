@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 5 · merged 37 · validated 2
+Tasks: open 4 · blocked 4 · in progress 1 · merged 38 · validated 2
 
 ## In flight
 
@@ -55,8 +55,8 @@ Tasks: open 5 · blocked 5 · merged 37 · validated 2
 | T0.45 | Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7) | `internal/proxy` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
 | T0.46 | Kill the upstream's whole process tree so a launcher's grandchild cannot outlive a restart or shutdown (S2) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 22 | — |
 | T0.47 | Label the upstream era from the negotiated protocol version, not from how netguard connected, before M1 audits it (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
-| T0.48 | Apply the post-merge reviews of T0.30 (log tampered requestState retries, drop or use the unused progress owner fields, doc and test nits) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.49 | Rename NetGuard to Fathomgate per ADR 0019 (module path, binary, FATHOMGATE_ env prefix, fg4. state prefix, fg- CSS prefix, reported server name, docs and design) | `repo` | netguard-orchestrator | security-reviewer, go-reviewer, release-engineer, design-guardian | blocked | T0.48 | — | [0019](docs/adr/0019-rename-to-fathomgate.md) |
+| T0.48 | Apply the post-merge reviews of T0.30 (log tampered requestState retries, drop or use the unused progress owner fields, doc and test nits) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.49 | Rename NetGuard to Fathomgate per ADR 0019 (module path, binary, FATHOMGATE_ env prefix, fg4. state prefix, fg- CSS prefix, reported server name, docs and design) | `repo` | netguard-orchestrator | security-reviewer, go-reviewer, release-engineer, design-guardian | in progress | T0.48 | — | [0019](docs/adr/0019-rename-to-fathomgate.md) |
 
 ## Done this milestone
 
