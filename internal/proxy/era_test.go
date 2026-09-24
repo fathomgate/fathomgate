@@ -302,7 +302,7 @@ func newEraHarness(t *testing.T, s eraSetup) *eraHarness {
 	if _, err := srv.Connect(ctx, pinServer(s.upstream, upSrvT), nil); err != nil {
 		t.Fatal(err)
 	}
-	p, err := New(ctx, []Upstream{{Server: testServer, Transport: upCliT}}, Options{Version: "test"})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -813,7 +813,7 @@ func TestAgentCancelDuringPrompt(t *testing.T) {
 			if _, err := srv.Connect(ctx, pinServer(upEra, upSrvT), nil); err != nil {
 				t.Fatal(err)
 			}
-			p, err := New(ctx, []Upstream{{Server: testServer, Transport: upCliT}}, Options{})
+			p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}

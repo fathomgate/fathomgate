@@ -145,7 +145,7 @@ func newHarness(t *testing.T, hooks *blockHooks) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := New(ctx, []Upstream{{Server: testServer, Transport: upCliT}}, Options{Version: "test"})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,14 +506,14 @@ func TestNewErrors(t *testing.T) {
 		wantErr string
 	}{
 		{"none", func(*testing.T) []Upstream { return nil }, "no upstream"},
-		{"empty server", func(t *testing.T) []Upstream { return []Upstream{{Server: "", Transport: serve(t)}} }, "empty"},
-		{"dotted server", func(t *testing.T) []Upstream { return []Upstream{{Server: "net.dev", Transport: serve(t)}} }, "only ASCII"},
+		{"empty server", func(t *testing.T) []Upstream { return []Upstream{{Server: "", NewTransport: reuse(serve(t))}} }, "empty"},
+		{"dotted server", func(t *testing.T) []Upstream { return []Upstream{{Server: "net.dev", NewTransport: reuse(serve(t))}} }, "only ASCII"},
 		{"nil transport", func(*testing.T) []Upstream { return []Upstream{{Server: "netdev"}} }, "no transport"},
 		{"duplicate server", func(t *testing.T) []Upstream {
-			return []Upstream{{Server: "netdev", Transport: serve(t)}, {Server: "netdev", Transport: serve(t)}}
+			return []Upstream{{Server: "netdev", NewTransport: reuse(serve(t))}, {Server: "netdev", NewTransport: reuse(serve(t))}}
 		}, "configured twice"},
 		{"connect failure", func(*testing.T) []Upstream {
-			return []Upstream{{Server: "netdev", Transport: Command{Path: "netguard-no-such-upstream-binary"}.Transport()}}
+			return []Upstream{{Server: "netdev", NewTransport: reuse(Command{Path: "netguard-no-such-upstream-binary"}.Transport())}}
 		}, "connect"},
 	}
 	for _, tc := range cases {

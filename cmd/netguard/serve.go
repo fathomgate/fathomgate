@@ -20,7 +20,8 @@ import (
 	"github.com/joshscott13/netguard/internal/proxy"
 )
 
-// startupTimeout bounds spawning the upstream, its handshake and tools/list.
+// startupTimeout bounds spawning the upstream, its handshake and tools/list,
+// including the restart after an unanswered server/discover (ADR 0018).
 const startupTimeout = 30 * time.Second
 
 // reservedServeFlags are refused in M0: the pipeline they configure is not
@@ -295,16 +296,19 @@ func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	cmd := proxy.Command{
+		Path:         cfg.upstream,
+		Args:         cfg.upstreamArgs,
+		Env:          cfg.upstreamEnv,
+		Stderr:       out,
+		StderrPrefix: "upstream " + cfg.server + ": ",
+		Secrets:      cfg.secrets,
+	}
+	// A new process per call: New restarts an upstream that does not answer
+	// server/discover (ADR 0018).
 	up := proxy.Upstream{
-		Server: cfg.server,
-		Transport: proxy.Command{
-			Path:         cfg.upstream,
-			Args:         cfg.upstreamArgs,
-			Env:          cfg.upstreamEnv,
-			Stderr:       out,
-			StderrPrefix: "upstream " + cfg.server + ": ",
-			Secrets:      cfg.secrets,
-		}.Transport(),
+		Server:       cfg.server,
+		NewTransport: func() mcp.Transport { return cmd.Transport() },
 	}
 	startCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 	p, err := proxy.New(startCtx, []proxy.Upstream{up}, proxy.Options{Version: version, Logger: logger})

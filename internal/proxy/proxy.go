@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"sync"
@@ -30,14 +32,38 @@ const maxUpstreamTools = 1024
 // running" rather than as a generic failure.
 const exitGrace = 2 * time.Second
 
+// discoverProbeTimeout bounds the first connect to an upstream, which is
+// go-sdk's server/discover probe and, when the probe gets an error, its
+// initialise fallback (ADR 0018). An upstream that has not connected within
+// it is restarted and connected again with the initialise handshake only.
+// It is not
+// configurable in M0: no flag, no profile field.
+const discoverProbeTimeout = 5 * time.Second
+
+// restartProtocolVersion is the protocol version requested on the second
+// connect attempt. go-sdk sends server/discover only when the requested
+// version is 2026-07-28 or newer, so this goes straight to initialise and
+// negotiates down from there (to 2024-11-05 if that is all the upstream
+// knows).
+const restartProtocolVersion = "2025-11-25"
+
+// initOnly names the second attempt in its warn line and error, spelled as
+// ADR 0018's warn line and the MCP method spell it.
+const initOnly = "initialize only" //nolint:misspell // MCP method name, not prose
+
 // Upstream is one MCP server the proxy connects to as a client.
 type Upstream struct {
 	// Server is the tool prefix toward the agent. It is the `server` key of
 	// the upstream's profile in profiles/, never derived from the binary name.
 	Server string
-	// Transport reaches the upstream. `netguard serve` uses
-	// [Command.Transport] (stdio); tests use [mcp.NewInMemoryTransports].
-	Transport mcp.Transport
+	// NewTransport returns a new transport to the upstream each time it is
+	// called; for a stdio upstream that is a new process. [New] calls it
+	// once, and a second time only when the upstream did not connect within
+	// 5 seconds of the server/discover probe and is restarted (ADR 0018).
+	// `netguard serve` passes a function returning [Command.Transport]. A
+	// function that returns the same transport each time (an in-memory
+	// transport in tests) works as long as that restart never happens.
+	NewTransport func() mcp.Transport
 }
 
 // Options configures a [Proxy]. The zero value is usable.
@@ -47,6 +73,9 @@ type Options struct {
 	// Logger receives proxy and go-sdk diagnostics. Nil discards them. For a
 	// stdio proxy it must not write to stdout, which carries the protocol.
 	Logger *slog.Logger
+
+	// discoverWait replaces discoverProbeTimeout when positive. Tests only.
+	discoverWait time.Duration
 }
 
 // Proxy is an MCP server toward the agent and an MCP client toward each
@@ -81,13 +110,14 @@ type route struct {
 // connectUpstream is its only writer and is owned by the Proxy (Close waits
 // for it).
 type upstream struct {
-	name      string
-	transport mcp.Transport // to flush a Command's stderr on Close
-	red       *Redactor     // a Command's Secrets, scrubbed from relayed errors
-	session   *mcp.ClientSession
+	name    string
+	tt      *trackedTransport // the connected attempt's, to flush a Command's stderr on Close
+	red     *Redactor         // a Command's Secrets, scrubbed from relayed errors
+	session *mcp.ClientSession
 	// version is the protocol version negotiated with the upstream, and so
 	// its era (eraOf): go-sdk tries server/discover first and falls back to
-	// the initialise handshake.
+	// the initialise handshake, or connect restarts the upstream and
+	// connects with the initialise handshake only (ADR 0018).
 	version string
 	done    chan struct{}
 	err     error
@@ -165,16 +195,19 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		if _, dup := p.upstreams[u.Server]; dup {
 			return nil, fmt.Errorf("proxy: server %q is configured twice; tool prefixes must be unique", u.Server)
 		}
-		if u.Transport == nil {
+		if u.NewTransport == nil {
 			return nil, fmt.Errorf("proxy: server %q has no transport", u.Server)
 		}
-		up, err := p.connectUpstream(ctx, impl, u)
+		up, err := p.connectUpstream(ctx, impl, u, opts.discoverWait)
 		if err != nil {
 			return nil, err
 		}
 		tools, err := listTools(ctx, up)
 		if err != nil {
-			return nil, err
+			// An upstream that died after the handshake: say how it ended
+			// (T0.25). The deferred Close then finds it stopped.
+			up.closing.Store(true)
+			return nil, withExit(err, up.tt.kill(graceFor(ctx)))
 		}
 		if err := p.addUpstreamTools(up, tools); err != nil {
 			return nil, err
@@ -187,10 +220,23 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 
 // connectUpstream starts one upstream session and its exit watcher. go-sdk
 // negotiates the era: server/discover first (stateless, 2026-07-28), then the
-// initialise handshake (stateful, 2025-11-25 and older) if the upstream does
-// not know server/discover.
-func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u Upstream) (*upstream, error) {
-	up := &upstream{name: u.Server, transport: u.Transport, red: redactorOf(u.Transport), done: make(chan struct{})}
+// initialise handshake (stateful, 2025-11-25 and older) if the upstream
+// answers the probe with an error. An upstream that has not connected within
+// bound is restarted and connected with the initialise handshake only
+// (ADR 0018; connect).
+// A bound of zero is discoverProbeTimeout.
+func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u Upstream, bound time.Duration) (*upstream, error) {
+	if bound <= 0 {
+		bound = discoverProbeTimeout
+	}
+	first := u.NewTransport()
+	if first == nil {
+		return nil, fmt.Errorf("proxy: server %q has no transport", u.Server)
+	}
+	// The Redactor is built from the Command's Secrets, which a restarted
+	// upstream shares, so the first transport's serves both attempts. It is
+	// set before Connect because the handlers below read it.
+	up := &upstream{name: u.Server, red: redactorOf(first), done: make(chan struct{})}
 	client := mcp.NewClient(impl, &mcp.ClientOptions{
 		Logger: slog.New(minLevel{p.logger.Handler(), slog.LevelWarn}),
 		// Form elicitation only (the handler makes go-sdk advertise it): no
@@ -205,16 +251,12 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// (progress.go).
 		ProgressNotificationHandler: p.upstreamProgress(up),
 	})
-	tt := &trackedTransport{Transport: u.Transport}
-	cs, err := client.Connect(ctx, tt, nil)
+	cs, tt, err := p.connect(ctx, client, u, &trackedTransport{Transport: first}, bound)
 	if err != nil {
-		// go-sdk does not close the session on every Connect failure (an
-		// unsupported protocol version, for one), so a spawned upstream
-		// could outlive the error. Kill it and close the connection.
-		tt.kill()
-		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, escapedError{err})
+		return nil, err
 	}
 	up.session = cs
+	up.tt = tt
 	if ir := cs.InitializeResult(); ir != nil {
 		up.version = ir.ProtocolVersion
 	}
@@ -229,48 +271,193 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 	return up, nil
 }
 
-// trackedTransport records the Connection its Transport returns, so a
-// failed Connect can close it. go-sdk may or may not have closed that
-// connection already.
+// connect makes at most two connect attempts (ADR 0018) and returns the
+// session and the transport it runs on.
+//
+// The first is go-sdk's own negotiation, bounded at bound. Only running out
+// of that bound, with ctx itself still live, leads to the second attempt:
+// the first upstream process is killed and reaped, one warn line is logged,
+// and a new transport (a new process) is connected with the initialise
+// handshake only.
+// The restart is not optional: an upstream that did not answer the probe
+// may answer nothing more on that connection. Any other first-attempt
+// error, and any second-attempt error, is returned; there is no third
+// attempt.
+//
+// A failed attempt's process is stopped, and if it had ended on its own its
+// exit status is added to the error (T0.25).
+func (p *Proxy) connect(ctx context.Context, client *mcp.Client, u Upstream, first *trackedTransport, bound time.Duration) (*mcp.ClientSession, *trackedTransport, error) {
+	cs, timedOut, err := probeConnect(ctx, client, first, bound)
+	if err == nil {
+		return cs, first, nil
+	}
+	if !timedOut {
+		exit := first.kill(graceFor(ctx))
+		return nil, nil, withExit(fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, escapedError{err}), exit)
+	}
+	first.kill(0)
+	p.logger.Warn(fmt.Sprintf("upstream %s did not answer server/discover within %s; restarting it and connecting with %s (protocol %s)",
+		u.Server, bound, initOnly, restartProtocolVersion), "server", u.Server)
+	t := u.NewTransport()
+	if t == nil {
+		return nil, nil, fmt.Errorf("proxy: server %q has no transport for the restart", u.Server)
+	}
+	second := &trackedTransport{Transport: t}
+	cs, err = client.Connect(ctx, second, &mcp.ClientSessionOptions{ProtocolVersion: restartProtocolVersion})
+	if err != nil {
+		exit := second.kill(graceFor(ctx))
+		return nil, nil, withExit(fmt.Errorf("proxy: upstream %s: connect with %s (restarted after server/discover got no answer within %s): %w",
+			u.Server, initOnly, bound, escapedError{err}), exit)
+	}
+	return cs, second, nil
+}
+
+// probeConnect is the first connect attempt, with go-sdk's default options
+// (server/discover first) under a context bounded at bound. timedOut
+// reports that the attempt failed because the bound ran out while ctx was
+// still live: the one case connect retries.
+//
+// When the bound runs out the upstream process is killed at once, while
+// go-sdk is still inside Connect. go-sdk closes the session itself on its
+// way out, and that close would otherwise give an upstream that has stopped
+// reading the full shutdown grace (5 seconds, then SIGTERM) first.
+func probeConnect(ctx context.Context, client *mcp.Client, tt *trackedTransport, bound time.Duration) (cs *mcp.ClientSession, timedOut bool, err error) {
+	pctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	stopKill := context.AfterFunc(pctx, tt.killProcess)
+	cs, err = client.Connect(pctx, tt, nil)
+	if killed := !stopKill(); killed && err == nil {
+		// Connect finished as the bound ran out, and the process is being
+		// killed under it: the session is lost, so count it as a timeout.
+		_ = cs.Close()
+		cs, err = nil, pctx.Err()
+	}
+	if err != nil {
+		timedOut = ctx.Err() == nil && errors.Is(pctx.Err(), context.DeadlineExceeded)
+	}
+	return cs, timedOut, err
+}
+
+// graceFor is how long a failed startup waits for the upstream process to
+// end on its own before killing it: exitGrace, or nothing once the startup
+// context is done.
+func graceFor(ctx context.Context) time.Duration {
+	if ctx.Err() != nil {
+		return 0
+	}
+	return exitGrace
+}
+
+// withExit adds an upstream process's exit status, when there is one, to a
+// startup error. The status is exec's text, not the upstream's.
+func withExit(err error, exit string) error {
+	if exit == "" {
+		return err
+	}
+	return fmt.Errorf("%w; upstream process ended: %s", err, exit)
+}
+
+// trackedTransport records the Connection its Transport returns, and for a
+// CommandTransport the process it started, so a failed Connect can close
+// and kill them. go-sdk may or may not have closed that connection already.
 type trackedTransport struct {
 	mcp.Transport
 
-	mu   sync.Mutex
-	conn mcp.Connection
+	mu     sync.Mutex
+	conn   mcp.Connection
+	proc   *os.Process
+	killed bool // killProcess has run: a process recorded later is killed at once
 }
 
 // Connect implements [mcp.Transport].
 func (t *trackedTransport) Connect(ctx context.Context) (mcp.Connection, error) {
 	c, err := t.Transport.Connect(ctx)
-	if err == nil {
-		t.mu.Lock()
-		t.conn = c
-		t.mu.Unlock()
+	if err != nil {
+		return c, err
 	}
-	return c, err
-}
-
-// kill stops the process behind a CommandTransport, if one was started, and
-// closes the recorded connection. Other transports own no process.
-//
-// It never calls cmd.Wait or reads cmd.ProcessState itself. go-sdk's
-// connection Close owns the Wait. It runs once (sync.Once), and a second
-// caller blocks until the first has finished, so this Close returns only
-// after the process has been reaped, whether go-sdk closed first or not.
-// Process.Kill is safe while another goroutine is in Wait, and killing
-// first means Close reaps at once rather than after its 5s grace period.
-// Only the direct child is killed; see the Command godoc on grandchildren.
-func (t *trackedTransport) kill() {
-	if ct, ok := t.Transport.(*mcp.CommandTransport); ok && ct.Command != nil && ct.Command.Process != nil {
-		_ = ct.Command.Process.Kill()
+	var proc *os.Process
+	if ct, ok := t.Transport.(*mcp.CommandTransport); ok && ct.Command != nil {
+		proc = ct.Command.Process // set by Start inside Connect, on this goroutine
 	}
 	t.mu.Lock()
-	c := t.conn
+	t.conn, t.proc = c, proc
+	kill := t.killed
 	t.mu.Unlock()
-	if c != nil {
-		_ = c.Close()
+	if kill && proc != nil {
+		_ = proc.Kill()
 	}
-	flushStderr(t.Transport)
+	return c, nil
+}
+
+// killProcess kills the process behind a CommandTransport, now or, if it
+// has not been started yet, as soon as Connect records it. Other transports
+// own no process. It is safe from any goroutine: it never calls Wait or
+// reads ProcessState, and Process.Kill is safe while another goroutine is
+// in Wait.
+func (t *trackedTransport) killProcess() {
+	t.mu.Lock()
+	t.killed = true
+	proc := t.proc
+	t.mu.Unlock()
+	if proc != nil {
+		_ = proc.Kill()
+	}
+}
+
+// kill ends a failed attempt: it closes the recorded connection, which for
+// a CommandTransport closes the upstream's stdin and reaps the process, and
+// then flushes the process's partial last stderr line. With a grace above
+// zero the process gets that long to end on its own before it is killed;
+// with none it is killed first, so the close reaps at once rather than
+// after go-sdk's 5-second shutdown grace. Only the direct child is killed;
+// see the Command godoc on grandchildren.
+//
+// It returns the exit status ("exit status 3", "signal: terminated") of a
+// process that ended on its own before kill killed it, and "" otherwise. The status
+// comes from the error go-sdk's connection Close returns, which is Wait's:
+// kill never calls Wait or reads ProcessState itself. That Close runs once
+// (sync.Once), and a second caller blocks until the first has finished and
+// gets the same error, so kill returns only after the process has been
+// reaped, whether go-sdk closed first or not.
+func (t *trackedTransport) kill(grace time.Duration) (exit string) {
+	t.mu.Lock()
+	c, proc := t.conn, t.proc
+	t.mu.Unlock()
+	defer flushStderr(t.Transport)
+	if c == nil {
+		return ""
+	}
+	if proc == nil || grace <= 0 {
+		t.killProcess()
+		_ = c.Close()
+		return ""
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close() }()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case err := <-closed:
+		return exitStatus(err)
+	case <-timer.C:
+		t.killProcess()
+		<-closed
+		return ""
+	}
+}
+
+// exitStatus describes how a process ended from the error its Wait
+// returned: "exit status 0" for nil, exec's own text for an *exec.ExitError,
+// and "" for anything else (the process may not have been waited for).
+func exitStatus(err error) string {
+	if err == nil {
+		return "exit status 0"
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.String()
+	}
+	return ""
 }
 
 // redactorOf returns the Redactor for a Command's Secrets, or nil for any
@@ -459,7 +646,7 @@ func (p *Proxy) Close() error {
 			<-up.done
 			// session.Close has waited for a Command's process, and exec
 			// has finished copying its stderr, so the last line is final.
-			flushStderr(up.transport)
+			flushStderr(up.tt.Transport)
 		}
 		p.closeErr = errors.Join(errs...)
 	})
