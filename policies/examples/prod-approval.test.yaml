@@ -1,4 +1,4 @@
-# Cases for prod-approval.yaml, run with `netguard policy test` or
+# Cases for prod-approval.yaml, run with `fathomgate policy test` or
 # `make policy-test`. Each case is a normalised, classified, role-resolved
 # request and the decision it must produce. Targets default to known: true;
 # set known: false to model a device no inventory provider resolved.

@@ -360,8 +360,8 @@ func TestRelayUpstreamError(t *testing.T) {
 		{"URL elicitation code remapped", jsonrpc.Error{Code: -32042, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
 		{"positive code remapped", jsonrpc.Error{Code: 7, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
 		{"ANSI escaped", jsonrpc.Error{Code: -32603, Message: "\x1b[31mred\x1b[0m"}, -32603, `upstream s: \u001b[31mred\u001b[0m`},
-		{"newline escaped", jsonrpc.Error{Code: -32603, Message: "a\nnetguard: fake line"}, -32603, `upstream s: a\u000anetguard: fake line`},
-		{"spelled escape keeps its backslash doubled", jsonrpc.Error{Code: -32603, Message: "a" + bs + "u000anetguard: fake line"}, -32603, "upstream s: a" + bs + bs + "u000anetguard: fake line"},
+		{"newline escaped", jsonrpc.Error{Code: -32603, Message: "a\nfathomgate: fake line"}, -32603, `upstream s: a\u000afathomgate: fake line`},
+		{"spelled escape keeps its backslash doubled", jsonrpc.Error{Code: -32603, Message: "a" + bs + "u000afathomgate: fake line"}, -32603, "upstream s: a" + bs + bs + "u000afathomgate: fake line"},
 		{"C1 and DEL escaped", jsonrpc.Error{Code: -32603, Message: "a\u009bb\u007fc"}, -32603, `upstream s: a\u009bb\u007fc`},
 		{"invalid UTF-8 replaced", jsonrpc.Error{Code: -32603, Message: "a\xffb"}, -32603, `upstream s: a\ufffdb`},
 		{"truncated to 512 bytes", jsonrpc.Error{Code: -32603, Message: long}, -32603, "upstream s: " + long[:512] + "..."},
@@ -418,7 +418,7 @@ func TestUpstreamInputRequestRefused(t *testing.T) {
 		t.Fatalf("want a tool error, got %v", err)
 	}
 	got := text(res)
-	if !res.IsError || !strings.Contains(got, "netguard refused an input request") || !strings.Contains(got, "upstream netdev-ssh-mcp") {
+	if !res.IsError || !strings.Contains(got, "fathomgate refused an input request") || !strings.Contains(got, "upstream netdev-ssh-mcp") {
 		t.Fatalf("result %v %q", res.IsError, got)
 	}
 	// The upstream's prompt text never reaches the agent.
@@ -513,7 +513,7 @@ func TestNewErrors(t *testing.T) {
 			return []Upstream{{Server: "netdev", NewTransport: reuse(serve(t))}, {Server: "netdev", NewTransport: reuse(serve(t))}}
 		}, "configured twice"},
 		{"connect failure", func(*testing.T) []Upstream {
-			return []Upstream{{Server: "netdev", NewTransport: reuse(Command{Path: "netguard-no-such-upstream-binary"}.Transport())}}
+			return []Upstream{{Server: "netdev", NewTransport: reuse(Command{Path: "fathomgate-no-such-upstream-binary"}.Transport())}}
 		}, "connect"},
 	}
 	for _, tc := range cases {
@@ -590,12 +590,14 @@ func TestSplitName(t *testing.T) {
 			t.Errorf("splitName(%q) = %q, %q, %v; want %q, %q, %v", tc.in, s, tool, ok, tc.server, tc.tool, tc.ok)
 		}
 	}
-	for _, name := range []string{"netdev-ssh-mcp", "junos_mcp", "eos", "netguard-lab", "my-netguard", "netguard2x"} {
+	for _, name := range []string{"netdev-ssh-mcp", "junos_mcp", "eos", "fathomgate-lab", "my-fathomgate", "fathomgate2x",
+		// The placeholder name is no longer reserved (ADR 0019).
+		"netguard", "NetGuard", "net-guard2"} {
 		if err := ValidateServerName(name); err != nil {
 			t.Errorf("ValidateServerName(%q) = %v", name, err)
 		}
 	}
-	for _, name := range []string{"", "a.b", "a b", "a/b", "é", "netguard", "NetGuard", "NETGUARD", "net-guard", "net_guard", "Net-Guard2", "netguard01", "_netguard_", "n-e-t-g-u-a-r-d"} {
+	for _, name := range []string{"", "a.b", "a b", "a/b", "é", "fathomgate", "Fathomgate", "FATHOMGATE", "Fathom-Gate", "fathom_gate", "fathom_gate2", "Fathom-Gate2", "fathomgate01", "_fathomgate_", "f-a-t-h-o-m-g-a-t-e"} {
 		if err := ValidateServerName(name); err == nil {
 			t.Errorf("ValidateServerName(%q) accepted", name)
 		}

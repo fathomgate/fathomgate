@@ -1,7 +1,7 @@
 [project]
-name = "netguard-tests"
+name = "fathomgate-tests"
 version = "0.1.0"
-description = "Python companion for NetGuard: policy-lint, fixture servers and tiered tests"
+description = "Python companion for Fathomgate: policy-lint, fixture servers and tiered tests"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

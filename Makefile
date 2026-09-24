@@ -1,9 +1,9 @@
-# NetGuard build and test entry points. Tier 1 (no network) is everything here
+# Fathomgate build and test entry points. Tier 1 (no network) is everything here
 # except release-snapshot, which needs goreleaser installed, and conformance,
 # which needs Node.js and npm (it installs the pinned suite from the registry).
 
-BINARY   := netguard
-MODULE   := github.com/joshscott13/netguard
+BINARY   := fathomgate
+MODULE   := github.com/fathomgate/fathomgate
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -46,27 +46,27 @@ GOLANGCI_LINT                     := $(GOLANGCI_LINT_DIR)/golangci-lint
 # tests/conformance/package.json and package-lock.json (npm ci). Two fixture
 # upstreams, both go-sdk's own conformance everything-server:
 #   CONFORMANCE_SERVER       at the go-sdk version in go.mod, so a go-sdk bump
-#                            rebuilds it in lockstep (legs control, netguard)
+#                            rebuilds it in lockstep (legs control, fathomgate)
 #   CONFORMANCE_SERVER_2025  at go-sdk v1.6.1, the last release without
 #                            2026-07-28, pinned in the test-only module
 #                            tests/conformance/upstream-2025 (legs
-#                            control-up2025, netguard-up2025); never linked
-#                            into netguard, and go.mod does not change
+#                            control-up2025, fathomgate-up2025); never linked
+#                            into fathomgate, and go.mod does not change
 CONFORMANCE_DIR          := tests/conformance
 CONFORMANCE_SERVER       := $(BIN_DIR)/conformance/everything-server
 CONFORMANCE_SERVER_2025  := $(BIN_DIR)/conformance/everything-server-2025
 CONFORMANCE_UP2025_MOD   := $(CONFORMANCE_DIR)/upstream-2025
 CONFORMANCE_REVS         ?= 2025-11-25 2026-07-28
-CONFORMANCE_LEGS         ?= control netguard control-up2025 netguard-up2025
+CONFORMANCE_LEGS         ?= control fathomgate control-up2025 fathomgate-up2025
 NPM                 ?= npm
 
 .PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
-build: ## Build the netguard binary into bin/
+build: ## Build the fathomgate binary into bin/
 	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) ./cmd/netguard
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) ./cmd/fathomgate
 
 test: ## Run Go unit tests with the race detector
 	$(GO) test $(GOFLAGS) -race -count=1 ./...
@@ -143,14 +143,14 @@ actionlint: ## Lint .github/workflows at ACTIONLINT_VERSION (uses shellcheck if 
 fmt: ## gofmt the tree
 	gofmt -w .
 
-policy-test: build ## Run every policies/**/*.test.yaml through netguard policy test
+policy-test: build ## Run every policies/**/*.test.yaml through fathomgate policy test
 	$(BIN_DIR)/$(BINARY) policy test $(shell find policies -name '*.test.yaml' | sort)
 
 fixtures-check: build ## Every redaction fixture must have an expect file and redact cleanly
 	@set -e; for f in tests/fixtures/configs/*.txt; do \
 		exp="$${f%.txt}.expect.json"; \
 		[ -f "$$exp" ] || { echo "missing $$exp"; exit 1; }; \
-		NETGUARD_REDACT_KEY=fixtures-check $(BIN_DIR)/$(BINARY) redact "$$f" >/dev/null; \
+		FATHOMGATE_REDACT_KEY=fixtures-check $(BIN_DIR)/$(BINARY) redact "$$f" >/dev/null; \
 	done; echo "fixtures ok"
 	$(GO) test -count=1 -run 'TestFixtureCorpus' ./internal/redact/
 
@@ -158,17 +158,17 @@ fixtures-check: build ## Every redaction fixture must have an expect file and re
 # at the end if any did. era_pairs.py then drives the two upstream-prompt
 # cells the suite cannot reach for a 2025 upstream (ADR 0014 among them).
 # tests/conformance/README.md explains the legs and the baselines.
-conformance: build conformance-deps ## Official MCP conformance suite against netguard serve, both eras (needs Node.js)
+conformance: build conformance-deps ## Official MCP conformance suite against fathomgate serve, both eras (needs Node.js)
 	@failed=""; \
 	for rev in $(CONFORMANCE_REVS); do \
 		for leg in $(CONFORMANCE_LEGS); do \
-			NETGUARD_BIN=$(CURDIR)/$(BIN_DIR)/$(BINARY) CONFORMANCE_SERVER=$(CURDIR)/$(CONFORMANCE_SERVER) \
+			FATHOMGATE_BIN=$(CURDIR)/$(BIN_DIR)/$(BINARY) CONFORMANCE_SERVER=$(CURDIR)/$(CONFORMANCE_SERVER) \
 			CONFORMANCE_SERVER_2025=$(CURDIR)/$(CONFORMANCE_SERVER_2025) PYTHON="$(PYTHON)" \
 				$(CONFORMANCE_DIR)/run.sh $$leg $$rev || failed="$$failed $$leg/$$rev"; \
 		done; \
 	done; \
 	echo "== era pairs, 2025-11-25 upstream"; \
-	$(PYTHON) $(CONFORMANCE_DIR)/era_pairs.py --netguard $(BIN_DIR)/$(BINARY) --upstream $(CONFORMANCE_SERVER_2025) || failed="$$failed era-pairs"; \
+	$(PYTHON) $(CONFORMANCE_DIR)/era_pairs.py --fathomgate $(BIN_DIR)/$(BINARY) --upstream $(CONFORMANCE_SERVER_2025) || failed="$$failed era-pairs"; \
 	if [ -n "$$failed" ]; then echo "conformance failed:$$failed"; exit 1; fi; \
 	echo "conformance ok: $(CONFORMANCE_LEGS) x $(CONFORMANCE_REVS), era pairs"
 

@@ -27,14 +27,15 @@ import (
 // docs/specs/profile-schema.md section 8.4.
 
 const (
-	// statePrefix starts every requestState netguard issues; it versions
+	// statePrefix starts every requestState fathomgate issues; it versions
 	// the envelope format and is authenticated as additional data, with
-	// the binding (stateBinding.aad). ng3 added the binding (T0.30).
-	statePrefix = "ng3."
+	// the binding (stateBinding.aad). ng3 added the binding (T0.30); fg4 is
+	// the same format under the product's name (ADR 0019).
+	statePrefix = "fg4."
 	// maxRequestState caps the upstream's requestState (untrusted) before
-	// netguard tries to seal it.
+	// fathomgate tries to seal it.
 	maxRequestState = 64 << 10
-	// maxSealedState caps a requestState netguard issues and, from the same
+	// maxSealedState caps a requestState fathomgate issues and, from the same
 	// constant, one it accepts: seal refuses to issue a longer one, so
 	// everything seal issues, open can open. JSON escaping and base64 make
 	// the sealed form larger than the upstream's state, by up to about
@@ -48,7 +49,7 @@ const (
 	maxInputRounds = 10
 )
 
-// sealedState is the encrypted content of a requestState netguard issues.
+// sealedState is the encrypted content of a requestState fathomgate issues.
 type sealedState struct {
 	Server  string   `json:"s"`           // upstream server name (prefix)
 	Tool    string   `json:"t"`           // unprefixed upstream tool
@@ -60,25 +61,26 @@ type sealedState struct {
 	Exp     int64    `json:"e"`           // expiry, Unix seconds
 }
 
-// retiredStatePrefixes are the envelope versions earlier netguard builds
+// retiredStatePrefixes are the envelope versions earlier fathomgate builds
 // issued. None can open here: the key is random per process, so an upgrade,
 // being a restart, has already invalidated every one of them, and nothing
 // migrates (ADR 0016). They are refused with errStateRetired, which tells
-// the agent what to do, rather than as not issued by netguard.
-var retiredStatePrefixes = []string{"ng1.", "ng2."}
+// the agent what to do, rather than as not issued by fathomgate. ng1. to
+// ng3. were issued before the rename (ADR 0019).
+var retiredStatePrefixes = []string{"ng1.", "ng2.", "ng3."}
 
 // Reasons a requestState is refused. They are shown to the agent, so none
 // names a principal, a transport or anything read from the envelope.
 var (
-	errStateMalformed = errors.New("requestState was not issued by netguard")
+	errStateMalformed = errors.New("requestState was not issued by fathomgate")
 	// errStateAuth is also the answer when the envelope was issued to
 	// another principal or over another transport: the binding is
 	// authenticated data, so that case cannot be told from a forgery, and
 	// the agent learns nothing about who the state was issued to.
 	errStateAuth     = errors.New("requestState does not verify")
-	errStateRetired  = errors.New("requestState was issued by an earlier netguard process; call the tool again without it")
+	errStateRetired  = errors.New("requestState was issued by an earlier fathomgate process; call the tool again without it")
 	errStateExpired  = errors.New("requestState has expired; call the tool again without it")
-	errStateTooLarge = errors.New("the sealed requestState would exceed the size netguard accepts")
+	errStateTooLarge = errors.New("the sealed requestState would exceed the size fathomgate accepts")
 )
 
 // agentTransport is the agent transport a call arrived on, as a call
@@ -87,7 +89,7 @@ var (
 // value read from a request.
 type agentTransport string
 
-// transportStdio is a session Proxy.Run serves (`netguard serve` passes it
+// transportStdio is a session Proxy.Run serves (`fathomgate serve` passes it
 // the stdio transport; tests an in-memory one); transportHTTP is a request
 // over the HTTP listener (HTTPHandler).
 const (

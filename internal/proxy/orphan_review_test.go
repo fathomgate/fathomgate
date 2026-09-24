@@ -59,12 +59,12 @@ func refusedB(t *testing.T, agentB *mcp.ClientSession) {
 }
 
 // TestOrphanRefusalNeverReplacesUpstreamError (T0.42, S3): when the orphan
-// rule refuses a stateful upstream's prompt and netguard words the refusal
+// rule refuses a stateful upstream's prompt and fathomgate words the refusal
 // from the one call in flight (the ADR 0014 exception), the refusal is a
 // note on that call. An upstream error stays the upstream's own, and a
 // result the upstream still completes keeps its content with the refusal
 // appended. Before the fix the refusal went in the call's own slot and
-// replaced the upstream's error with netguard's text.
+// replaced the upstream's error with fathomgate's text.
 func TestOrphanRefusalNeverReplacesUpstreamError(t *testing.T) {
 	const upstreamErr = "FAKE-device: enable mode is locked"
 	extra := func(s *mcp.Server) {
@@ -109,7 +109,7 @@ func TestOrphanRefusalNeverReplacesUpstreamError(t *testing.T) {
 			first := res.Content[0].(*mcp.TextContent).Text
 			note := res.Content[1].(*mcp.TextContent).Text
 			if first != "upstream carried on without an answer" ||
-				!strings.HasPrefix(note, "netguard refused an input request (elicitation) from upstream netdev-ssh-mcp during ask_direct: ") ||
+				!strings.HasPrefix(note, "fathomgate refused an input request (elicitation) from upstream netdev-ssh-mcp during ask_direct: ") ||
 				!strings.Contains(note, tc.why) {
 				t.Fatalf("content %q, note %q", first, note)
 			}

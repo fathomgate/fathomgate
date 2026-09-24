@@ -14,9 +14,9 @@ import (
 // Progress notifications (T0.17; profile-schema section 8.4, "Progress").
 //
 // The agent's progressToken is _meta, and no _meta crosses the proxy. So when
-// the agent asks for progress, netguard issues its own opaque token for the
+// the agent asks for progress, fathomgate issues its own opaque token for the
 // upstream call and keeps the mapping for as long as the call is open. An
-// upstream notifications/progress naming that token is rebuilt as netguard's
+// upstream notifications/progress naming that token is rebuilt as fathomgate's
 // own notification to the agent, carrying the agent's token: progress and
 // total as numbers, and the message relabelled as upstream text. Nothing
 // else of the upstream's notification crosses (its _meta in particular).
@@ -59,7 +59,7 @@ const (
 	maxExactInt = 1<<53 - 1
 )
 
-// progressRelay is one call's progress mapping: the token netguard gave the
+// progressRelay is one call's progress mapping: the token fathomgate gave the
 // upstream, the agent's own token, the rate-limit and ordering state, and
 // the queue its sender drains.
 //
@@ -77,7 +77,7 @@ const (
 // write fails within it and the sender exits.
 type progressRelay struct {
 	server string
-	// upToken is netguard's token, as sent to the upstream. watchProgress
+	// upToken is fathomgate's token, as sent to the upstream. watchProgress
 	// draws it, fresh for every agent request and never one already mapped
 	// on the upstream, so a relay belongs to exactly one agent request, and
 	// so to one session and one principal (ADR 0016). That ownership is
@@ -327,7 +327,7 @@ func progressMessage(server, msg string) string {
 	return promptLabel(server) + escapeControl(msg, maxProgressMessage)
 }
 
-// agentProgressToken returns the agent's progressToken if it is one netguard
+// agentProgressToken returns the agent's progressToken if it is one fathomgate
 // can return exactly: a string, or an integer (JSON numbers arrive as
 // float64) no larger in magnitude than 2^53-1. Anything else, including no
 // token, is nil, and the call asks the upstream for no progress.

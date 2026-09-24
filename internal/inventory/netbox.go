@@ -6,7 +6,7 @@ package inventory
 //
 // TODO(M2): implement the REST lookup (GET /api/dcim/devices/?name=<name>
 // for NetBox, /api/dcim/devices/?name=<name> for Nautobot), a TTL cache, a
-// snapshot written by `netguard inventory sync`, and stale marking so that an
+// snapshot written by `fathomgate inventory sync`, and stale marking so that an
 // unreachable source of truth never silently loosens policy. Until then this
 // type satisfies Resolver and resolves nothing.
 type NetBox struct {

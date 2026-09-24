@@ -18,7 +18,7 @@ import (
 // (ADR 0017, decision 3).
 const MinSecretLen = 4
 
-// Secret is a variable the operator passes to an upstream from netguard's
+// Secret is a variable the operator passes to an upstream from fathomgate's
 // own environment (`--upstream-env-pass NAME`): its name and value. Build
 // one with NewSecret. Wherever it is scrubbed, every occurrence of the
 // value, exact or in one of its encodedForms, becomes "[redacted:NAME]".
@@ -122,7 +122,7 @@ func longestFirst(vs []scrubValue) {
 }
 
 // Redact returns s with every passed value, in any of its encodedForms or
-// as netguard's escapeControl renders one, replaced by its marker. Use it
+// as fathomgate's escapeControl renders one, replaced by its marker. Use it
 // on whole strings: error messages and log lines. A string that ends in the
 // first MinSecretLen or more bytes of a form has that tail replaced too.
 func (r *Redactor) Redact(s string) string {

@@ -1,10 +1,10 @@
 # Expected failures: control-up2025 leg (relay -> go-sdk v1.6.1
-# everything-server, no netguard), --requirements 2025-11-25. Format and exit
+# everything-server, no fathomgate), --requirements 2025-11-25. Format and exit
 # rules: tests/conformance/README.md.
 #
 # Empty on purpose: the 2025-only upstream passes every scored 2025-11-25
-# check on its own, so every entry in netguard-up2025-2025-11-25.yml is a
-# difference netguard makes. This leg has no 2026-07-28 run (run.sh skips
+# check on its own, so every entry in fathomgate-up2025-2025-11-25.yml is a
+# difference fathomgate makes. This leg has no 2026-07-28 run (run.sh skips
 # it): a 2025-only server cannot answer a stateless agent with nothing in
 # between.
 server: []

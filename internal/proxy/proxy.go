@@ -20,9 +20,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Name is the implementation name NetGuard reports as serverInfo toward the
+// Name is the implementation name Fathomgate reports as serverInfo toward the
 // agent and as clientInfo toward each upstream.
-const Name = "netguard"
+const Name = "fathomgate"
 
 // maxUpstreamTools caps how many tools one upstream may list. The upstream is
 // untrusted; a server that pages forever must not hang or exhaust the proxy.
@@ -61,7 +61,7 @@ type Upstream struct {
 	// once, and a second time only when the upstream did not connect within
 	// 5 seconds of starting the first connect, spawn included, and is
 	// restarted (ADR 0018).
-	// `netguard serve` passes a function returning [Command.Transport]. A
+	// `fathomgate serve` passes a function returning [Command.Transport]. A
 	// function that returns the same transport each time (an in-memory
 	// transport in tests) works only as long as that restart never happens:
 	// the restart connects the used transport again, which fails (a
@@ -120,7 +120,7 @@ type Proxy struct {
 	// input.go.
 	refusalLog refusalLimiter
 	// requestKeys numbers the keys requestKey makes up for calls whose
-	// agent session netguard cannot name (input.go).
+	// agent session fathomgate cannot name (input.go).
 	requestKeys atomic.Uint64
 	// testHookConnected runs in Run after Connect returns and before the
 	// session is recorded; testHookKeyWaiting runs when localKey is about
@@ -157,10 +157,10 @@ type upstream struct {
 
 	mu       sync.Mutex
 	calls    map[*inflight]struct{}    // calls in flight, for elicitation/create
-	progress map[string]*progressRelay // by netguard's progress token (progress.go)
+	progress map[string]*progressRelay // by fathomgate's progress token (progress.go)
 	// orphans are the agent sessions that have ended a call on this
 	// upstream, which may still be working on it, each until its expiry.
-	// They are keyed by netguard's own key for the agent session
+	// They are keyed by fathomgate's own key for the agent session
 	// (agentSessionKey), never by the session itself, which would keep a
 	// closed session alive for the whole TTL. orphansOf counts them by
 	// principal; overflow holds, by principal, one record for that
@@ -281,7 +281,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// Do not let go-sdk answer MRTR input requests on our behalf;
 		// forward relabels them and puts them to the agent itself.
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
-		// Progress for netguard's own tokens only, rebuilt for the agent
+		// Progress for fathomgate's own tokens only, rebuilt for the agent
 		// (progress.go).
 		ProgressNotificationHandler: p.upstreamProgress(up),
 	})
@@ -447,7 +447,7 @@ func withExit(err error, exit string) error {
 // connection (tracksConn) it also wraps the connection, to learn who ended
 // it: whether a close was requested, when it finished and whether a kill
 // came first, and whether the upstream hung up (its stdout reached end of
-// stream, or a write to its stdin failed) before netguard or go-sdk asked
+// stream, or a write to its stdin failed) before fathomgate or go-sdk asked
 // for a close or a kill. Other transports (Streamable HTTP) are not
 // wrapped, because go-sdk finds optional methods on their connections by
 // type assertion, which a wrapper would hide; for them no close is ever
@@ -544,7 +544,7 @@ func (t *trackedTransport) failed() {
 // endedOnItsOwn reports whether the process hung up, then was reaped within
 // exitGrace of that, before anything was killed. Only then is its exit
 // status its own: after a requested close it may be the upstream's reply to
-// a closed stdin, and after a kill (netguard's, or go-sdk's after its
+// a closed stdin, and after a kill (fathomgate's, or go-sdk's after its
 // shutdown grace, which also comes more than exitGrace later) it is the
 // kill's.
 func (t *trackedTransport) endedOnItsOwn() bool {
@@ -821,7 +821,7 @@ func (h minLevel) WithGroup(name string) slog.Handler {
 }
 
 // Run serves one agent session on t until the agent disconnects or ctx is
-// cancelled. For `netguard serve`, t is [mcp.StdioTransport], and Run is
+// cancelled. For `fathomgate serve`, t is [mcp.StdioTransport], and Run is
 // called once (ADR 0012). A second Run on the same proxy is allowed (tests
 // run two agents that way) and its session gets a key of its own.
 //
@@ -984,7 +984,7 @@ type call struct {
 	arguments json.RawMessage // as received from the agent, not yet parsed
 	agent     agentPeer
 	// progressToken is the agent's own progressToken, or nil. It is never
-	// sent upstream; netguard issues its own (progress.go).
+	// sent upstream; fathomgate issues its own (progress.go).
 	progressToken any
 
 	// transport is the agent transport the call arrived on:
@@ -997,13 +997,13 @@ type call struct {
 	// never an approver identity (invariant 6), and nothing in M1 may read
 	// it as one.
 	principal string
-	// sessionKey is netguard's own key for the agent session behind the
+	// sessionKey is fathomgate's own key for the agent session behind the
 	// call, used to attribute a stateful upstream's prompt (input.go). The
 	// tool handler sets it from Proxy.agentSessionKey.
 	sessionKey string
 
 	// An MRTR retry from a stateless agent: its answers and the
-	// requestState netguard issued. Both are empty on a first call.
+	// requestState fathomgate issued. Both are empty on a first call.
 	inputResponses mcp.InputResponseMap
 	requestState   string
 }
@@ -1042,7 +1042,7 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 }
 
 // newCall is what dispatch sees of one agent tools/call. inputResponses
-// that arrive without a requestState answer prompts netguard never relayed
+// that arrive without a requestState answer prompts fathomgate never relayed
 // (T0.18): they are cleared here, before dispatch, so no later stage (M1's
 // pipeline and audit included) can read or act on them as answers
 // (invariant 6: nothing the agent supplies stands in for a human). The call
@@ -1077,9 +1077,9 @@ func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, erro
 //
 // Nothing of the agent's request crosses except the tool name and
 // arguments, and on an MRTR retry the allow-listed answers (resume). The
-// upstream sees netguard's own identity, era and capabilities: go-sdk adds
+// upstream sees fathomgate's own identity, era and capabilities: go-sdk adds
 // them to _meta toward a stateless upstream. If the agent asked for
-// progress, the upstream gets a progressToken netguard issued, never the
+// progress, the upstream gets a progressToken fathomgate issued, never the
 // agent's (progress.go).
 //
 // Outcomes, in order: an upstream request for input is relabelled and put
@@ -1095,7 +1095,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		params.Arguments = c.arguments
 	}
 	round, prompts := 0, 0
-	// Only a retry with netguard's requestState carries answers; newCall
+	// Only a retry with fathomgate's requestState carries answers; newCall
 	// has already cleared any sent without one (T0.18).
 	if c.requestState != "" {
 		rs, err := p.resume(c)
@@ -1140,7 +1140,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		own, note := up.refusalsFor(f)
 		if err != nil {
 			if own != nil && ctx.Err() == nil {
-				// The upstream failed after netguard refused this call's own
+				// The upstream failed after fathomgate refused this call's own
 				// prompt: the refusal is the reason, so say that instead.
 				// An unattributed note never replaces an upstream error.
 				return toolError(own.Error()), nil
@@ -1227,7 +1227,7 @@ func (p *Proxy) callFailed(ctx context.Context, c call, err error) (*mcp.CallToo
 	}
 	var ref *refusal
 	if errors.As(err, &ref) {
-		// go-sdk's URL-elicitation retry called netguard's own handler.
+		// go-sdk's URL-elicitation retry called fathomgate's own handler.
 		return toolError(ref.Error()), nil
 	}
 	var werr *jsonrpc.Error
@@ -1246,7 +1246,7 @@ func (p *Proxy) callFailed(ctx context.Context, c call, err error) (*mcp.CallToo
 // content, structured content and isError. The upstream's result _meta
 // (which could claim io.modelcontextprotocol/serverInfo, for one) and any
 // requestState or inputRequests on a complete result are dropped. Toward a
-// stateless agent go-sdk then adds netguard's own serverInfo.
+// stateless agent go-sdk then adds fathomgate's own serverInfo.
 func passResult(res *mcp.CallToolResult) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content:           res.Content,
@@ -1272,11 +1272,11 @@ func awaitExit(ctx context.Context, up *upstream, d time.Duration) bool {
 
 // upstreamDown is the tool error for a call to an upstream that has exited.
 func upstreamDown(up *upstream) *mcp.CallToolResult {
-	return toolError(fmt.Sprintf("upstream %s is not running; restart netguard serve", up.name))
+	return toolError(fmt.Sprintf("upstream %s is not running; restart fathomgate serve", up.name))
 }
 
 // toolError is a tool result with isError set and text as its only content:
-// how netguard reports a failure the agent can act on, as opposed to a
+// how fathomgate reports a failure the agent can act on, as opposed to a
 // JSON-RPC protocol error.
 func toolError(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
@@ -1326,7 +1326,7 @@ func refuseUndeclared(next mcp.MethodHandler) mcp.MethodHandler {
 		if capability := undeclaredCapability(method); capability != "" {
 			return nil, &jsonrpc.Error{
 				Code:    jsonrpc.CodeMethodNotFound,
-				Message: fmt.Sprintf("method %q is not supported: netguard does not declare the %s capability", method, capability),
+				Message: fmt.Sprintf("method %q is not supported: fathomgate does not declare the %s capability", method, capability),
 			}
 		}
 		return next(ctx, method, req)

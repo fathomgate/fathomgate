@@ -1,7 +1,9 @@
 # actionlint config. Custom labels of self-hosted runners used by our workflows.
 # `clab`: the containerlab runner for nightly-clab.yaml (tier 3, arrives M3/M5).
 # `netguard`, `wsl`: the maintainer's WSL runners that run every other job
-# (docs/ci-runners.md; the private repo has no hosted-runner minutes).
+# (docs/ci-runners.md; the private repo has no hosted-runner minutes). The
+# `netguard` label predates the rename and stays until these runners are
+# removed (ADR 0019).
 self-hosted-runner:
   labels:
     - clab

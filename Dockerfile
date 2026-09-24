@@ -1,5 +1,5 @@
 # Multi-stage build: compile a static binary, ship it on distroless.
-# docker build -t netguard . && docker run --rm netguard version
+# docker build -t fathomgate . && docker run --rm fathomgate version
 # The golang image sets GOTOOLCHAIN=local, so it builds with its own Go: keep
 # its minor equal to the go.mod `toolchain` line (ADR 0013). Release binaries
 # come from GoReleaser, not from this file.
@@ -17,14 +17,14 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 RUN go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
-      -o /out/netguard ./cmd/netguard
+      -o /out/fathomgate ./cmd/fathomgate
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
-WORKDIR /etc/netguard
-COPY --from=build /out/netguard /usr/local/bin/netguard
-COPY policies/examples /etc/netguard/policies/examples
-COPY profiles /etc/netguard/profiles
-COPY inventory.example.yaml /etc/netguard/inventory.example.yaml
+WORKDIR /etc/fathomgate
+COPY --from=build /out/fathomgate /usr/local/bin/fathomgate
+COPY policies/examples /etc/fathomgate/policies/examples
+COPY profiles /etc/fathomgate/profiles
+COPY inventory.example.yaml /etc/fathomgate/inventory.example.yaml
 USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/netguard"]
+ENTRYPOINT ["/usr/local/bin/fathomgate"]
 CMD ["serve"]

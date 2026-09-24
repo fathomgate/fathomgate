@@ -66,30 +66,30 @@ jobs:
           set -eu
           ls -l dist
           for t in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-            test -f dist/netguard_*_"$t".tar.gz
-            test -f dist/netguard_*_"$t".tar.gz.spdx.sbom.json
+            test -f dist/fathomgate_*_"$t".tar.gz
+            test -f dist/fathomgate_*_"$t".tar.gz.spdx.sbom.json
           done
           for t in windows_amd64 windows_arm64; do
-            test -f dist/netguard_*_"$t".zip
-            test -f dist/netguard_*_"$t".zip.spdx.sbom.json
+            test -f dist/fathomgate_*_"$t".zip
+            test -f dist/fathomgate_*_"$t".zip.spdx.sbom.json
           done
           test -s dist/checksums.txt
       - name: binaries are static, trimmed and built without cgo
         run: |
           set -eu
-          file dist/netguard_*/netguard*
-          for f in dist/netguard_linux_*/netguard; do
+          file dist/fathomgate_*/fathomgate*
+          for f in dist/fathomgate_linux_*/fathomgate; do
             file "$f" | grep -q 'statically linked'
           done
-          for f in dist/netguard_*/netguard*; do
+          for f in dist/fathomgate_*/fathomgate*; do
             go version -m "$f" | grep -q 'CGO_ENABLED=0'
             go version -m "$f" | grep -q -- '-trimpath=true'
           done
-          dist/netguard_linux_amd64_v1/netguard version
+          dist/fathomgate_linux_amd64_v1/fathomgate version
       - name: image runs as nonroot and has no shell
         run: |
           set -eu
-          image="$(docker images ghcr.io/joshscott13/netguard --format '{{.Repository}}:{{.Tag}}' | head -n1)"
+          image="$(docker images ghcr.io/fathomgate/fathomgate --format '{{.Repository}}:{{.Tag}}' | head -n1)"
           test -n "$image"
           docker run --rm "$image" version
           user="$(docker inspect --format '{{.Config.User}}' "$image")"
@@ -101,9 +101,9 @@ jobs:
       - name: root Dockerfile builds a static binary on distroless
         run: |
           set -eu
-          docker build -t netguard:snapshot-dockerfile .
-          docker run --rm netguard:snapshot-dockerfile version
-          test "$(docker inspect --format '{{.Config.User}}' netguard:snapshot-dockerfile)" = "nonroot:nonroot"
+          docker build -t fathomgate:snapshot-dockerfile .
+          docker run --rm fathomgate:snapshot-dockerfile version
+          test "$(docker inspect --format '{{.Config.User}}' fathomgate:snapshot-dockerfile)" = "nonroot:nonroot"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: goreleaser-snapshot

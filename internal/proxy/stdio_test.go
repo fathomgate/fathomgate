@@ -29,7 +29,7 @@ import (
 // exits 3 at once, "dielist" exits 4 on tools/list, "listerror" answers
 // tools/list with an error, and "garbage" prints a line that is not
 // JSON-RPC (T0.25).
-const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
+const fakeUpstreamEnv = "FATHOMGATE_TEST_FAKE_UPSTREAM"
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
 // the race detector report; every spawned fake exits several times per
@@ -205,7 +205,7 @@ func runDieOnListUpstream() {
 }
 
 // runListErrorUpstream completes the handshake, answers tools/list with a
-// JSON-RPC error, and exits 0 when its stdin closes: an exit netguard
+// JSON-RPC error, and exits 0 when its stdin closes: an exit fathomgate
 // caused, which must not be reported as the upstream's exit status.
 func runListErrorUpstream() {
 	s := fakeUpstream(&recorder{}, nil)
@@ -280,13 +280,13 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	ctx := context.Background()
 	// Neither of these may reach the upstream: only the allow-list and
 	// --upstream-env do.
-	t.Setenv("NETGUARD_TEST_SECRET", "FAKE-proxy-secret")
+	t.Setenv("FATHOMGATE_TEST_SECRET", "FAKE-proxy-secret")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "FAKE-aws")
 	stderr := newSyncBuffer()
 	cmd := Command{
 		Path:         testExecutable(t),
 		Args:         []string{"-test.run=^$"},
-		Env:          []string{fakeUpstreamEnv + "=1", "NETGUARD_TEST_UPSTREAM_VAR=FAKE-from-operator", childRaceEnv},
+		Env:          []string{fakeUpstreamEnv + "=1", "FATHOMGATE_TEST_UPSTREAM_VAR=FAKE-from-operator", childRaceEnv},
 		Stderr:       stderr,
 		StderrPrefix: "upstream netdev-ssh-mcp: ",
 	}
@@ -312,8 +312,8 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 	}
 
 	envCases := []struct{ name, want string }{
-		{"NETGUARD_TEST_UPSTREAM_VAR", "FAKE-from-operator"}, // --upstream-env
-		{"NETGUARD_TEST_SECRET", "<unset>"},                  // proxy env withheld
+		{"FATHOMGATE_TEST_UPSTREAM_VAR", "FAKE-from-operator"}, // --upstream-env
+		{"FATHOMGATE_TEST_SECRET", "<unset>"},                  // proxy env withheld
 		{"AWS_SECRET_ACCESS_KEY", "<unset>"},
 		{"PATH", ""}, // allow-listed: any value but <unset>
 	}
@@ -375,7 +375,7 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 // go-sdk rejects) and ignores stdin EOF, so go-sdk is still inside its own
 // close when the probe bound runs out. That is an answer, not an unanswered
 // probe: no restart, no warn line, and the error is the real one (S1 in the
-// review of PR #77). netguard caused the process's end, so no exit status.
+// review of PR #77). fathomgate caused the process's end, so no exit status.
 func TestConnectFailureKillsUpstream(t *testing.T) {
 	logs := newSyncBuffer()
 	stderr := newSyncBuffer()
@@ -414,7 +414,7 @@ func TestConnectFailureKillsUpstream(t *testing.T) {
 		t.Errorf("error %q is not the upstream's rejected answer", msg)
 	}
 	if strings.Contains(msg, "upstream process ended") {
-		t.Errorf("error %q reports an exit status netguard or go-sdk caused", msg)
+		t.Errorf("error %q reports an exit status fathomgate or go-sdk caused", msg)
 	}
 	if strings.Contains(logs.String(), restartWarning) {
 		t.Errorf("restart warning for an upstream that answered:\n%s", logs.String())
@@ -434,7 +434,7 @@ func TestConnectFailureKillsUpstream(t *testing.T) {
 func TestBaseEnv(t *testing.T) {
 	environ := []string{
 		"PATH=/usr/bin", "HOME=/home/n", "USER=n", "LANG=C.UTF-8", "LC_ALL=C", "LC_TIME=C", "TMPDIR=/tmp",
-		"NETGUARD_TEST_SECRET=FAKE", "AWS_SECRET_ACCESS_KEY=FAKE", "SSH_AUTH_SOCK=/tmp/agent", "LCX=1",
+		"FATHOMGATE_TEST_SECRET=FAKE", "AWS_SECRET_ACCESS_KEY=FAKE", "SSH_AUTH_SOCK=/tmp/agent", "LCX=1",
 		"LC_FAKE_SECRET=FAKE", "LC_=x", "lc_all=C",
 		"Path=C:\\Windows", "SystemRoot=C:\\Windows", "SYSTEMDRIVE=C:", "TEMP=t", "TMP=t", "USERPROFILE=u",
 		"APPDATA=a", "LOCALAPPDATA=l", "PATHEXT=.EXE", "ComSpec=cmd.exe", "=C:=C:\\x", "NOVALUE",
@@ -532,7 +532,7 @@ func TestRuneCut(t *testing.T) {
 // TestStdioUpstreamEras is the era matrix over a real child process: the
 // upstream is spawned over stdio pinned to each era, and an agent of each era
 // negotiates, calls, gets the upstream's progress, and answers the
-// upstream's prompt through netguard.
+// upstream's prompt through fathomgate.
 func TestStdioUpstreamEras(t *testing.T) {
 	for _, e := range eras {
 		t.Run("agent "+e.agent+" upstream "+e.upstream, func(t *testing.T) {
@@ -568,7 +568,7 @@ func TestStdioUpstreamEras(t *testing.T) {
 				t.Fatalf("round trip: %v %q", err, text(res))
 			}
 
-			// Progress crosses the real child under netguard's token (T0.17).
+			// Progress crosses the real child under fathomgate's token (T0.17).
 			checkProgress(t, agent, progress)
 
 			res, err = agent.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})

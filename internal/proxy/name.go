@@ -17,8 +17,8 @@ const maxToolName = 128
 // name is the profile's `server` key: ASCII letters, digits, '_' and '-'. It
 // may not contain the separator, so the first '.' in a prefixed name always
 // ends the prefix, whatever the upstream tool name contains. The name
-// "netguard" (in any case) is reserved, so no upstream prompt can carry the
-// label "[from netguard]".
+// "fathomgate" (in any case) is reserved, so no upstream prompt can carry the
+// label "[from fathomgate]".
 func ValidateServerName(s string) error {
 	if s == "" {
 		return errors.New("server name is empty")
@@ -35,8 +35,8 @@ func ValidateServerName(s string) error {
 }
 
 // reservedServerName reports whether s reads as the proxy's own name: it
-// equals "netguard" once lower-cased, stripped of '-' and '_', and stripped
-// of trailing digits ("NetGuard", "net-guard", "net_guard2"). s is already
+// equals "fathomgate" once lower-cased, stripped of '-' and '_', and stripped
+// of trailing digits ("Fathomgate", "Fathom-Gate", "fathom_gate2"). s is already
 // ASCII here.
 func reservedServerName(s string) bool {
 	folded := strings.Map(func(r rune) rune {

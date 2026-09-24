@@ -14,7 +14,7 @@ import (
 // leakMarkers identify goroutines the proxy is responsible for.
 var leakMarkers = []string{
 	"github.com/modelcontextprotocol/go-sdk/",
-	"github.com/joshscott13/netguard/internal/proxy.",
+	"github.com/fathomgate/fathomgate/internal/proxy.",
 	"os/exec.(*Cmd).",
 }
 

@@ -192,13 +192,13 @@ def lint_file(path: str | Path) -> list[Finding]:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point: exit 0 when every file is clean, 1 otherwise."""
-    parser = argparse.ArgumentParser(prog="policy-lint", description="Lint NetGuard policy YAML files.")
+    parser = argparse.ArgumentParser(prog="policy-lint", description="Lint Fathomgate policy YAML files.")
     parser.add_argument("files", nargs="+", help="policy files to check")
     args = parser.parse_args(argv)
     bad = 0
     for f in args.files:
         if f.endswith(".test.yaml"):
-            print(f"{f}: skipped (policy test file, run `netguard policy test` instead)")
+            print(f"{f}: skipped (policy test file, run `fathomgate policy test` instead)")
             continue
         findings = lint_file(f)
         if findings:

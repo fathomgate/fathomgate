@@ -4,8 +4,8 @@ dist/
 *.test
 *.out
 coverage.*
-/netguard
-/netguard.exe
+/fathomgate
+/fathomgate.exe
 
 # MCP conformance suite (tests/conformance): npm install and run results
 tests/conformance/node_modules/

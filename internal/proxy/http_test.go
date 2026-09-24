@@ -214,7 +214,7 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	h.srv = httptest.NewUnstartedServer(counted)
 	h.lst = &gateListener{Listener: h.srv.Listener}
 	h.srv.Listener = h.lst
-	// As cmd/netguard configures it (newHTTPServer there): no server-wide
+	// As cmd/fathomgate configures it (newHTTPServer there): no server-wide
 	// ReadTimeout or WriteTimeout, so the handler's own deadlines are what
 	// is tested.
 	errLog := s.logger
@@ -626,7 +626,7 @@ func TestHTTPEraMatrix(t *testing.T) {
 				// ADR 0014 wording, as a note (S3 in the security review of
 				// T0.40). go-sdk's upstream then fails the call, and the
 				// agent gets that upstream error, relayed and labelled, not
-				// netguard's text in its place; it quotes the refusal the
+				// fathomgate's text in its place; it quotes the refusal the
 				// upstream received.
 				var werr *jsonrpc.Error
 				if !errors.As(err, &werr) || !strings.HasPrefix(werr.Message, "upstream netdev-ssh-mcp: ") || !strings.Contains(werr.Message, "ADR 0014") {

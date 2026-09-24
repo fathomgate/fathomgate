@@ -1,4 +1,4 @@
-"""Schema linter for NetGuard policy YAML.
+"""Schema linter for Fathomgate policy YAML.
 
 Mirrors ``internal/policy.Validate`` in Go so contributors without a Go
 toolchain get the same errors: required keys, effect and class enums,
@@ -9,7 +9,7 @@ Usage::
 
     python -m policy_lint policies/examples/prod-approval.yaml
 
-It checks shape only. Behaviour is asserted with ``netguard policy test``.
+It checks shape only. Behaviour is asserted with ``fathomgate policy test``.
 """
 
 from .lint import Finding, lint_file, lint_policy, main

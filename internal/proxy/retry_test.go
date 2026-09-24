@@ -8,13 +8,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Retry handling (T0.18; profile-schema section 8.2). netguard forwards only
+// Retry handling (T0.18; profile-schema section 8.2). fathomgate forwards only
 // answers to prompts it relayed, bound by its sealed requestState. What it
 // does not recognise it ignores (SEP-2322), and never forwards; a
 // requestState that is present but fails a check is still -32602
 // (TestMRTRWire).
 
-// unsolicited is an agent's answer to a prompt netguard never relayed. Its
+// unsolicited is an agent's answer to a prompt fathomgate never relayed. Its
 // value must never reach the upstream.
 const unsolicited = "FAKE-unsolicited-answer"
 
@@ -120,7 +120,7 @@ func TestRetryIgnoresUnknownIDs(t *testing.T) {
 
 // TestNewCallClearsUnsolicited (S5): the call dispatch receives, where the
 // M1 pipeline and audit plug in, carries no answers unless the agent sent
-// netguard's requestState with them (invariant 6).
+// fathomgate's requestState with them (invariant 6).
 func TestNewCallClearsUnsolicited(t *testing.T) {
 	r := route{up: &upstream{name: testServer}, tool: "ask"}
 	for _, tc := range []struct {

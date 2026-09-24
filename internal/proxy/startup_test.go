@@ -13,10 +13,10 @@ import (
 
 // TestStartupErrorsEscaped: an upstream that fails the handshake or
 // tools/list with control characters in its message cannot put them on the
-// operator's terminal. netguard serve prints New's error to stderr, and
+// operator's terminal. fathomgate serve prints New's error to stderr, and
 // go-sdk's jsonrpc.Error returns the upstream's message verbatim.
 func TestStartupErrorsEscaped(t *testing.T) {
-	const evil = "boom\x1b[31m\nnetguard: fake line" + rlo
+	const evil = "boom\x1b[31m\nfathomgate: fake line" + rlo
 	cases := []struct {
 		name  string
 		fail  []string
@@ -58,7 +58,7 @@ func TestStartupErrorsEscaped(t *testing.T) {
 					t.Errorf("startup error carries raw %q: %q", raw, msg)
 				}
 			}
-			if !strings.Contains(msg, `boom`+bs+`u001b[31m`+bs+`u000anetguard: fake line`) {
+			if !strings.Contains(msg, `boom`+bs+`u001b[31m`+bs+`u000afathomgate: fake line`) {
 				t.Errorf("escaped upstream text missing: %q", msg)
 			}
 			// The chain is intact for callers that inspect it.

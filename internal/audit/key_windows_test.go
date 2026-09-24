@@ -246,7 +246,7 @@ func assertUntouched(t *testing.T, path string) {
 
 // requirePrivilegedEnv makes privilege-dependent tests fail instead of skip.
 // The windows-latest CI job sets it, so those tests cannot pass silently.
-const requirePrivilegedEnv = "NETGUARD_REQUIRE_PRIVILEGED_TESTS"
+const requirePrivilegedEnv = "FATHOMGATE_REQUIRE_PRIVILEGED_TESTS"
 
 // needPrivilege skips the test, or fails it when requirePrivilegedEnv=1.
 func needPrivilege(t *testing.T, format string, args ...any) {

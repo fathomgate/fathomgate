@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
-"""Upstream prompts through netguard serve from a 2025-11-25 upstream (T0.19).
+"""Upstream prompts through fathomgate serve from a 2025-11-25 upstream (T0.19).
 
 The conformance suite reaches the "2025 agent x 2025 upstream" elicitation
-path (tools-call-elicitation on the netguard-up2025 leg), but no 2026-07-28
+path (tools-call-elicitation on the fathomgate-up2025 leg), but no 2026-07-28
 scenario calls a stateful elicitation tool, so the ADR 0014 refusal
 ("2026 agent x 2025 upstream") is never exercised by the suite. This script
 drives both cells over stdio against the real upstream that leg uses: go-sdk
 v1.6.1's conformance everything-server (tests/conformance/upstream-2025), a
 release with no 2026-07-28 support.
 
-  era_pairs.py --netguard bin/netguard --upstream bin/conformance/everything-server-2025
+  era_pairs.py --fathomgate bin/fathomgate --upstream bin/conformance/everything-server-2025
 
 Each pair checks, word for word:
 
   agent 2025-11-25 x upstream 2025-11-25
-      netguard negotiated 2025-11-25 (stateful) with the upstream; the
+      fathomgate negotiated 2025-11-25 (stateful) with the upstream; the
       upstream's elicitation/create reaches the agent with "[from conf] "
       in front of the message and of the field title; the agent's accept goes
       back and the tool completes with it.
   agent 2026-07-28 x upstream 2025-11-25
       same upstream era; no server-initiated request reaches the agent; the
-      call ends with isError and netguard's ADR 0014 refusal text; the
+      call ends with isError and fathomgate's ADR 0014 refusal text; the
       upstream's prompt text appears nowhere in the result.
 
 Standard library only; exits 1 on the first failed check, printing
-netguard's stderr. Talks stdio to netguard directly (no relay), so it does
+fathomgate's stderr. Talks stdio to fathomgate directly (no relay), so it does
 not change when the suite moves onto the HTTP listener (T0.32).
 """
 
@@ -47,7 +47,7 @@ TIMEOUT = 20.0
 
 UPSTREAM_READY = f"protocol={V2025} era=stateful"
 REFUSAL = (
-    f"netguard refused an input request (elicitation) from upstream {SERVER} during {TOOL}: "
+    f"fathomgate refused an input request (elicitation) from upstream {SERVER} during {TOOL}: "
     f"this client speaks the stateless era ({V2026}) and cannot receive a server-initiated "
     "prompt; see ADR 0014"
 )
@@ -57,12 +57,12 @@ class Failure(Exception):
     pass
 
 
-class Netguard:
-    """netguard serve over stdio, one JSON-RPC message per line."""
+class Fathomgate:
+    """fathomgate serve over stdio, one JSON-RPC message per line."""
 
-    def __init__(self, netguard: str, upstream: str) -> None:
+    def __init__(self, fathomgate: str, upstream: str) -> None:
         self.proc = subprocess.Popen(
-            [netguard, "serve", "--server", SERVER, "--upstream", upstream],
+            [fathomgate, "serve", "--server", SERVER, "--upstream", upstream],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -93,9 +93,9 @@ class Netguard:
         try:
             line = self.lines.get(timeout=TIMEOUT)
         except queue.Empty:
-            raise Failure(f"no message from netguard within {TIMEOUT:.0f}s") from None
+            raise Failure(f"no message from fathomgate within {TIMEOUT:.0f}s") from None
         if line is None:
-            raise Failure("netguard closed stdout")
+            raise Failure("fathomgate closed stdout")
         return json.loads(line)
 
     def close(self) -> None:
@@ -112,12 +112,12 @@ def texts(result: dict) -> list[str]:
     return [c.get("text", "") for c in result.get("content", []) if c.get("type") == "text"]
 
 
-def check_upstream_era(ng: Netguard) -> None:
+def check_upstream_era(ng: Fathomgate) -> None:
     if not any("upstream ready" in l and UPSTREAM_READY in l for l in ng.stderr):
-        raise Failure(f"netguard did not log {UPSTREAM_READY!r} for the upstream")
+        raise Failure(f"fathomgate did not log {UPSTREAM_READY!r} for the upstream")
 
 
-def stateful_agent(ng: Netguard) -> str:
+def stateful_agent(ng: Fathomgate) -> str:
     ng.send(
         {
             "id": 1,
@@ -167,7 +167,7 @@ def stateful_agent(ng: Netguard) -> str:
     return "prompt relabelled [from conf], answer returned, tool completed"
 
 
-def stateless_agent(ng: Netguard) -> str:
+def stateless_agent(ng: Fathomgate) -> str:
     meta = {
         "io.modelcontextprotocol/protocolVersion": V2026,
         "io.modelcontextprotocol/clientInfo": {"name": "era-pairs", "version": "0"},
@@ -213,13 +213,13 @@ PAIRS = [
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--netguard", required=True)
+    ap.add_argument("--fathomgate", required=True)
     ap.add_argument("--upstream", required=True, help="a 2025-11-25-only MCP server (stdio)")
     args = ap.parse_args()
 
     failed = False
     for name, run in PAIRS:
-        ng = Netguard(args.netguard, args.upstream)
+        ng = Fathomgate(args.fathomgate, args.upstream)
         try:
             print(f"ok    {name}: {run(ng)}")
         except Failure as e:

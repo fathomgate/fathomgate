@@ -41,7 +41,7 @@ func relayUpstreamError(server string, werr *jsonrpc.Error, red *Redactor) *json
 // the upstream's own words: go-sdk's jsonrpc.Error (WireError) returns the
 // upstream's message verbatim. Its Error has control characters escaped as
 // in escapeControl, so a startup error printed to the operator's terminal
-// (netguard serve writes New's error to stderr) cannot move the cursor,
+// (fathomgate serve writes New's error to stderr) cannot move the cursor,
 // colour the terminal or forge a log line. Unwrap keeps the original for
 // errors.Is and errors.As.
 type escapedError struct{ err error }

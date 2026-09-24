@@ -1,4 +1,4 @@
-module github.com/joshscott13/netguard/tests/conformance/upstream-2025
+module github.com/fathomgate/fathomgate/tests/conformance/upstream-2025
 
 go 1.26.0
 

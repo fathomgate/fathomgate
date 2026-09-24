@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var testKey = []byte("netguard-test-key")
+var testKey = []byte("fathomgate-test-key")
 
 func TestTokenFormat(t *testing.T) {
 	r := New(testKey)

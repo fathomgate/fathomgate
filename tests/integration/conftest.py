@@ -1,22 +1,22 @@
-"""Tier 2 fixtures: spawn `netguard serve` in front of a real upstream, with
+"""Tier 2 fixtures: spawn `fathomgate serve` in front of a real upstream, with
 the fake SSH device (tests/fixtures/device/fake_ssh.py) standing in for the
 router. Two upstreams, each pinned, each skipped on its own when not
 installed (CI requires both):
 
 - krisiasty/netdev-ssh-mcp, pinned to NETDEV_SSH_MCP_VERSION (go-sdk, 2026
-  era; NETGUARD_UPSTREAM, below);
+  era; FATHOMGATE_UPSTREAM, below);
 - upa/mcp-netmiko-server, pinned to UPA_COMMIT (FastMCP, 2025 era;
-  NETGUARD_UPA_*, see upa_install and
+  FATHOMGATE_UPA_*, see upa_install and
   integration/upstreams/upa-mcp-netmiko-server/install.sh).
 
 netdev-ssh-mcp setup (the CI job `client-smoke` does the same):
 
     make build
     GOBIN=$PWD/.upstream go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6
-    cd tests && NETGUARD_UPSTREAM=$PWD/../.upstream/netdev-ssh-mcp \\
+    cd tests && FATHOMGATE_UPSTREAM=$PWD/../.upstream/netdev-ssh-mcp \\
         uv run --extra integration pytest integration -m tier2 -v
 
-Without NETGUARD_UPSTREAM the tests skip (CI sets NETGUARD_TIER2_REQUIRED=1,
+Without FATHOMGATE_UPSTREAM the tests skip (CI sets FATHOMGATE_TIER2_REQUIRED=1,
 which turns that skip into a failure); with it set to the wrong version they
 fail, because a row is validated only against the named version. The
 release binary (netdev-ssh-mcp_1.6.6_<os>_<arch>, checked against the
@@ -76,17 +76,17 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.fixture(scope="session")
-def netguard_binary() -> Path:
-    """Absolute path to a built netguard binary (`make build`), or skip."""
-    env = os.environ.get("NETGUARD_BIN")
+def fathomgate_binary() -> Path:
+    """Absolute path to a built fathomgate binary (`make build`), or skip."""
+    env = os.environ.get("FATHOMGATE_BIN")
     candidates = [Path(env)] if env else []
-    candidates += [REPO / "bin" / "netguard", Path(shutil.which("netguard") or "/nonexistent")]
+    candidates += [REPO / "bin" / "fathomgate", Path(shutil.which("fathomgate") or "/nonexistent")]
     for c in candidates:
         if c.is_file() and os.access(c, os.X_OK):
             return c.resolve()
-    if os.environ.get("NETGUARD_TIER2_REQUIRED") == "1":
-        pytest.fail("NETGUARD_TIER2_REQUIRED=1 but no netguard binary; run `make build`")
-    pytest.skip("netguard binary not built; run `make build` or set NETGUARD_BIN")
+    if os.environ.get("FATHOMGATE_TIER2_REQUIRED") == "1":
+        pytest.fail("FATHOMGATE_TIER2_REQUIRED=1 but no fathomgate binary; run `make build`")
+    pytest.skip("fathomgate binary not built; run `make build` or set FATHOMGATE_BIN")
 
 
 def _module_version(binary: Path) -> str | None:
@@ -112,14 +112,14 @@ def _module_version(binary: Path) -> str | None:
 @pytest.fixture(scope="session")
 def upstream_binary() -> Path:
     """Absolute path to the netdev-ssh-mcp binary, checked against the pin."""
-    env = os.environ.get("NETGUARD_UPSTREAM")
-    if not env and os.environ.get("NETGUARD_TIER2_REQUIRED") == "1":
-        pytest.fail("NETGUARD_TIER2_REQUIRED=1 but NETGUARD_UPSTREAM is not set")
+    env = os.environ.get("FATHOMGATE_UPSTREAM")
+    if not env and os.environ.get("FATHOMGATE_TIER2_REQUIRED") == "1":
+        pytest.fail("FATHOMGATE_TIER2_REQUIRED=1 but FATHOMGATE_UPSTREAM is not set")
     if not env:
-        pytest.skip(f"NETGUARD_UPSTREAM not set (go install github.com/krisiasty/netdev-ssh-mcp@{NETDEV_SSH_MCP_VERSION})")
+        pytest.skip(f"FATHOMGATE_UPSTREAM not set (go install github.com/krisiasty/netdev-ssh-mcp@{NETDEV_SSH_MCP_VERSION})")
     found = shutil.which(env) if os.sep not in env else env
     if not found or not Path(found).is_file():
-        pytest.fail(f"NETGUARD_UPSTREAM={env!r} is not an executable")
+        pytest.fail(f"FATHOMGATE_UPSTREAM={env!r} is not an executable")
     path = Path(found).resolve()
     version = _module_version(path)
     if version != NETDEV_SSH_MCP_VERSION:
@@ -147,28 +147,28 @@ def _mcp_version(python: Path) -> str:
 @pytest.fixture(scope="session")
 def upa_install() -> UpaInstall:
     """upa/mcp-netmiko-server as install.sh lays it out, checked against the pins."""
-    names = ("NETGUARD_UPA_DIR", "NETGUARD_UPA_PYTHON", "NETGUARD_UPA_LOCKED_PYTHON")
+    names = ("FATHOMGATE_UPA_DIR", "FATHOMGATE_UPA_PYTHON", "FATHOMGATE_UPA_LOCKED_PYTHON")
     values = {n: os.environ.get(n, "") for n in names}
     missing = [n for n, v in values.items() if not v]
     hint = "integration/upstreams/upa-mcp-netmiko-server/install.sh DEST prints them"
-    if missing and os.environ.get("NETGUARD_TIER2_REQUIRED") == "1":
-        pytest.fail(f"NETGUARD_TIER2_REQUIRED=1 but {', '.join(missing)} not set ({hint})")
+    if missing and os.environ.get("FATHOMGATE_TIER2_REQUIRED") == "1":
+        pytest.fail(f"FATHOMGATE_TIER2_REQUIRED=1 but {', '.join(missing)} not set ({hint})")
     if missing:
         pytest.skip(f"{', '.join(missing)} not set ({hint})")
-    main = Path(values["NETGUARD_UPA_DIR"]) / "main.py"
+    main = Path(values["FATHOMGATE_UPA_DIR"]) / "main.py"
     if not main.is_file():
         pytest.fail(f"{main} does not exist")
     digest = hashlib.sha256(main.read_bytes()).hexdigest()
     if digest != UPA_MAIN_SHA256:
         pytest.fail(f"{main} has sha256 {digest}; row 2 is pinned to upa/mcp-netmiko-server {UPA_COMMIT} ({UPA_MAIN_SHA256})")
-    for name, want in (("NETGUARD_UPA_PYTHON", UPA_CURRENT_MCP), ("NETGUARD_UPA_LOCKED_PYTHON", UPA_LOCKED_MCP)):
+    for name, want in (("FATHOMGATE_UPA_PYTHON", UPA_CURRENT_MCP), ("FATHOMGATE_UPA_LOCKED_PYTHON", UPA_LOCKED_MCP)):
         got = _mcp_version(Path(values[name]))
         if got != want:
             pytest.fail(f"{name}={values[name]} has mcp {got!r}; want {want}")
     return UpaInstall(
         main=main.resolve(),
-        python=Path(values["NETGUARD_UPA_PYTHON"]),
-        locked_python=Path(values["NETGUARD_UPA_LOCKED_PYTHON"]),
+        python=Path(values["FATHOMGATE_UPA_PYTHON"]),
+        locked_python=Path(values["FATHOMGATE_UPA_LOCKED_PYTHON"]),
     )
 
 
@@ -209,11 +209,11 @@ def fake_device(tmp_path: Path):
 
 
 def upstream_env_args(device: FakeDevice | None) -> list[str]:
-    """netguard passes the upstream only an allow-list of its own environment,
+    """fathomgate passes the upstream only an allow-list of its own environment,
     so device settings are handed over explicitly, the way docs/install.md
     shows: non-secrets with `--upstream-env NAME=value`, the password with
     `--upstream-env-pass DEVICE_PASSWORD` (ADR 0017), so it is never on the
-    command line. The password itself comes from netguard's environment:
+    command line. The password itself comes from fathomgate's environment:
     see client_env."""
     args = ["--upstream-env", f"DEVICE_USERNAME={DEVICE_USERNAME}", "--upstream-env-pass", "DEVICE_PASSWORD"]
     if device is not None:
@@ -222,7 +222,7 @@ def upstream_env_args(device: FakeDevice | None) -> list[str]:
 
 
 def client_env(env: dict[str, str] | None = None) -> dict[str, str]:
-    """netguard's environment as a client with an `env` block
+    """fathomgate's environment as a client with an `env` block
     ({"DEVICE_PASSWORD": ...}) sets it: env plus the fake device password."""
     return {**(env or {}), "DEVICE_PASSWORD": DEVICE_PASSWORD}
 
@@ -232,15 +232,15 @@ def serve_args(upstream: Path | str, device: FakeDevice | None, *extra: str) -> 
 
 
 @pytest.fixture
-def proxy_server_params(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
-    """StdioServerParameters kwargs for `netguard serve` wrapping the upstream.
+def proxy_server_params(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
+    """StdioServerParameters kwargs for `fathomgate serve` wrapping the upstream.
 
     A dict so this module imports without the `mcp` package installed. M0
     serve is pass-through: --policy, --inventory, --profiles and --audit are
     refused until M1 wires the pipeline (ADR 0012). `env` is the client's
     `env` block; the python-sdk client merges it into HOME, PATH and friends.
     """
-    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device), "env": client_env()}
+    return {"command": str(fathomgate_binary), "args": serve_args(upstream_binary, fake_device), "env": client_env()}
 
 
 def _readline(stream, timeout: float) -> str:
@@ -272,7 +272,7 @@ class RawClient:
                 raise TimeoutError(f"no response to {method} within {timeout}s")
             line = _readline(self.proc.stdout, left)
             if not line:
-                raise EOFError(f"netguard closed stdout before answering {method}")
+                raise EOFError(f"fathomgate closed stdout before answering {method}")
             msg = json.loads(line)
             if msg.get("id") == id_:
                 return msg
@@ -281,7 +281,7 @@ class RawClient:
         self._send({"jsonrpc": "2.0", "method": method})
 
     def initialize(self) -> dict:
-        resp = self.request(1, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "netguard-tier2", "version": "0"}})
+        resp = self.request(1, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fathomgate-tier2", "version": "0"}})
         self.notify("notifications/initialized")
         return resp
 

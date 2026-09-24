@@ -10,7 +10,7 @@
 # DEST/venv-locked   Python 3.13 from the upstream's own uv.lock (uv sync
 #                    --locked checks its hashes): mcp 1.6.0, 2024-11-05 only
 #
-# Prints the three NETGUARD_UPA_* variables the tests read, one per line,
+# Prints the three FATHOMGATE_UPA_* variables the tests read, one per line,
 # for `>> "$GITHUB_ENV"` or `export`. Needs git and uv; uv fetches Python
 # 3.13 if it is missing. Bump UPA_COMMIT here and in
 # tests/integration/conftest.py together.
@@ -43,6 +43,6 @@ fi
 uv venv -q --allow-existing --python 3.13 "$dest/venv-current"
 VIRTUAL_ENV="$dest/venv-current" uv pip install -q --require-hashes -r "$here/requirements.txt"
 
-echo "NETGUARD_UPA_DIR=$dest/src"
-echo "NETGUARD_UPA_PYTHON=$dest/venv-current/bin/python"
-echo "NETGUARD_UPA_LOCKED_PYTHON=$dest/venv-locked/bin/python"
+echo "FATHOMGATE_UPA_DIR=$dest/src"
+echo "FATHOMGATE_UPA_PYTHON=$dest/venv-current/bin/python"
+echo "FATHOMGATE_UPA_LOCKED_PYTHON=$dest/venv-locked/bin/python"

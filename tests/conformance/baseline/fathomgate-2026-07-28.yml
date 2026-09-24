@@ -1,14 +1,14 @@
-# Expected failures: netguard leg (relay -> netguard serve -> go-sdk
+# Expected failures: fathomgate leg (relay -> fathomgate serve -> go-sdk
 # everything-server), --requirements 2026-07-28 (stateless agent). Format and
 # exit rules: tests/conformance/README.md. An entry that starts passing fails
 # the run, so a fix must delete its entry in the same PR.
 #
 # The first block is identical to control-2026-07-28.yml (HTTP transport,
-# the relay's behaviour). Everything after it is a difference netguard makes.
+# the relay's behaviour). Everything after it is a difference fathomgate makes.
 # Every group names the ADR or board task that decided it or owns the gap
 # (M0 exit criterion 1).
 server:
-  # --- Same as the control leg: HTTP transport, not netguard -------------
+  # --- Same as the control leg: HTTP transport, not fathomgate -------------
   # ADR 0012 (M0 serves the agent over stdio only) and T0.4 (the relay): see
   # control-2026-07-28.yml.
   - server-stateless:sep-2575-http-server-header-mismatch-400
@@ -24,8 +24,8 @@ server:
   - server-stateless:sep-2575-request-meta-invalid-missing-meta
   - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
 
-  # --- netguard ------------------------------------------------------------
-  # Undeclared capabilities. Decided in T0.3: netguard declares only `tools`
+  # --- fathomgate ------------------------------------------------------------
+  # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # and answers -32601 for prompts/*, resources/* and completion/complete
   # (profile-schema section 8.2). The caching checks call prompts/list,
   # resources/list and resources/templates/list; non-tool-request calls
@@ -52,11 +52,11 @@ server:
   # T0.18 and ADR 0014 (the sealed requestState, normative in profile-schema
   # section 8.4), SHOULD-level. The check sends inputResponses, one for the
   # fixture's real input id plus two unknown ones, with no requestState, and
-  # wants the call to complete. netguard ignores them all (section 8.2: it
+  # wants the call to complete. fathomgate ignores them all (section 8.2: it
   # forwards only answers to prompts it relayed, bound by its requestState)
   # and returns the upstream's fresh, relabelled input_required. Completing
   # would mean forwarding an agent's answer to an upstream prompt no human
-  # was shown through netguard, so this stays by design. T0.18 relaxed the
+  # was shown through fathomgate, so this stays by design. T0.18 relaxed the
   # rest: no -32602 for this case any more, and unknown ids under a valid
   # requestState are dropped rather than refused.
   - input-required-result-ignore-extra-params:sep-2322-ignore-unexpected-params
@@ -71,8 +71,8 @@ server:
   - input-required-result-capability-check:sep-2322-respect-client-capabilities
   # ADR 0012 (the <server>.<tool> prefix, profile-schema section 8.1) and
   # T0.4 (the relay renames only tools/call). This check looks for
-  # `test_missing_capability` in tools/list, which netguard lists as
+  # `test_missing_capability` in tools/list, which fathomgate lists as
   # `conf.test_missing_capability`. The check reports "Not testable", so the
   # undeclared-capability rejection (-32021) is not exercised through
-  # netguard.
+  # fathomgate.
   - server-stateless:sep-2575-server-rejects-undeclared-capability

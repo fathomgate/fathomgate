@@ -1,4 +1,4 @@
-// Package audit writes and verifies NetGuard's hash-chained JSONL audit log.
+// Package audit writes and verifies Fathomgate's hash-chained JSONL audit log.
 //
 // It is the last stage of the pipeline: after a call is allowed, held or
 // denied, and after any result has been redacted, one Event is appended.

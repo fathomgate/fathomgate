@@ -1,11 +1,11 @@
-// Package proxy is the MCP transport of NetGuard: one process that is an MCP
+// Package proxy is the MCP transport of Fathomgate: one process that is an MCP
 // server toward the agent and an MCP client toward each upstream MCP server,
 // built on the official go-sdk (pinned to one minor, currently v1.8; ADR
 // 0011).
 //
 // M0 scope (T0.2): upstreams are spawned over stdio ([Command]); the agent
 // side is whatever [mcp.Transport] the caller passes to [Proxy.Run] (stdio
-// for `netguard serve`). Each upstream tool is exposed as "<server>.<tool>",
+// for `fathomgate serve`). Each upstream tool is exposed as "<server>.<tool>",
 // where <server> is the profile's `server` key; tools/call strips the prefix
 // and forwards. Unknown or unprefixed names get a JSON-RPC invalid-params
 // error with structured data. The prefix rules are in
@@ -25,8 +25,8 @@
 // behind an AES-GCM sealed requestState bound to the transport and
 // principal it was issued to (state.go), or as
 // elicitation/create to a stateful one (input.go).
-// Progress (T0.17) crosses as netguard's own notifications: the upstream gets
-// a token netguard issued, and its notifications for that token reach the
+// Progress (T0.17) crosses as fathomgate's own notifications: the upstream gets
+// a token fathomgate issued, and its notifications for that token reach the
 // agent under the agent's token, rate-limited and with the message labelled,
 // written by a sender goroutine per call so a slow agent never stalls the
 // upstream's dispatch (progress.go, T0.28). The normative rules are in

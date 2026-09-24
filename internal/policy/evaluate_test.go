@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshscott13/netguard/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/classify"
 )
 
 // planPolicy is the example from docs/PLAN.md "Policy schema".

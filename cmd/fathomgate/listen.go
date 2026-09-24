@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joshscott13/netguard/internal/proxy"
+	"github.com/fathomgate/fathomgate/internal/proxy"
 )
 
-// The server side of the Streamable HTTP listener (ADR 0016: cmd/netguard
+// The server side of the Streamable HTTP listener (ADR 0016: cmd/fathomgate
 // owns the listener, the connection cap, the http.Server settings and the
-// lifecycle; internal/proxy exports only the handler). `netguard serve
+// lifecycle; internal/proxy exports only the handler). `fathomgate serve
 // --listen` wires these in T0.31; until then only their tests use them.
 
 const (
@@ -56,12 +56,12 @@ func newHTTPServer(h http.Handler, p io.Closer, logger *slog.Logger) *http.Serve
 }
 
 // limitListener returns a listener that holds at most n connections open at
-// once (maxConnections for netguard). Accept waits for a slot before
+// once (maxConnections for fathomgate). Accept waits for a slot before
 // accepting, so further connections queue in the kernel. n below 1 is a
 // programmer error and panics.
 func limitListener(l net.Listener, n int) net.Listener {
 	if n < 1 {
-		panic("netguard: limitListener needs at least one connection slot")
+		panic("fathomgate: limitListener needs at least one connection slot")
 	}
 	return &limitedListener{Listener: l, sem: make(chan struct{}, n), done: make(chan struct{})}
 }

@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// On platforms that are neither Unix nor Windows NetGuard cannot make the
+// On platforms that are neither Unix nor Windows Fathomgate cannot make the
 // key or the log owner-only, so it refuses to create or open them.
 
 func createExclusive(string, int, bool) (*os.File, error) { return nil, errors.ErrUnsupported }

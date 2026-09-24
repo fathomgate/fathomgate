@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/joshscott13/netguard/internal/proxy"
+	"github.com/fathomgate/fathomgate/internal/proxy"
 )
 
 func TestCheckListenEnvironment(t *testing.T) {

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/joshscott13/netguard/internal/audit"
+	"github.com/fathomgate/fathomgate/internal/audit"
 )
 
 func cmdAudit(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: netguard audit <verify|keygen> ...")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate audit <verify|keygen> ...")
 		return exitUsage
 	}
 	switch args[0] {
@@ -21,7 +21,7 @@ func cmdAudit(args []string) int {
 	case "keygen":
 		return cmdAuditKeygen(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "netguard audit: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "fathomgate audit: unknown subcommand %q\n", args[0])
 		return exitUsage
 	}
 }
@@ -36,7 +36,7 @@ func cmdAuditVerify(args []string) int {
 		return exitUsage
 	}
 	if len(files) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: netguard audit verify <audit.jsonl> [--key audit.pub]")
+		fmt.Fprintln(os.Stderr, "usage: fathomgate audit verify <audit.jsonl> [--key audit.pub]")
 		return exitUsage
 	}
 	var pub ed25519.PublicKey

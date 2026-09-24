@@ -17,7 +17,7 @@
 #   strings are not obfuscated. On by default; --no-obfuscate turns it off.
 # - The hash is unkeyed, so a word list recovers short values offline:
 #   public -> [h:efa1f375d761], private -> [h:715dc8493c36]. This does not meet
-#   NetGuard invariant 4 (keyed HMAC tokens); NetGuard must not rely on it or
+#   Fathomgate invariant 4 (keyed HMAC tokens); Fathomgate must not rely on it or
 #   count it as redaction. The proxy's own redactor (M2, matrix row 15) runs
 #   on every result regardless and must not treat a line holding an [h:...]
 #   token as already clean (see the wrong-token cases below).
@@ -34,7 +34,7 @@
 #   Fixture totals missed: eos 5/13, ios-xe 3/22, nxos 5/13, junos 7/13,
 #   eos-4.16 0/4, fortios 0/6. No upstream unit tests cover obfuscation.
 # - Install docs recommend leaving obfuscation ON in M0 (defence in depth
-#   while NetGuard does not redact). Revisit once M2 redaction ships.
+#   while Fathomgate does not redact). Revisit once M2 redaction ships.
 server: netdev-ssh-mcp
 source: https://github.com/krisiasty/netdev-ssh-mcp
 description: Read-only multi-vendor SSH server (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS)

@@ -1,8 +1,8 @@
-# GoReleaser configuration for NetGuard. Runs on tag push via
+# GoReleaser configuration for Fathomgate. Runs on tag push via
 # .github/workflows/release.yaml; `make release-snapshot` for a local dry run.
 version: 2
 
-project_name: netguard
+project_name: fathomgate
 
 before:
   hooks:
@@ -10,9 +10,9 @@ before:
     - go test ./...
 
 builds:
-  - id: netguard
-    main: ./cmd/netguard
-    binary: netguard
+  - id: fathomgate
+    main: ./cmd/fathomgate
+    binary: fathomgate
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
@@ -60,25 +60,25 @@ release:
   footer: |
     Verify a download with `sha256sum -c checksums.txt`.
 
-# Homebrew tap placeholder: create joshscott13/homebrew-tap and set
+# Homebrew tap placeholder: create fathomgate/homebrew-tap and set
 # HOMEBREW_TAP_GITHUB_TOKEN before the first tagged release.
 brews:
-  - name: netguard
+  - name: fathomgate
     repository:
       owner: joshscott13
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/joshscott13/netguard
+    homepage: https://github.com/fathomgate/fathomgate
     description: Policy-enforcing MCP proxy for network-device MCP servers
     license: MIT
     test: |
-      system "#{bin}/netguard", "version"
+      system "#{bin}/fathomgate", "version"
     skip_upload: auto
 
 dockers:
   - image_templates:
-      - "ghcr.io/joshscott13/netguard:{{ .Version }}-amd64"
+      - "ghcr.io/fathomgate/fathomgate:{{ .Version }}-amd64"
     dockerfile: Dockerfile.goreleaser
     goarch: amd64
     use: buildx

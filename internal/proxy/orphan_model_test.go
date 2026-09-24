@@ -18,7 +18,7 @@ import (
 // After every step, attribute may relay a prompt only when the oracle
 // would (one call in flight and no live ended call of another session),
 // and only to that call. endedCallsOf must name every principal the oracle
-// refuses for, and only principals with a live ended call. netguard may
+// refuses for, and only principals with a live ended call. fathomgate may
 // refuse where the oracle would not only through a LIVE overflow record of
 // the caller's principal, which stands for that principal's ended calls
 // whatever their session.
@@ -83,7 +83,7 @@ func TestOrphanModelNeverFailsOpen(t *testing.T) {
 		// check compares attribute with the oracle at now and reports
 		// whether the oracle relays, whether a live overflow record exists,
 		// and whether a live overflow record alone makes the oracle's
-		// refusal hold for netguard (no live foreign keyed record).
+		// refusal hold for fathomgate (no live foreign keyed record).
 		check := func(step int) (allow, overflowLive, overflowDecides bool) {
 			t.Helper()
 			ended = slices.DeleteFunc(ended, func(e endedCall) bool { return !now.Before(e.expires) })
