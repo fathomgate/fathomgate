@@ -105,5 +105,5 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.
-- The self-hosted runner label is still `netguard` (runners `ng-wsl-1` to `ng-wsl-3`). It stays until those runners are removed (ADR 0019).
+- CI runs on GitHub-hosted runners. The repository is public, so no job reachable from a pull request may target a self-hosted runner (docs/ci-runners.md); the WSL runners of 2026-09-24 are retired.
 - The product is Fathomgate in prose (one word, capital F only; never "FathomGate", never shortened to "Fathom", which is the design system) and `fathomgate` in mono for the command, module, image and any typed value.
