@@ -100,6 +100,7 @@ type progressRelay struct {
 	held      *mcp.ProgressNotificationParams   // newest one held back by the limit
 	queue     []*mcp.ProgressNotificationParams // admitted, oldest first, at most progressBurst
 	running   bool                              // the sender has been started
+	sent      int                               // notifications written to the agent without error
 	exited    chan struct{}                     // closed when the sender returns
 }
 
@@ -212,7 +213,11 @@ func (r *progressRelay) run() {
 			// Under the agent's request context, so a Streamable HTTP
 			// transport puts it on that request's stream. A failed write
 			// is not the call's failure; the result decides that.
-			_ = r.session.NotifyProgress(r.sendCtx, next)
+			if r.session.NotifyProgress(r.sendCtx, next) == nil {
+				r.mu.Lock()
+				r.sent++
+				r.mu.Unlock()
+			}
 			continue
 		case stop:
 			return

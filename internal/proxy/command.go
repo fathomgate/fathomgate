@@ -55,10 +55,17 @@ type Command struct {
 	// escaped) and in the upstream's JSON-RPC error messages relayed to the
 	// agent. Shorter values are not scrubbed. Tool results are not
 	// scrubbed (M2, redaction at the response serialiser).
+	//
+	// The transport Transport builds does hold the values: its
+	// Command.Env (the *exec.Cmd's) carries NAME=value in the clear, as the
+	// child's environment must. Never log, print or serialise that
+	// transport or its Cmd; in particular the M4 audit writer must never
+	// record it.
 	Secrets []Secret
 }
 
-// Transport returns a go-sdk CommandTransport for c.
+// Transport returns a go-sdk CommandTransport for c. Its Command.Env holds
+// the Secrets' values (see Secrets): never log or serialise it.
 func (c Command) Transport() *mcp.CommandTransport {
 	cmd := exec.Command(c.Path, c.Args...) //nolint:gosec // G204: the upstream command is operator configuration, not agent input.
 	env := baseEnv(os.Environ(), runtime.GOOS)
