@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 4 · in progress 2 · merged 28
+Tasks: open 3 · blocked 5 · in progress 2 · merged 30
 
 ## In flight
 
@@ -39,16 +39,17 @@ Tasks: open 5 · blocked 4 · in progress 2 · merged 28
 | T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
 | T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
-| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | T0.27 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.27, T0.40 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38, T0.40 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.34 | Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2 | `tests/integration` | test-engineer | mcp-protocol-engineer, go-reviewer | merged | — | 2 | — |
 | T0.35 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | T0.36 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
-| T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | in progress | — | — | — |
-| T0.38 | Apply the post-merge security and Go reviews of PR | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.39 | Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | merged | — | — | — |
+| T0.38 | Apply the post-merge security and Go reviews of PR | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.39 | Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 2 | — |
+| T0.40 | Apply the PR | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Exit criteria
 
