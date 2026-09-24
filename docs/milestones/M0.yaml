@@ -11,7 +11,8 @@ exit_criteria:
     met: 2026-09-23 (T0.4 PR #44, T0.17 and T0.18 PR #53; every remaining baseline entry cites an ADR or task)
   - text: Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
     met: 2026-09-23 (Claude Code 2.1.236 and Claude Desktop 2.7032.0 called show version through netguard in front of netdev-ssh-mcp v1.6.6, by the maintainer; client-smoke CI green; matrix rows 1 and 22 passing)
-  - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
+  - text: Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
+    met: 2026-09-23 (maintainer decision; netdev-ssh-mcp v1.6.6 at 2026-07-28 and upa/mcp-netmiko-server 96e8ff3 at 2025-11-25 behind netguard in tier 2 CI with both agent eras, T0.34 PR #69; all four era pairs in conformance, T0.19 PR #66. The 2024-11-05 startup hang is T0.39)
   - GoReleaser produces linux/darwin/windows binaries on a tag
 validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server]
 blockers: []
@@ -238,7 +239,7 @@ tasks:
     reviewers: [go-reviewer, security-reviewer]
     state: open
     matrix: [22]
-    notes: 'From T0.5. When the upstream exits during initialize, netguard prints connection closed ... EOF; the real cause is only in the upstream''s own stderr line. Add the exit status (and keep upstream text escaped, as T0.3 does for startup errors).'
+    notes: 'From T0.5. When the upstream exits during initialize, netguard prints connection closed ... EOF; the real cause is only in the upstream''s own stderr line. Add the exit status (and keep upstream text escaped, as T0.3 does for startup errors). Do together with T0.39: the same startup path also reports a silent upstream only as context deadline exceeded after 30 s.'
   - id: T0.26
     title: Replace the synthetic fake-device transcript with a sanitised real EOS capture
     package: tests/fixtures/device
@@ -317,9 +318,9 @@ tasks:
     package: tests/integration
     owner: test-engineer
     reviewers: [mcp-protocol-engineer, go-reviewer]
-    state: open
+    state: merged
     matrix: [2]
-    notes: 'Gates M0 exit criterion 3. T0.19 proved all four era pairs against go-sdk fixtures only; M0 validates_against names upa/mcp-netmiko-server as the real 2025-era upstream, and a matrix case is validated only against the named real server. Pin the upstream version, run it behind netguard with the fake device (or a netmiko-compatible fake), check initialize fallback (protocol=2025-11-25 era=stateful), prefixed tools/list, a read-only call, and both agent eras. Needs a profile if none exists (upstream-server-scout).'
+    notes: 'Gates M0 exit criterion 3. T0.19 proved all four era pairs against go-sdk fixtures only; M0 validates_against names upa/mcp-netmiko-server as the real 2025-era upstream, and a matrix case is validated only against the named real server. Pin the upstream version, run it behind netguard with the fake device (or a netmiko-compatible fake), check initialize fallback (protocol=2025-11-25 era=stateful), prefixed tools/list, a read-only call, and both agent eras. Needs a profile if none exists (upstream-server-scout). Merged in PR #69 2026-09-23: upa pinned to 96e8ff3 (main.py sha256 checked), mcp 1.30.0 and netmiko 4.5.0 hash-locked; negotiates protocol=2025-11-25 era=stateful after the server/discover fallback; a 2025 agent, a 2026 agent and python-sdk 2.2.0 each reach the fake device once. On upa''s own uv.lock (mcp 1.6.0, protocol 2024-11-05) the upstream never answers server/discover and netguard times out at startup: strict xfail, fixed by T0.39. New CI job tier2-upa (~1.5 min).'
   - id: T0.35
     title: Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames
     package: internal/proxy
@@ -353,6 +354,14 @@ tasks:
     adr: "0016"
     matrix: [23]
     notes: 'H1 bind stateful prompt attribution to the agent session (orphaned calls tracked; refuse when calls from more than one session are live), H2 per-principal session cap and idle expiry that cancels calls, H3 Connection close on refusals, H4 clear write deadline per request, H5/G1 exports back to ADR 0016 (server helpers move to cmd/netguard, Principal unexported, TokenPrincipal dropped), H6 named random tokens only, G2 RegisterOnShutdown, G5 join settleSession goroutines, G3/G4/G6/G7/G8 test and nit fixes, plus T0.37. Held for re-review before merge. Blocks T0.31.'
+  - id: T0.39
+    title: Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. Needs an ADR first (it changes the negotiation in ADR 0008). Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed. Tabled until 2026-09-24.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
