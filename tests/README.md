@@ -67,8 +67,8 @@ a mock.
   `integration/upstreams/upa-mcp-netmiko-server/requirements.txt`), netguard
   negotiates 2025-11-25 stateful with it, lists `upa.<tool>`, and a 2025 and
   a 2026 agent each run `show version` once on the fake device through
-  netmiko. With the upstream's own `uv.lock` (mcp 1.6.0), netguard cannot
-  start in front of it; that case is a strict xfail (see test-matrix.md
-  row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
+  netmiko. With the upstream's own `uv.lock` (mcp 1.6.0), which never
+  answers `server/discover`, netguard restarts it once and connects with
+  `initialize` only, at 2024-11-05 (ADR 0018; test-matrix.md row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
   at 2026-07-28 stateless).
 - Tier 3: workflow skeleton only.

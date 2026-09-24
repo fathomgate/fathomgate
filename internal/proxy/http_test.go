@@ -183,7 +183,7 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	if _, err := up.Connect(ctx, pinServer(s.upstream, upSrvT), nil); err != nil {
 		t.Fatal(err)
 	}
-	p, err := New(ctx, []Upstream{{Server: testServer, Transport: upCliT}}, Options{Version: "test", Logger: s.logger})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test", Logger: s.logger})
 	if err != nil {
 		t.Fatal(err)
 	}

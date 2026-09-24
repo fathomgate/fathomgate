@@ -15,10 +15,10 @@ The upstream runs with two dependency sets (install.sh):
 - locked: its own uv.lock, mcp 1.6.0 (2024-11-05 only). That SDK does not
   answer a request whose method it does not know: its receive loop dies, and
   the process lives on without reading. So netguard's `server/discover` gets
-  no answer, go-sdk never reaches `initialize`, and `netguard serve` gives up
-  at the 30-second startup limit. The upstream's side of that is asserted
-  directly; netguard's side is a strict xfail until netguard can reach a
-  stateful upstream that stops answering on an unknown method.
+  no answer. The upstream's side of that is asserted directly. netguard's
+  side (ADR 0018, T0.39): after 5 seconds without an answer it kills the
+  upstream, starts it again and connects with `initialize` only, which that
+  SDK answers with 2024-11-05.
 
 Not covered here: upa's three tools take no Context and never elicit
 (main.py at the pinned commit), so the ADR 0014 case (a 2026 agent calling a
@@ -339,33 +339,26 @@ def test_locked_upstream_stops_answering_after_server_discover(upa_install: UpaI
     """Direct, no netguard: after `server/discover` the locked upstream answers
     nothing, not even a following initialize. The SDK's receive loop raised
     on the unknown method (a pydantic ValidationError) instead of replying
-    -32601. This is the upstream's defect; netguard's handling of it is the
-    xfail below."""
+    -32601. This is the upstream's defect; netguard's handling of it (ADR
+    0018) is the test below."""
     # 5 s: the same upstream answers a lone initialize in about 1 s (above).
     replies, err = _exchange(_raw_upstream(upa_install, _inventory(tmp_path, fake_device)), [DISCOVER, INIT_2025], want=0, wait=5)
     assert replies == []
     assert "ValidationError" in err and "input_value='server/discover'" in err
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=NetguardExited,
-    reason=(
-        "netguard serve cannot start in front of upa/mcp-netmiko-server as locked (mcp 1.6.0): go-sdk's "
-        "server/discover probe kills the upstream's receive loop, initialize is never sent, and serve exits 1 "
-        "after the 30 s startup limit with `connect: context deadline exceeded`. go-sdk skips the probe when "
-        "ClientSessionOptions.ProtocolVersion is below 2026-07-28; netguard passes none (internal/proxy)."
-    ),
-)
 def test_locked_upstream_initialises_behind_netguard(netguard_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> None:
-    """Row 2 target for the upstream as shipped: netguard reaches it at
-    2024-11-05, stateful, and serves its tools. When netguard can, this
-    XPASSes and strict mode fails it: drop the xfail in that PR."""
+    """Row 2 for the upstream as shipped: the server/discover probe goes
+    unanswered, netguard restarts the upstream once and connects with
+    initialize only (ADR 0018), reaches it at 2024-11-05, stateful, and
+    serves its tools. The restart is logged once, at warn."""
     ng = Netguard(_serve(netguard_binary, upa_install.locked_python, upa_install.main, _inventory(tmp_path, fake_device)))
     try:
         _initialize_2025(ng)
         tools = ng.request(2, "tools/list", {})["result"]["tools"]
         assert sorted(t["name"] for t in tools) == sorted(f"{UPA_SERVER}.{t}" for t in UPSTREAM_TOOLS)
         assert ng.ready() == (UPA_SERVER, len(UPSTREAM_TOOLS), "2024-11-05", "stateful")
+        restarts = [line for line in ng.stderr if "did not answer server/discover within 5s" in line]
+        assert len(restarts) == 1 and "level=WARN" in restarts[0], ng.stderr[-20:]
     finally:
         ng.close()

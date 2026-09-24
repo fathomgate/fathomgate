@@ -44,7 +44,7 @@ func TestStartupErrorsEscaped(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = ss.Close() })
 
-			p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})
+			p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(ct)}}, Options{})
 			if err == nil {
 				_ = p.Close()
 				t.Fatal("New succeeded against a failing upstream")

@@ -117,7 +117,7 @@ func TestShutdownWithStatefulGET(t *testing.T) {
 	if _, err := up.Connect(ctx, upSrvT, nil); err != nil {
 		t.Fatal(err)
 	}
-	p, err := proxy.New(ctx, []proxy.Upstream{{Server: "fake", Transport: upCliT}}, proxy.Options{Version: "test"})
+	p, err := proxy.New(ctx, []proxy.Upstream{{Server: "fake", NewTransport: func() mcp.Transport { return upCliT }}}, proxy.Options{Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

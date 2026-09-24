@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,7 +23,9 @@ import (
 // 2026-07-28); "legacy" is the same server pinned to the stateful era
 // (2025-11-25), as a FastMCP 1.x upstream is; "badversion" is a raw JSON-RPC
 // peer that answers the initialise request with a protocol version go-sdk
-// rejects, and then never exits on its own.
+// rejects, and then never exits on its own. "nodiscover" stops reading at
+// server/discover (ADR 0018); "die" exits 3 at once and "dielist" exits 4
+// on tools/list (T0.25).
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
@@ -40,6 +43,15 @@ func TestMain(m *testing.M) {
 		return
 	case "badversion":
 		runBadVersionUpstream()
+		return
+	case "nodiscover":
+		runNoDiscoverUpstream()
+		return
+	case "die":
+		fmt.Fprintln(os.Stderr, "fake upstream: FAKE startup failure")
+		os.Exit(3)
+	case "dielist":
+		runDieOnListUpstream()
 		return
 	}
 	code := m.Run()
@@ -117,6 +129,58 @@ func runBadVersionUpstream() {
 	time.Sleep(time.Hour)
 }
 
+// runNoDiscoverUpstream behaves like a Python MCP SDK 1.9.3-or-older
+// upstream (ADR 0018): server/discover kills its receive loop, so it answers
+// nothing more and ignores stdin EOF, and only a kill ends it. A session that
+// starts with the initialise request is served normally.
+func runNoDiscoverUpstream() {
+	s := fakeUpstream(&recorder{}, nil)
+	if err := s.Run(context.Background(), noDiscover{&mcp.StdioTransport{}}); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+type noDiscover struct{ mcp.Transport }
+
+func (t noDiscover) Connect(ctx context.Context) (mcp.Connection, error) {
+	c, err := t.Transport.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return noDiscoverConn{c}, nil
+}
+
+type noDiscoverConn struct{ mcp.Connection }
+
+func (c noDiscoverConn) Read(ctx context.Context) (jsonrpc.Message, error) {
+	m, err := c.Connection.Read(ctx)
+	if r, ok := m.(*jsonrpc.Request); ok && err == nil && r.Method == "server/discover" {
+		fmt.Fprintln(os.Stderr, "fake upstream: unknown method server/discover; not reading any more")
+		select {} // the process lives on without reading
+	}
+	return m, err
+}
+
+// runDieOnListUpstream completes the handshake and exits with status 4 on
+// tools/list, without answering it.
+func runDieOnListUpstream() {
+	s := fakeUpstream(&recorder{}, nil)
+	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "tools/list" {
+				fmt.Fprint(os.Stderr, "fake upstream: FAKE startup failure")
+				os.Exit(4)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 func testExecutable(t *testing.T) string {
@@ -185,7 +249,7 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 		StderrPrefix: "upstream netdev-ssh-mcp: ",
 	}
 	startCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	p, err := New(startCtx, []Upstream{{Server: testServer, Transport: cmd.Transport()}}, Options{})
+	p, err := New(startCtx, []Upstream{{Server: testServer, NewTransport: func() mcp.Transport { return cmd.Transport() }}}, Options{})
 	cancel()
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +338,7 @@ func TestConnectFailureKillsUpstream(t *testing.T) {
 	}.Transport()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(ct)}}, Options{})
 	if err == nil {
 		_ = p.Close()
 		t.Fatal("New succeeded against an unsupported protocol version")
@@ -405,7 +469,7 @@ func TestStdioUpstreamEras(t *testing.T) {
 				Env:  []string{fakeUpstreamEnv + "=" + mode, childRaceEnv},
 			}.Transport()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			p, err := New(ctx, []Upstream{{Server: testServer, Transport: ct}}, Options{})
+			p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(ct)}}, Options{})
 			cancel()
 			if err != nil {
 				t.Fatal(err)
