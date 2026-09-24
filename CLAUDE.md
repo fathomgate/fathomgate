@@ -1,6 +1,6 @@
-# CLAUDE.md — working in the NetGuard repo
+# CLAUDE.md — working in the Fathomgate repo
 
-NetGuard is a policy-enforcing MCP proxy that sits between AI agents and network-device MCP servers. Go core, single static binary, Python companion for fixtures and policy tooling. This file is the working memory for any agent operating in this repo. Read it first; it tells you where the truth lives and how work moves.
+Fathomgate is a policy-enforcing MCP proxy that sits between AI agents and network-device MCP servers. Go core, single static binary, Python companion for fixtures and policy tooling. This file is the working memory for any agent operating in this repo. Read it first; it tells you where the truth lives and how work moves.
 
 ## Where the truth lives
 
@@ -21,21 +21,21 @@ When code and a spec disagree, the code in `main` is the current truth and the s
 ## Commands
 
 ```sh
-make build          # bin/netguard (ldflags: version, commit, date)
+make build          # bin/fathomgate (ldflags: version, commit, date)
 make test           # go test -race ./...
 make vet            # go vet + gofmt check
 make lint           # golangci-lint (v2 config in .golangci.yaml)
-make policy-test    # every policies/**/*.test.yaml through `netguard policy test`
+make policy-test    # every policies/**/*.test.yaml through `fathomgate policy test`
 make fixtures-check # redaction fixtures vs their .expect.json
-make conformance    # official MCP conformance suite vs netguard serve, both eras (needs Node.js/npm)
+make conformance    # official MCP conformance suite vs fathomgate serve, both eras (needs Node.js/npm)
 make status         # re-render STATUS.md from docs/milestones/<CURRENT>.yaml + docs/handoffs/
 tools/policy-lint/policy-lint policies/examples/prod-approval.yaml   # Python, no Go needed
-bin/netguard policy eval --policy policies/examples/prod-approval.yaml \
+bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
   --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
-Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
+Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
 
 ## Toolchain facts
 
@@ -73,14 +73,14 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 - A change to any interface (`policy.Decision`, `Evaluate`, the class or obligation set, `ChangeSafety`, a schema in `docs/specs/`, the CLI surface, `go.mod`) needs an ADR before code.
 - Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
-- `netguard serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
+- `fathomgate serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
 - Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). DCO sign-off.
 
 ## Repo map
 
 ```
-cmd/netguard/        CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
+cmd/fathomgate/        CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
@@ -93,7 +93,7 @@ profiles/            one YAML per upstream server (tool → class, param mapping
 policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (25 cases)
 tests/               Python: policy_lint, tiered pytest, fixtures/configs (annotated secrets)
 tools/policy-lint/   launcher for contributors without Go
-design/              Fathom tokens + NetGuard policy layer + console preview
+design/              Fathom tokens + Fathomgate policy layer + console preview
 docs/                PLAN, PRD, adr/, specs/, testing/, agents/, milestones/ (board), handoffs/ (notes), research/, glossary
 tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`)
 .claude/             agents/ (11 specialists) and commands/ (8 slash commands)
@@ -101,7 +101,9 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 ## Things that look wrong but are deliberate
 
-- `netguard serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
+- `fathomgate serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
-- The name "NetGuard" is a placeholder and collides with existing products. Renaming is an open question in `docs/PLAN.md`; do not brand assets around it yet.
+- ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.
+- The self-hosted runner label is still `netguard` (runners `ng-wsl-1` to `ng-wsl-3`). It stays until those runners are removed (ADR 0019).
+- The product is Fathomgate in prose (one word, capital F only; never "FathomGate", never shortened to "Fathom", which is the design system) and `fathomgate` in mono for the command, module, image and any typed value.

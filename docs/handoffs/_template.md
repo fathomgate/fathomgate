@@ -23,7 +23,7 @@
 ```sh
 go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check
 # plus anything task-specific, e.g.:
-# bin/netguard policy eval --policy policies/examples/prod-approval.yaml --inventory inventory.example.yaml --server junos --tool load_and_commit_config --class WRITE_CONFIG --target core-rtr-01
+# bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml --inventory inventory.example.yaml --server junos --tool load_and_commit_config --class WRITE_CONFIG --target core-rtr-01
 ```
 
 ## Decisions made without an ADR

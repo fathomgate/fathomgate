@@ -80,12 +80,12 @@ All three channels call the same internal `Decide(id, verdict, approver, comment
 ### 6.1 CLI
 
 ```
-netguard approve <id> [--comment "..."]
-netguard deny    <id> --reason "..."
-netguard pending [--json]
+fathomgate approve <id> [--comment "..."]
+fathomgate deny    <id> --reason "..."
+fathomgate pending [--json]
 ```
 
-The CLI talks to the running proxy over a Unix domain socket (`$XDG_RUNTIME_DIR/netguard.sock`, mode 0600) or a named pipe on Windows. The approver is the OS user that owns the socket connection, resolved via `SO_PEERCRED` (Linux) or `getpeereid` (macOS). The socket is never exposed over TCP.
+The CLI talks to the running proxy over a Unix domain socket (`$XDG_RUNTIME_DIR/fathomgate.sock`, mode 0600) or a named pipe on Windows. The approver is the OS user that owns the socket connection, resolved via `SO_PEERCRED` (Linux) or `getpeereid` (macOS). The socket is never exposed over TCP.
 
 ### 6.2 Webhook
 
@@ -96,13 +96,13 @@ Request:
 ```
 POST /approvals/01J8Q4V7X2 HTTP/1.1
 Content-Type: application/json
-X-NetGuard-Timestamp: 1758600738
-X-NetGuard-Signature: v1=3f9a17c2e0b4...
+X-Fathomgate-Timestamp: 1758600738
+X-Fathomgate-Signature: v1=3f9a17c2e0b4...
 
 {"verdict":"approve","approver":"slack:U024BE7LH","comment":"Change ticket CHG0041882"}
 ```
 
-- `X-NetGuard-Signature` is `v1=` plus hex HMAC-SHA256 over `timestamp + "." + raw body`, keyed with the shared secret configured per webhook source. Requests older than 300 seconds or with a bad signature are rejected with 401 and audited as `approval_rejected`.
+- `X-Fathomgate-Signature` is `v1=` plus hex HMAC-SHA256 over `timestamp + "." + raw body`, keyed with the shared secret configured per webhook source. Requests older than 300 seconds or with a bad signature are rejected with 401 and audited as `approval_rejected`.
 - `approver` is the identity asserted by the signing system. The proxy records it as `webhook:<source>:<approver>` so it can never be confused with a CLI identity.
 - Response `200 {"id":"…","state":"APPROVED","executed":false}`; execution happens asynchronously and is reported in the audit log. `409` for `invalid_transition`, `404` for an unknown id, `410` for EXPIRED.
 
@@ -116,7 +116,7 @@ When the client advertised `elicitation.form` in `_meta.io.modelcontextprotocol/
   "requestState": "<signed: pending id + expires_at>",
   "inputRequests": {
     "approval": {
-      "message": "NetGuard is holding junos.load_and_commit_config on core-rtr-01 (rule prod-core-needs-approval). Diff sha256:4c1e…b90a, 3 lines. Approve?",
+      "message": "Fathomgate is holding junos.load_and_commit_config on core-rtr-01 (rule prod-core-needs-approval). Diff sha256:4c1e…b90a, 3 lines. Approve?",
       "requestedSchema": {
         "type": "object",
         "properties": {
@@ -132,7 +132,7 @@ When the client advertised `elicitation.form` in `_meta.io.modelcontextprotocol/
 
 - The message always names the proxy as the asker, the server, tool, target, rule id and diff hash, so an upstream server can never impersonate the prompt.
 - On retry with `inputResponses.approval.action = accept` and `approve: true`, the proxy calls `Decide` with the approver set to the session principal and channel `mrtr`. `decline` or `approve: false` denies. `cancel` leaves the record PENDING until it expires.
-- If `approver_must_differ` is set, an in-band approval from the requester's own session is refused with `invalid_transition` and the message tells the agent to ask a second person to run `netguard approve`.
+- If `approver_must_differ` is set, an in-band approval from the requester's own session is refused with `invalid_transition` and the message tells the agent to ask a second person to run `fathomgate approve`.
 - `requestState` is an HMAC-signed blob of `{id, expires_at}`; a tampered or expired state is rejected.
 
 ### 6.4 Legacy clients (2025-11-25) and clients without elicitation
@@ -140,10 +140,10 @@ When the client advertised `elicitation.form` in `_meta.io.modelcontextprotocol/
 The hold returns a tool error (`isError: true`) whose text is:
 
 ```
-Holding: junos.load_and_commit_config on core-rtr-01 needs approval (rule prod-core-needs-approval, pending 01J8Q4V7X2, expires in 15m). A human runs `netguard approve 01J8Q4V7X2`; then call `netguard.check_approval` with the id.
+Holding: junos.load_and_commit_config on core-rtr-01 needs approval (rule prod-core-needs-approval, pending 01J8Q4V7X2, expires in 15m). A human runs `fathomgate approve 01J8Q4V7X2`; then call `fathomgate.check_approval` with the id.
 ```
 
-The proxy exposes a `netguard.check_approval(id)` tool returning `{state, expires_at, executed, result?}`. When the state is EXECUTED the original tool result is returned once, then the record is marked delivered.
+The proxy exposes a `fathomgate.check_approval(id)` tool returning `{state, expires_at, executed, result?}`. When the state is EXECUTED the original tool result is returned once, then the record is marked delivered.
 
 ## 7. Execution and idempotency
 

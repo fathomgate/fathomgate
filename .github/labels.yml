@@ -36,7 +36,7 @@
 - name: "state:dropped"
   color: "5d6b82"
 
-- name: "agent:netguard-orchestrator"
+- name: "agent:orchestrator"
   color: "9c8cff"
 - name: "agent:mcp-protocol-engineer"
   color: "5cb8ff"

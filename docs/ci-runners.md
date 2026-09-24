@@ -9,8 +9,10 @@ The consequence to keep in mind: **CI runs only while that machine is on and WSL
 | Label set | Runner | Jobs |
 | --- | --- | --- |
 | `[self-hosted, Linux, X64, netguard]` | `ng-wsl-1`, `ng-wsl-2`, `ng-wsl-3`: three instances in the WSL `Ubuntu` distro, so three jobs run at once | every job in `ci.yaml` except the Windows one, plus `snapshot.yaml` and `release.yaml` |
-| `[self-hosted, Windows, X64, netguard]` | none registered yet | `ci.yaml` job `windows` (elevated audit DACL tests), which is skipped until the repository variable `NETGUARD_WINDOWS_RUNNER` is `true` |
+| `[self-hosted, Windows, X64, netguard]` | none registered yet | `ci.yaml` job `windows` (elevated audit DACL tests), which is skipped until the repository variable `FATHOMGATE_WINDOWS_RUNNER` is `true` |
 | `[self-hosted, clab]` | none yet (tier 3, M3/M5) | `nightly-clab.yaml` |
+
+The `netguard` label and the `ng-wsl-*` names predate the rename to Fathomgate ([ADR 0019](adr/0019-rename-to-fathomgate.md)). They stay until these runners are removed: a rename pull request's own CI has to find runners by the label it already has, and the runners are machine-local. After the repository moves to `fathomgate/fathomgate`, `gh api repos/fathomgate/fathomgate/actions/runners -q '.runners[]|.name'` must list `ng-wsl-1` to `ng-wsl-3`; if it does not, re-register them as below.
 
 The conformance tests pick a free loopback port on every run, so jobs from different pull requests can share the machine.
 
@@ -21,7 +23,7 @@ The runners use Rancher Desktop's docker CLI, which uses `docker-credential-winc
 The Windows job is the only place the audit key-file DACL, junction and other-owner tests run elevated. Until an elevated Windows runner exists, a pull request that touches `internal/audit` must paste the result of this, run from an **elevated** PowerShell or Git Bash, into its description:
 
 ```sh
-NETGUARD_REQUIRE_PRIVILEGED_TESTS=1 go test -count=1 -v -run 'Windows' ./internal/audit/
+FATHOMGATE_REQUIRE_PRIVILEGED_TESTS=1 go test -count=1 -v -run 'Windows' ./internal/audit/
 ```
 
 Every `TestNewWriterWindows*`, `TestSaveKeyWindowsDACL`, `TestWriterWindowsDACL` and `TestWindowsDanglingSymlinkNotFollowed` subtest must print `--- PASS`, and none may print `--- SKIP` (the list is in `.github/workflows/ci.yaml`, job `windows`).
@@ -33,9 +35,9 @@ An elevated runner would be a GitHub runner service running as an administrator 
 Registration, with the maintainer's `gh` login:
 
 ```sh
-TOKEN=$(gh api -X POST repos/joshscott13/netguard/actions/runners/registration-token -q .token)
+TOKEN=$(gh api -X POST repos/fathomgate/fathomgate/actions/runners/registration-token -q .token)
 # in WSL, for i in 1 2 3: download actions-runner-linux-x64 into ~/actions-runner-$i, then
-./config.sh --unattended --url https://github.com/joshscott13/netguard --token "$TOKEN" \
+./config.sh --unattended --url https://github.com/fathomgate/fathomgate --token "$TOKEN" \
   --name "ng-wsl-$i" --labels netguard,wsl --work _work
 ```
 
@@ -56,10 +58,10 @@ WSL starts when the maintainer logs in and opens any WSL-based tool (Rancher Des
 ## Checking and removing
 
 ```sh
-gh api repos/joshscott13/netguard/actions/runners -q '.runners[]|.name+" "+.status'
+gh api repos/fathomgate/fathomgate/actions/runners -q '.runners[]|.name+" "+.status'
 ```
 
-To remove a runner: in WSL, `cd ~/actions-runner-N && sudo ./svc.sh stop && sudo ./svc.sh uninstall`, then `./config.sh remove --token <a removal token from gh api -X POST repos/joshscott13/netguard/actions/runners/remove-token -q .token>`.
+To remove a runner: in WSL, `cd ~/actions-runner-N && sudo ./svc.sh stop && sudo ./svc.sh uninstall`, then `./config.sh remove --token <a removal token from gh api -X POST repos/fathomgate/fathomgate/actions/runners/remove-token -q .token>`.
 
 ## Security
 

@@ -1,6 +1,6 @@
 # Product requirements
 
-NetGuard is a policy-enforcing MCP proxy that sits between any AI agent and any network-device MCP server. It classifies every tool call by what it does to the network, resolves the target device's role, evaluates a YAML policy, and allows, holds or denies the call. Every result is redacted and audited. This document says who it is for, what it must do, and how success is measured.
+Fathomgate is a policy-enforcing MCP proxy that sits between any AI agent and any network-device MCP server. It classifies every tool call by what it does to the network, resolves the target device's role, evaluates a YAML policy, and allows, holds or denies the call. Every result is redacted and audited. This document says who it is for, what it must do, and how success is measured.
 
 Plan: [PLAN.md](PLAN.md). Architecture: [ARCHITECTURE.md](../ARCHITECTURE.md). Milestones: [ROADMAP.md](../ROADMAP.md).
 
@@ -31,11 +31,11 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 ## 4. Non-goals
 
 - Authentication federation, OAuth, token exchange. A generic gateway or the MCP host does this.
-- OpenTelemetry pipelines. NetGuard emits audit JSONL and exports OCSF and CEF.
-- Being an MCP server for devices. NetGuard never opens SSH; the upstream does.
+- OpenTelemetry pipelines. Fathomgate emits audit JSONL and exports OCSF and CEF.
+- Being an MCP server for devices. Fathomgate never opens SSH; the upstream does.
 - Catalogues, virtual servers, REST-to-MCP conversion.
 - Intent verification or reachability analysis. Batfish is a possible later obligation, not a requirement.
-- Replacing upstream safety features. NetGuard is defence in depth in front of them.
+- Replacing upstream safety features. Fathomgate is defence in depth in front of them.
 
 ## 5. Success metrics
 
@@ -46,7 +46,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Surveyed tools mapped in profiles | 100 percent of the tools in research brief 02 for the first three upstreams; every remaining surveyed tool at least fallback-classified with a test |
 | `reload` through a free-form tool on any first upstream | Denied by rule id, in tier 1 and tier 2 |
 | `show ip bgp summary` through an unfiltered tool | Downgraded to `READ_OPERATIONAL` and allowed |
-| Policy tests | `netguard policy test policies/` green with at least three cases per example policy |
+| Policy tests | `fathomgate policy test policies/` green with at least three cases per example policy |
 | Proxy overhead per call | Under 5 ms at p99 for classify plus evaluate, measured in tier 1 |
 | Install | `mcp.json` with the binary path works in Claude Code and one other client with no ENOENT |
 
@@ -57,7 +57,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Held write on a `core` device | Diff shown, executes once on approval, expires on TTL, refuses on drift, in tier 2 |
 | Unconfirmed NX-OS change | Rolled back by the watchdog at the deadline on a containerlab device, tier 3 |
 | Redaction | Every annotated line in the fixture corpus caught; zero gitleaks findings on sampled tier 2 output |
-| Audit | Any single edited line fails `netguard audit verify` |
+| Audit | Any single edited line fails `fathomgate audit verify` |
 | Console | Shows pending, approved and denied calls live in both themes |
 | Time from `hold` to approver notification | Under 5 seconds via webhook |
 
@@ -76,7 +76,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R7 | Downgrade `EXEC_ARBITRARY` to `READ_OPERATIONAL` only when every command passes allow-list, blocklist and pipe rules | P0 | M1 | [classification](specs/classification.md) |
 | R8 | Reclassify config reads through free-form tools as `READ_CONFIG` | P0 | M1 | [classification](specs/classification.md) |
 | R9 | YAML policy with `Evaluate`; strict first match in file order; implicit deny when no rule matches; obligations | P0 | M1 | [policy-schema](specs/policy-schema.md) |
-| R10 | `netguard policy test` over `*.test.yaml` | P0 | M1 | [policy-schema](specs/policy-schema.md) |
+| R10 | `fathomgate policy test` over `*.test.yaml` | P0 | M1 | [policy-schema](specs/policy-schema.md) |
 | R11 | Denied calls return a tool error naming rule id and reason | P0 | M1 | [ADR 0009](adr/0009-fathom-design-system-policy-layer.md) |
 | R12 | Static inventory file and CSV import; hostname patterns; unknown targets denied for writes and exec | P0 | M1 | [inventory-schema](specs/inventory-schema.md) |
 | R13 | Meta-tool classification through capability tables | P1 | M1 | [profile-schema](specs/profile-schema.md) |
@@ -108,7 +108,7 @@ Carried from [PLAN.md](PLAN.md). Each becomes an ADR when resolved.
 
 | Question | Decides | Needed by |
 | --- | --- | --- |
-| Final name; NetGuard collides with existing products. Decided: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24; rename is T0.49) | Repository name, binary name, prefix conventions | First public commit |
+| Final name; the placeholder NetGuard collided with existing products. Decided: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24; renamed in T0.49) | Repository name, binary name, prefix conventions | First public commit |
 | Which MCP clients the first users run | Whether R21 (MRTR approval) ships in M3 or later | M3 planning |
 | Whether the stale-snapshot window is capped | `sot.stale_max_age` default | M2 |
 | Key custody for audit checkpoints and the redaction HMAC: file, OS keyring, KMS | Startup requirements, docs, threat model | M2 for redaction, M4 for checkpoints |

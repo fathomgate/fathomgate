@@ -1,4 +1,4 @@
-# NetGuard MCP Proxy Plan
+# Fathomgate MCP Proxy Plan
 
 Sep 23, 2026 · Josh Scott
 
@@ -16,7 +16,7 @@ The project is a standalone MCP proxy (stdio and Streamable HTTP on both sides) 
 | Approval | Persisted pending record with TTL; approve via CLI, HMAC webhook, or in-band MRTR elicitation | Copies HCP Terraform's Needs Confirmation state and AWX approval-node timeouts |
 | Audit | JSONL hash chain plus periodically signed checkpoints | CloudTrail digest pattern; OCSF and CEF as exporters, never the native format |
 | First upstreams | netdev-ssh-mcp (read-only reference), then junos-mcp-server and ntunes/netmiko-mcp-server | Covers the read-only, write-with-guardrails, and write-with-no-safety cases |
-| Working name | NetGuard (placeholder; rename before first release). renamed to Fathomgate by [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24) | NetGuard: short, says what it does. Fathomgate: no software product, package or registered mark uses it (searches of 2026-09-24), and it extends the Fathom design system |
+| Name | Fathomgate, binary and module `fathomgate`; it replaced the placeholder NetGuard ([ADR 0019](adr/0019-rename-to-fathomgate.md), accepted 2026-09-24; T0.49) | No software product, package or registered mark uses it (searches of 2026-09-24), and it extends the Fathom design system. A professional trademark clearance search is still recommended before commercial or public use |
 
 What makes it unclaimed: safety features for network MCP servers are being bolted into individual servers one PR at a time (Junos `block.cmd`, OPNsense read-only mode merged 2026-09-19, UniFi read-only mode). No project sits in front of all of them.
 
@@ -70,7 +70,7 @@ All four official SDKs are Tier 1 as of September 2026 and support client and se
 
 What Python is better at (netmiko, napalm, pynetbox gravity; the widest contributor base) applies to the upstream servers and to test tooling, not the proxy core. The hybrid keeps that door open: a Python-only engineer can add a fixture server, a device assertion helper or a policy file without touching Go.
 
-Risks: smaller Go contributor pool for core code (mitigated by keeping policies, redaction patterns and role mappings as data with a `netguard policy test` subcommand); go-sdk is younger than python-sdk (pin minor versions, run the official conformance suite in CI); `gopkg.in/yaml.v3` is unmaintained, so use `go.yaml.in/yaml/v3` or `goccy/go-yaml` from day one. Rust was rejected for solo-author velocity with no needed performance gain; "Python now, Go later" was rejected because security components rarely get rewritten.
+Risks: smaller Go contributor pool for core code (mitigated by keeping policies, redaction patterns and role mappings as data with a `fathomgate policy test` subcommand); go-sdk is younger than python-sdk (pin minor versions, run the official conformance suite in CI); `gopkg.in/yaml.v3` is unmaintained, so use `go.yaml.in/yaml/v3` or `goccy/go-yaml` from day one. Rust was rejected for solo-author velocity with no needed performance gain; "Python now, Go later" was rejected because security components rarely get rewritten.
 
 ## Architecture
 
@@ -78,7 +78,7 @@ The proxy is one process that is an MCP server toward the agent and an MCP clien
 
 ```mermaid
 flowchart LR
-  A[Agent / MCP client] --> P[NetGuard proxy]
+  A[Agent / MCP client] --> P[Fathomgate proxy]
   P --> N[Normalise<br/>target + command]
   N --> C[Classify<br/>command class]
   C --> R[Resolve role<br/>NetBox / Nautobot]
@@ -113,10 +113,10 @@ A source of truth is not a requirement. Role resolution is a lookup from target 
 
 | Order | Provider | Needs | Typical user |
 | --- | --- | --- | --- |
-| 1 | Static `inventory.yaml` (or `netguard inventory import devices.csv`) | Nothing | Most shops; MSP clients; anyone with a spreadsheet |
+| 1 | Static `inventory.yaml` (or `fathomgate inventory import devices.csv`) | Nothing | Most shops; MSP clients; anyone with a spreadsheet |
 | 2 | Hostname patterns in the policy file (`^core-\|^border-` → role `core`; `^lab-` → tag `lab`) | A naming convention | Every network that has one |
 | 3 | The upstream server's own inventory, read through its `INVENTORY_READ` tools at startup (ntunes `devices.yaml` tags, eos-mcp tags, junos `devices.json`) | The server already configured | Anyone already running one of those servers |
-| 4 | NetBox or Nautobot REST, cached with a TTL; `netguard inventory sync` snapshots it into the static file | A source of truth | Shops that have one |
+| 4 | NetBox or Nautobot REST, cached with a TTL; `fathomgate inventory sync` snapshots it into the static file | A source of truth | Shops that have one |
 
 A target no provider resolves is `unknown`. The default policy for unknown targets is deny for `WRITE_CONFIG` and `EXEC_ARBITRARY` and allow for reads; `defaults.unknown_target` in the policy file flips it. When NetBox is configured but unreachable, the proxy uses the last snapshot and marks every decision made from it with `sot: stale` in the audit event, so an outage never silently loosens policy.
 
@@ -154,7 +154,7 @@ rules:
     effect: deny
 ```
 
-Rules evaluate in file order and the first match wins; there is no specificity ranking, so rule order is the author's precedence. Session caps and the unknown-target default apply before the rules, and an implicit `default:no-match` deny closes the list. Matchers stay limited to equality, set membership and numeric ranges; anything richer goes to the optional OPA backend later, which maps its result onto the same `Decision` type. Policies are tested with `netguard policy test`, which reads `*.test.yaml` files of `(request, expected decision)` so contributors never need a Go toolchain.
+Rules evaluate in file order and the first match wins; there is no specificity ranking, so rule order is the author's precedence. Session caps and the unknown-target default apply before the rules, and an implicit `default:no-match` deny closes the list. Matchers stay limited to equality, set membership and numeric ranges; anything richer goes to the optional OPA backend later, which maps its result onto the same `Decision` type. Policies are tested with `fathomgate policy test`, which reads `*.test.yaml` files of `(request, expected decision)` so contributors never need a Go toolchain.
 
 ### Approval hold
 
@@ -169,7 +169,7 @@ stateDiagram-v2
   APPROVED --> FAILED: upstream error
 ```
 
-The pending record (SQLite) is the source of truth: it stores the rendered change, the dry-run output and the diff hash. On approval the proxy re-runs the dry-run and refuses if the diff hash changed. Expiry is terminal. Approve or deny arrives through `netguard approve <id>`, a signed webhook (`POST /approvals/{id}` with HMAC, for Slack buttons or a ticketing system), or an in-band MRTR elicitation for the single-operator case. Approver identity is established server-side, never taken from the agent. Execution is keyed by pending id so a retried `tools/call` never pushes twice. Elicitation prompts from upstreams are re-labelled with their origin before reaching the client, closing the impersonation gap Docker's gateway documents.
+The pending record (SQLite) is the source of truth: it stores the rendered change, the dry-run output and the diff hash. On approval the proxy re-runs the dry-run and refuses if the diff hash changed. Expiry is terminal. Approve or deny arrives through `fathomgate approve <id>`, a signed webhook (`POST /approvals/{id}` with HMAC, for Slack buttons or a ticketing system), or an in-band MRTR elicitation for the single-operator case. Approver identity is established server-side, never taken from the agent. Execution is keyed by pending id so a retried `tools/call` never pushes twice. Elicitation prompts from upstreams are re-labelled with their origin before reaching the client, closing the impersonation gap Docker's gateway documents.
 
 ### Change safety and rollback
 
@@ -192,7 +192,7 @@ An ordered, in-process regex list runs at the response serialiser so no output b
 
 ### Audit log
 
-JSONL, one event per line, canonicalised before hashing, with `seq`, `prev_hash` and `hash` per record and a signed Ed25519 checkpoint every N events or T minutes. `netguard audit verify` replays the chain. Each event carries who (principal, session, client), what (tool, class, argument hash), where (device ids, roles, tags, vendor), policy (version, rule ids, decision, obligations), approval (id, approver, channel), change safety (dry-run result, diff hash, rollback mechanism and deadline), outcome (status, duration, redaction count) and integrity fields. Raw device output stays out of the log and in a separate blob store keyed by hash. OCSF `API Activity` and CEF are exporters.
+JSONL, one event per line, canonicalised before hashing, with `seq`, `prev_hash` and `hash` per record and a signed Ed25519 checkpoint every N events or T minutes. `fathomgate audit verify` replays the chain. Each event carries who (principal, session, client), what (tool, class, argument hash), where (device ids, roles, tags, vendor), policy (version, rule ids, decision, obligations), approval (id, approver, channel), change safety (dry-run result, diff hash, rollback mechanism and deadline), outcome (status, duration, redaction count) and integrity fields. Raw device output stays out of the log and in a separate blob store keyed by hash. OCSF `API Activity` and CEF are exporters.
 
 ## Milestones
 
@@ -201,10 +201,10 @@ Six milestones, each shippable and each validated against at least one real upst
 | Milestone | Scope | Exit criteria | Validated against | Effort |
 | --- | --- | --- | --- | --- |
 | M0 Pass-through | Go proxy that spawns one stdio upstream, forwards `tools/list` and `tools/call`, prefixes tool names, speaks both protocol eras; GoReleaser binary | Official conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task; Claude Code and one other client list and call tools through it | netdev-ssh-mcp | 2 weeks |
-| M1 Classify + allow/deny | Normaliser, per-server profiles, fallback classifier, static inventory and hostname-pattern roles, YAML policy loader, `Evaluate`, `netguard policy test`, structured deny errors | 100 percent of surveyed tools mapped; policy test suite green; `EXEC_ARBITRARY` downgrade works on show commands | netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp `run_command` | 3 weeks |
+| M1 Classify + allow/deny | Normaliser, per-server profiles, fallback classifier, static inventory and hostname-pattern roles, YAML policy loader, `Evaluate`, `fathomgate policy test`, structured deny errors | 100 percent of surveyed tools mapped; policy test suite green; `EXEC_ARBITRARY` downgrade works on show commands | netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp `run_command` | 3 weeks |
 | M2 Role-aware policy + redaction | optional NetBox and Nautobot resolver with cache, snapshot sync and stale marking; upstream-inventory provider; redactor with vendor grammar and keyed HMAC; TOFU description pinning | Redaction catches every pattern in the vendor fixture corpus; same policy resolves roles from a static file, from NetBox, and from a stale snapshot; changed tool description quarantines the server | netdev-ssh-mcp `get_config`, junos-mcp-server `get_junos_config`, netbox-mcp-server | 3 weeks |
 | M3 Dry-run, diff, approval hold | `ChangeSafety` drivers for Junos and EOS; pending queue in SQLite with TTL; CLI approve/deny; HMAC webhook; MRTR elicitation for 2026-era clients; drift guard | A `WRITE_CONFIG` call is held, shows the diff, executes once on approval, expires on TTL, refuses on drift | junos-mcp-server `load_and_commit_config`, eos-mcp `push_config`, ntunes `send_config` | 4 weeks |
-| M4 Audit chain + blast radius | Hash-chained JSONL, signed checkpoints, `netguard audit verify`, OCSF and CEF exporters; session counters, fan-out caps, canary-first rule, maintenance windows | Tampered log fails verify; fleet call above cap denied; canary rule enforces ordering | ntunes `send_config_parallel`, eos-mcp `run_command_batch`, junos `execute_junos_command_batch` | 3 weeks |
+| M4 Audit chain + blast radius | Hash-chained JSONL, signed checkpoints, `fathomgate audit verify`, OCSF and CEF exporters; session counters, fan-out caps, canary-first rule, maintenance windows | Tampered log fails verify; fleet call above cap denied; canary rule enforces ordering | ntunes `send_config_parallel`, eos-mcp `run_command_batch`, junos `execute_junos_command_batch` | 3 weeks |
 | M5 Console + watchdog drivers | Approval console and audit viewer (Fathom policy layer); IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy-owned rollback watchdog; optional OPA backend | Watchdog rolls back an unconfirmed NX-OS change on a containerlab device; console shows pending, approved and denied calls live | Palo-MCP, mcfortigate, netdev-ssh-mcp on IOS-XE and NX-OS | 5 weeks |
 
 After M1 the project is already useful and publishable: a read-only proxy that stops `reload` from reaching a device is a story on its own. Announce at M1, not M5.
@@ -215,7 +215,7 @@ Three tiers. Tier 1 runs on every commit with no network. Tier 2 runs on every p
 
 | Tier | What is real | How it runs | Speed |
 | --- | --- | --- | --- |
-| 1 Policy unit | Nothing; synthetic `tools/call` requests | `go test` table tests plus `netguard policy test` over `*.test.yaml`; go-sdk in-memory transport for the proxy's own MCP surface with a recording fake upstream | Seconds |
+| 1 Policy unit | Nothing; synthetic `tools/call` requests | `go test` table tests plus `fathomgate policy test` over `*.test.yaml`; go-sdk in-memory transport for the proxy's own MCP surface with a recording fake upstream | Seconds |
 | 2 Real server, fake device | The upstream MCP server (its tool schemas, transport, error shapes) | testcontainers-go starts each server image over Streamable HTTP; a fake SSH server (Python asyncssh, in `tests/`) returns canned show output and echoes config lines | Minutes |
 | 3 Real server, real device | Everything | containerlab topology with cEOS (and freely pullable Nokia SR Linux as a second target); Python assertion helpers over scrapli confirm device state | Nightly |
 
@@ -250,7 +250,7 @@ The fixture corpus for redaction lives in `tests/fixtures/configs/` with one san
 
 ## Design system
 
-NetGuard uses Fathom (Midnight Zone dark by default, Chart Room light) plus a policy layer that names the states a guardrail has and a topology tool does not. No new hue, font or spacing step; every policy token aliases a Fathom semantic token. The layer lives in the repo as `design/tokens.css`, `design/policy.css`, `design/DESIGN.md` and `design/preview.html`; the console preview is published as the [NetGuard Console](https://claude.ai/artifact/VpFRDQdCrxp1Bu4LWmMeFM) artifact.
+Fathomgate uses Fathom (Midnight Zone dark by default, Chart Room light) plus a policy layer that names the states a guardrail has and a topology tool does not. No new hue, font or spacing step; every policy token aliases a Fathom semantic token. The layer lives in the repo as `design/tokens.css`, `design/policy.css`, `design/DESIGN.md` and `design/preview.html`; the console preview is published as the [Fathomgate Console](https://claude.ai/artifact/VpFRDQdCrxp1Bu4LWmMeFM) artifact.
 
 | State | Word shown | Token | Fathom source |
 | --- | --- | --- | --- |
@@ -260,15 +260,15 @@ NetGuard uses Fathom (Midnight Zone dark by default, Chart Room light) plus a po
 | expired | Expired | `--decision-expired` | `text-disabled` |
 | redacted (not a decision) | `hmac:3f9a…` dashed token | `--redacted` | `accent` |
 
-Components added, all prefixed `ng-`: decision badge, command-class chip (outline only, so it never competes with the badge), redacted token, diff view, approval card (the one glowing object per screen while pending), TTL bar (fills from the right; turns danger under two minutes), blast-radius meter (four discrete bands, never a gradient), audit timeline (newest first, dot per decision, truncated chain hash) and rule trace (the fired rule marked in `primary`).
+Components added, all prefixed `fg-`: decision badge, command-class chip (outline only, so it never competes with the badge), redacted token, diff view, approval card (the one glowing object per screen while pending), TTL bar (fills from the right; turns danger under two minutes), blast-radius meter (four discrete bands, never a gradient), audit timeline (newest first, dot per decision, truncated chain hash) and rule trace (the fired rule marked in `primary`).
 
-Voice rules NetGuard adds to Fathom's: every denial names its rule; verbs match the state machine everywhere (UI, CLI, audit log, docs) with no synonyms; a rule id is a technical value and is set in mono. The CLI prints decision, class, target, rule and reason in the same order the console shows them, and audit JSONL field names are the console's meta labels lowercased, so a screenshot and a log line describe one event in one vocabulary.
+Voice rules Fathomgate adds to Fathom's: every denial names its rule; verbs match the state machine everywhere (UI, CLI, audit log, docs) with no synonyms; a rule id is a technical value and is set in mono. The CLI prints decision, class, target, rule and reason in the same order the console shows them, and audit JSONL field names are the console's meta labels lowercased, so a screenshot and a log line describe one event in one vocabulary.
 
 ## Repo layout and first week
 
 ```
-netguard/
-  cmd/netguard/            main: serve, policy test, approve, deny, audit verify
+fathomgate/
+  cmd/fathomgate/            main: serve, policy test, approve, deny, audit verify
   internal/proxy/          MCP server (client-facing) + upstream client manager, dual-era
   internal/normalize/      target and command canonicalisation, per-server profiles
   internal/classify/       command-class rules, allow-lists, meta-tool capability tables
@@ -300,7 +300,7 @@ netguard/
 
 ## Open questions and risks
 
-- [x] Name: NetGuard is a placeholder and collides with existing products; pick something searchable before the first public commit. Decided: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24); the rename itself is board task T0.49
+- [x] Name: NetGuard was a placeholder and collided with existing products; pick something searchable before the first public commit. Decided: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (accepted 2026-09-24); the rename landed in board task T0.49
 - [ ] Which MCP clients the first users run decides whether MRTR elicitation approval is in M3 or deferred; CLI and webhook approval ship regardless
 - [ ] Whether the stale-snapshot window for an unreachable source of truth should be capped (deny everything after N hours) or left to the operator
 - [ ] Key custody for audit checkpoints and the redaction HMAC: file, OS keyring or KMS
@@ -330,4 +330,4 @@ Full briefs with every citation are in `docs/research/01` through `04`. Pages op
 - Audit and redaction: [CloudTrail log validation](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html) · [Sigstore Rekor](https://docs.sigstore.dev/logging/overview/) · [OCSF in Security Lake](https://docs.aws.amazon.com/security-lake/latest/userguide/open-cybersecurity-schema-framework.html) · [gitleaks](https://github.com/gitleaks/gitleaks) · [Cisco password types](https://community.cisco.com/t5/networking-knowledge-base/understanding-the-differences-between-the-cisco-password-secret/ta-p/3163238) · [Junos passwords](https://junipertrain.wordpress.com/2016/10/19/junos-passwords-in-configuration/)
 - Rollback: [Junos vs EOS commit patterns](https://chewonice.com/2023/08/23/juniper-commit-confirmed-vs-arista-configure-session/) · [IOS-XE revert timer](https://iosxrjunos.wordpress.com/2025/05/16/how-cisco-ios-ios-xe-implements-juniper-like-commit-and-rollback-behavior/) · [NX-OS rollback](https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus3548/102x/configuration/system-management/cisco-nexus-3548-switch-nx-os-system-management-configuration-guide-102x/m-configuring-rollback.html) · [PAN-OS commit](https://docs.paloaltonetworks.com/ngfw/pan-os-cli-quick-start/use-the-cli/commit-configuration-changes) · [FortiOS revisions](https://community.fortinet.com/fortigate-3/technical-tip-using-the-revision-option-to-revert-to-a-previous-configuration-96374) · [gNMI commit-confirmed](https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-commit-confirmed.md) · [Batfish change validation](https://batfish.readthedocs.io/en/latest/notebooks/linked/introduction-to-forwarding-change-validation.html)
 - Language and distribution: [scrapligo](https://github.com/scrapli/scrapligo) · [go-netbox](https://github.com/netbox-community/go-netbox/releases) · [GoReleaser](https://goreleaser.com/blog/homebrew-gofish/) · [yaml.v3 migration](https://github.com/go-task/task/issues/2171) · [ContextForge SDK v2 migration](https://github.com/IBM/mcp-context-forge/issues/6218) · [agentgateway design post](https://agentgateway.dev/blog/2026-06-04-designing-agentgateway-unified-gateway/) · [containerlab](https://github.com/srl-labs/containerlab)
-- Design: [Fathom design system](https://claude.ai/artifact/EAmcPjFiSHKMwpBX9oj8Gf) · [NetGuard Console preview](https://claude.ai/artifact/VpFRDQdCrxp1Bu4LWmMeFM)
+- Design: [Fathom design system](https://claude.ai/artifact/EAmcPjFiSHKMwpBX9oj8Gf) · [Fathomgate Console preview](https://claude.ai/artifact/VpFRDQdCrxp1Bu4LWmMeFM)

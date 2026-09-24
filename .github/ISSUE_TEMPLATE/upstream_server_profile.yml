@@ -1,5 +1,5 @@
 name: Upstream server profile
-description: Propose a profile for a network-device MCP server NetGuard does not front yet.
+description: Propose a profile for a network-device MCP server Fathomgate does not front yet.
 title: "profile: <server name>"
 labels: [profile, triage]
 body:

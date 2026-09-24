@@ -1,8 +1,8 @@
-/* NetGuard design tokens
+/* Fathomgate design tokens
  * Layer 1: Fathom semantic tokens (Midnight Zone dark / Chart Room light), copied
- *          verbatim from the Fathom design system so NetGuard renders identically
+ *          verbatim from the Fathom design system so Fathomgate renders identically
  *          to TopoForge, ACI Ops Console and Network Change Intelligence.
- * Layer 2: NetGuard policy tokens — decision states, diff, blast radius, redaction.
+ * Layer 2: Fathomgate policy tokens — decision states, diff, blast radius, redaction.
  *          Every policy token aliases a Fathom semantic token; none introduces a new hue.
  *
  * Dark-first: tools default to Midnight Zone. Set data-theme="light" for Chart Room.
@@ -80,7 +80,7 @@
   --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
   --radius-xl: 16px; --radius-full: 9999px;
 
-  /* ---- NetGuard policy tokens (Layer 2) ----
+  /* ---- Fathomgate policy tokens (Layer 2) ----
    * A decision is one of: allow, hold, deny, expired. Redacted is a token state,
    * not a decision. Each pair is a foreground + soft ground; text on soft ground
    * uses --text, the coloured value is for the dot, the word and the stripe only.

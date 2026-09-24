@@ -43,11 +43,11 @@ Implement the three obligations a `policy.Decision` can carry, in that order: `d
 
 ### 4. Resolver chain in `internal/inventory`
 
-Implement the `Resolver` interface and the chain: (1) static `inventory.yaml` and `netguard inventory import devices.csv`; (2) hostname patterns declared in the policy file (`^core-|^border-` → role `core`; `^lab-` → tag `lab`); (3) the upstream server's own inventory read at startup through its `INVENTORY_READ` tools (ntunes `list_devices` with tags, eos-mcp `get_router_list`, junos `get_router_list`, upa `get_network_device_list`); (4) NetBox and Nautobot REST with TTL cache, `netguard inventory sync` snapshot, and `sot: stale` marking when unreachable. First hit wins; unresolved is `unknown`. Every resolution result carries `source` and `stale` so `internal/audit` can log where a role came from.
+Implement the `Resolver` interface and the chain: (1) static `inventory.yaml` and `fathomgate inventory import devices.csv`; (2) hostname patterns declared in the policy file (`^core-|^border-` → role `core`; `^lab-` → tag `lab`); (3) the upstream server's own inventory read at startup through its `INVENTORY_READ` tools (ntunes `list_devices` with tags, eos-mcp `get_router_list`, junos `get_router_list`, upa `get_network_device_list`); (4) NetBox and Nautobot REST with TTL cache, `fathomgate inventory sync` snapshot, and `sot: stale` marking when unreachable. First hit wins; unresolved is `unknown`. Every resolution result carries `source` and `stale` so `internal/audit` can log where a role came from.
 
 ### 5. Blast-radius primitives for M4
 
-Provide the counters the fleet cap, session caps and canary-first rule need: devices touched this session, pending holds this session, fan-out in this call (after `internal/normalize` expands `@group`, `tags` and comma-separated lists). Expose them as the four discrete bands the console's `ng-blast` meter shows (within policy, approaching cap, at cap and held, over cap and denied), never as a percentage. Canary-first: on a multi-target `WRITE_CONFIG`, the second device is refused until the first is `EXECUTED` and confirmed.
+Provide the counters the fleet cap, session caps and canary-first rule need: devices touched this session, pending holds this session, fan-out in this call (after `internal/normalize` expands `@group`, `tags` and comma-separated lists). Expose them as the four discrete bands the console's `fg-blast` meter shows (within policy, approaching cap, at cap and held, over cap and denied), never as a percentage. Canary-first: on a multi-target `WRITE_CONFIG`, the second device is refused until the first is `EXECUTED` and confirmed.
 
 ## Critical Rules You Must Follow
 
@@ -66,8 +66,8 @@ Provide the counters the fleet cap, session caps and canary-first rule need: dev
 2. Write the driver's command transcript as a table test fixture first: the exact strings sent and the canned device replies, in `internal/safety/<vendor>/testdata/`. Reuse the fake asyncssh device in `tests/` for tier 2 by adding the same transcript there.
 3. Implement the driver. `go test ./internal/safety/... -race` and `golangci-lint run ./internal/safety/...`.
 4. Run the watchdog test with a compressed clock (injected `clock.Clock`, never `time.Sleep` in tests): apply, do not confirm, assert `Abort()` sequence issued once and the audit event written; restart the store mid-deadline and assert the deadline is recovered.
-5. Run the obligation sequence end to end with `netguard policy eval --policy policies/examples/lab-open.yaml --tool eos.push_config --arg hostname=lab-sw-01 --arg config_lines='["interface Ethernet1","description ng-test"]'` and confirm `allow WRITE_CONFIG lab-sw-01 lab-writes-free` with obligations `dry_run, diff`, then trace that `Prepare()` runs before `Apply()` in the debug log.
-6. For inventory: `netguard inventory import tests/fixtures/inventory/devices.csv`, then `netguard inventory resolve core-rtr-01` must print `{role: core, site: ..., tags: [...], source: static, stale: false}`; stop the NetBox container in tier 2 and confirm the same resolve prints `source: netbox, stale: true` and a `WRITE_CONFIG` is still `hold`, not `allow`.
+5. Run the obligation sequence end to end with `fathomgate policy eval --policy policies/examples/lab-open.yaml --tool eos.push_config --arg hostname=lab-sw-01 --arg config_lines='["interface Ethernet1","description fg-test"]'` and confirm `allow WRITE_CONFIG lab-sw-01 lab-writes-free` with obligations `dry_run, diff`, then trace that `Prepare()` runs before `Apply()` in the debug log.
+6. For inventory: `fathomgate inventory import tests/fixtures/inventory/devices.csv`, then `fathomgate inventory resolve core-rtr-01` must print `{role: core, site: ..., tags: [...], source: static, stale: false}`; stop the NetBox container in tier 2 and confirm the same resolve prints `source: netbox, stale: true` and a `WRITE_CONFIG` is still `hold`, not `allow`.
 7. Hand the tier-3 cases to Test Engineer with the containerlab topology they need (`tests/clab/eos-two-node.clab.yml`) and the exact assertion (`show configuration sessions` empty after timer; NX-OS `show checkpoint summary` restored).
 8. Open the PR with the transcripts, the watchdog test output, the resolver output, the test-matrix rows exercised (Device tagged `lab`, config write; Device role `core`, config write; Diff drift; Timed rollback fires; Watchdog rollback; Fan-out above cap; Canary-first ordering), and the spec updated in the same PR.
 
@@ -75,7 +75,7 @@ Provide the counters the fleet cap, session caps and canary-first rule need: dev
 
 | Direction | Agent | Artifact that crosses |
 | --- | --- | --- |
-| Receives from | NetGuard Orchestrator | Task brief; accepted ADR for the `ChangeSafety` interface, resolver interface, or pending-record schema |
+| Receives from | Orchestrator | Task brief; accepted ADR for the `ChangeSafety` interface, resolver interface, or pending-record schema |
 | Receives from | Upstream Server Scout | Which upstream tools expose native dry-run, commit timer, confirm and abort (so the driver can prefer them) |
 | Receives from | Policy Engineer | The obligation set a `Decision` can carry and the `approval.ttl` semantics |
 | Hands to | MCP Protocol Engineer | The driver interface it sequences before forwarding a `WRITE_CONFIG` |

@@ -7,8 +7,8 @@ Policy path: `$ARGUMENTS` (required; a `.yaml` policy file. If a directory is gi
 Steps:
 
 1. Confirm the file parses and the schema is valid: `make policy-lint POLICY=<path>` (falls back to `uv run tools/policy-lint/policy_lint.py <path>` if the Make target is absent). Report each schema finding as `line — field — problem — fix`, using the schema names from `docs/specs/policy-schema.md`: `version`, `defaults.unknown_target`, `defaults.session.max_devices`, `defaults.session.max_pending`, `rules[].id`, `match.class`, `match.device_roles`, `match.device_tags`, `match.tools`, `when.targets_count`, `effect`, `reason`, `obligations`, `approval.ttl`, `approval.approver_must_differ`.
-2. Run the test suite: `make policy-test POLICY=<path>` (wraps `netguard policy test <path>`), which evaluates every `(request, expected decision)` case in the sibling `*.test.yaml` files. If no `*.test.yaml` exists beside the policy, say so and stop: a policy without tests is not checkable.
-3. For every failing case, run `netguard policy eval --policy <path> --request <case>` (or reconstruct the case with `--tool`, `--arg`, `--role`, `--tag`, `--targets-count`) with `--trace` to get the rule trace, and explain in this exact shape:
+2. Run the test suite: `make policy-test POLICY=<path>` (wraps `fathomgate policy test <path>`), which evaluates every `(request, expected decision)` case in the sibling `*.test.yaml` files. If no `*.test.yaml` exists beside the policy, say so and stop: a policy without tests is not checkable.
+3. For every failing case, run `fathomgate policy eval --policy <path> --request <case>` (or reconstruct the case with `--tool`, `--arg`, `--role`, `--tag`, `--targets-count`) with `--trace` to get the rule trace, and explain in this exact shape:
    - Case name and the request (tool, class, target, roles, tags, targets count).
    - Expected: `<effect> <class> <target> <rule-id>` with obligations.
    - Got: the same shape from the trace.

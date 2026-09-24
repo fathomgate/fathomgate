@@ -1,6 +1,6 @@
 # Governance
 
-NetGuard is maintained by a single maintainer today and is designed to grow to a small maintainer group. Decisions that are expensive to reverse are made through architecture decision records. Releases are cut when a milestone's exit criteria pass, not on a calendar.
+Fathomgate is maintained by a single maintainer today and is designed to grow to a small maintainer group. Decisions that are expensive to reverse are made through architecture decision records. Releases are cut when a milestone's exit criteria pass, not on a calendar.
 
 ## Roles
 

@@ -1,6 +1,6 @@
 # Policy schema
 
-Normative specification for the NetGuard policy file and its test format. A policy is one YAML document evaluated by a pure function `Evaluate(policy, request) -> Decision`. Rules evaluate in order and the first match wins; there is no ranking by specificity. A request that matches no rule is denied. The words MUST, SHOULD and MAY are used as in RFC 2119.
+Normative specification for the Fathomgate policy file and its test format. A policy is one YAML document evaluated by a pure function `Evaluate(policy, request) -> Decision`. Rules evaluate in order and the first match wins; there is no ranking by specificity. A request that matches no rule is denied. The words MUST, SHOULD and MAY are used as in RFC 2119.
 
 This document describes what `internal/policy` (`types.go`, `load.go`, `evaluate.go`, `testfile.go`) implements. Where a feature is planned but not parsed, it is marked as such. Decision record: [ADR 0003](../adr/0003-yaml-policy-dsl-with-obligations.md).
 
@@ -165,7 +165,7 @@ The request `Evaluate` receives, after normalisation, classification and role re
 
 ## 7. Test file format
 
-Files named `*.test.yaml` are read by `netguard policy test <file>...`. The Python `policy_lint` checks shape only; behaviour is asserted here.
+Files named `*.test.yaml` are read by `fathomgate policy test <file>...`. The Python `policy_lint` checks shape only; behaviour is asserted here.
 
 ```yaml
 policy: prod-approval.yaml        # relative to this file's directory, or absolute
@@ -240,4 +240,4 @@ Planned, not yet implemented: reload on SIGHUP with the previous policy kept on 
 | `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices with `dry_run` and `diff`; everything else read-only. | 5 |
 | `policies/examples/prod-approval.yaml` | The example in section 1. | 15 |
 
-Run them all with `make policy-test` or `netguard policy test policies/examples/*.test.yaml`.
+Run them all with `make policy-test` or `fathomgate policy test policies/examples/*.test.yaml`.
