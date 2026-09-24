@@ -290,10 +290,10 @@ tasks:
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
     state: open
-    blocked_by: [T0.27, T0.30, T0.38, T0.40]
+    blocked_by: [T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44]
     adr: "0016"
     matrix: [23]
-    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself.'
+    notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/netguard''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself.'
   - id: T0.32
     title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
     package: tests/conformance
@@ -346,7 +346,7 @@ tasks:
     matrix: []
     notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR. Folded into T0.38. Merged with T0.38 in PR #72.'
   - id: T0.38
-    title: Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)
+    title: 'Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)'
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
@@ -360,17 +360,59 @@ tasks:
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: in progress
+    adr: "0018"
     matrix: [2]
-    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. Needs an ADR first (it changes the negotiation in ADR 0008). Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed.'
+    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. ADR 0018 accepted by the maintainer 2026-09-24 (PR #74), so code may open. It bounds the first Connect at 5 s, retries only on deadline exceeded, kills and respawns the upstream, and reconnects with ClientSessionOptions.ProtocolVersion 2025-11-25 so go-sdk goes straight to initialize, with one warn line and no CLI flag in M0. ADR 0018 supersedes nothing; it amends ADR 0008 and ADR 0012 by dated cross-reference. It also forces the Upstream shape in ADR 0012''s API list to change, because restarting needs something that builds a transport more than once and an mcp.CommandTransport holds one exec.Cmd: the owning task picks the shape and records it in ADR 0012 and profile-schema 8.3 when the code lands. Update profile-schema 8.3 and 8.4 in the same PR. Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed, and matrix row 2 loses its T0.39 caveat (T0.41).'
   - id: T0.40
-    title: Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text)
+    title: 'Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text)'
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     adr: "0016"
     matrix: [23]
-    notes: 'J1 (medium) a stateful prompt sent after its call finished normally (background job, or result-before-prompt dispatch race in go-sdk) still reaches another session''s human: track every ended call per session, not only cancelled ones. J2 register liveSession when a session-less POST''s response carries Mcp-Session-Id; go-sdk backstop timer longer than netguard''s. J3 separate shorter orphan TTL (default 5 min, orchestrator recommendation pending maintainer confirmation), Info log naming the blocking principal, threat-model row accepted. J5 key orphans by a netguard-assigned session id, not the pointer. J6 ADR 0016 principal text amendment. K2 prune orphans in end(); K3 comment on real-time idle clock; K4 single MCPGODEBUG refusal text. J4 (shutdown grace) stays in T0.31. Held for re-review. Blocks T0.30 and T0.31.'
+    notes: 'J1 (medium) a stateful prompt sent after its call finished normally (background job, or result-before-prompt dispatch race in go-sdk) still reaches another session''s human: track every ended call per session, not only cancelled ones. J2 register liveSession when a session-less POST''s response carries Mcp-Session-Id; go-sdk backstop timer longer than netguard''s. J3 separate shorter orphan TTL (default 5 min, orchestrator recommendation pending maintainer confirmation), Info log naming the blocking principal, threat-model row accepted. J5 key orphans by a netguard-assigned session id, not the pointer. J6 ADR 0016 principal text amendment. K2 prune orphans in end(); K3 comment on real-time idle clock; K4 single MCPGODEBUG refusal text. J4 (shutdown grace) stays in T0.31. Merged in PR #75 2026-09-24, before its security review: post-merge security review pending (handoff 2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.40). ADR 0016 gains three amendment rows: J6 principal text, HTTPOptions.OrphanTTL default 5 min, and proxy.ErrMCPGODEBUG. Orchestrator ruling 2026-09-24: that export-surface growth stays an in-place amendment of ADR 0016, which owns the surface, not a new record, because 0016''s decision (one exported entry point; limits as constants, not flags) is unchanged and its own 2026-09-23 row set the precedent with MaxSessionsPerPrincipal; the K4 row now says the one-export framing reads as one entry point plus its options type, its path constant and one sentinel error. The 5-minute orphan TTL is still the orchestrator recommendation, not a maintainer decision. No longer blocks T0.30 and T0.31.'
+  - id: T0.41
+    title: Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG
+    package: docs/testing
+    owner: test-engineer
+    reviewers: [docs-writer]
+    state: open
+    matrix: [2]
+    notes: 'Found by docs-writer while writing ADR 0018. Row 2 says three different things: its Status cell reads passing, its own prose ends "so the row stays open", and the CHANGELOG entry for T0.34 says row 2 stays planned. The legend at test-matrix.md line 3 allows only planned, passing and skipped, so "open" is not a status word at all. This matters because M0 exit criterion 3 is ticked as met and cites row 2. Orchestrator reading, to confirm or overturn rather than to apply blind: the tick is sound, because the criterion names the 2025-11-25 and 2026-07-28 eras and the failing case is a 2024-11-05 lockfile, which is neither and is tracked as T0.39; on that reading the cell stays passing and the prose should say the 2024-11-05 case falls outside the criterion instead of saying the row is open. Pick one word, make the cell, the prose and the CHANGELOG agree, and do not invent a fourth status. Row 2 loses its T0.39 caveat when T0.39 lands, so sequence this after T0.39 or write it to survive that.'
+  - id: T0.42
+    title: Put the ADR 0014 refusal in the note slot, not the refused slot, so an upstream error is never replaced (S3)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    adr: "0014"
+    matrix: [2, 23]
+    notes: 'S3, medium, from the post-merge security review of T0.40. internal/proxy/input.go:597-600 calls p.refuse(u, s, ...) with a non-nil call, which sets s.refused; proxy.go:623-627 then substitutes that text for the upstream''s own error. The branch fires exactly when the prompt was NOT attributable to that call, so an unattributable refusal lands in the slot reserved for the call''s own prompt, while the sibling note slot exists precisely to append rather than replace. A hostile upstream can trigger it at will on any stateless-era call and so speak in netguard''s voice about why the call failed; from M1 the agent and the M4 audit line then record a reason netguard invented for a call that may be WRITE_CONFIG. Nothing leaks: the text names only u.name, s.tool and a static sentence, so invariant 7 holds. The residual is existence-and-timing (the agent learns a prompt happened on that upstream around then) and should be stated rather than left implicit. Reviewer''s fix is one line, p.refuse(u, nil, ...); era_pairs is unaffected because it reads the upstream-facing refusal, which does not change. SECURITY.md:73 currently promises the refusal is never put in place of an upstream error or result, and is false as merged: fix the code or amend that line in the same PR. The ADR 0014 ordering itself stands (accepted in T0.40); only the slot is wrong. Must land before T0.31; does not block T0.30.'
+  - id: T0.43
+    title: Key the local stdio agent session explicitly so a built HTTP listener cannot push it into the shared orphan bucket (S1)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2, 23]
+    notes: 'S1, medium, from the post-merge security review of T0.40. Proxy.agentSessionKey (internal/proxy/input.go:69-79) decides the key from whether the proxy has a listener rather than from what the session is: a stdio session has no id, so once p.limits is non-nil it keys the empty string, end() routes it to u.orphanOverflow, and attribute() treats that entry as foreign to every call including the stdio agent''s own. After its first tool call ends, no stateful upstream prompt reaches anyone on that upstream for OrphanTTL, renewed indefinitely by the agent''s own traffic. This contradicts profile-schema 8.4 line 289 (on stdio one agent session owns the process, so its own orphan never blocks a prompt that could otherwise be relayed) and the comment at input.go:63-64. Latent today: HTTPHandler and checkListenEnvironment have no non-test caller, so p.limits is always nil in the shipped binary. It goes live with T0.31, which serves both transports from the one p.server. Reviewer''s options: record the local agent''s ServerSession at Run time and key it localAgentKey, or make --listen and stdio mutually exclusive in code and say so in 8.4. The former also settles the one-stdio-session-per-process assumption. Must land before T0.31; does not block T0.30.'
+  - id: T0.44
+    title: Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [23]
+    notes: 'S2 (medium) and S4 (low) from the post-merge security review of T0.40. S2: every session-id-less request shares one u.orphanOverflow entry, so one authenticated principal can hold every other principal''s stateful prompts in refusal at one stateless request per OrphanTTL (each 2026-era request gets a per-request go-sdk session with an empty id), or by opening 1024 sequential stateful sessions to overflow the table. MaxSessionsPerPrincipal bounds neither: the sessions are sequential and orphans outlive them. It fails closed, so no prompt reaches the wrong human and nothing leaks, which is why it is medium and not high; the cost is availability across principals, and from M3 a refused prompt is the shape an approval or a credential request takes. Reviewer''s suggested direction, maintainer''s to choose: give each per-request stateless session a distinct synthetic key so its orphan becomes a prunable, loggable table entry instead of a global switch. That does not fix the 1024-entry overflow, which needs the overflow entry to be something other than refuse-everyone. S4: the shared entry is never pruned (pruneOrphans walks only u.orphans), never logged, and carries no principal, so three assurances are false for the case that will dominate: profile-schema lines 289 and 321, and threat-model line 38 (so a refused prompt can be explained from the log), which is the operator''s stated recourse. The committed test at internal/proxy/http_review_test.go:405 asserts orphanOverflow.IsZero() after pruning, pinning the absence of overflow rather than its reaping, so the gap is locked in and that test must change with the fix. Also rewrite the accepted residual at threat-model line 38: up to OrphanTTL is a per-event bound presented as a steady-state one, it omits the shared entry, and it names a recourse that does not exist; the reviewer supplied replacement wording. Fix the doc part now, the code part with S2. Must land before T0.31; does not block T0.30.'
+  - id: T0.45
+    title: Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer]
+    state: open
+    matrix: []
+    notes: 'Notes from the post-merge security review of T0.40, neither a vulnerability. S5: the comment at internal/proxy/input.go:66-68 says an unauthenticated call would be keyed as its own session rather than grouped with the local agent''s. The empty key is not its own session, it is the shared bucket, foreign to everyone including itself, which is strictly more blocking and the opposite of the bullet list eight lines above. Wording only, but it is what a future author will trust when touching this. S7: settleSession (http.go:602) runs in a defer after the stateful handler has already flushed Mcp-Session-Id, so an agent that POSTs again immediately finds h.live[sid] nil, skips ls.startPOST(), and arm() starts the idle timer with active zero; a call from that POST can then be cancelled at SessionTimeout while it is in progress. Pre-existing: J2 widened which sessions get registered, in the safe direction, and did not create the window. No cross-session effect. Record it in 8.5 or fix it, but do not leave it unwritten. Neither blocks T0.30 nor T0.31.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

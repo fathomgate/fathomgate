@@ -1,8 +1,8 @@
 # ADR 0018: Bound go-sdk's `server/discover` probe, then restart the upstream and connect with `initialize` only
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-24
-- Deciders: Josh Scott (maintainer; decided 2026-09-23, option A); proposed by docs-writer for T0.39; reviewers mcp-protocol-engineer, security-reviewer, go-reviewer
+- Deciders: Josh Scott (maintainer; decided 2026-09-23, option A; accepted 2026-09-24); proposed by docs-writer for T0.39; reviewers mcp-protocol-engineer, security-reviewer, go-reviewer
 
 ## Context
 
