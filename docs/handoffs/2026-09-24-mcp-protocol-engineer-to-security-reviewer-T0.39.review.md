@@ -26,6 +26,25 @@
 - **Tests.** A rejected-answer case in `TestDiscoverProbe`. `TestConnectFailureKillsUpstream` asserts 1 build, `unsupported protocol version`, no warn line and no status. A `listerror` case asserts no status. `TestStartupBudgetBoundsRestart` asserts a 2 s budget returns within 3 s. Against the old `proxy.go` these failed: 2 processes and `exit status 1`; `exit status 0`; 7.0 s.
 - **Docs.** ADR 0018 has two amendment rows. Profile-schema 8.3 and 8.4 are corrected to match. `docs/install.md` gets "Point `--upstream` at the server, not at a launcher", with a README summary. The threat model has an open S2 row.
 
+## Fix round (re-reviews of PR #79, both approved)
+
+1. **Hang-up means end of stream only** (Go should-fix, security N2). `trackedConn.Read` counts only `io.EOF` or `io.ErrUnexpectedEOF`. The new `garbage` fake prints a line that is not JSON-RPC and exits 0 once stdin closes. `TestStartupExitStatus/garbage` expects no status; on the previous code it reported `exit status 0`. A failed write still counts, because on a pipe it means the upstream's stdin is gone. Spec 8.3 now says this.
+2. **No restart once startup has ended** (L2). After `first.kill(0)` and the warn line, `connect` returns if ctx is done and never calls `NewTransport`. `TestNoRestartAfterStartupEnds` has a logger cancel ctx at the warn line; on the previous code it built a second transport.
+3. `Command.Transport` sets `TerminateDuration: terminateDuration` (5 s) explicitly. A comment explains why `exitGrace` (2 s) must stay shorter.
+4. **N3.** The `tracksConn` comment names go-sdk v1.8.0's client-side assertions and why the wrapper hides none:
+   - `clientConnection` at client.go:331/400: ioConn does not have it.
+   - `hasSessionID` at client.go:554: promoted through the embedded `Connection`.
+   - `cancellationPropagator` at transport.go:221: ioConn does not have it.
+
+   CONTRIBUTING.md, "Bumping go-sdk", gains the `grep -n 'mcpConn.(' mcp/*.go` step. The optional batch behaviour test was not added.
+5. The `discoverExpired` godoc says it is shared by every upstream in one `New` and is test-only.
+6. **L1.** Spec 8.3, ADR 0018's second amendment row and the S2 threat-model row say startup can overrun the budget by up to `WaitDelay` (2 s) when a launcher's grandchild holds stderr, and that killing the tree removes this.
+7. ADR 0018's first amendment row says the exact rule applies to the transports `tracksConn` wraps (command, stdio, IO, in-memory).
+8. Godoc rewrapped at `proxy.go` (the `connect` and `trackedTransport` comments) and in `doc.go`. The `NewTransport` godoc and `doc.go` now say "within 5 seconds of starting the first connect, spawn included".
+9. **Windows venv, verified locally.** `Scripts\python.exe` is a redirector: `sys.executable` reports the venv path, and it runs the base `python.exe` as a child process. I killed only the parent with `TerminateProcess`, as Go's `Process.Kill` does. The child died with it, for both a `python -m venv` venv and a `uv venv` venv (Python 3.13.15, Windows 11). `docs/install.md` gives the Windows path and records the check.
+
+**For the orchestrator (N6):** after an initialize-only connect, the upstream's era label can be wrong. An upstream that answers `2026-07-28` to the 2025-11-25 `initialize` is logged as `era=stateless`, but its go-sdk session is stateful. Today only logs are affected. In M1 it becomes an audit-accuracy issue, because the audit line records the upstream era. It needs a task. N1 above is the same finding.
+
 ## Look at this first
 
 - `connectAttempt`, `trackedConn.Close`, `failed`, `endedOnItsOwn` and `tracksConn` in `internal/proxy/proxy.go`. The wrapper applies only to `CommandTransport`, `InMemoryTransport`, `IOTransport` and `StdioTransport`, because it would hide go-sdk's unexported `clientConnection` on Streamable HTTP connections. For an unwrapped transport an expired bound always counts as unanswered, and no status is reported.

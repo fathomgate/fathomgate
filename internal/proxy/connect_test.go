@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -357,6 +358,48 @@ func TestDiscoverProbe(t *testing.T) {
 	}
 }
 
+// cancelOnHandler is a slog.Handler that calls cancel when a record's
+// message contains match.
+type cancelOnHandler struct {
+	slog.Handler
+	match  string
+	cancel context.CancelFunc
+}
+
+func (h cancelOnHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h cancelOnHandler) Handle(ctx context.Context, r slog.Record) error {
+	if strings.Contains(r.Message, h.match) {
+		h.cancel()
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+// TestNoRestartAfterStartupEnds (L2 in the re-review of PR #79): startup
+// that ends (Ctrl-C) after the first process was stopped for an unanswered
+// probe never spawns a second upstream. The context is cancelled as the
+// restart warning is logged, which is after the kill and before
+// NewTransport; the rebuildable transport fails the test on a second
+// build.
+func TestNoRestartAfterStartupEnds(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	e := newProbeExpiry()
+	r := newRebuildable(t, silentThen(e))
+	logger := slog.New(cancelOnHandler{Handler: slog.DiscardHandler, match: restartWarning, cancel: cancel})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: r.build}}, Options{Logger: logger, discoverExpired: e.ch})
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded after its startup context ended")
+	}
+	if got := r.builds(); got != 1 {
+		t.Errorf("transports built: %d, want 1", got)
+	}
+	if !strings.Contains(err.Error(), "startup ended before the restart") || !errors.Is(err, context.Canceled) {
+		t.Errorf("error %q", err)
+	}
+}
+
 // commandBuilds is a NewTransport over a Command that keeps every
 // transport it built.
 type commandBuilds struct {
@@ -447,10 +490,15 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 func TestStartupExitStatus(t *testing.T) {
 	cases := []struct {
 		mode, phase, status string // status "": none may be reported
+		text                string // with no status, the error must carry this
 	}{
-		{"die", "connect", "exit status 3"},
-		{"dielist", "tools/list", "exit status 4"},
-		{"listerror", "tools/list", ""},
+		{"die", "connect", "exit status 3", ""},
+		{"dielist", "tools/list", "exit status 4", ""},
+		{"listerror", "tools/list", "", "FAKE tools/list failure"},
+		// A line that is not JSON-RPC is a read error, not end of stream:
+		// the upstream is still there, go-sdk closes the connection, and the
+		// exit 0 that follows is netguard's doing (N2).
+		{"garbage", "connect", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -474,7 +522,7 @@ func TestStartupExitStatus(t *testing.T) {
 				t.Errorf("error %q does not name the phase %s", msg, tc.phase)
 			}
 			if tc.status == "" {
-				if strings.Contains(msg, "upstream process ended") || !strings.Contains(msg, "FAKE tools/list failure") {
+				if strings.Contains(msg, "upstream process ended") || !strings.Contains(msg, tc.text) {
 					t.Errorf("error %q: want the upstream's error and no exit status", msg)
 				}
 				return

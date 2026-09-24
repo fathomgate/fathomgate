@@ -258,7 +258,8 @@ status 1`. The upstream's own last stderr line, just above, usually says why.
 
 Give `--upstream` the program that is the MCP server: the server's own
 binary, or for a Python server the interpreter inside its virtual
-environment (`/path/to/venv/bin/python`, with the script after `--`). Avoid
+environment, with the script after `--`: `/path/to/venv/bin/python` on
+macOS and Linux, `C:\path\to\venv\Scripts\python.exe` on Windows. Avoid
 launchers that start the server as a child of their own: `uvx`, `npx`,
 `uv run`, a shell script, `docker run -i`. Two reasons:
 
@@ -276,6 +277,14 @@ launchers that start the server as a child of their own: `uvx`, `npx`,
   `--upstream-env-pass`, next to the copy netguard starts for the restart.
   This is an open issue in [the threat model](security/threat-model.md).
   Pointing `--upstream` at the server itself avoids it.
+
+On Windows a virtual environment's `Scripts\python.exe` is itself a small
+redirector: it starts the base interpreter as a child process. That child
+does not outlive it. Checked on 2026-09-24 with Python 3.13.15, for a venv
+made by `python -m venv` and one made by `uv venv`: when the redirector was
+terminated the way netguard kills an upstream (`TerminateProcess` on the
+parent only), the child ended with it. So on Windows the venv's
+`Scripts\python.exe` is safe to use as `--upstream`.
 
 ## Check it works
 

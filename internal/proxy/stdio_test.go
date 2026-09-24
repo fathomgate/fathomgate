@@ -26,8 +26,9 @@ import (
 // peer that answers the initialise request with a protocol version go-sdk
 // rejects, and then never exits on its own. "nodiscover" stops reading at
 // server/discover (ADR 0018) and "silent" answers nothing at all; "die"
-// exits 3 at once, "dielist" exits 4 on tools/list, and "listerror"
-// answers tools/list with an error (T0.25).
+// exits 3 at once, "dielist" exits 4 on tools/list, "listerror" answers
+// tools/list with an error, and "garbage" prints a line that is not
+// JSON-RPC (T0.25).
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
@@ -58,6 +59,12 @@ func TestMain(m *testing.M) {
 	case "listerror":
 		runListErrorUpstream()
 		return
+	case "garbage":
+		// One line that is not JSON-RPC, then a clean exit once stdin
+		// closes.
+		fmt.Println("this is not JSON-RPC")
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
 	case "die":
 		fmt.Fprintln(os.Stderr, "fake upstream: FAKE startup failure")
 		os.Exit(3)

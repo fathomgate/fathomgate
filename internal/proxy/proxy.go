@@ -58,7 +58,8 @@ type Upstream struct {
 	// NewTransport returns a new transport to the upstream each time it is
 	// called; for a stdio upstream that is a new process. [New] calls it
 	// once, and a second time only when the upstream did not connect within
-	// 5 seconds of the server/discover probe and is restarted (ADR 0018).
+	// 5 seconds of starting the first connect, spawn included, and is
+	// restarted (ADR 0018).
 	// `netguard serve` passes a function returning [Command.Transport]. A
 	// function that returns the same transport each time (an in-memory
 	// transport in tests) works only as long as that restart never happens:
@@ -80,7 +81,9 @@ type Options struct {
 	// only, so they can expire the bound at a known point instead of racing
 	// a short timer against a child's start: it is unexported, so no caller
 	// outside the package can set it, and M0 has no flag or profile field
-	// for the bound (ADR 0018). Log and error text still say 5s.
+	// for the bound (ADR 0018). It is shared by every upstream in the call
+	// to New: once closed, each later first connect starts expired. Log and
+	// error text still say 5s.
 	discoverExpired <-chan struct{}
 }
 
@@ -285,9 +288,10 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 //
 // The first is go-sdk's own negotiation, bounded by expired (closed after
 // discoverProbeTimeout). Only an unanswered probe leads to the second
-// attempt: the bound ran out while ctx was still live, and go-sdk had not begun closing the connection before it
-// did (it closes when it has an answer it rejects, such as an unsupported
-// protocol version, and that close can outlast the bound). Then the first
+// attempt: the bound ran out while ctx was still live, and go-sdk had not
+// begun closing the connection before it did (it closes when it has an
+// answer it rejects, such as an unsupported protocol version, and that
+// close can outlast the bound). Then the first
 // upstream process is killed and reaped, one warn line is logged, and a new
 // transport (a new process) is connected with the initialise handshake only.
 // The restart is not optional: an upstream that did not answer the probe
@@ -311,6 +315,14 @@ func (p *Proxy) connect(ctx context.Context, client *mcp.Client, u Upstream, fir
 	first.kill(0)
 	p.logger.Warn(fmt.Sprintf("upstream %s did not answer server/discover within %s; restarting it and connecting with %s (protocol %s)",
 		u.Server, bound, initOnly, restartProtocolVersion), "server", u.Server)
+	if err := ctx.Err(); err != nil {
+		// Startup ended (Ctrl-C, SIGTERM, the budget) while the first
+		// process was being stopped: never spawn a second upstream, with
+		// its credentials, for a start that has already failed (L2 in the
+		// re-review of PR #79).
+		return nil, nil, fmt.Errorf("proxy: upstream %s: connect: server/discover got no answer within %s, and startup ended before the restart: %w",
+			u.Server, bound, err)
+	}
 	t := u.NewTransport()
 	if t == nil {
 		return nil, nil, fmt.Errorf("proxy: server %q: NewTransport returned no transport for the restart", u.Server)
@@ -406,8 +418,9 @@ func withExit(err error, exit string) error {
 // For the transports whose connection is go-sdk's plain newline-delimited
 // connection (tracksConn) it also wraps the connection, to learn who ended
 // it: whether a close was requested, when it finished and whether a kill
-// came first, and whether the upstream hung up (a read or write failed)
-// before netguard or go-sdk asked for a close or a kill. Other transports (Streamable HTTP) are not
+// came first, and whether the upstream hung up (its stdout reached end of
+// stream, or a write to its stdin failed) before netguard or go-sdk asked
+// for a close or a kill. Other transports (Streamable HTTP) are not
 // wrapped, because go-sdk finds optional methods on their connections by
 // type assertion, which a wrapper would hide; for them no close is ever
 // seen, so an expired bound always counts as unanswered and no exit status
@@ -429,8 +442,28 @@ type trackedTransport struct {
 }
 
 // tracksConn reports whether t's connections are go-sdk's plain
-// newline-delimited connection, which has no client-side optional methods,
-// so wrapping it hides nothing from go-sdk.
+// newline-delimited connection (*mcp.ioConn), so that wrapping them hides
+// nothing from go-sdk.
+//
+// go-sdk v1.8.0 makes these type assertions on a client session's
+// connection (grep -n 'mcpConn.(' mcp/*.go):
+//
+//   - client.go:331 and :400, clientConnection (the unexported
+//     sessionUpdated(clientSessionState)): only the Streamable HTTP client
+//     connection has it. ioConn's sessionUpdated takes ServerSessionState,
+//     which is the server side's serverConnection, so the assertion fails
+//     on ioConn with or without the wrapper.
+//   - client.go:554, hasSessionID (SessionID() string): part of the
+//     exported Connection interface, so the embedded Connection promotes it
+//     through the wrapper.
+//   - transport.go:221, cancellationPropagator (the unexported
+//     propagateCancellation() bool): ioConn does not have it, so the
+//     assertion fails with or without the wrapper.
+//
+// An unexported method is never promoted through the embedded interface,
+// which is why every other transport stays unwrapped. On a go-sdk bump,
+// re-run the grep and re-check each assertion against ioConn
+// (CONTRIBUTING.md, "Bumping go-sdk").
 func tracksConn(t mcp.Transport) bool {
 	switch t.(type) {
 	case *mcp.CommandTransport, *mcp.InMemoryTransport, *mcp.IOTransport, *mcp.StdioTransport:
@@ -515,15 +548,23 @@ type trackedConn struct {
 }
 
 // Read implements [mcp.Connection].
+//
+// Only end of stream counts as a hang-up. Any other read error (a line
+// that is not JSON-RPC, say) comes from an upstream that is still there:
+// go-sdk then closes the connection, and the upstream's exit on the closed
+// stdin is not its own (N2 in the re-review of PR #79).
 func (c trackedConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 	m, err := c.Connection.Read(ctx)
-	if err != nil && ctx.Err() == nil {
+	if err != nil && ctx.Err() == nil && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		c.t.failed()
 	}
 	return m, err
 }
 
-// Write implements [mcp.Connection].
+// Write implements [mcp.Connection]. A write to a newline-delimited
+// connection fails, with ctx live, only when the pipe to the upstream's
+// stdin is gone, so any such failure is a hang-up: go-sdk may write to an
+// upstream that has already exited before it reads the end of its stdout.
 func (c trackedConn) Write(ctx context.Context, m jsonrpc.Message) error {
 	err := c.Connection.Write(ctx, m)
 	if err != nil && ctx.Err() == nil {
