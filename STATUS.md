@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 4 · blocked 6 · in review 1 · merged 22
+Tasks: open 2 · blocked 5 · in progress 1 · merged 25
 
 ## In flight
 
@@ -32,12 +32,12 @@ Tasks: open 4 · blocked 6 · in review 1 · merged 22
 | T0.20 | Evaluate installing golangci-lint via go run so the checksum database verifies it | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | merged | — | — | — |
 | T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | blocked | T0.4 | — | — |
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | merged | — | — | — |
-| T0.23 | Keep device passwords off the netguard command line (upstream secrets from a file or the environment) | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 22 | — |
+| T0.23 | Keep device passwords off the netguard command line (upstream secrets from a file or the environment) | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 22 | — |
 | T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | — |
 | T0.25 | Report the upstream's exit status when it dies at startup, not only EOF | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | — | 22 | — |
-| T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | in review | — | 22 | — |
-| T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | merged | — | 22 | — |
+| T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
 | T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
 | T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.27 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
@@ -47,7 +47,7 @@ Tasks: open 4 · blocked 6 · in review 1 · merged 22
 ## Exit criteria
 
 - [x] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task — met 2026-09-23 (T0.4 PR
-- [ ] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
+- [x] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp — met 2026-09-23 (Claude Code 2.1.236 and Claude Desktop 2.7032.0 called show version through netguard in front of netdev-ssh-mcp v1.6.6, by the maintainer; client-smoke CI green; matrix rows 1 and 22 passing)
 - [ ] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
 - [ ] GoReleaser produces linux/darwin/windows binaries on a tag
 
