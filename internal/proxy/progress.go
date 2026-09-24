@@ -33,9 +33,12 @@ const (
 	// An upstream that floods progress cannot flood the agent's transport.
 	progressBurst = 10
 	progressRate  = 5.0
-	// maxExactInt is the largest integer a float64 holds exactly; a numeric
-	// progressToken above it would not round-trip, so it is not used.
-	maxExactInt = 1 << 53
+	// maxExactInt is 2^53-1 (JavaScript's Number.MAX_SAFE_INTEGER): the
+	// largest magnitude below which every integer has its own float64. A
+	// larger numeric progressToken may have been rounded on the way in
+	// (9007199254740993 arrives as 2^53) and would be echoed back as a token
+	// the agent never sent, so it is not used.
+	maxExactInt = 1<<53 - 1
 )
 
 // progressRelay is one call's progress mapping: the token netguard gave the
@@ -150,7 +153,7 @@ func progressMessage(server, msg string) string {
 
 // agentProgressToken returns the agent's progressToken if it is one netguard
 // can return exactly: a string, or an integer (JSON numbers arrive as
-// float64) no larger in magnitude than 2^53. Anything else, including no
+// float64) no larger in magnitude than 2^53-1. Anything else, including no
 // token, is nil, and the call asks the upstream for no progress.
 func agentProgressToken(req *mcp.CallToolRequest) any {
 	if req == nil || req.Params == nil {

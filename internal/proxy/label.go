@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -71,9 +72,11 @@ var blankFillers = map[rune]bool{
 	0x2800: true, // braille pattern blank
 }
 
-// foldLabel returns s with invisible and blank characters removed,
-// lower-cased, and with fullwidth and look-alike characters mapped to ASCII.
+// foldLabel returns s with escape sequences decoded (decodeEscapes),
+// invisible and blank characters removed, lower-cased, and with fullwidth
+// and look-alike characters mapped to ASCII.
 func foldLabel(s string) string {
+	s = decodeEscapes(s)
 	var b strings.Builder
 	for _, r := range s {
 		if unicode.IsSpace(r) || unicode.In(r, unicode.Cf, unicode.Mn, unicode.Me) || blankFillers[r] {
@@ -95,4 +98,58 @@ func foldLabel(s string) string {
 // "[from" after foldLabel.
 func hasOriginLabel(s string) bool {
 	return strings.Contains(foldLabel(s), "[from")
+}
+
+// backslash starts an escape sequence (ASCII 92).
+const backslash = 92
+
+// maxEscapePasses bounds decodeEscapes. Each pass that changes the string
+// shortens it, so the loop ends anyway; the bound keeps it cheap.
+const maxEscapePasses = 8
+
+// decodeEscapes decodes the escape sequences a reader might render: a
+// backslash followed by u and four hex digits, U and eight, or x and two.
+// It repeats until nothing changes, so a nested encoding (an escaped
+// backslash followed by u005b) still unwraps to "[". It is used only to
+// decide whether text reads as an origin label, never for output:
+// escapeControl doubles every backslash, so upstream text cannot pass for
+// netguard's own escapes. A sequence that is not valid hex, or decodes past
+// U+10FFFF, is left as it is. A sequence after an escaped backslash is
+// decoded all the same: refusing more is the safe side.
+func decodeEscapes(s string) string {
+	for range maxEscapePasses {
+		if strings.IndexByte(s, backslash) < 0 {
+			return s
+		}
+		var b strings.Builder
+		changed := false
+		for i := 0; i < len(s); {
+			if s[i] == backslash && i+1 < len(s) {
+				n := 0
+				switch s[i+1] {
+				case 'u':
+					n = 4
+				case 'U':
+					n = 8
+				case 'x':
+					n = 2
+				}
+				if n > 0 && i+2+n <= len(s) {
+					if v, err := strconv.ParseUint(s[i+2:i+2+n], 16, 32); err == nil && v <= unicode.MaxRune {
+						b.WriteRune(rune(v))
+						i += 2 + n
+						changed = true
+						continue
+					}
+				}
+			}
+			b.WriteByte(s[i])
+			i++
+		}
+		s = b.String()
+		if !changed {
+			return s
+		}
+	}
+	return s
 }

@@ -87,6 +87,7 @@ func TestRelabelSchema(t *testing.T) {
 		{"too many properties", obj(manyProps), errSchemaTooMany, ""},
 		{"too many enum values", obj(map[string]any{"e": map[string]any{"type": "string", "enum": manyEnum}}), errSchemaEnum, ""},
 		{"enum value needing escape", obj(map[string]any{"e": map[string]any{"type": "string", "enum": []any{"a\x1b"}}}), errSchemaEnum, ""},
+		{"enum value with a backslash", obj(map[string]any{"e": map[string]any{"type": "string", "enum": []any{"a" + bs + "u000ab"}}}), errSchemaEnum, ""},
 		{"enum value not primitive", obj(map[string]any{"e": map[string]any{"type": "string", "enum": []any{map[string]any{}}}}), errSchemaEnum, ""},
 		{"oneOf without const", obj(map[string]any{"e": map[string]any{"type": "string", "oneOf": []any{map[string]any{"title": "x"}}}}), errSchemaOneOf, ""},
 		{"array without enum items", obj(map[string]any{"a": map[string]any{"type": "array", "items": str}}), errSchemaItems, ""},

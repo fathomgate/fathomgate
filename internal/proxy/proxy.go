@@ -444,14 +444,34 @@ type call struct {
 // never forwarded.
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req)}
-		if req.Params != nil {
-			c.arguments = req.Params.Arguments
-			c.inputResponses = req.Params.InputResponses
-			c.requestState = req.Params.RequestState
+		c, ignored := newCall(r, req)
+		if ignored > 0 {
+			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
 		}
 		return p.dispatch(ctx, c)
 	}
+}
+
+// newCall is what dispatch sees of one agent tools/call. inputResponses
+// that arrive without a requestState answer prompts netguard never relayed
+// (T0.18): they are cleared here, before dispatch, so no later stage (M1's
+// pipeline and audit included) can read or act on them as answers
+// (invariant 6: nothing the agent supplies stands in for a human). The call
+// then goes up as a first call and an upstream that needs input asks again.
+// It returns how many answers it cleared.
+func newCall(r route, req *mcp.CallToolRequest) (call, int) {
+	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req)}
+	ignored := 0
+	if req.Params != nil {
+		c.arguments = req.Params.Arguments
+		c.requestState = req.Params.RequestState
+		if c.requestState != "" {
+			c.inputResponses = req.Params.InputResponses
+		} else {
+			ignored = len(req.Params.InputResponses)
+		}
+	}
+	return c, ignored
 }
 
 // dispatch is the seam where the M1 pipeline plugs in. From M1 it runs
@@ -486,19 +506,15 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		params.Arguments = c.arguments
 	}
 	round, prompts := 0, 0
-	switch {
-	case c.requestState != "":
+	// Only a retry with netguard's requestState carries answers; newCall
+	// has already cleared any sent without one (T0.18).
+	if c.requestState != "" {
 		rs, err := p.resume(c)
 		if err != nil {
 			return nil, err
 		}
 		params.InputResponses, params.RequestState = rs.responses, rs.upState
 		round, prompts = rs.round, rs.prompts
-	case len(c.inputResponses) > 0:
-		// Answers to prompts netguard never relayed (T0.18). They are
-		// ignored, never forwarded, and the call goes up as a first call,
-		// so an upstream that needs input asks again (SEP-2322).
-		p.logger.Debug("ignoring inputResponses sent without a requestState", "server", up.name, "tool", c.tool, "responses", len(c.inputResponses))
 	}
 	if up.exited() {
 		return upstreamDown(up), nil
