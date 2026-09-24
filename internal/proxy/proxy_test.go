@@ -378,14 +378,14 @@ func TestRelayUpstreamError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := tc.in
 			in.Data = json.RawMessage(`{"secret":"FAKE"}`)
-			got := relayUpstreamError("s", &in)
+			got := relayUpstreamError("s", &in, nil)
 			if got.Code != tc.wantCode || got.Message != tc.wantMsg || got.Data != nil {
 				t.Fatalf("got {%d %q %s}, want {%d %q <nil>}", got.Code, got.Message, got.Data, tc.wantCode, tc.wantMsg)
 			}
 		})
 	}
 	// An escape sequence is never cut in half by the cap.
-	msg := relayUpstreamError("s", &jsonrpc.Error{Code: -32603, Message: strings.Repeat("\x1b", 200)}).Message
+	msg := relayUpstreamError("s", &jsonrpc.Error{Code: -32603, Message: strings.Repeat("\x1b", 200)}, nil).Message
 	if body := strings.TrimSuffix(strings.TrimPrefix(msg, "upstream s: "), "..."); len(body) > maxRelayedMessage || len(body)%6 != 0 {
 		t.Fatalf("escaped body cut badly: %d bytes", len(body))
 	}

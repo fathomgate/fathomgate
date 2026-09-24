@@ -83,6 +83,7 @@ type route struct {
 type upstream struct {
 	name      string
 	transport mcp.Transport // to flush a Command's stderr on Close
+	red       *Redactor     // a Command's Secrets, scrubbed from relayed errors
 	session   *mcp.ClientSession
 	// version is the protocol version negotiated with the upstream, and so
 	// its era (eraOf): go-sdk tries server/discover first and falls back to
@@ -180,7 +181,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 // initialise handshake (stateful, 2025-11-25 and older) if the upstream does
 // not know server/discover.
 func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u Upstream) (*upstream, error) {
-	up := &upstream{name: u.Server, transport: u.Transport, done: make(chan struct{})}
+	up := &upstream{name: u.Server, transport: u.Transport, red: redactorOf(u.Transport), done: make(chan struct{})}
 	client := mcp.NewClient(impl, &mcp.ClientOptions{
 		Logger: slog.New(minLevel{p.logger.Handler(), slog.LevelWarn}),
 		// Form elicitation only (the handler makes go-sdk advertise it): no
@@ -261,6 +262,19 @@ func (t *trackedTransport) kill() {
 		_ = c.Close()
 	}
 	flushStderr(t.Transport)
+}
+
+// redactorOf returns the Redactor for a Command's Secrets, or nil for any
+// other transport or a Command without secrets.
+func redactorOf(t mcp.Transport) *Redactor {
+	ct, ok := t.(*mcp.CommandTransport)
+	if !ok || ct.Command == nil {
+		return nil
+	}
+	if lw, ok := ct.Command.Stderr.(*lineWriter); ok {
+		return lw.red
+	}
+	return nil
 }
 
 // flushStderr writes out a partial final stderr line held by a Command's
@@ -659,13 +673,14 @@ func (p *Proxy) callFailed(ctx context.Context, c call, err error) (*mcp.CallToo
 	}
 	var werr *jsonrpc.Error
 	if errors.As(err, &werr) {
-		return nil, relayUpstreamError(up.name, werr)
+		return nil, relayUpstreamError(up.name, werr, up.red)
 	}
 	if errors.Is(err, mcp.ErrConnectionClosed) || errors.Is(err, io.EOF) || awaitExit(ctx, up, exitGrace) {
 		return upstreamDown(up), nil
 	}
-	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", err)
-	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
+	msg := up.red.Redact(err.Error())
+	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", msg)
+	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(msg, maxRelayedMessage))), nil
 }
 
 // passResult is the agent-facing copy of an upstream's final result:
