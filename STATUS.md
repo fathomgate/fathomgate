@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 2 · blocked 5 · in progress 1 · merged 25
+Tasks: open 5 · blocked 5 · in progress 1 · merged 26
 
 ## In flight
 
@@ -28,7 +28,7 @@ Tasks: open 2 · blocked 5 · in progress 1 · merged 25
 | T0.16 | Update the ADR 0011 module table for golang.org/x/sys as a direct dependency | `docs/adr` | docs-writer | go-reviewer | merged | T0.12 | — | — |
 | T0.17 | Relay upstream progress notifications to the agent with a proxy-issued progress token | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | merged | T0.4 | 2 | — |
 | T0.18 | Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.4 | 2 | — |
-| T0.19 | Conformance coverage for a 2025-11-25 upstream behind netguard | `tests/conformance` | test-engineer | go-reviewer | open | T0.4 | 2 | — |
+| T0.19 | Conformance coverage for a 2025-11-25 upstream behind netguard | `tests/conformance` | test-engineer | go-reviewer | merged | T0.4 | 2 | — |
 | T0.20 | Evaluate installing golangci-lint via go run so the checksum database verifies it | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | merged | — | — | — |
 | T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | blocked | T0.4 | — | — |
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | merged | — | — | — |
@@ -43,6 +43,10 @@ Tasks: open 2 · blocked 5 · in progress 1 · merged 25
 | T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.34 | Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2 | `tests/integration` | test-engineer | mcp-protocol-engineer, go-reviewer | open | — | 2 | — |
+| T0.35 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| T0.36 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
+| T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | open | — | — | — |
 
 ## Exit criteria
 
