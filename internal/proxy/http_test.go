@@ -158,6 +158,7 @@ type httpSetup struct {
 
 type httpHarness struct {
 	proxy *Proxy
+	hh    *httpHandler // the chain HTTPHandler returned, for its own state
 	srv   *httptest.Server
 	url   string
 	lst   *gateListener
@@ -195,7 +196,7 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 		_ = p.Close()
 		t.Fatal(err)
 	}
-	h := &httpHarness{proxy: p, rec: rec, raw: &http.Client{Transport: &http.Transport{}}}
+	h := &httpHarness{proxy: p, hh: hd.(*httpHandler), rec: rec, raw: &http.Client{Transport: &http.Transport{}}}
 	counted := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			h.gets.Add(1)
@@ -1155,8 +1156,8 @@ func TestHTTPOptions(t *testing.T) {
 	t.Run("MCPGODEBUG", func(t *testing.T) {
 		t.Setenv("MCPGODEBUG", "")
 		h := newHarness(t, nil)
-		if _, err := h.proxy.HTTPHandler(HTTPOptions{Tokens: map[string][]byte{"a": long}}); !errors.Is(err, errMCPGODEBUG) {
-			t.Fatalf("error %v, want errMCPGODEBUG", err)
+		if _, err := h.proxy.HTTPHandler(HTTPOptions{Tokens: map[string][]byte{"a": long}}); !errors.Is(err, ErrMCPGODEBUG) {
+			t.Fatalf("error %v, want ErrMCPGODEBUG", err)
 		}
 	})
 }
@@ -1174,6 +1175,7 @@ func TestHTTPOptionsResolved(t *testing.T) {
 		"MaxCallsPerSession":      defaultMaxCallsPerSession,
 		"MaxCallsPerPrincipal":    defaultMaxCallsPerPrincipal,
 		"SessionTimeout":          int64(defaultSessionTimeout),
+		"OrphanTTL":               int64(defaultOrphanTTL),
 		"WriteTimeout":            int64(defaultWriteTimeout),
 		"BodyReadTimeout":         int64(defaultBodyReadTimeout),
 	}

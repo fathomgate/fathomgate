@@ -23,7 +23,7 @@ func TestCheckListenEnvironment(t *testing.T) {
 	if err := checkListenEnvironment(env(false)); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkListenEnvironment(env(true)); !errors.Is(err, errMCPGODEBUG) || !strings.Contains(err.Error(), "MCPGODEBUG") {
+	if err := checkListenEnvironment(env(true)); !errors.Is(err, proxy.ErrMCPGODEBUG) || !strings.Contains(err.Error(), "MCPGODEBUG") {
 		t.Fatalf("error %v", err)
 	}
 }
