@@ -3,7 +3,7 @@
 - **Task:** T0.41 — Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG
 - **From → To:** test-engineer → docs-writer
 - **State now:** in review (the board still says `open`; this PR does not edit `docs/milestones/M0.yaml`)
-- **Branch / PR:** `docs/matrix-row-2-status` · PR link in the PR description (opened with this note)
+- **Branch / PR:** `docs/matrix-row-2-status` · [PR #81](https://github.com/joshscott13/netguard/pull/81)
 - **Date:** 2026-09-24
 
 ## Done
