@@ -49,6 +49,14 @@ Translation rules:
 | 2025 era only | Cannot use MRTR; will be deprecated. |
 | Separate adapter binaries per era | Two installs, two configs; the translation belongs in one place. |
 
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-24 | Pointer: [ADR 0018](0018-bound-server-discover-then-initialize-only.md) extends the `server/discover` fallback in this record's first translation rule to the case where the probe is not answered at all, and makes the second attempt a new session on a new upstream process | ADR 0018 (T0.39) changes one clause of this record, not the whole of it: an upstream that answers nothing after the probe hung `netguard serve` until its 30-second startup limit. This record stays `accepted`; the dual-era decision and every other translation rule stand |
+
 ## References
 
 - [Research brief 01, section 1](../research/01-mcp-proxy-prior-art.md)
