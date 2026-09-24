@@ -23,7 +23,7 @@ permissions:
 jobs:
   go:
     name: go build / vet / test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -58,7 +58,7 @@ jobs:
   # library only.
   conformance:
     name: mcp-conformance
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -96,7 +96,7 @@ jobs:
   # version here, in tests/integration/conftest.py and in the matrix together.
   client-smoke:
     name: tier2 client smoke (netdev-ssh-mcp)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -143,7 +143,7 @@ jobs:
   # missing install into a failure, so it cannot go green by skipping.
   tier2-upa:
     name: tier2 upa/mcp-netmiko-server (2025 era)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -179,7 +179,13 @@ jobs:
   # Linux `go` job covers the race detector.
   windows:
     name: go vet / test (windows, elevated)
-    runs-on: windows-latest
+    # No hosted minutes are left on this private repo, and no elevated
+    # Windows runner is registered yet (docs/ci-runners.md). Until one is and
+    # the repository variable NETGUARD_WINDOWS_RUNNER is "true", this job is
+    # skipped and a change to internal/audit must carry a local elevated run
+    # of the step below in its PR description.
+    if: vars.NETGUARD_WINDOWS_RUNNER == 'true'
+    runs-on: [self-hosted, Windows, X64, netguard]
     permissions:
       contents: read
     defaults:
@@ -246,7 +252,7 @@ jobs:
 
   lint:
     name: golangci-lint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -270,7 +276,7 @@ jobs:
 
   vuln:
     name: govulncheck
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -288,7 +294,7 @@ jobs:
 
   actionlint:
     name: actionlint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -297,15 +303,16 @@ jobs:
           cache: true
       # `make actionlint` runs github.com/rhysd/actionlint at the version pinned
       # in the Makefile (ACTIONLINT_VERSION) via `go run pkg@version`, with
-      # .github/actionlint.yaml for the self-hosted `clab` label. shellcheck is
-      # preinstalled on ubuntu-latest, so `run:` scripts are checked too. A
-      # broken workflow file fails its pull request instead of main (T0.9).
+      # .github/actionlint.yaml for the self-hosted runner labels. shellcheck
+      # is installed on the WSL runners (docs/ci-runners.md), so `run:` scripts
+      # are checked too. A broken workflow file fails its pull request instead
+      # of main (T0.9).
       - name: actionlint .github/workflows
         run: make actionlint
 
   python:
     name: policy-lint smoke
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -322,12 +329,11 @@ jobs:
 
   status:
     name: STATUS.md is current
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, netguard]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-      - run: pip install pyyaml
+      # uv, not setup-python: actions/python-versions has no build for the
+      # runner's Ubuntu release, and uv brings its own interpreter.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: board and STATUS.md agree
-        run: python3 tools/status/render.py --check
+        run: uv run --no-project --python 3.12 --with pyyaml python tools/status/render.py --check
