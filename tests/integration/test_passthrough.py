@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from .conftest import REPO, SERVER, FakeDevice, serve_args
+from .conftest import REPO, SERVER, FakeDevice, client_env, serve_args
 
 pytestmark = [pytest.mark.tier2, pytest.mark.netdev_ssh_mcp]
 
@@ -126,7 +126,7 @@ async def _get_running_config(params: dict, port: int):
 @pytest.fixture
 def no_obfuscate_params(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
     """netguard serve with the upstream's own secret hashing switched off."""
-    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate")}
+    return {"command": str(netguard_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate"), "env": client_env()}
 
 
 @pytest.mark.asyncio

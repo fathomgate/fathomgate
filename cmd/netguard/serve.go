@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -27,29 +29,54 @@ const startupTimeout = 30 * time.Second
 // enforced when M0 forwards every call.
 var reservedServeFlags = []string{"policy", "inventory", "profiles", "audit"}
 
-const serveUsage = "Usage: netguard serve --server <name> --upstream <path> [--upstream-env K=V]... [-- <upstream args>...]"
+const serveUsage = "Usage: netguard serve --server <name> --upstream <path> [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- <upstream args>...]"
+
+// envNamePattern is the rule for upstream environment variable names, as
+// printed in errors.
+const envNamePattern = "[A-Za-z_][A-Za-z0-9_]*"
 
 // serveConfig is the parsed `netguard serve` command line.
+//
+// upstreamEnv and secrets hold values read from netguard's environment:
+// never format a serveConfig into an error or a log line.
 type serveConfig struct {
 	server       string
 	upstream     string
 	upstreamArgs []string
-	upstreamEnv  []string
+	// upstreamEnv is the --upstream-env-pass entries (NAME=value, the value
+	// read from netguard's environment) followed by the --upstream-env
+	// entries, so the child environment is the allow-list, then these.
+	upstreamEnv []string
+	// passNames are the --upstream-env-pass names, deduplicated, in order.
+	passNames []string
+	// secrets are the --upstream-env-pass values. They are scrubbed from the
+	// upstream's stderr and from everything netguard writes to stderr.
+	secrets []proxy.Secret
 }
+
+// lookupEnvFunc reads a variable from netguard's own environment
+// (os.LookupEnv outside tests).
+type lookupEnvFunc func(name string) (string, bool)
 
 // parseServe parses the serve flags. Upstream arguments are accepted only
 // after "--": the flag package stops at the first positional argument, so
 // without that rule `--upstream x extra --policy p.yaml` would slip a
 // reserved flag past the check. Leftover arguments are scanned for reserved
 // flag names whether or not "--" came first.
-func parseServe(args []string, usageOut io.Writer) (serveConfig, error) {
+//
+// Values for --upstream-env-pass are read with lookup. goos decides how
+// variable names compare: ASCII case-insensitively on Windows, exactly
+// elsewhere. No error parseServe returns contains an environment value:
+// only names, and for an argument that may be a value, its position.
+func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos string) (serveConfig, error) {
 	var cfg serveConfig
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(usageOut)
 	fs.StringVar(&cfg.server, "server", "", "tool prefix `name` for the upstream: the server key of its profile in profiles/ (required)")
 	fs.StringVar(&cfg.upstream, "upstream", "", "upstream MCP server executable `path`, spawned over stdio (required); its arguments follow --")
-	var env stringList
-	fs.Var(&env, "upstream-env", "`KEY=VALUE` added to the upstream's environment (repeatable)")
+	var env, pass stringList
+	fs.Var(&env, "upstream-env", "`KEY=VALUE` added to the upstream's environment, for non-secrets: the value is on netguard's command line (repeatable)")
+	fs.Var(&pass, "upstream-env-pass", "variable `NAME` copied from netguard's own environment to the upstream's, for secrets: no value on the command line (repeatable)")
 	for _, name := range reservedServeFlags {
 		fs.String(name, "", "not enforced in M0; refused until the pipeline is wired (M1)")
 	}
@@ -90,15 +117,84 @@ func parseServe(args []string, usageOut io.Writer) (serveConfig, error) {
 	if err := proxy.ValidateServerName(cfg.server); err != nil {
 		return cfg, fmt.Errorf("--server: %w", err)
 	}
-	for _, kv := range env {
+
+	// --upstream-env: an argument may carry a secret, so an error names the
+	// key only, and an argument without "=" (which may be the value
+	// itself) only by its position.
+	envKeys := make([]string, 0, len(env))
+	for i, kv := range env {
 		k, _, ok := strings.Cut(kv, "=")
-		if !ok || !validEnvName(k) {
-			return cfg, fmt.Errorf("--upstream-env %q is not KEY=VALUE with KEY matching [A-Za-z_][A-Za-z0-9_]*", kv)
+		if !ok {
+			return cfg, fmt.Errorf("--upstream-env argument %d is not KEY=VALUE", i+1)
+		}
+		if !validEnvName(k) {
+			return cfg, fmt.Errorf("--upstream-env %q: key must match %s", k, envNamePattern)
+		}
+		if isNetguardEnvName(k, goos) {
+			return cfg, fmt.Errorf("--upstream-env %s: NETGUARD_* variables are netguard's own settings and are never passed to an upstream", k)
+		}
+		envKeys = append(envKeys, k)
+	}
+
+	// --upstream-env-pass: a name, never a value. An argument that is not
+	// a valid name may be a value typed by mistake, so it is named by its
+	// position only.
+	for i, name := range pass {
+		if strings.Contains(name, "=") {
+			return cfg, fmt.Errorf("--upstream-env-pass argument %d is not a variable name; it takes NAME only and reads the value from netguard's environment", i+1)
+		}
+		if !validEnvName(name) {
+			return cfg, fmt.Errorf("--upstream-env-pass argument %d: name must match %s", i+1, envNamePattern)
+		}
+		if isNetguardEnvName(name, goos) {
+			return cfg, fmt.Errorf("--upstream-env-pass %s: NETGUARD_* variables are netguard's own settings and are never passed to an upstream", name)
+		}
+		if !slices.ContainsFunc(cfg.passNames, func(n string) bool { return sameEnvName(n, name, goos) }) {
+			cfg.passNames = append(cfg.passNames, name)
 		}
 	}
+	for _, name := range cfg.passNames {
+		for _, k := range envKeys {
+			if sameEnvName(name, k, goos) {
+				return cfg, fmt.Errorf("%s is given with both --upstream-env and --upstream-env-pass; use one", name)
+			}
+		}
+	}
+
+	// Read the values last, once every argument is known to be valid, and
+	// before anything is spawned. An empty value counts as unset.
+	upstreamEnv := make([]string, 0, len(cfg.passNames)+len(env))
+	for _, name := range cfg.passNames {
+		v, ok := lookup(name)
+		if !ok {
+			return cfg, fmt.Errorf("--upstream-env-pass %s: not set in netguard's environment", name)
+		}
+		if v == "" {
+			return cfg, fmt.Errorf("--upstream-env-pass %s: set but empty in netguard's environment", name)
+		}
+		upstreamEnv = append(upstreamEnv, name+"="+v)
+		cfg.secrets = append(cfg.secrets, proxy.Secret{Name: name, Value: v})
+	}
+	upstreamEnv = append(upstreamEnv, env...)
+	cfg.upstreamEnv = upstreamEnv
 	cfg.upstreamArgs = rest
-	cfg.upstreamEnv = env
 	return cfg, nil
+}
+
+// isNetguardEnvName reports whether k starts with NETGUARD_, ASCII
+// case-insensitively on Windows, where environment names are.
+func isNetguardEnvName(k, goos string) bool {
+	const p = "NETGUARD_"
+	return len(k) >= len(p) && sameEnvName(k[:len(p)], p, goos)
+}
+
+// sameEnvName compares two variable names already checked by validEnvName
+// (so ASCII only): case-insensitively on Windows, exactly elsewhere.
+func sameEnvName(a, b, goos string) bool {
+	if goos == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // validEnvName reports whether k matches [A-Za-z_][A-Za-z0-9_]*.
@@ -138,15 +234,26 @@ func isReservedServeFlag(name string) bool {
 // cmdServe runs the proxy: an MCP server on stdio toward the agent and an
 // MCP client toward one upstream spawned over stdio.
 func cmdServe(args []string) int {
-	cfg, err := parseServe(args, os.Stderr)
+	return serve(args, os.Stderr, os.LookupEnv)
+}
+
+// serve is cmdServe with its stderr and environment lookup injected.
+// Everything it writes to stderr (errors, the slog log, relayed upstream
+// stderr) goes through a redactingWriter, so no --upstream-env-pass value
+// reaches it, even inside an upstream's own error message.
+func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
+	out := &redactingWriter{w: stderr}
+	cfg, err := parseServe(args, out, lookup, runtime.GOOS)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
-		return fail(fmt.Errorf("serve: %w", err))
+		_, _ = fmt.Fprintf(out, "netguard: serve: %v\n", err)
+		return exitUsage
 	}
+	out.secrets = cfg.secrets
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := slog.New(slog.NewTextHandler(out, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -156,26 +263,52 @@ func cmdServe(args []string) int {
 			Path:         cfg.upstream,
 			Args:         cfg.upstreamArgs,
 			Env:          cfg.upstreamEnv,
-			Stderr:       os.Stderr,
+			Stderr:       out,
 			StderrPrefix: "upstream " + cfg.server + ": ",
+			Secrets:      cfg.secrets,
 		}.Transport(),
 	}
 	startCtx, cancel := context.WithTimeout(ctx, startupTimeout)
 	p, err := proxy.New(startCtx, []proxy.Upstream{up}, proxy.Options{Version: version, Logger: logger})
 	cancel()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "netguard: %v\n", err)
+		_, _ = fmt.Fprintf(out, "netguard: %v\n", err)
 		return exitFail
 	}
-	logger.Info("serving on stdio; M0 pass-through, no policy enforced", "server", cfg.server)
+	attrs := []any{"server", cfg.server}
+	if len(cfg.passNames) > 0 {
+		attrs = append(attrs, "upstream_env_pass", strings.Join(cfg.passNames, ","))
+	}
+	logger.Info("serving on stdio; M0 pass-through, no policy enforced", attrs...)
 
 	runErr := p.Run(ctx, &mcp.StdioTransport{})
 	if err := p.Close(); err != nil {
 		logger.Warn("closing upstream", "error", err)
 	}
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
-		fmt.Fprintf(os.Stderr, "netguard: serve: %v\n", runErr)
+		_, _ = fmt.Fprintf(out, "netguard: serve: %v\n", runErr)
 		return exitFail
 	}
 	return exitOK
+}
+
+// redactingWriter is the last guard on netguard's stderr: every Write has
+// the --upstream-env-pass values replaced by "[redacted:NAME]"
+// (proxy.RedactSecrets), in raw, escaped and quoted form. Each Write is
+// redacted on its own, which holds because every writer behind it (fmt,
+// slog, the upstream stderr line writer) writes whole lines. It keeps no
+// state between writes, so concurrent writers are as safe as with w alone.
+type redactingWriter struct {
+	w       io.Writer
+	secrets []proxy.Secret // set once, before anything is spawned
+}
+
+func (r *redactingWriter) Write(p []byte) (int, error) {
+	if len(r.secrets) == 0 {
+		return r.w.Write(p)
+	}
+	if _, err := io.WriteString(r.w, proxy.RedactSecrets(string(p), r.secrets)); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }

@@ -52,37 +52,105 @@ redaction and no audit log yet; those come in M1 to M4 (see
 
 netguard does not pass its own environment on to the upstream, apart from a
 short list (`PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, the `LC_*` locale
-settings). So anything netdev-ssh-mcp needs must be handed over with
-`--upstream-env NAME=value`:
+settings). So anything netdev-ssh-mcp needs must be handed over by name.
+There are two flags, one for each kind of setting:
 
-| netdev-ssh-mcp setting | What it is |
-| --- | --- |
-| `DEVICE_USERNAME` | SSH username, if the tool call does not give one |
-| `DEVICE_PASSWORD` | SSH password |
-| `SSH_AUTH_SOCK` | Path to your ssh-agent socket, to log in with keys instead of a password |
-| `SSH_KNOWN_HOSTS` | Path to a `known_hosts` file, if not `~/.ssh/known_hosts` |
+- **Not secret:** `--upstream-env NAME=value`. The value is written in
+  netguard's arguments.
+- **Secret:** `--upstream-env-pass NAME`. The value is not in the arguments.
+  You set `NAME` in netguard's own environment, normally through the
+  client's `env` block (shown below), and netguard copies it to the
+  upstream.
 
-A password passed this way sits on netguard's command line, where other
-users on the machine can see it with `ps`, and in the client's config file.
-Prefer ssh-agent. If you must use a password, keep the config out of git
-and use a lab account.
+| netdev-ssh-mcp setting | What it is | Pass with |
+| --- | --- | --- |
+| `DEVICE_USERNAME` | SSH username, if the tool call does not give one | `--upstream-env DEVICE_USERNAME=netops` |
+| `DEVICE_PASSWORD` | SSH password | `--upstream-env-pass DEVICE_PASSWORD` |
+| `SSH_AUTH_SOCK` | Your ssh-agent socket, to log in with keys instead of a password | `--upstream-env-pass SSH_AUTH_SOCK` |
+| `SSH_KNOWN_HOSTS` | Path to a `known_hosts` file, if not `~/.ssh/known_hosts` | `--upstream-env SSH_KNOWN_HOSTS=/Users/you/.ssh/known_hosts` |
+
+Why two flags: a value in netguard's arguments can be seen by other users
+on the machine (`ps`) and is recorded by process-auditing tools (Linux
+`auditd`, Windows event 4688, Sysmon, most EDR agents). A value in the
+environment is not. Arguments are fine for a user name or a path, not for a
+password.
+
+What `--upstream-env-pass` checks before it starts anything (each failure
+exits with status 2 and names the variable, never its value):
+
+- `NAME` must be set in netguard's environment and not empty. If the client
+  did not pass it, netguard says
+  `--upstream-env-pass DEVICE_PASSWORD: not set in netguard's environment`.
+- The same name cannot be given to both `--upstream-env` and
+  `--upstream-env-pass`.
+- Names starting with `NETGUARD_` are refused by both flags: netguard's own
+  settings are never passed to an upstream.
+
+netguard also removes the value from what the upstream prints on stderr:
+if the upstream logs the password, the line shows
+`[redacted:DEVICE_PASSWORD]` instead. This covers the exact value and the
+value inside a quoted string (Go `%q`, JSON). A value shorter than 4 bytes
+is not removed, because it would match too much ordinary text.
+Do not rely on this for anything but the upstream's stderr: a tool result
+that contains the password still reaches the client.
+
+The password is still in the client's config file, in the `env` block
+instead of the arguments. So:
+
+- Keep that file out of git. A project `.mcp.json` gets committed; use
+  `${DEVICE_PASSWORD}` there so it holds no value (Claude Code expands it
+  from its own environment; see the Claude Code section).
+- Or start netguard from a small wrapper script that reads the password from
+  your keychain and then runs netguard, for example
+  `DEVICE_PASSWORD="$(security find-generic-password -s netdev -w)" exec /usr/local/bin/netguard "$@"`
+  on macOS (or `pass`, `op read`, `secret-tool lookup` elsewhere), and
+  point the client's `command` at the script.
+- ssh-agent is still better than a password, and use a lab account either
+  way.
+
+`SSH_AUTH_SOCK` with `--upstream-env-pass` follows your real agent socket,
+so no path is written into the config. It works only if the client itself
+has `SSH_AUTH_SOCK` and passes it on to netguard. From a terminal it does.
+From an app started from the Dock or a desktop menu it depends on the
+platform. On macOS, launchd gives every app the system ssh-agent socket
+(`launchctl getenv SSH_AUTH_SOCK` shows it), but an agent started from your
+shell profile (1Password, Secretive, a plain `ssh-agent`) is not seen. On
+Linux it depends on the desktop session. If it is missing, netguard stops at
+once with the "not set" message above; nothing hangs.
 
 ## Claude Code
 
 Add netguard with `claude mcp add`. Everything after `--` is the command
-Claude Code runs:
+Claude Code runs. With ssh-agent, nothing secret is written anywhere:
 
 ```sh
 claude mcp add netdev -- /usr/local/bin/netguard serve \
   --server netdev-ssh-mcp \
   --upstream /Users/you/go/bin/netdev-ssh-mcp \
   --upstream-env DEVICE_USERNAME=netops \
-  --upstream-env SSH_AUTH_SOCK=/path/to/agent.sock
+  --upstream-env-pass SSH_AUTH_SOCK
 ```
 
+With a password, set it in the server's environment with `-e`, and name it
+with `--upstream-env-pass`:
+
+```sh
+claude mcp add netdev -e DEVICE_PASSWORD=your-lab-password -- /usr/local/bin/netguard serve \
+  --server netdev-ssh-mcp \
+  --upstream /Users/you/go/bin/netdev-ssh-mcp \
+  --upstream-env DEVICE_USERNAME=netops \
+  --upstream-env-pass DEVICE_PASSWORD
+```
+
+`-e` keeps the password out of netguard's arguments, but this command line
+goes into your shell history, and Claude Code saves the value in its config
+file. To avoid the history, edit the config file instead (below).
+
 This saves the server for you only, in this project. Use `--scope project`
-to write a `.mcp.json` file that the whole team shares. Leave passwords out
-of that file, because it gets committed. The same entry as JSON:
+to write a `.mcp.json` file that the whole team shares. That file gets
+committed, so never put a password in it: write `"${DEVICE_PASSWORD}"` in
+its `env` block, and Claude Code fills it in from its own environment when
+it starts. The same entry as JSON:
 
 ```json
 {
@@ -94,12 +162,20 @@ of that file, because it gets committed. The same entry as JSON:
         "--server", "netdev-ssh-mcp",
         "--upstream", "/Users/you/go/bin/netdev-ssh-mcp",
         "--upstream-env", "DEVICE_USERNAME=netops",
-        "--upstream-env", "SSH_AUTH_SOCK=/path/to/agent.sock"
-      ]
+        "--upstream-env-pass", "DEVICE_PASSWORD"
+      ],
+      "env": {
+        "DEVICE_PASSWORD": "${DEVICE_PASSWORD}"
+      }
     }
   }
 }
 ```
+
+In a file that is not shared (`~/.claude.json`, or Cursor's
+`~/.cursor/mcp.json`), `"DEVICE_PASSWORD"` may hold the password itself.
+For ssh-agent, replace `DEVICE_PASSWORD` with `SSH_AUTH_SOCK` in `args` and
+drop the `env` block: the client passes its own `SSH_AUTH_SOCK` to netguard.
 
 Run `claude mcp list` (or `/mcp` inside Claude Code) and check that `netdev`
 shows as connected. Claude Code shows the tools as
@@ -110,7 +186,11 @@ for `_`, and that is expected.
 
 Cursor reads the same `mcpServers` format from `~/.cursor/mcp.json` (all
 projects) or `.cursor/mcp.json` (one project). Use the JSON block from the
-Claude Code section. Then open Cursor Settings, go to MCP, check that
+Claude Code section, `env` block included. Cursor's MCP documentation
+writes environment references as `${env:DEVICE_PASSWORD}` rather than
+`${DEVICE_PASSWORD}`; netguard's tests do not run Cursor, so check what
+your Cursor version expands, or put the value in `~/.cursor/mcp.json`,
+which is not shared. Then open Cursor Settings, go to MCP, check that
 `netdev` has a green dot, and confirm it lists five tools.
 
 ## If the client can't find netguard or the upstream
@@ -171,3 +251,8 @@ Then set `--upstream-env DEVICE_USERNAME=admin`,
 `show version` on host `127.0.0.1`, port `22022`, device type `eos`. The
 answer includes `Serial number: FAKE0000SN01`, and `/tmp/fakedev/commands.log`
 records the command.
+
+Here the password goes in the arguments with `--upstream-env` only because
+`FAKE-device-pass` is a published fake. Do not copy this for a real
+password; use `--upstream-env-pass` as in
+[Device credentials](#device-credentials).

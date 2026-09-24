@@ -23,8 +23,8 @@ func TestParseServe(t *testing.T) {
 		{name: "empty --", args: with("--"), wantArgs: []string{}},
 		{name: "repeated upstream-env", args: with("--upstream-env", "A=1", "--upstream-env", "B=x=y"), wantEnv: []string{"A=1", "B=x=y"}},
 		{name: "upstream-env empty value", args: with("--upstream-env", "A="), wantEnv: []string{"A="}},
-		{name: "upstream-env no equals", args: with("--upstream-env", "NOEQUALS"), wantErr: "not KEY=VALUE"},
-		{name: "upstream-env empty key", args: with("--upstream-env", "=v"), wantErr: "not KEY=VALUE"},
+		{name: "upstream-env no equals", args: with("--upstream-env", "NOEQUALS"), wantErr: "--upstream-env argument 1 is not KEY=VALUE"},
+		{name: "upstream-env empty key", args: with("--upstream-env", "=v"), wantErr: `--upstream-env "": key must match`},
 		{name: "upstream-env underscore key", args: with("--upstream-env", "_A1=v"), wantEnv: []string{"_A1=v"}},
 		{name: "upstream-env digit first", args: with("--upstream-env", "1A=v"), wantErr: "[A-Za-z_]"},
 		{name: "upstream-env dash in key", args: with("--upstream-env", "A-B=v"), wantErr: "[A-Za-z_]"},
@@ -51,7 +51,7 @@ func TestParseServe(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cfg, err := parseServe(tc.args, io.Discard)
+			cfg, err := parseServe(tc.args, io.Discard, noEnv, "linux")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want it to contain %q", err, tc.wantErr)
