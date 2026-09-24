@@ -16,7 +16,7 @@ Work state lives in the repo, not in anyone's chat window. Three files carry it:
 
 - `merged` means the PR is on `main` and CI is green.
 - `validated` means the test-matrix rows the task names have run against the named real upstream server and `docs/testing/test-matrix.md` says so. Only the test-engineer moves a task to `validated`.
-- A milestone closes when every task is `validated` or `dropped` and every exit criterion is ticked.
+- A milestone closes when every task is `validated` or `dropped` and every exit criterion is ticked. An open criterion is a plain string under `exit_criteria`; a met one is a mapping `{text: ..., met: "<date> (<evidence>)"}`, rendered as `- [x]` in `STATUS.md`.
 
 ## The handoff ritual
 

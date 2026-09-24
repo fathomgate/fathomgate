@@ -7,7 +7,8 @@ title: Pass-through proxy
 status: in progress
 opened: 2026-09-23
 exit_criteria:
-  - Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task (ticked once T0.17 and T0.18 are resolved)
+  - text: Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task
+    met: 2026-09-23 (T0.4 PR #44, T0.17 and T0.18 PR #53; every remaining baseline entry cites an ADR or task)
   - Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
   - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
   - GoReleaser produces linux/darwin/windows binaries on a tag
@@ -166,19 +167,19 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.4]
     matrix: [2]
-    notes: 'From T0.4: conformance scenario tools-call-with-progress fails in both eras because no _meta crosses the proxy (spec section 8.4), so the agent''s progressToken never reaches the upstream. Issue a proxy-owned token upstream, map notifications/progress back to the agent''s token, and carry no upstream text beyond progress/total/message rules the spec allows. Delete the matching entries in tests/conformance/baseline/ in the same PR. May need an ADR if it changes the no-_meta rule in ADR 0014.'
+    notes: 'From T0.4: conformance scenario tools-call-with-progress fails in both eras because no _meta crosses the proxy (spec section 8.4), so the agent''s progressToken never reaches the upstream. Issue a proxy-owned token upstream, map notifications/progress back to the agent''s token, and carry no upstream text beyond progress/total/message rules the spec allows. Delete the matching entries in tests/conformance/baseline/ in the same PR. May need an ADR if it changes the no-_meta rule in ADR 0014. Merged in PR #53 (9cf78a6) 2026-09-23: the upstream gets a crypto/rand.Text token per agent request; notifications/progress are rebuilt under the agent''s token with only progress, total and a labelled, escaped, capped message; 10 then 5/s per call; spec 8.4 carve-out, no ADR (0016 went to the HTTP listener). Security review: approve with nits; S1 (backslash escape ambiguity), S3 (2^53-1), S4 (wording), S5 (clear unsolicited answers before dispatch) fixed in PR #58; S2 split out as T0.28. docs/security/threat-model.md created.'
   - id: T0.18
     title: Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602)
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.4]
     matrix: [2]
-    notes: 'From T0.4: warning-level checks input-required-result-ignore-extra-params and input-required-result-missing-input-response fail because netguard answers -32602 where SEP-2322 suggests ignoring extra params or re-asking (spec section 8.2). Either keep strict behaviour and record why (security reasoning with the sealed requestState) or relax it; either way the baseline reason or the entry changes in the same PR.'
+    notes: 'From T0.4: warning-level checks input-required-result-ignore-extra-params and input-required-result-missing-input-response fail because netguard answers -32602 where SEP-2322 suggests ignoring extra params or re-asking (spec section 8.2). Either keep strict behaviour and record why (security reasoning with the sealed requestState) or relax it; either way the baseline reason or the entry changes in the same PR. Merged in PR #53 2026-09-23: inputResponses without a requestState are ignored and the call goes up fresh; unknown ids under a valid state are dropped; tampered, expired, foreign or wrong-tool state and malformed answers stay -32602. ignore-extra-params stays baselined (forwarding it would pass an answer to a prompt no human saw through netguard).'
   - id: T0.19
     title: Conformance coverage for a 2025-11-25 upstream behind netguard
     package: tests/conformance
@@ -220,15 +221,15 @@ tasks:
     reviewers: [security-reviewer, go-reviewer]
     state: open
     matrix: [22]
-    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code.'
+    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code. ADR 0017 (PR #55) merged 2026-09-23 with status proposed: recommends --upstream-env-pass NAME. Awaiting the maintainer''s acceptance and answers to its four open questions before implementation.'
   - id: T0.24
     title: Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64
     package: internal/audit
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: merged
     matrix: []
-    notes: 'From T0.20. //nolint:unconvert at key_unix.go:90 is reported unused by nolintlint when linting for darwin or linux/arm64, because the stat field type differs by platform. CI lints linux/amd64 and is clean, so make lint defaults to that target. Fix without weakening the key-file checks.'
+    notes: 'From T0.20. //nolint:unconvert at key_unix.go:90 is reported unused by nolintlint when linting for darwin or linux/arm64, because the stat field type differs by platform. CI lints linux/amd64 and is clean, so make lint defaults to that target. Fix without weakening the key-file checks. Merged in PR #54 2026-09-23: st.Nlink != 1 (untyped constant, no conversion); make lint now loops over linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 and windows/amd64. Security review (orchestrator): equivalent on every platform; owner, O_NOFOLLOW and link checks unchanged.'
   - id: T0.25
     title: Report the upstream's exit status when it dies at startup, not only EOF
     package: internal/proxy
@@ -242,9 +243,35 @@ tasks:
     package: tests/fixtures/device
     owner: network-safety-engineer
     reviewers: [test-engineer]
-    state: open
+    state: in review
     matrix: [22]
-    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step.'
+    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step. PR #56: the maintainer''s HPE vEOS 4.16.6M running-config (public sample) as a fake-device show running-config transcript and a redaction fixture (eos-4.16.txt), four secrets replaced with FAKE values of the same shape; client-smoke fetches it via get_config. show_version stays synthetic. Found T0.29.'
+  - id: T0.27
+    title: Streamable HTTP listener for netguard serve
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [T0.28]
+    adr: "0016"
+    matrix: [1, 2]
+    notes: 'Maintainer decision 2026-09-23: add an HTTP listener toward the agent. Design in ADR 0016 (PR #57, proposed); implementation waits for its acceptance. Moves the trust boundary from a pipe to a socket, so loopback-only default, Origin check, agent auth and per-session state are in scope. Conformance should then run against the listener (via a two-rule shim for the token and tool prefix) and clear 11 of the 12 HTTP-transport baseline entries. ADR 0016 proposes five sub-tasks it numbers T0.27-T0.31; those ids collide with this board, so they are renumbered from T0.30 when the ADR is accepted.'
+  - id: T0.28
+    title: Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'Security review S2 on PR #53. go-sdk handles an upstream''s notifications one at a time, and the progress relay writes to the agent under r.mu on that goroutine, so a stuck agent blocks every later message from that upstream (incl. elicitation/create for other calls), and finish() then blocks the deferred end(). Minor over stdio; real once several agents share an upstream over HTTP. Fix: per-relay one-slot latest mailbox plus sender goroutine (or bounded channel), mutex only for state, final notification with a deadline, and flush a held-back update on a timer (S4). Blocks T0.27.'
+  - id: T0.29
+    title: Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash
+    package: profiles
+    owner: upstream-server-scout
+    reviewers: [security-reviewer]
+    state: open
+    matrix: [15]
+    notes: 'From T0.26. netdev-ssh-mcp v1.6.6 replaces secrets with [h:<first 6 bytes of sha256>] unless started with --no-obfuscate (internal/netdev/obfuscate.go). The hash is unkeyed, so short common values (public, private) are recoverable by hashing a word list; it does not meet invariant 4 and NetGuard must not rely on it. Note it in profiles/netdev-ssh-mcp.yaml comments and docs/research, and decide whether install docs recommend leaving it on in M0 (defence in depth) or off once NetGuard redacts (M2).'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
