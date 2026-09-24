@@ -1,5 +1,7 @@
 # T0.4 merged before review: post-merge review of the MCP conformance job, and the baseline for exit criterion 1
 
+> **Review waived** by joshscott13 on 2026-09-23. This note is kept as the record of what merged; no action needed.
+
 - **Task:** T0.4 — Conformance suite in CI against the client-facing side; make conformance target
 - **From → To:** test-engineer → go-reviewer
 - **State now:** merged

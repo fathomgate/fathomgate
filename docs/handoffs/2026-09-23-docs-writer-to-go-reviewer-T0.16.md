@@ -1,5 +1,7 @@
 # T0.16 merged before review: post-merge check of the ADR 0011 amendment and the fact-only amendment rule
 
+> **Review waived** by joshscott13 on 2026-09-23. This note is kept as the record of what merged; no action needed.
+
 - **Task:** T0.16 — Update the ADR 0011 module table for golang.org/x/sys as a direct dependency
 - **From → To:** docs-writer → go-reviewer
 - **State now:** merged
