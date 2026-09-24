@@ -137,6 +137,8 @@ func runBadVersionUpstream() {
 		}
 		fmt.Println(reply)
 	}
+	// Stdin EOF: whoever holds the other end has begun closing it.
+	fmt.Fprintln(os.Stderr, "fake upstream: stdin closed")
 	time.Sleep(time.Hour)
 }
 
@@ -369,15 +371,33 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 // review of PR #77). netguard caused the process's end, so no exit status.
 func TestConnectFailureKillsUpstream(t *testing.T) {
 	logs := newSyncBuffer()
+	stderr := newSyncBuffer()
 	b := &commandBuilds{cmd: Command{
-		Path: testExecutable(t),
-		Args: []string{"-test.run=^$"},
-		Env:  []string{fakeUpstreamEnv + "=badversion", childRaceEnv},
+		Path:   testExecutable(t),
+		Args:   []string{"-test.run=^$"},
+		Env:    []string{fakeUpstreamEnv + "=badversion", childRaceEnv},
+		Stderr: stderr,
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
-		Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverWait: time.Second})
+	// The bound expires once go-sdk has begun its own close (the fake sees
+	// stdin EOF) and while that close still waits its 5 s grace: the case
+	// that was misread as an unanswered probe.
+	e := newProbeExpiry()
+	type result struct {
+		p   *Proxy
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
+			Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverExpired: e.ch})
+		done <- result{p, err}
+	}()
+	stderr.waitFor(t, "fake upstream: stdin closed\n")
+	e.fire()
+	out := <-done
+	p, err := out.p, out.err
 	if err == nil {
 		_ = p.Close()
 		t.Fatal("New succeeded against an unsupported protocol version")

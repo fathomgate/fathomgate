@@ -91,28 +91,51 @@ func (l *methodLog) get() []string {
 	return slices.Clone(l.all)
 }
 
+// probeExpiry is a test's Options.discoverExpired: the probe bound runs
+// out when the test fires it, at a known point, instead of when a short
+// timer races a child's start (Go review of PR #79).
+type probeExpiry struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func newProbeExpiry() *probeExpiry { return &probeExpiry{ch: make(chan struct{})} }
+
+func (e *probeExpiry) fire() { e.once.Do(func() { close(e.ch) }) }
+
 // silentAttempt reads everything and answers nothing: a Python MCP SDK
 // 1.9.3-or-older upstream after server/discover has killed its receive
 // loop.
 func silentAttempt(t *testing.T, st mcp.Transport) func() []string {
-	conn, err := st.Connect(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	log := &methodLog{}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			m, err := conn.Read(context.Background())
-			if err != nil {
-				return
-			}
-			log.add(m)
+	return silentThen(nil)(t, st)
+}
+
+// silentThen is silentAttempt that also fires e once it has read
+// server/discover, so the bound runs out only after the probe was sent.
+func silentThen(e *probeExpiry) upstreamAttempt {
+	return func(t *testing.T, st mcp.Transport) func() []string {
+		conn, err := st.Connect(context.Background())
+		if err != nil {
+			t.Fatal(err)
 		}
-	}()
-	t.Cleanup(func() { _ = conn.Close(); <-done })
-	return log.get
+		log := &methodLog{}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				m, err := conn.Read(context.Background())
+				if err != nil {
+					return
+				}
+				log.add(m)
+				if r, ok := m.(*jsonrpc.Request); ok && r.Method == "server/discover" && e != nil {
+					e.fire()
+				}
+			}
+		}()
+		t.Cleanup(func() { _ = conn.Close(); <-done })
+		return log.get
+	}
 }
 
 // hangUpAttempt closes the connection at once: an upstream that dies
@@ -210,69 +233,76 @@ const restartWarning = "did not answer server/discover within"
 // TestDiscoverProbe: the first connect is bounded; only running out of the
 // bound restarts the upstream, once, with the initialise handshake only.
 func TestDiscoverProbe(t *testing.T) {
-	const bound = 200 * time.Millisecond
+	const restarted = "proxy: upstream netdev-ssh-mcp: connect with " + initOnly + " (restarted after server/discover got no answer within 5s): "
 	cases := []struct {
-		name    string
-		serve   []upstreamAttempt
-		bound   time.Duration // 0: the real 5 s
+		name string
+		// serve lists the attempts. An attempt that fires e expires the
+		// bound; with expire unset the real 5 s timer runs.
+		serve   func(e *probeExpiry) []upstreamAttempt
+		expire  bool
 		startup time.Duration // the caller's startup budget
 		builds  int
 		version string // negotiated, on success
 		wantErr []string
 	}{
 		{
-			name:  "probe answered: no restart, stateless",
-			serve: []upstreamAttempt{serverAttempt(v2026)}, startup: 30 * time.Second,
-			builds: 1, version: v2026,
+			name:    "probe answered: no restart, stateless",
+			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{serverAttempt(v2026)} },
+			startup: 30 * time.Second, builds: 1, version: v2026,
 		},
 		{
-			name:  "probe refused: go-sdk's own fallback, no restart",
-			serve: []upstreamAttempt{serverAttempt(v2025)}, startup: 30 * time.Second,
-			builds: 1, version: v2025,
+			name:    "probe refused: go-sdk's own fallback, no restart",
+			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{serverAttempt(v2025)} },
+			startup: 30 * time.Second, builds: 1, version: v2025,
 		},
 		{
-			name:  "answered with a version go-sdk rejects: no restart",
-			serve: []upstreamAttempt{badVersionAttempt}, bound: bound, startup: 30 * time.Second,
-			builds:  1,
+			name:    "answered with a version go-sdk rejects: no restart",
+			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{badVersionAttempt} },
+			startup: 30 * time.Second, builds: 1,
 			wantErr: []string{"proxy: upstream netdev-ssh-mcp: connect: ", "unsupported protocol version"},
 		},
 		{
-			name:  "probe unanswered: restart, initialise handshake only",
-			serve: []upstreamAttempt{silentAttempt, serverAttempt(v2026)}, bound: bound, startup: 30 * time.Second,
-			builds: 2, version: v2025,
-		},
-		{
-			name:  "second attempt hangs up: its error, no third attempt",
-			serve: []upstreamAttempt{silentAttempt, hangUpAttempt}, bound: bound, startup: 30 * time.Second,
-			builds: 2,
-			wantErr: []string{
-				"proxy: upstream netdev-ssh-mcp: connect with " + initOnly + " (restarted after server/discover got no answer within 200ms): ",
+			name: "probe unanswered: restart, initialise handshake only",
+			serve: func(e *probeExpiry) []upstreamAttempt {
+				return []upstreamAttempt{silentThen(e), serverAttempt(v2026)}
 			},
+			expire: true, startup: 30 * time.Second, builds: 2, version: v2025,
 		},
 		{
-			name:  "second attempt silent: the startup budget ends it",
-			serve: []upstreamAttempt{silentAttempt, silentAttempt}, bound: bound, startup: time.Second,
-			builds: 2,
-			wantErr: []string{
-				"proxy: upstream netdev-ssh-mcp: connect with " + initOnly + " (restarted after server/discover got no answer within 200ms): ",
-				"context deadline exceeded",
+			name: "second attempt hangs up: its error, no third attempt",
+			serve: func(e *probeExpiry) []upstreamAttempt {
+				return []upstreamAttempt{silentThen(e), hangUpAttempt}
 			},
+			expire: true, startup: 30 * time.Second, builds: 2,
+			wantErr: []string{restarted},
 		},
 		{
-			name:  "startup budget ends inside the bound: no restart",
-			serve: []upstreamAttempt{silentAttempt}, startup: bound,
-			builds:  1,
+			name: "second attempt silent: the startup budget ends it",
+			serve: func(e *probeExpiry) []upstreamAttempt {
+				return []upstreamAttempt{silentThen(e), silentAttempt}
+			},
+			expire: true, startup: time.Second, builds: 2,
+			wantErr: []string{restarted, "context deadline exceeded"},
+		},
+		{
+			name:    "startup budget ends inside the bound: no restart",
+			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{silentAttempt} },
+			startup: 200 * time.Millisecond, builds: 1,
 			wantErr: []string{"proxy: upstream netdev-ssh-mcp: connect: context deadline exceeded"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := newSyncBuffer()
-			r := newRebuildable(t, tc.serve...)
+			e := newProbeExpiry()
+			r := newRebuildable(t, tc.serve(e)...)
+			opts := Options{Logger: slog.New(slog.NewTextHandler(logs, nil))}
+			if tc.expire {
+				opts.discoverExpired = e.ch
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), tc.startup)
 			defer cancel()
-			p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: r.build}},
-				Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverWait: tc.bound})
+			p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: r.build}}, opts)
 			if err == nil {
 				t.Cleanup(func() { _ = p.Close() })
 			}
@@ -283,7 +313,7 @@ func TestDiscoverProbe(t *testing.T) {
 				t.Errorf("restart warnings: %d, want %d:\n%s", n, tc.builds-1, logs.String())
 			}
 			if tc.builds == 2 {
-				const want = `level=WARN msg="upstream netdev-ssh-mcp did not answer server/discover within 200ms; restarting it and connecting with ` + initOnly + ` (protocol 2025-11-25)" server=netdev-ssh-mcp`
+				const want = `level=WARN msg="upstream netdev-ssh-mcp did not answer server/discover within 5s; restarting it and connecting with ` + initOnly + ` (protocol 2025-11-25)" server=netdev-ssh-mcp`
 				if !strings.Contains(logs.String(), want) {
 					t.Errorf("warn line missing; want %s in:\n%s", want, logs.String())
 				}
@@ -353,7 +383,9 @@ func (c *commandBuilds) get() []*mcp.CommandTransport {
 // process: the first process stops reading at server/discover and ignores
 // stdin EOF, so only a kill ends it; it is killed and reaped, its stderr
 // relayed, and a second process is connected with the initialise handshake
-// only.
+// only. The bound is expired only once the child has said it stopped
+// reading, so a slow start cannot kill it first (the flake the Go review of
+// PR #79 traced to a 1 s timer that also covered the spawn).
 func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	stderr := newSyncBuffer()
 	logs := newSyncBuffer()
@@ -366,8 +398,21 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
-		Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverWait: time.Second})
+	e := newProbeExpiry()
+	type result struct {
+		p   *Proxy
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
+			Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverExpired: e.ch})
+		done <- result{p, err}
+	}()
+	stderr.waitFor(t, "upstream netdev-ssh-mcp: fake upstream: unknown method server/discover; not reading any more\n")
+	e.fire()
+	out := <-done
+	p, err := out.p, out.err
 	if err != nil {
 		t.Fatalf("%v\nlog:\n%s\nstderr:\n%s", err, logs.String(), stderr.String())
 	}
@@ -386,7 +431,6 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	if n := strings.Count(logs.String(), restartWarning); n != 1 {
 		t.Fatalf("restart warnings: %d\n%s", n, logs.String())
 	}
-	stderr.waitFor(t, "upstream netdev-ssh-mcp: fake upstream: unknown method server/discover; not reading any more\n")
 
 	agent, _ := connectAgent(t, p, eraSetup{agent: v2026}, &promptLog{})
 	res, err := agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01", "command": "show version"}})
@@ -458,7 +502,11 @@ func TestStartupBudgetBoundsRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	start := time.Now()
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}}, Options{discoverWait: 500 * time.Millisecond})
+	// The bound expires at once. The first process may be killed before it
+	// starts reading, or, when Connect records it late, before it ever runs.
+	e := newProbeExpiry()
+	e.fire()
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}}, Options{discoverExpired: e.ch})
 	elapsed := time.Since(start)
 	if err == nil {
 		_ = p.Close()
@@ -475,8 +523,8 @@ func TestStartupBudgetBoundsRestart(t *testing.T) {
 		t.Fatalf("processes started: %d, want 2", len(built))
 	}
 	for i, ct := range built {
-		if ct.Command.ProcessState == nil {
-			t.Errorf("process %d was not reaped", i)
+		if ct.Command.Process != nil && ct.Command.ProcessState == nil {
+			t.Errorf("process %d was started and not reaped", i)
 		}
 	}
 }
