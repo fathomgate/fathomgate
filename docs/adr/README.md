@@ -1,6 +1,6 @@
 # Architecture decision records
 
-One record per decision that would be expensive to reverse. Records follow [MADR](https://adr.github.io/madr/) with the sections in [0000-template.md](0000-template.md). A record is never edited after acceptance except to change its status; a new record supersedes it.
+One record per decision that would be expensive to reverse. Records follow [MADR](https://adr.github.io/madr/) with the sections in [0000-template.md](0000-template.md). A record is never edited after acceptance except to change its status, or to correct a fact without changing the decision (dated in its `Amendments` section, per [GOVERNANCE.md](../../GOVERNANCE.md#architecture-decisions)); any change to the decision needs a new record that supersedes it.
 
 To propose one, copy the template to the next number, open a pull request, and link the record from the code or spec it governs. See [GOVERNANCE.md](../../GOVERNANCE.md) for how records are accepted.
 

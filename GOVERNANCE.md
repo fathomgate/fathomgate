@@ -25,7 +25,7 @@ Anything that changes a spec in `docs/specs/`, the `Decision` type, the class li
 3. A maintainer merges it as `accepted`, or closes it with the reasons in a final comment.
 4. Code implementing the decision links the ADR.
 
-An accepted ADR is changed only by a new ADR that supersedes it. The index at [docs/adr/README.md](docs/adr/README.md) is the record.
+An accepted ADR is changed only by a new ADR that supersedes it, with one exception: a factual correction that leaves the decision unchanged (a version, a module row, a stale path) may amend the record in place. The amendment is dated in the record's `Amendments` section with what changed and why, and goes through normal pull request review. The index at [docs/adr/README.md](docs/adr/README.md) is the record.
 
 ### Security decisions
 
