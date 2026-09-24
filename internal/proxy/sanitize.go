@@ -60,9 +60,13 @@ func isControl(r rune) bool {
 // escapeControl replaces control characters with the six-character text
 // \uXXXX, and invalid UTF-8 with the same escape for U+FFFD, so untrusted
 // text cannot move the cursor, colour a terminal or forge a new log line. A
-// backslash becomes two, so every \u in the output is netguard's own escape:
-// upstream text cannot spell one that a decoding reader would turn into a
-// newline (the literal text \u000a comes out as \\u000a).
+// backslash becomes two, so every \u in what escapeControl returns is its
+// own escape: upstream text cannot spell one that a decoding reader would
+// turn into a newline (the literal text \u000a comes out as \\u000a). Some
+// upstream strings cross a prompt verbatim instead, because they must
+// round-trip (property names, enum and const values, defaults); those are
+// refused or dropped if escapeControl would change them (schema.go), so
+// they carry no backslash either.
 // With limit > 0 the result is cut at a character boundary to at most limit
 // bytes, followed by "...".
 func escapeControl(s string, limit int) string {
