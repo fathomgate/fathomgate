@@ -80,7 +80,7 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 ## Repo map
 
 ```
-cmd/fathomgate/        CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
+cmd/fathomgate/      CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens

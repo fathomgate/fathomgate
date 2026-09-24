@@ -9,7 +9,7 @@ That is useful, and it is also risky. The same connection that lets an assistant
 Fathomgate sits in the middle. The assistant talks to Fathomgate instead of talking to the MCP server directly, and Fathomgate passes each request on only if your rules allow it.
 
 ```
-  AI assistant              Fathomgate                       Network MCP server       Your devices
+  AI assistant              Fathomgate                     Network MCP server       Your devices
   (Claude Code, Cursor) ──▶  checks every request  ──────▶  (e.g. netdev-ssh-mcp) ──▶ routers, switches,
                             · what kind of action?                                     firewalls
                             · which device, and what role does it play?
@@ -183,7 +183,7 @@ Go 1.26 ([ADR 0015](docs/adr/0015-raise-go-floor-to-1-26.md)). Fathomgate ships 
 ### Layout
 
 ```
-cmd/fathomgate/          the CLI: version, serve, policy test|eval, audit verify|keygen, redact, inventory import
+cmd/fathomgate/        the CLI: version, serve, policy test|eval, audit verify|keygen, redact, inventory import
 internal/proxy/        the checkpoint: talks MCP to the agent and to the upstream server, prefixes tool names
 internal/classify/     classes, server profiles, working out what a request does
 internal/policy/       policy files, Evaluate, test runner

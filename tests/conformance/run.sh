@@ -9,10 +9,10 @@
 # fathomgate's HTTP listener in T0.32) does not touch upstream selection, and
 # a new upstream does not touch the transport.
 #
-#   leg              chain                                upstream
-#   control          relay -> upstream                    current
+#   leg                chain                                  upstream
+#   control            relay -> upstream                      current
 #   fathomgate         relay -> fathomgate serve -> upstream  current
-#   control-up2025   relay -> upstream                    2025
+#   control-up2025     relay -> upstream                      2025
 #   fathomgate-up2025  relay -> fathomgate serve -> upstream  2025
 #
 #   upstream  current  go-sdk conformance/everything-server at the go.mod
@@ -32,7 +32,7 @@
 # (a stale baseline). Results go to $CONFORMANCE_OUT/<leg>-<revision>/.
 #
 # Environment (all optional):
-#   FATHOMGATE_BIN             fathomgate binary          (bin/fathomgate)
+#   FATHOMGATE_BIN           fathomgate binary        (bin/fathomgate)
 #   CONFORMANCE_SERVER       current upstream         (bin/conformance/everything-server)
 #   CONFORMANCE_SERVER_2025  2025 upstream            (bin/conformance/everything-server-2025)
 #   CONFORMANCE_OUT          results root             (tests/conformance/results)

@@ -268,7 +268,7 @@ Voice rules Fathomgate adds to Fathom's: every denial names its rule; verbs matc
 
 ```
 fathomgate/
-  cmd/fathomgate/            main: serve, policy test, approve, deny, audit verify
+  cmd/fathomgate/          main: serve, policy test, approve, deny, audit verify
   internal/proxy/          MCP server (client-facing) + upstream client manager, dual-era
   internal/normalize/      target and command canonicalisation, per-server profiles
   internal/classify/       command-class rules, allow-lists, meta-tool capability tables
