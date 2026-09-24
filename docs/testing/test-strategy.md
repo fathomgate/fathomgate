@@ -30,11 +30,11 @@ Run: `make test` (equals `go test ./... && netguard policy test policies/ && pyt
 - End-to-end decisions: a `reload` through eos-mcp `run_command` is denied with `no-exec`; a `show running-config` through ntunes `send_command` comes back redacted; an unknown `host` on netdev-ssh-mcp is denied.
 - Approval flow against junos-mcp-server with the fake SSH device standing in for the router: hold, approve via CLI, approve after TTL refused, drift cancelled, MRTR accept forwards.
 - A modified tool description quarantines the server and writes a `quarantine` event.
-- The PATH-stripped launcher case: the proxy is started with an empty `PATH` and an absolute binary path, as Claude Desktop does, and must serve `tools/list`.
+- The PATH-stripped launcher case: the proxy is started with an empty `PATH` (and with `env -i`) and absolute binary paths, as Claude Desktop does, and must serve `tools/list`; a bare upstream name or a PATH-dependent wrapper must fail fast with the cause on stderr (`tests/integration/test_launcher_path.py`, CI job `client-smoke`, no Docker).
 
 Run: `make test-integration` (needs Docker). Images are built from pinned upstream commits in `tests/images/`; the pin is bumped by a weekly scheduled workflow that opens a pull request when tier 2 still passes, and an issue when it does not.
 
-Fake device: `tests/fakedevice/` is a Python asyncssh server. It selects a vendor persona from the username suffix (`admin@eos`, `admin@junos`), answers `show` commands from `tests/fakedevice/responses/<vendor>/`, echoes config lines, and simulates `commit confirmed`, `configure session` and `checkpoint` state so drift and rollback paths can be exercised without an image. It never needs a licence.
+Fake device: `tests/fixtures/device/fake_ssh.py` is a Python asyncssh server. Today (T0.5) it serves the SSH exec channel with one vendor persona chosen by `--vendor`, answers `show` commands from `tests/fixtures/device/transcripts/<vendor>/`, and logs every command so a test can prove what reached the device. Still planned for the M3 drivers: interactive prompts, echoing config lines, and simulated `commit confirmed`, `configure session` and `checkpoint` state, so drift and rollback paths can be tested without an image. It never needs a licence.
 
 ## Conformance suite
 

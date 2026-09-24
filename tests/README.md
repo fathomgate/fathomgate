@@ -1,16 +1,17 @@
 # NetGuard Python companion
 
 Everything a contributor without a Go toolchain needs: a linter for policy
-files, the redaction fixture corpus, and the integration tests that will run
-against real upstream MCP servers once the proxy transport lands (M0).
+files, the redaction fixture corpus, and the tier 2 integration tests that run
+`netguard serve` in front of real upstream MCP servers.
 
 ```
 tests/
   pyproject.toml        uv-friendly project: pytest, pyyaml, mcp
   policy_lint/          validate policy YAML against the DSL schema (python -m policy_lint)
   unit/                 tier 1: no network
-  integration/          tier 2: spawn `netguard serve` + real MCP server (skipped until M0)
+  integration/          tier 2: spawn `netguard serve` + real MCP server + fake device
   fixtures/configs/     sanitised running-configs with annotated FAKE secrets
+  fixtures/device/      fake SSH device (asyncssh) and its canned transcripts
   conformance/          official MCP conformance suite vs netguard serve: relay.py, baselines (make conformance)
 ```
 
@@ -20,7 +21,9 @@ tests/
 cd tests
 uv run --extra dev pytest unit -q            # tier 1
 uv run python -m policy_lint ../policies/examples/prod-approval.yaml
-uv run pytest integration -q                 # tier 2 (currently all skipped)
+# tier 2: needs bin/netguard (make build) and netdev-ssh-mcp v1.6.6, either the
+# release binary or `go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6`
+NETGUARD_UPSTREAM=/abs/path/to/netdev-ssh-mcp uv run --extra integration pytest integration -m tier2 -v
 ```
 
 Policy *behaviour* is tested by the Go binary, not by Python:
@@ -42,6 +45,11 @@ a mock.
 ## Status
 
 - Tier 1: live (`unit/`, plus the Go suites).
-- Tier 2: `integration/test_passthrough.py` shows the intended shape and is
-  skipped with reason `M0: proxy transport not implemented`.
+- Tier 2: live for netdev-ssh-mcp v1.6.6 (CI job `client-smoke`, no Docker).
+  `integration/test_passthrough.py` covers matrix row 1 (prefixed `tools/list`
+  and a read-only call through to the fake device);
+  `integration/test_launcher_path.py` covers row 22 (the PATH-stripped
+  launcher). The M1 decision and audit cases are skipped until the pipeline
+  is wired. Without `NETGUARD_UPSTREAM` the tier 2 tests skip; CI sets
+  `NETGUARD_TIER2_REQUIRED=1` so they cannot skip there.
 - Tier 3: workflow skeleton only.

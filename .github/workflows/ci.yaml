@@ -82,6 +82,47 @@ jobs:
           path: tests/conformance/results/
           retention-days: 7
 
+  # Tier 2 client smoke (T0.5, matrix rows 1 and 22): netguard serve in front
+  # of the real netdev-ssh-mcp release binary, pinned by version and sha256,
+  # with the fake SSH device standing in for the router. No Docker, no
+  # network beyond the downloads. NETGUARD_TIER2_REQUIRED=1 turns a missing
+  # binary into a failure, so this job cannot go green by skipping. Bump the
+  # version here, in tests/integration/conftest.py and in the matrix together.
+  client-smoke:
+    name: tier2 client smoke (netdev-ssh-mcp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NETDEV_SSH_MCP_VERSION: 1.6.6
+      NETDEV_SSH_MCP_SHA256: 256ab497ae75d1e23b4bd715c0afbcacc3e9726dd4280a02f9307a9f42575621
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: build netguard
+        run: make build
+      - name: fetch netdev-ssh-mcp release binary
+        run: |
+          bin="netdev-ssh-mcp_${NETDEV_SSH_MCP_VERSION}_linux_amd64"
+          mkdir -p "$RUNNER_TEMP/upstream"
+          curl -fsSL -o "$RUNNER_TEMP/upstream/$bin" \
+            "https://github.com/krisiasty/netdev-ssh-mcp/releases/download/v${NETDEV_SSH_MCP_VERSION}/$bin"
+          echo "${NETDEV_SSH_MCP_SHA256}  $RUNNER_TEMP/upstream/$bin" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/upstream/$bin"
+          echo "NETGUARD_UPSTREAM=$RUNNER_TEMP/upstream/$bin" >> "$GITHUB_ENV"
+      - name: tier 2 through netguard serve (passthrough and PATH-stripped launcher)
+        working-directory: tests
+        env:
+          NETGUARD_TIER2_REQUIRED: "1"
+        run: uv run --extra integration pytest integration -m tier2 -v
+
   # The Windows key and log DACL code in internal/audit (T0.12) only compiles
   # and runs on Windows. Hosted windows-latest runners run elevated (the
   # runner account is an administrator with UAC off), so they hold
