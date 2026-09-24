@@ -123,11 +123,48 @@ jobs:
           echo "${NETDEV_SSH_MCP_SHA256}  $RUNNER_TEMP/upstream/$bin" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/upstream/$bin"
           echo "NETGUARD_UPSTREAM=$RUNNER_TEMP/upstream/$bin" >> "$GITHUB_ENV"
+      # Only this upstream's cases; the upa cases run in tier2-upa. A marker
+      # that selects nothing makes pytest exit 5, which fails the step.
       - name: tier 2 through netguard serve (passthrough and PATH-stripped launcher)
         working-directory: tests
         env:
           NETGUARD_TIER2_REQUIRED: "1"
-        run: uv run --extra integration pytest integration -m tier2 -v
+        run: uv run --extra integration pytest integration -m "tier2 and netdev_ssh_mcp" -v
+
+  # Tier 2 against the 2025-era upstream (T0.34, matrix row 2, M0 exit
+  # criterion 3): netguard serve in front of the real upa/mcp-netmiko-server,
+  # pinned by commit (git checks the id, the tests check main.py's sha256),
+  # with the fake SSH device answering netmiko's interactive shell. install.sh
+  # builds two Python 3.13 environments: requirements.txt (mcp 1.30.0, every
+  # wheel hash-checked by --require-hashes), which negotiates 2025-11-25, and
+  # the upstream's own uv.lock (mcp 1.6.0, hashes checked by uv sync --locked),
+  # whose case is a strict xfail until netguard can reach it. Runs on every
+  # pull request with no path filter; NETGUARD_TIER2_REQUIRED=1 turns a
+  # missing install into a failure, so it cannot go green by skipping.
+  tier2-upa:
+    name: tier2 upa/mcp-netmiko-server (2025 era)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: build netguard
+        run: make build
+      - name: install upa/mcp-netmiko-server (pinned commit, hash-checked dependencies)
+        run: tests/integration/upstreams/upa-mcp-netmiko-server/install.sh "$RUNNER_TEMP/upa" >> "$GITHUB_ENV"
+      - name: tier 2 through netguard serve (both agent eras, 2025-11-25 upstream)
+        working-directory: tests
+        env:
+          NETGUARD_TIER2_REQUIRED: "1"
+        run: uv run --extra integration pytest integration -m "tier2 and upa_mcp_netmiko_server" -v
 
   # The Windows key and log DACL code in internal/audit (T0.12) only compiles
   # and runs on Windows. Hosted windows-latest runners run elevated (the
