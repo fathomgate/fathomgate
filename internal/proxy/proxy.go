@@ -95,7 +95,7 @@ type Proxy struct {
 	server *mcp.Server
 	logger *slog.Logger
 	states *sealer          // requestState envelopes for stateless agents
-	now    func() time.Time // clock for the progress rate limit
+	now    func() time.Time // clock for the progress rate limit, orphan expiry and refusal log limit
 	// progressWait bounds how long a call's end waits for its queued
 	// progress to reach the agent (progressFinalWait; tests shorten it).
 	progressWait time.Duration
@@ -115,6 +115,9 @@ type Proxy struct {
 	locals     map[*mcp.ServerSession]string
 	connecting map[chan struct{}]struct{}
 	runs       int
+	// refusalLog rate-limits the Warn lines of refusals netguard could not
+	// attribute to one call (input.go).
+	refusalLog refusalLimiter
 	// requestKeys numbers the keys requestKey makes up for calls whose
 	// agent session netguard cannot name (input.go).
 	requestKeys atomic.Uint64
@@ -161,7 +164,10 @@ type upstream struct {
 	// closed session alive for the whole TTL. orphansOf counts them by
 	// principal; overflow holds, by principal, one record for that
 	// principal's ended calls past maxOrphansPerPrincipal (input.go,
-	// T0.44).
+	// T0.44). Together they hold at most 257 × (principals + 1) records
+	// per upstream (maxOrphansPerPrincipal keyed plus one overflow record
+	// for each configured principal and the local agent). Go maps do not
+	// shrink, so their memory stays at the high-water mark after pruning.
 	orphans   map[string]orphan
 	orphansOf map[string]int
 	overflow  map[string]orphan

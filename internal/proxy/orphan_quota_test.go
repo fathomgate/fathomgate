@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -71,8 +72,21 @@ func TestHTTPStatelessOrphanPerRequest(t *testing.T) {
 	}
 	over := len(up.overflow)
 	up.mu.Unlock()
-	if len(keys) != 2 || over != 0 {
+	if len(keys) != 2 || keys[0] == keys[1] || over != 0 {
 		t.Fatalf("two stateless requests left orphans %q and %d overflow records; want two distinct keys and none", keys, over)
+	}
+
+	// Alice's own 2026-era call to a prompting tool: the orphan rule fires
+	// (her earlier requests' records are foreign to this one), but her
+	// agent could not be prompted anyway, so the refusal is ADR 0014's.
+	// Its one Warn line says that, and names no ended calls (L1 in the
+	// security review of PR #82).
+	if _, err := alice.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"}); err == nil || !strings.Contains(err.Error(), "ADR 0014") {
+		t.Fatalf("alice's prompt: %v; want the upstream's error quoting the ADR 0014 refusal", err)
+	}
+	buf.waitFor(t, "ADR 0014")
+	if logs := buf.String(); strings.Contains(logs, "ended_calls_of") || !strings.Contains(logs, "in_flight_of=[alice]") {
+		t.Fatalf("the ADR 0014 refusal's log line:\n%s\nwant in_flight_of=[alice] and no ended_calls_of", logs)
 	}
 
 	var prompts atomic.Int32
@@ -97,7 +111,7 @@ func TestHTTPStatelessOrphanPerRequest(t *testing.T) {
 	if strings.Contains(got, "alice") {
 		t.Fatalf("bob was told the other principal's name: %q", got)
 	}
-	buf.waitFor(t, "blocked_by=[alice]")
+	buf.waitFor(t, "ended_calls_of=[alice]")
 
 	// Past alice's orphan TTL: her orphans are reaped, logged with her
 	// principal, and bob's prompt is relayed.
@@ -122,8 +136,8 @@ func TestHTTPStatelessOrphanPerRequest(t *testing.T) {
 			reaps++
 		}
 	}
-	if reaps != 2 {
-		t.Fatalf("%d reap lines name alice, want 2 (one per stateless request):\n%s", reaps, buf.String())
+	if reaps != 3 {
+		t.Fatalf("%d reap lines name alice, want 3 (one per stateless request):\n%s", reaps, buf.String())
 	}
 }
 
@@ -196,14 +210,13 @@ func TestOrphanQuotaPerPrincipal(t *testing.T) {
 	// Bob, within alice's TTL: truly ambiguous, refused, and the log can
 	// name alice (and only alice) as the reason.
 	b := callOn("sB", "bob")
-	if at := up.attribute(t0.Add(ttl / 2)); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.blockedBy, []string{"alice"}) {
-		t.Fatalf("bob within alice's TTL: %v, blocked by %q; want refused, blocked by alice", at.err, at.blockedBy)
+	if at := up.attribute(t0.Add(ttl / 2)); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.endedCallsOf, []string{"alice"}) {
+		t.Fatalf("bob within alice's TTL: %v, ended calls of %q; want refused for alice's", at.err, at.endedCallsOf)
 	}
-	// Alice's keyed records have expired; her overflow record still blocks
-	// bob, and blocks alice's own session too (it cannot tell which of her
-	// sessions its calls were).
-	if at := up.attribute(t0.Add(ttl)); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.blockedBy, []string{"alice"}) {
-		t.Fatalf("bob with only alice's overflow live: %v, blocked by %q; want refused, blocked by alice", at.err, at.blockedBy)
+	// Alice's keyed records have expired; her overflow record still refuses
+	// bob's prompts.
+	if at := up.attribute(t0.Add(ttl)); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.endedCallsOf, []string{"alice"}) {
+		t.Fatalf("bob with only alice's overflow live: %v, ended calls of %q; want refused for alice's", at.err, at.endedCallsOf)
 	}
 	// Ending bob's call prunes alice's keyed records, each reported with
 	// her principal; her overflow record is still live.
@@ -216,9 +229,14 @@ func TestOrphanQuotaPerPrincipal(t *testing.T) {
 			t.Fatalf("reaped %+v at t0+ttl; want alice's keyed records only", o)
 		}
 	}
+	// It refuses alice's own session too: netguard cannot tell which of her
+	// sessions its calls were. Bob's record (live until t0+1.5ttl) refuses
+	// her as well, so the exact set is what shows her overflow record
+	// counts against her: it fails if attribute skips the caller's own
+	// principal's overflow record.
 	a := callOn("sA", "alice")
-	if at := up.attribute(t0.Add(ttl)); !errors.Is(at.err, errEndedElsewhere) {
-		t.Fatalf("alice's own session with her overflow live: %v; want refused", at.err)
+	if at := up.attribute(t0.Add(ttl)); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.endedCallsOf, []string{"alice", "bob"}) {
+		t.Fatalf("alice's own session with her overflow live: %v, ended calls of %q; want refused for alice's and bob's", at.err, at.endedCallsOf)
 	}
 	up.end(a, t0.Add(ttl), time.Time{})
 	// Once alice's overflow expires, bob's own live record does not block
@@ -275,10 +293,10 @@ func TestOrphanQuotaLogged(t *testing.T) {
 	}
 }
 
-// TestBlockedByNamesLocalAgent: the local agent has no principal, so a
+// TestEndedCallsOfNamesLocalAgent: the local agent has no principal, so a
 // refusal its ended call causes names it "(local)" in the log, a name no
 // configured principal can have.
-func TestBlockedByNamesLocalAgent(t *testing.T) {
+func TestEndedCallsOfNamesLocalAgent(t *testing.T) {
 	if validPrincipalName(localPrincipal) == nil {
 		t.Fatalf("%q is a valid principal name; the log could not tell it from one", localPrincipal)
 	}
@@ -286,7 +304,94 @@ func TestBlockedByNamesLocalAgent(t *testing.T) {
 	up := &upstream{name: testServer}
 	up.end(up.begin(context.Background(), call{sessionKey: localKeyPrefix + "1"}, 0), t0, t0.Add(time.Minute))
 	up.begin(context.Background(), call{sessionKey: "sB", principal: "bob"}, 0)
-	if at := up.attribute(t0); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.blockedBy, []string{localPrincipal}) {
-		t.Fatalf("%v, blocked by %q; want refused, blocked by %q", at.err, at.blockedBy, localPrincipal)
+	if at := up.attribute(t0); !errors.Is(at.err, errEndedElsewhere) || !slices.Equal(at.endedCallsOf, []string{localPrincipal}) {
+		t.Fatalf("%v, ended calls of %q; want refused for %q", at.err, at.endedCallsOf, localPrincipal)
+	}
+}
+
+// TestUnattributedRefusalLog (L2 and L4 in the security review of PR #82):
+// a prompt refused because more than one call is in flight is logged with
+// the principals of those calls (in_flight_of), and the unattributed
+// refusal lines are rate-limited per server, class and principal set: one
+// line per refusalLogInterval, the next one carrying how many were held
+// back.
+func TestUnattributedRefusalLog(t *testing.T) {
+	buf := newSyncBuffer()
+	clk := &testClock{now: time.Unix(1_000_000, 0)}
+	p := &Proxy{logger: slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})), now: clk.Now}
+	up := &upstream{name: testServer}
+	a := up.begin(context.Background(), call{sessionKey: "sA", tool: "t", principal: "alice", agent: agentPeer{version: v2025, canElicit: true}}, 0)
+	b := up.begin(context.Background(), call{sessionKey: "sB", tool: "t", principal: "bob"}, 0)
+	ask := p.upstreamElicitation(up)
+	for range 5 {
+		if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
+			t.Fatal("a prompt with two calls in flight was relayed")
+		}
+	}
+	logs := buf.String()
+	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 1 || !strings.Contains(logs, `in_flight_of="[alice bob]"`) || !strings.Contains(logs, "suppressed=0") {
+		t.Fatalf("%d refusal lines within one interval; want 1 with in_flight_of=[alice bob] suppressed=0:\n%s", n, logs)
+	}
+	clk.Add(refusalLogInterval)
+	if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
+		t.Fatal("a prompt with two calls in flight was relayed")
+	}
+	logs = buf.String()
+	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 2 || !strings.Contains(logs, "suppressed=4") {
+		t.Fatalf("%d refusal lines after the interval; want 2, the second with suppressed=4:\n%s", n, logs)
+	}
+	// Another principal set is its own line, at once.
+	up.end(b, clk.Now(), clk.Now().Add(time.Minute))
+	if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
+		t.Fatal("a prompt was relayed while bob's ended call was live")
+	}
+	if logs := buf.String(); !strings.Contains(logs, "ended_calls_of=[bob]") {
+		t.Fatalf("the orphan refusal was held back by the in-flight one's limit:\n%s", logs)
+	}
+	up.end(a, clk.Now(), time.Time{})
+}
+
+// TestRefusalLimiterBounded: the rate limiter keeps at most
+// maxRefusalLogKeys entries, and making room never holds a line back.
+func TestRefusalLimiterBounded(t *testing.T) {
+	var l refusalLimiter
+	t0 := time.Unix(1_000_000, 0)
+	for i := range maxRefusalLogKeys + 10 {
+		if ok, _ := l.allow(strconv.Itoa(i), t0); !ok {
+			t.Fatalf("a new key %d was held back", i)
+		}
+	}
+	if n := len(l.last); n > maxRefusalLogKeys {
+		t.Fatalf("%d limiter entries, want at most %d", n, maxRefusalLogKeys)
+	}
+}
+
+// TestStatelessSessionHasNoID pins what N1 in the security review of
+// PR #82 relies on: the session go-sdk's stateless handler gives a
+// 2026-era request has no id, so it can never be keyed "s<id>". netguard
+// also checks the era (agentSessionKey), but a go-sdk bump that gives
+// these sessions ids should fail here, loudly.
+func TestStatelessSessionHasNoID(t *testing.T) {
+	h := newHTTPHarness(t, httpSetup{})
+	var mu sync.Mutex
+	var ids []string
+	h.proxy.server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "tools/call" {
+				mu.Lock()
+				ids = append(ids, req.GetSession().ID())
+				mu.Unlock()
+			}
+			return next(ctx, method, req)
+		}
+	})
+	cs := h.connect(t, v2026, tokAlice, nil)
+	if _, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ids) != 1 || ids[0] != "" {
+		t.Fatalf("stateless tools/call session ids %q, want one empty id", ids)
 	}
 }

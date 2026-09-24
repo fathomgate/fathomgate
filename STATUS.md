@@ -79,7 +79,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
-| 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.44 | [T0.44 code part ready for review: a key per stateless request, a per-principal orphan quota, and `blocked_by` in the log](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.44.md) |
+| 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.44 | [T0.44 code part ready for review: a key per stateless request, a per-principal orphan quota, and the principals behind each refusal in the log](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.44.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.42 | [T0.42, T0.43, T0.45 and the T0.44 doc part ready for review: the post-merge security review of T0.40 applied](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.42.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.40 | [T0.40 ready for re-review: an upstream prompt for a call that ended normally no longer reaches another session's human](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.40.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.39.review | [T0.39 review fixes are in PR #79 (PR #77 had merged): answered handshakes no longer restart, the budget bounds both attempts, the probe tests are deterministic](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.39.review.md) |

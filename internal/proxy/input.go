@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -83,7 +84,8 @@ const requestKeyPrefix = "r"
 //     (localKeyPrefix and the Run's number).
 //   - A stateful session over the HTTP listener has a session id, unique for
 //     all time (go-sdk generates 130 random bits and netguard never reuses
-//     one); that id, tagged "s", is the key.
+//     one); that id, tagged "s", is the key. A stateless agent's session
+//     is never keyed by an id, even if go-sdk ever gives it one.
 //   - Anything else gets a key of its own that no other call gets
 //     (requestKey): a per-request session of the stateless era over the
 //     listener, a call with no session at all, or a local call whose
@@ -102,7 +104,11 @@ const requestKeyPrefix = "r"
 // neither can be a local agent's.
 func (p *Proxy) agentSessionKey(ctx context.Context, c call) string {
 	if ss := c.agent.session; ss != nil {
-		if id := ss.ID(); id != "" {
+		// A stateless agent's session never owns another call, whatever
+		// its id: only a stateful session's id names a session (N1 in the
+		// security review of PR #82). go-sdk's stateless handler gives its
+		// per-request sessions no id today (TestStatelessSessionHasNoID).
+		if id := ss.ID(); id != "" && !c.agent.stateless() {
 			return "s" + id
 		}
 		if c.principal == "" {
@@ -411,8 +417,8 @@ type orphan struct {
 // outside the lock. overflowed reports that f's principal has just gone
 // over its quota on u, which the caller logs too.
 //
-// Every call has a key of its own session's (agentSessionKey), so every
-// ended call is a table entry of its principal's. A principal holds at most
+// agentSessionKey gives every call a key, so every ended call is a table
+// entry of its principal's. A principal holds at most
 // maxOrphansPerPrincipal of them per upstream (T0.44). Past that, its
 // further ended calls are folded into one overflow record of its own,
 // which is foreign to every call, that principal's own sessions included:
@@ -522,37 +528,47 @@ func (u *upstream) attribute(now time.Time) attribution {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if len(u.calls) != 1 {
-		return attribution{err: fmt.Errorf("it cannot be attributed to one call (%d in flight)", len(u.calls))}
+		in := newPrincipalSet()
+		for c := range u.calls {
+			in.add(c.principal)
+		}
+		return attribution{err: fmt.Errorf("it cannot be attributed to one call (%d in flight)", len(u.calls)), inFlightOf: in.sorted()}
 	}
 	var f *inflight
 	for c := range u.calls {
 		f = c
 	}
-	var by map[string]struct{}
-	add := func(principal string) {
-		if principal == "" {
-			principal = localPrincipal
-		}
-		if by == nil {
-			by = make(map[string]struct{})
-		}
-		by[principal] = struct{}{}
-	}
+	ended := newPrincipalSet()
 	for key, o := range u.orphans {
 		if now.Before(o.expires) && key != f.sessionKey {
-			add(o.principal)
+			ended.add(o.principal)
 		}
 	}
 	for principal, o := range u.overflow {
 		if now.Before(o.expires) {
-			add(principal)
+			ended.add(principal)
 		}
 	}
-	if by != nil {
-		return attribution{sole: f, err: errEndedElsewhere, blockedBy: slices.Sorted(maps.Keys(by))}
+	if len(ended) > 0 {
+		return attribution{sole: f, err: errEndedElsewhere, endedCallsOf: ended.sorted()}
 	}
 	return attribution{sole: f}
 }
+
+// principalSet collects principal names for a refusal's log line, the
+// local agent (no principal) as localPrincipal.
+type principalSet map[string]struct{}
+
+func newPrincipalSet() principalSet { return make(principalSet) }
+
+func (s principalSet) add(principal string) {
+	if principal == "" {
+		principal = localPrincipal
+	}
+	s[principal] = struct{}{}
+}
+
+func (s principalSet) sorted() []string { return slices.Sorted(maps.Keys(s)) }
 
 // attribution is what attribute found. A prompt may be relayed only when
 // err is nil, and then to sole. sole is also set when there is exactly one
@@ -561,16 +577,20 @@ func (u *upstream) attribute(now time.Time) attribution {
 type attribution struct {
 	sole *inflight
 	err  error
-	// blockedBy names the principals whose live ended calls made the
-	// orphan rule refuse, sorted, for the log only: it never reaches the
-	// agent or the upstream (T0.44, S4 in the security review of T0.40).
-	// The local agent, which has no principal, is localPrincipal.
-	blockedBy []string
+	// endedCallsOf names the principals whose live ended calls made the
+	// orphan rule refuse (err is errEndedElsewhere), and inFlightOf the
+	// principals of the calls in flight when there was not exactly one.
+	// Both are sorted and for the log only: they never reach the agent or
+	// the upstream (T0.44; S4 in the security review of T0.40, L2 in the
+	// review of PR #82). The local agent, which has no principal, is
+	// localPrincipal.
+	endedCallsOf []string
+	inFlightOf   []string
 }
 
-// localPrincipal names the local agent (no principal) in blockedBy. It is
-// not a valid principal name (validPrincipalName), so it cannot be
-// mistaken for one.
+// localPrincipal names the local agent (no principal) in a refusal's log
+// line. It is not a valid principal name (validPrincipalName), so it
+// cannot be mistaken for one.
 const localPrincipal = "(local)"
 
 // promptable reports why f's agent cannot be shown any prompt from this
@@ -645,7 +665,7 @@ func (p *Proxy) endCall(u *upstream, f *inflight, now time.Time) {
 	reaped, overflowed := u.end(f, now, now.Add(p.orphanTTL()))
 	p.logReaped(u, reaped)
 	if overflowed {
-		p.logger.Warn("a principal's ended calls on this upstream exceed its orphan quota; further ones refuse every agent session's prompts on it until they expire",
+		p.logger.Warn("a principal's ended calls on this upstream exceed its orphan quota; further ones refuse every agent session's prompts on it until none has ended for the orphan TTL",
 			"server", u.name, "principal", f.principal, "quota", maxOrphansPerPrincipal)
 	}
 }
@@ -672,10 +692,99 @@ func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 	return r
 }
 
+// refuseUnattributed refuses a prompt attribute could not attribute to one
+// call: it records r as a note on every call in flight on u, since any of
+// them may be the one waiting, and logs one Warn line naming the
+// principals behind the refusal (ended_calls_of for the orphan rule,
+// in_flight_of when not exactly one call was in flight), rate-limited
+// (warnRefusal). It returns r as the error the upstream receives.
+func (p *Proxy) refuseUnattributed(u *upstream, at attribution, r *refusal) error {
+	u.mu.Lock()
+	for c := range u.calls {
+		if c.note == nil {
+			c.note = r
+		}
+	}
+	u.mu.Unlock()
+	if errors.Is(at.err, errEndedElsewhere) {
+		p.warnRefusal(u, r, "orphan", "ended_calls_of", at.endedCallsOf)
+	} else {
+		p.warnRefusal(u, r, "count", "in_flight_of", at.inFlightOf)
+	}
+	return r
+}
+
+// warnRefusal logs an unattributed refusal at Warn with the principals
+// under key, at most once per refusalLogInterval for each server, class
+// of refusal and principal set (L4 in the security review of PR #82): an
+// upstream that asks in a loop must not flood the log. A line carries
+// suppressed, the number of lines for the same server, class and
+// principals held back since the last one; a burst's count is reported by
+// the next line, if any.
+func (p *Proxy) warnRefusal(u *upstream, r *refusal, class, key string, principals []string) {
+	ok, suppressed := p.refusalLog.allow(u.name+"\x00"+class+"\x00"+strings.Join(principals, ","), p.now())
+	if !ok {
+		return
+	}
+	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind,
+		"reason", r.reason, "attributed", false, key, principals, "suppressed", suppressed)
+}
+
+const (
+	// refusalLogInterval is the least time between two Warn lines for the
+	// same unattributed refusal (warnRefusal).
+	refusalLogInterval = 10 * time.Second
+	// maxRefusalLogKeys bounds the rate limiter's memory. Past it, entries
+	// older than refusalLogInterval are dropped, and if none is, all are:
+	// that can only let a line through early, never hide one.
+	maxRefusalLogKeys = 1024
+)
+
+// refusalLimiter rate-limits the Warn lines of unattributed refusals.
+// The zero value is ready to use.
+type refusalLimiter struct {
+	mu   sync.Mutex
+	last map[string]refusalLogEntry
+}
+
+type refusalLogEntry struct {
+	at         time.Time
+	suppressed int
+}
+
+// allow reports whether a line for key may be logged at now and, if so,
+// how many lines for key were held back since the last one.
+func (l *refusalLimiter) allow(key string, now time.Time) (bool, int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, seen := l.last[key]
+	if seen && now.Sub(e.at) < refusalLogInterval {
+		e.suppressed++
+		l.last[key] = e
+		return false, 0
+	}
+	if l.last == nil {
+		l.last = make(map[string]refusalLogEntry)
+	}
+	if !seen && len(l.last) >= maxRefusalLogKeys {
+		for k, old := range l.last {
+			if now.Sub(old.at) >= refusalLogInterval {
+				delete(l.last, k)
+			}
+		}
+		if len(l.last) >= maxRefusalLogKeys {
+			clear(l.last)
+		}
+	}
+	l.last[key] = refusalLogEntry{at: now}
+	return true, e.suppressed
+}
+
 // refuseAsNote records r as a note on f alone: a refusal of a prompt that
 // was not attributed to f, worded from f because f is the only call that
 // could have received it. Like every note it is only appended to f's
-// result, never put in place of an upstream error or result. It logs r and
+// result, never put in place of an upstream error or result. It logs r,
+// rate-limited and naming f's principal as in_flight_of (warnRefusal), and
 // returns it as the error the upstream receives.
 func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
 	u.mu.Lock()
@@ -683,7 +792,9 @@ func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
 		f.note = r
 	}
 	u.mu.Unlock()
-	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason, "attributed", false)
+	in := newPrincipalSet()
+	in.add(f.principal)
+	p.warnRefusal(u, r, "sole:"+r.reason.Error(), "in_flight_of", in.sorted())
 	return r
 }
 
@@ -710,14 +821,6 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		p.logReaped(u, u.prune(now))
 		at := u.attribute(now)
 		if at.err != nil {
-			if len(at.blockedBy) > 0 {
-				// Which principals' ended calls stood in the way, so a
-				// refused prompt can be explained from the log. Principal
-				// names only, never session ids; none of it reaches the
-				// agent or the upstream (T0.44, S4).
-				p.logger.Warn("an upstream prompt was refused: other agent sessions' ended calls on this upstream may still be running",
-					"server", u.name, "blocked_by", at.blockedBy)
-			}
 			// When one call is in flight but the orphan rule refuses it,
 			// and its agent could not have been shown any prompt anyway,
 			// say that instead: nothing crosses to a human either way, and
@@ -748,7 +851,10 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 					return nil, p.refuseAsNote(u, s, newRefusal(u.name, s.tool, "elicitation", err))
 				}
 			}
-			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", at.err))
+			// One Warn line per refusal, naming the principals behind it
+			// (ended_calls_of or in_flight_of), so a refused prompt can be
+			// explained from the log (T0.44, S4).
+			return nil, p.refuseUnattributed(u, at, newRefusal(u.name, "", "elicitation", at.err))
 		}
 		f := at.sole
 		if err := promptable(f); err != nil {
