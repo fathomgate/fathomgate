@@ -1,0 +1,13 @@
+{
+  "platform": "eos",
+  "rules": [
+    "cisco-snmp-community",
+    "cisco-password-type"
+  ],
+  "secrets": [
+    "FAKE-private",
+    "FAKE-public",
+    "$1$FAKEsalt$FAKEenableMd5Hash0000.",
+    "$1$FAKEsalt$FAKEadminMd5Hash00000/"
+  ]
+}
