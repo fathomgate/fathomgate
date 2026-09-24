@@ -279,18 +279,18 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     blocked_by: [T0.27, T0.40]
     adr: "0016"
     matrix: [2, 23]
-    notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well. Starts after T0.40 (both change input.go and http.go). T0.40 and T0.44 have merged, so this is unblocked (2026-09-24). It is the last task T0.31 waits on.'
+    notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well. Starts after T0.40 (both change input.go and http.go). T0.40 and T0.44 have merged, so this is unblocked (2026-09-24). It is the last task T0.31 waits on. Merged in PR #85 2026-09-24 (a8a7be0) before its reviews (maintainer); CI green on the self-hosted runners, -race included. The sealed state is ng3., with transport and principal bound as AES-GCM additional data; a cross-principal or cross-transport replay fails exactly like a forgery; ng1./ng2. get ''issued by an earlier netguard process''. call carries transport and principal; the progress relay never shares a token. ADR 0016 amendment row, profile-schema 8.4 cross-session attribution rule. Post-merge security and Go reviews both approve (no oracle, transport not spoofable, AAD unambiguous); their follow-ups are T0.48. Security reviewer on the log naming only the presenter: acceptable for M0; issuer lookup belongs to the M3 single-use id store, never trial decryption.'
   - id: T0.31
     title: netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling
     package: cmd/netguard
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
     state: open
-    blocked_by: [T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44]
+    blocked_by: [T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48]
     adr: "0016"
     matrix: [23]
     notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/netguard''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself.'
@@ -429,6 +429,15 @@ tasks:
     state: open
     matrix: [2]
     notes: 'N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit.'
+  - id: T0.48
+    title: Apply the post-merge reviews of T0.30 (log tampered requestState retries, drop or use the unused progress owner fields, doc and test nits)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    adr: "0016"
+    matrix: [23]
+    notes: 'From the post-merge security and Go reviews of PR #85 (T0.30), both approve. Security L2 = Go 1: a same-principal retry that keeps a valid state but changes the arguments or tool after the human answered is refused with -32602 but never logged; call warnState on the post-open mismatch branches (input.go:285-289) with netguard''s own reason words, or narrow the 8.2 row; prefer logging. Security L1 = Go 2: progressRelay.sessionKey, transport and principal (progress.go:83-92) are written but read only by a test, while ADR 0016, 8.4 and the threat-model Progress token scope row cite them as a control; the guarantee is the unique token per request; remove them or give them a real reader, and reword the docs. Notes: 8.4 line 290 r<n> wording (stateless over the listener); state in the doc comment that the refused-state limiter key has no tool; add half a sentence on stateful sessions presenting a stateless request''s state of the same principal; pin transportOf fail-closed with Extra nil and a principal present; at least 128 bits (rand.Text is about 130); draw upToken only in watchProgress; name warnState in the refusalLimiter godoc; typed agentTransport; reword the TestCallCarriesTransportAndPrincipal godoc; t.Cleanup releasing TestProgressRelayPerSession''s gates on failure; add the 30-minute same-token residual to the cross-principal replay threat-model row. Must land before T0.31.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
