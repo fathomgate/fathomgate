@@ -62,8 +62,12 @@ type Proxy struct {
 	progressWait time.Duration
 	upstreams    map[string]*upstream // by server name
 	routes       map[string]route     // by prefixed tool name
-	closeOnce    sync.Once
-	closeErr     error
+	// limits caps and tracks tool calls per agent session and principal.
+	// It is set by HTTPHandler and nil on stdio, where one agent owns the
+	// process (calls.go).
+	limits    atomic.Pointer[callLimits]
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // route maps one agent-facing tool name to its upstream and unprefixed name.
@@ -400,8 +404,19 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 // Close ends every upstream session (for a stdio upstream: close its stdin,
 // wait, then terminate the process) and waits for the exit watchers. It is
 // idempotent.
+//
+// When an HTTP handler has been built, Close first cancels every tool call
+// in flight, refuses new ones, and closes every agent session. go-sdk's
+// session Close waits for the requests in flight rather than cancelling
+// them, so the calls are cancelled first.
 func (p *Proxy) Close() error {
 	p.closeOnce.Do(func() {
+		if l := p.limits.Load(); l != nil {
+			l.close()
+			for ss := range p.server.Sessions() {
+				_ = ss.Close()
+			}
+		}
 		names := make([]string, 0, len(p.upstreams))
 		for n := range p.upstreams {
 			names = append(names, n)
@@ -437,6 +452,12 @@ type call struct {
 	// sent upstream; netguard issues its own (progress.go).
 	progressToken any
 
+	// principal names the bearer token the request arrived with over the
+	// HTTP listener (HTTPOptions.Tokens); it is "" on stdio. It is
+	// attribution only, for the M4 audit line and (T0.30) the sealed
+	// requestState: never an approver identity (invariant 6).
+	principal string
+
 	// An MRTR retry from a stateless agent: its answers and the
 	// requestState netguard issued. Both are empty on a first call.
 	inputResponses mcp.InputResponseMap
@@ -452,6 +473,19 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 		if ignored > 0 {
 			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
 		}
+		// Over HTTP, a call over its session's or principal's cap is refused
+		// here, before anything reaches the upstream (T3 in the review of
+		// PR #63). The call's context is also cancelled when its session is
+		// deleted or the proxy closes (calls.go).
+		if l := p.limits.Load(); l != nil {
+			actx, release, refused := l.admit(ctx, c.principal, req.Session, prefixName(r.up.name, r.tool))
+			if refused != nil {
+				p.logger.Warn("call refused: too many in flight", "server", r.up.name, "tool", r.tool, "principal", c.principal)
+				return refused, nil
+			}
+			defer release()
+			ctx = actx
+		}
 		return p.dispatch(ctx, c)
 	}
 }
@@ -464,7 +498,7 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 // then goes up as a first call and an upstream that needs input asks again.
 // It returns how many answers it cleared.
 func newCall(r route, req *mcp.CallToolRequest) (call, int) {
-	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req)}
+	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req), principal: principalOf(req)}
 	ignored := 0
 	if req.Params != nil {
 		c.arguments = req.Params.Arguments
@@ -527,12 +561,21 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		"agent_protocol", c.agent.version, "upstream_protocol", up.version, "round", round)
 
 	f := up.begin(ctx, c, prompts)
-	defer up.end(f)
-	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now, p.progressWait); pr != nil {
+	pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now, p.progressWait)
+	if pr != nil {
 		up.watchProgress(pr)
-		defer up.unwatchProgress(pr)
 		params.SetProgressToken(pr.upToken)
 	}
+	// One deferred function, so the order is explicit: the call leaves the
+	// upstream's in-flight set first, and only then waits (up to
+	// progressWait) for its progress to reach the agent. The other way round
+	// (T1 in the review of PR #63), a stalled agent kept a stale entry there
+	// for that long, and a stateful upstream's prompt for another agent's
+	// call was refused as unattributable in the meantime.
+	defer func() {
+		up.end(f)
+		up.unwatchProgress(pr) // no-op when pr is nil
+	}()
 	for ; ; round++ {
 		res, err := up.session.CallTool(ctx, params)
 		own, note := up.refusalsFor(f)
