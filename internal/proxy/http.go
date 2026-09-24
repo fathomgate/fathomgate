@@ -264,12 +264,16 @@ func principalOf(req *mcp.CallToolRequest) string {
 // the listener's authentication sets TokenInfo; the stdio and in-memory
 // transports set neither. Anything else is a session Proxy.Run serves.
 //
-// It fails closed. A request with a principal (TokenInfo) is http whether
-// or not go-sdk set the header, so a go-sdk that stopped setting it cannot
-// make a listener call read as stdio. A request with no Extra is stdio and
-// has no principal either (principalOf), and that binding cannot open a
-// state issued over the listener, whose principal is never empty
-// (TestTransportOfFailsClosed).
+// A request with a principal (TokenInfo) is http whether or not go-sdk set
+// the header, so a go-sdk that stopped setting only the header cannot make
+// a listener call read as stdio. A request with no Extra is stdio and has
+// no principal either (principalOf), and that binding cannot open a state
+// issued over the listener, whose principal is never empty
+// (TestTransportOfFailsClosed). The other direction does not fail closed:
+// a listener call that arrived with no Extra at all would bind as the
+// local agent's {stdio, ""}. That is safe only while `fathomgate serve` never
+// runs Proxy.Run and the listener in one process (ADR 0016); T0.31 must
+// fix or re-state it.
 func transportOf(req *mcp.CallToolRequest) agentTransport {
 	if req != nil && req.Extra != nil && (req.Extra.Header != nil || req.Extra.TokenInfo != nil) {
 		return transportHTTP

@@ -315,16 +315,6 @@ func (p *Proxy) resume(c call) (resumed, error) {
 	return resumed{responses: out, upState: st.Up, round: st.Round, prompts: st.Prompts}, nil
 }
 
-// errStateOtherTool and errStateOtherArgs are the reasons warnState logs
-// for a state that opened but was issued for another call: fathomgate's own
-// words, naming nothing read from the envelope or the arguments. The agent
-// is told which prefixed tool the state was issued for (its own earlier
-// call); the log says only that it was another.
-var (
-	errStateOtherTool = errors.New("requestState was issued for another tool")
-	errStateOtherArgs = errors.New("arguments differ from the call that asked for input")
-)
-
 // warnState logs a requestState fathomgate refused, naming the principal and
 // transport that presented it, so an operator can tell whose client
 // replays, forges or holds stale states, or keeps a valid state and changes

@@ -327,7 +327,10 @@ func TestProgressRelayPerSession(t *testing.T) {
 	})
 	for who, cs := range agents {
 		wg.Go(func() {
-			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+			// t.Context is cancelled before the cleanups run, so on a
+			// failure the calls end and the cleanup's wg.Wait returns even
+			// if an upstream handler never reaches its gates.
+			res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
 				Meta: mcp.Meta{"progressToken": "p"}, Name: "netdev-ssh-mcp.progress_tagged", Arguments: map[string]any{"who": who},
 			})
 			mu.Lock()
@@ -483,11 +486,13 @@ func TestTransportOfFailsClosed(t *testing.T) {
 // refused -32602 and logged at Warn with fathomgate's own reason, naming the
 // presenter and no argument value or envelope content, under the refusal
 // rate limiter (T0.48, L2 in the security review of PR #85). Nothing
-// reaches the upstream.
+// reaches the upstream. The limiter runs on the proxy's injected clock, so
+// a slow runner cannot let a repeat through early.
 func TestTamperedRetryLogged(t *testing.T) {
 	buf := newSyncBuffer()
 	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	h := newHTTPHarness(t, httpSetup{logger: logger})
+	clk := &testClock{now: time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)}
+	h := newHTTPHarness(t, httpSetup{logger: logger, now: clk.Now})
 	alice := h.connect(t, v2026, tokAlice, manualMRTR())
 	args := map[string]any{"host": "core-rtr-01"}
 	const tamperedValue = "FAKE-tampered-host-7f3a"
@@ -509,19 +514,33 @@ func TestTamperedRetryLogged(t *testing.T) {
 	wantStateRefused(t, err, errors.New("requestState was issued for netdev-ssh-mcp.ask"), "up-state", upstreamPrompt)
 	buf.waitFor(t, errStateOtherTool.Error())
 
+	stateLines := func() []string {
+		var lines []string
+		for line := range strings.Lines(buf.String()) {
+			if strings.Contains(line, "fathomgate refused a requestState") {
+				lines = append(lines, line)
+			}
+		}
+		return lines
+	}
+	if lines := stateLines(); len(lines) != 2 {
+		t.Fatalf("want one line per reason (the repeat held back by the limiter), got %d:\n%s", len(lines), buf.String())
+	}
+
+	// One interval later the next changed-arguments retry is logged again,
+	// carrying the one held back.
+	clk.Add(refusalLogInterval)
+	_, err = retry(alice, tampered, state)
+	wantStateRefused(t, err, errStateOtherArgs, tamperedValue, "core-rtr-01", "up-state", upstreamPrompt)
+	lines := stateLines()
+	if len(lines) != 3 || !strings.Contains(lines[2], errStateOtherArgs.Error()) || !strings.Contains(lines[2], "suppressed=1") {
+		t.Fatalf("want a third line for the arguments reason with suppressed=1:\n%s", buf.String())
+	}
+
 	if n := len(h.rec.all()); n != before {
 		t.Fatalf("upstream saw %d refused retries", n-before)
 	}
 	log := buf.String()
-	var lines []string
-	for line := range strings.Lines(log) {
-		if strings.Contains(line, "fathomgate refused a requestState") {
-			lines = append(lines, line)
-		}
-	}
-	if len(lines) != 2 {
-		t.Fatalf("want one line per reason (the repeat held back by the limiter), got %d:\n%s", len(lines), log)
-	}
 	for _, line := range lines {
 		if !strings.Contains(line, "transport=http") || !strings.Contains(line, "principal=alice") || !strings.Contains(line, "server="+testServer) {
 			t.Errorf("line does not name the presenter: %s", line)

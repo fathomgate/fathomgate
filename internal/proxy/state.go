@@ -81,6 +81,14 @@ var (
 	errStateRetired  = errors.New("requestState was issued by an earlier fathomgate process; call the tool again without it")
 	errStateExpired  = errors.New("requestState has expired; call the tool again without it")
 	errStateTooLarge = errors.New("the sealed requestState would exceed the size fathomgate accepts")
+	// errStateOtherTool and errStateOtherArgs are for a state that opened
+	// but was issued for another call (resume, input.go). warnState logs
+	// them: fathomgate's own words, naming nothing read from the envelope or
+	// the arguments. The agent is told errStateOtherArgs, or for another
+	// tool which prefixed tool the state was issued for (its own earlier
+	// call); the log says only that it was another.
+	errStateOtherTool = errors.New("requestState was issued for another tool")
+	errStateOtherArgs = errors.New("arguments differ from the call that asked for input")
 )
 
 // agentTransport is the agent transport a call arrived on, as a call
