@@ -55,6 +55,7 @@ type Options struct {
 type Proxy struct {
 	server    *mcp.Server
 	logger    *slog.Logger
+	states    *sealer              // requestState envelopes for stateless agents
 	upstreams map[string]*upstream // by server name
 	routes    map[string]route     // by prefixed tool name
 	closeOnce sync.Once
@@ -75,9 +76,16 @@ type upstream struct {
 	name      string
 	transport mcp.Transport // to flush a Command's stderr on Close
 	session   *mcp.ClientSession
-	done      chan struct{}
-	err       error
-	closing   atomic.Bool
+	// version is the protocol version negotiated with the upstream, and so
+	// its era (eraOf): go-sdk tries server/discover first and falls back to
+	// the initialise handshake.
+	version string
+	done    chan struct{}
+	err     error
+	closing atomic.Bool
+
+	mu    sync.Mutex
+	calls map[*inflight]struct{} // calls in flight, for elicitation/create
 }
 
 // exited reports whether the upstream session has ended.
@@ -106,9 +114,14 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	states, err := newSealer()
+	if err != nil {
+		return nil, err
+	}
 	impl := &mcp.Implementation{Name: Name, Version: opts.Version}
 	p := &Proxy{
 		logger:    logger,
+		states:    states,
 		upstreams: make(map[string]*upstream, len(upstreams)),
 		routes:    make(map[string]route),
 		server: mcp.NewServer(impl, &mcp.ServerOptions{
@@ -145,22 +158,27 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		if err := p.addUpstreamTools(up, tools); err != nil {
 			return nil, err
 		}
-		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up))
+		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up), "protocol", up.version, "era", eraOf(up.version))
 	}
-	p.server.AddReceivingMiddleware(p.checkToolName)
+	p.server.AddReceivingMiddleware(refuseUndeclared, p.checkToolName)
 	return p, nil
 }
 
-// connectUpstream starts one upstream session and its exit watcher.
+// connectUpstream starts one upstream session and its exit watcher. go-sdk
+// negotiates the era: server/discover first (stateless, 2026-07-28), then the
+// initialise handshake (stateful, 2025-11-25 and older) if the upstream does
+// not know server/discover.
 func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u Upstream) (*upstream, error) {
+	up := &upstream{name: u.Server, transport: u.Transport, done: make(chan struct{})}
 	client := mcp.NewClient(impl, &mcp.ClientOptions{
 		Logger: slog.New(minLevel{p.logger.Handler(), slog.LevelWarn}),
-		// Advertise nothing: no roots, no sampling, no elicitation. An
-		// upstream prompt must never reach the agent unlabelled (M3 adds
-		// origin-labelled elicitation); until then netguard refuses it.
-		Capabilities: &mcp.ClientCapabilities{},
+		// Form elicitation only (the handler makes go-sdk advertise it): no
+		// roots, no sampling. Upstream prompts reach the agent only
+		// relabelled with their origin (input.go).
+		Capabilities:       &mcp.ClientCapabilities{},
+		ElicitationHandler: p.upstreamElicitation(up),
 		// Do not let go-sdk answer MRTR input requests on our behalf;
-		// forward sees them and refuses them itself.
+		// forward relabels them and puts them to the agent itself.
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
 	tt := &trackedTransport{Transport: u.Transport}
@@ -170,9 +188,12 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// unsupported protocol version, for one), so a spawned upstream
 		// could outlive the error. Kill it and close the connection.
 		tt.kill()
-		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, err)
+		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, escapedError{err})
 	}
-	up := &upstream{name: u.Server, transport: u.Transport, session: cs, done: make(chan struct{})}
+	up.session = cs
+	if ir := cs.InitializeResult(); ir != nil {
+		up.version = ir.ProtocolVersion
+	}
 	p.upstreams[u.Server] = up
 	go func() {
 		defer close(up.done)
@@ -257,7 +278,7 @@ func listTools(ctx context.Context, up *upstream) ([]*mcp.Tool, error) {
 	tools := make([]*mcp.Tool, 0, 16)
 	for t, err := range up.session.Tools(ctx, nil) {
 		if err != nil {
-			return nil, fmt.Errorf("proxy: upstream %s: tools/list: %w", up.name, err)
+			return nil, fmt.Errorf("proxy: upstream %s: tools/list: %w", up.name, escapedError{err})
 		}
 		if len(tools) == maxUpstreamTools {
 			return nil, fmt.Errorf("proxy: upstream %s: tools/list: more than %d tools", up.name, maxUpstreamTools)
@@ -394,19 +415,30 @@ func (p *Proxy) Close() error {
 	return p.closeErr
 }
 
-// call is one agent tools/call after the prefix has been resolved.
+// call is one agent tools/call after the prefix has been resolved. It is
+// what M1's pipeline and audit read: the agent's era is in agent.version,
+// the upstream's in up.version.
 type call struct {
 	up        *upstream
 	tool      string          // unprefixed upstream tool name
 	arguments json.RawMessage // as received from the agent, not yet parsed
+	agent     agentPeer
+
+	// An MRTR retry from a stateless agent: its answers and the
+	// requestState netguard issued. Both are empty on a first call.
+	inputResponses mcp.InputResponseMap
+	requestState   string
 }
 
-// handler is the go-sdk tool handler for one route.
+// handler is the go-sdk tool handler for one route. The agent's _meta is
+// read for era detection only (go-sdk does that) and never forwarded.
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		c := call{up: r.up, tool: r.tool}
+		c := call{up: r.up, tool: r.tool, agent: agentOf(req)}
 		if req.Params != nil {
 			c.arguments = req.Params.Arguments
+			c.inputResponses = req.Params.InputResponses
+			c.requestState = req.Params.RequestState
 		}
 		return p.dispatch(ctx, c)
 	}
@@ -424,33 +456,120 @@ func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, erro
 // forward sends c to its upstream under the agent's request context, so an
 // agent cancellation cancels the upstream call.
 //
-// Outcomes, in order: the upstream result is returned unchanged; an upstream
-// request for input (MRTR elicitation, sampling or roots) is refused by
-// netguard with a tool error; an upstream JSON-RPC error is relayed through
-// relayUpstreamError; an upstream that has exited, before or during the call,
-// yields a tool error (isError) naming it.
+// Nothing of the agent's request crosses except the tool name and
+// arguments, and on an MRTR retry the allow-listed answers (resume). The
+// upstream sees netguard's own identity, era and capabilities: go-sdk adds
+// them to _meta toward a stateless upstream.
+//
+// Outcomes, in order: an upstream request for input is relabelled and put
+// to the agent (input_required for a stateless agent, elicitation/create
+// for a stateful one) or refused with a tool error; the upstream result is
+// returned without its _meta; an upstream JSON-RPC error is relayed through
+// relayUpstreamError; an upstream that has exited, before or during the
+// call, yields a tool error (isError) naming it.
 func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error) {
 	up := c.up
-	if up.exited() {
-		return upstreamDown(up), nil
-	}
 	params := &mcp.CallToolParams{Name: c.tool}
 	if len(c.arguments) > 0 && string(c.arguments) != "null" {
 		params.Arguments = c.arguments
 	}
-	res, err := up.session.CallTool(ctx, params)
-	if err == nil {
+	round, prompts := 0, 0
+	if c.requestState != "" || len(c.inputResponses) > 0 {
+		rs, err := p.resume(c)
+		if err != nil {
+			return nil, err
+		}
+		params.InputResponses, params.RequestState = rs.responses, rs.upState
+		round, prompts = rs.round, rs.prompts
+	}
+	if up.exited() {
+		return upstreamDown(up), nil
+	}
+	p.logger.Debug("forwarding", "server", up.name, "tool", c.tool,
+		"agent_protocol", c.agent.version, "upstream_protocol", up.version, "round", round)
+
+	f := up.begin(ctx, c, prompts)
+	defer up.end(f)
+	for ; ; round++ {
+		res, err := up.session.CallTool(ctx, params)
+		own, note := up.refusalsFor(f)
+		if err != nil {
+			if own != nil && ctx.Err() == nil {
+				// The upstream failed after netguard refused this call's own
+				// prompt: the refusal is the reason, so say that instead.
+				// An unattributed note never replaces an upstream error.
+				return toolError(own.Error()), nil
+			}
+			return p.callFailed(ctx, c, err)
+		}
 		switch {
 		case res == nil:
 			return toolError(fmt.Sprintf("upstream %s returned no result for %s", up.name, c.tool)), nil
-		case res.NeedsInput():
-			p.logger.Warn("netguard refused an upstream input request", "server", up.name, "tool", c.tool, "requests", len(res.InputRequests))
-			return toolError(fmt.Sprintf("netguard refused an input request (elicitation, sampling or roots) from upstream %s during %s: upstream prompts are not forwarded in M0", up.name, c.tool)), nil
+		case !res.NeedsInput():
+			return withRefusals(passResult(res), own, note), nil
+		case len(res.InputRequests) == 0:
+			return toolError(fmt.Sprintf("upstream %s is busy (input_required with no requests); retry %s later", up.name, c.tool)), nil
 		}
-		return res, nil
+
+		reqs, r := relabelInputRequests(up.name, c.tool, res.InputRequests)
+		switch {
+		case r != nil:
+		case !c.agent.canElicit:
+			r = newRefusal(up.name, c.tool, "elicitation", errNoFormElicitation)
+		case round >= maxInputRounds:
+			r = newRefusal(up.name, c.tool, "input_required", fmt.Errorf("more than %d rounds of input in one call", maxInputRounds))
+		case up.promptsSoFar(f)+len(reqs) > maxPromptsPerCall:
+			// Checked before anything is asked, so no human answers half a
+			// round that cannot be completed.
+			r = newRefusal(up.name, c.tool, "input_required", errTooManyPrompts)
+		case len(res.RequestState) > maxRequestState:
+			r = newRefusal(up.name, c.tool, "input_required", errors.New("the upstream's requestState is too large"))
+		}
+		if r != nil {
+			_ = p.refuse(up, f, r)
+			return toolError(r.Error()), nil
+		}
+
+		if c.agent.stateless() {
+			ids := make([]string, 0, len(reqs))
+			for id := range reqs {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			// Measure the sealed state, not the upstream's: escaping and
+			// encoding can push a state under maxRequestState past what
+			// open accepts.
+			state, err := p.states.seal(sealedState{
+				Server: up.name, Tool: c.tool, Args: argsDigest(c.arguments),
+				IDs: ids, Up: res.RequestState, Round: round + 1,
+				Prompts: up.promptsSoFar(f) + len(reqs),
+			})
+			if err != nil {
+				r = newRefusal(up.name, c.tool, "input_required", err)
+				_ = p.refuse(up, f, r)
+				return toolError(r.Error()), nil
+			}
+			return &mcp.CallToolResult{InputRequests: reqs, RequestState: state}, nil
+		}
+		answers, stop, err := p.askAgent(ctx, c, f, reqs)
+		if err != nil || stop != nil {
+			return stop, err
+		}
+		params.InputResponses = answers
+		params.RequestState = res.RequestState
 	}
+}
+
+// callFailed maps a failed upstream call to what the agent sees.
+func (p *Proxy) callFailed(ctx context.Context, c call, err error) (*mcp.CallToolResult, error) {
+	up := c.up
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	var ref *refusal
+	if errors.As(err, &ref) {
+		// go-sdk's URL-elicitation retry called netguard's own handler.
+		return toolError(ref.Error()), nil
 	}
 	var werr *jsonrpc.Error
 	if errors.As(err, &werr) {
@@ -461,6 +580,19 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	}
 	p.logger.Warn("upstream call failed", "server", up.name, "tool", c.tool, "error", err)
 	return toolError(fmt.Sprintf("upstream %s: calling %s failed: %s", up.name, c.tool, escapeControl(err.Error(), maxRelayedMessage))), nil
+}
+
+// passResult is the agent-facing copy of an upstream's final result:
+// content, structured content and isError. The upstream's result _meta
+// (which could claim io.modelcontextprotocol/serverInfo, for one) and any
+// requestState or inputRequests on a complete result are dropped. Toward a
+// stateless agent go-sdk then adds netguard's own serverInfo.
+func passResult(res *mcp.CallToolResult) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content:           res.Content,
+		StructuredContent: res.StructuredContent,
+		IsError:           res.IsError,
+	}
 }
 
 // awaitExit reports whether up has exited, waiting up to d (or until ctx is
@@ -483,6 +615,9 @@ func upstreamDown(up *upstream) *mcp.CallToolResult {
 	return toolError(fmt.Sprintf("upstream %s is not running; restart netguard serve", up.name))
 }
 
+// toolError is a tool result with isError set and text as its only content:
+// how netguard reports a failure the agent can act on, as opposed to a
+// JSON-RPC protocol error.
 func toolError(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
 }
@@ -499,6 +634,43 @@ type unknownToolData struct {
 	Tool    string   `json:"tool"`
 	Reason  string   `json:"reason"`
 	Servers []string `json:"servers"`
+}
+
+// undeclaredCapability returns the capability a method belongs to when the
+// proxy does not declare it (it declares tools only), or "". go-sdk would
+// otherwise answer these with empty lists or an empty result, which tells
+// the agent something the proxy never offered. subscriptions/listen is not
+// here: it is core in 2026-07-28, and go-sdk acknowledges only the
+// notifications the declared capabilities allow (none, since tools has no
+// listChanged).
+func undeclaredCapability(method string) string {
+	switch method {
+	case "prompts/list", "prompts/get":
+		return "prompts"
+	case "resources/list", "resources/read", "resources/templates/list", "resources/subscribe", "resources/unsubscribe":
+		return "resources"
+	case "logging/setLevel":
+		return "logging"
+	case "completion/complete":
+		return "completions"
+	default:
+		return ""
+	}
+}
+
+// refuseUndeclared is receiving middleware: a request for a method of a
+// capability the proxy does not declare gets JSON-RPC method-not-found
+// (-32601) in either era.
+func refuseUndeclared(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if capability := undeclaredCapability(method); capability != "" {
+			return nil, &jsonrpc.Error{
+				Code:    jsonrpc.CodeMethodNotFound,
+				Message: fmt.Sprintf("method %q is not supported: netguard does not declare the %s capability", method, capability),
+			}
+		}
+		return next(ctx, method, req)
+	}
 }
 
 // checkToolName is receiving middleware: a tools/call whose name is not a

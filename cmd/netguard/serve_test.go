@@ -45,6 +45,7 @@ func TestParseServe(t *testing.T) {
 		{name: "missing server", args: []string{"--upstream", "x"}, wantErr: "required"},
 		{name: "dotted server", args: []string{"--server", "net.dev", "--upstream", "x"}, wantErr: "--server"},
 		{name: "server with space", args: []string{"--server", "net dev", "--upstream", "x"}, wantErr: "--server"},
+		{name: "reserved server name", args: []string{"--server", "NetGuard", "--upstream", "x"}, wantErr: "reserved"},
 		{name: "unknown flag", args: with("--bogus"), wantErr: "bogus"},
 	}
 	for _, tc := range cases {

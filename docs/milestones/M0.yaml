@@ -39,10 +39,12 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: in review
     blocked_by: [T0.2]
     adr: "0008"
     matrix: [2]
+    spec: docs/specs/profile-schema.md
+    notes: 'Branch feat/proxy-dual-era off land/m0-stack (PR #25, since merged to main), not pushed. Each side negotiates its own era (go-sdk: server/discover, then initialise fallback); both versions ride on the call for M1 audit. No _meta crosses either way. Upstream form elicitation reaches the agent labelled [from <server>], schema rebuilt from an allow-list: MRTR input_required behind an AES-256-GCM sealed requestState (stateless agent) or elicitation/create with one prompt open and at most 10 per call (stateful agent); sampling, roots, URL mode refused. Stateless agent x stateful upstream elicitation is refused per ADR 0014, accepted by joshscott13 2026-09-23 (option A; parking deferred to row 17 with four requirements). Review round 1 (go request changes G1-G6, security approve with nits S1-S5) and round 2 (go approve with nits G1-G6, security request changes S1 high: no upstream text in refusals; S2 origin-label spoof fold; S3 10 prompts per call on every path; S4 reserved-name fold) and the final security pass (approve with nits: startup errors escaped, stdlib NFKC-style fold) applied; go-sdk v1.8.0 from main (#28) merged and re-verified, plus two T0.4 conformance findings (-32601 for undeclared capabilities; no 2026-era _meta to a 2025 agent). Tier 1 table tests over all four era pairs, in-process and over a real stdio child; -race and golangci-lint v2.4.0 clean in Linux containers. Smoke only against netdev-ssh-mcp v1.6.6. Row 2 not validated: upa/mcp-netmiko-server not run; test-engineer owns validation.'
   - id: T0.4
     title: Conformance suite in CI against the client-facing side; make conformance target
     package: .github/workflows
@@ -156,7 +158,7 @@ tasks:
     state: open
     blocked_by: [T0.12]
     matrix: []
-    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR.'
+    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR. Also (from T0.3): main is on go-sdk v1.8.0 since Dependabot #28, so the ADR 0011 title, context and table header naming v1.7.0 (and CLAUDE.md/AGENTS.md "pinned to the v1.7 minor") are stale; the module rows are unchanged, since go-sdk v1.8.0 has the same go.mod (go.sum go.mod hash identical) and pulls no new or bumped modules.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
