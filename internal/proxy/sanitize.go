@@ -16,13 +16,15 @@ import (
 const maxRelayedMessage = 512
 
 // relayUpstreamError turns an upstream JSON-RPC error into the error the agent
-// sees. The message is untrusted: it is labelled "upstream <server>: ", has
-// control characters escaped and is capped at maxRelayedMessage bytes. The
+// sees. The message is untrusted: passed values are redacted with red (on
+// the raw message, before escaping and the cap, so neither can cut a value
+// in half), then it is labelled "upstream <server>: ", has control
+// characters escaped and is capped at maxRelayedMessage bytes. The
 // upstream's data is dropped. Only the standard JSON-RPC codes that cannot be
 // confused with the proxy's own answers pass through; everything else,
 // including -32602 (which the proxy reserves for unknown tools), becomes
 // -32603.
-func relayUpstreamError(server string, werr *jsonrpc.Error) *jsonrpc.Error {
+func relayUpstreamError(server string, werr *jsonrpc.Error, red *Redactor) *jsonrpc.Error {
 	code := werr.Code
 	switch code {
 	case jsonrpc.CodeParseError, jsonrpc.CodeInvalidRequest, jsonrpc.CodeMethodNotFound, jsonrpc.CodeInternalError:
@@ -31,7 +33,7 @@ func relayUpstreamError(server string, werr *jsonrpc.Error) *jsonrpc.Error {
 	}
 	return &jsonrpc.Error{
 		Code:    code,
-		Message: "upstream " + server + ": " + escapeControl(werr.Message, maxRelayedMessage),
+		Message: "upstream " + server + ": " + escapeControl(red.Redact(werr.Message), maxRelayedMessage),
 	}
 }
 
@@ -106,20 +108,31 @@ const maxStderrLine = 4096
 //
 // With scrub set, known values are replaced by their markers on the raw
 // bytes first, before lines are split, cut or escaped, so neither the
-// maxStderrLine cut nor escaping can hide a value from the scrubber.
+// maxStderrLine cut nor escaping can hide a value from the scrubber. red is
+// the Redactor scrub came from; the proxy uses it for the upstream's error
+// messages too (redactorOf).
+//
+// Flush is terminal: bytes written after it are dropped. Flush releases the
+// scrubber's held-back tail, so a value whose first bytes arrived before a
+// Flush and the rest after it would otherwise be printed in two halves.
 type lineWriter struct {
 	mu     sync.Mutex
 	w      io.Writer
 	prefix string
+	red    *Redactor
 	scrub  *scrubber
 	buf    []byte
 	split  bool // the current line was already cut at maxStderrLine
+	closed bool // Flush has run; later writes are dropped
 }
 
 func (l *lineWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	n := len(p)
+	if l.closed {
+		return n, nil
+	}
 	if l.scrub != nil {
 		p = l.scrub.write(p, false)
 	}
@@ -154,10 +167,15 @@ func (l *lineWriter) feed(p []byte) {
 }
 
 // Flush writes out a partial line, if any, as a line of its own, after
-// releasing what the scrubber held back.
+// releasing what the scrubber held back, and ends the stream: later writes
+// are dropped. Call it only when no more stderr is expected.
 func (l *lineWriter) Flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return
+	}
+	l.closed = true
 	if l.scrub != nil {
 		l.feed(l.scrub.write(nil, true))
 	}
