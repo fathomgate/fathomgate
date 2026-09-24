@@ -24,5 +24,6 @@ To propose one, copy the template to the next number, open a pull request, and l
 | [0016](0016-streamable-http-listener.md) | A Streamable HTTP listener for `netguard serve`, loopback-only and token-authenticated | accepted | 2026-09-23 |
 | [0017](0017-keep-upstream-secrets-off-the-command-line.md) | Keep upstream secrets off the command line with `--upstream-env-pass` | accepted | 2026-09-23 |
 | [0018](0018-bound-server-discover-then-initialize-only.md) | Bound go-sdk's `server/discover` probe, then restart the upstream and connect with `initialize` only | accepted | 2026-09-24 |
+| [0019](0019-rename-to-fathomgate.md) | Rename the product from NetGuard to Fathomgate | proposed | 2026-09-24 |
 
-Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#open-questions). Each will become a record when resolved.
+Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.

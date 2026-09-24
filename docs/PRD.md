@@ -108,7 +108,7 @@ Carried from [PLAN.md](PLAN.md). Each becomes an ADR when resolved.
 
 | Question | Decides | Needed by |
 | --- | --- | --- |
-| Final name; NetGuard collides with existing products | Repository name, binary name, prefix conventions | First public commit |
+| Final name; NetGuard collides with existing products. Proposed: Fathomgate, [ADR 0019](adr/0019-rename-to-fathomgate.md) (status `proposed`, 2026-09-24) | Repository name, binary name, prefix conventions | First public commit |
 | Which MCP clients the first users run | Whether R21 (MRTR approval) ships in M3 or later | M3 planning |
 | Whether the stale-snapshot window is capped | `sot.stale_max_age` default | M2 |
 | Key custody for audit checkpoints and the redaction HMAC: file, OS keyring, KMS | Startup requirements, docs, threat model | M2 for redaction, M4 for checkpoints |
