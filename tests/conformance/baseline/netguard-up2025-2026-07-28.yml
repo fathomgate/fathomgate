@@ -1,0 +1,92 @@
+# Expected failures: netguard-up2025 leg (relay -> netguard serve -> go-sdk
+# v1.6.1 everything-server, a 2025-11-25-only upstream), --requirements
+# 2026-07-28. Agent 2026-07-28 (stateless) x upstream 2025-11-25 (stateful):
+# netguard answers the agent statelessly and keeps an initialize session
+# with the upstream (ADR 0008). Format and exit rules:
+# tests/conformance/README.md. An entry that starts passing fails the run,
+# so a fix must delete its entry in the same PR.
+#
+# There is no control leg for this pair: a 2025-only server cannot answer a
+# stateless agent with nothing in between. The groups below say which
+# failures are the relay's (same as control-2026-07-28.yml), which are
+# netguard's decisions (same as netguard-2026-07-28.yml), and which exist
+# only because this upstream predates 2026-07-28. Every group names the ADR
+# or board task that decided it (M0 exit criterion 1).
+#
+# ADR 0014 (a stateful upstream's elicitation/create is refused for a
+# stateless agent) is not scored here: no 2026-07-28 scenario calls a
+# stateful elicitation tool. tests/conformance/era_pairs.py drives that cell
+# against the same upstream and checks the refusal text word for word.
+server:
+  # --- Same as control-2026-07-28.yml: HTTP transport, not netguard ------
+  # ADR 0012 (M0 serves the agent over stdio only) and T0.4 (the relay).
+  # missing-capability-http-400 would also be "not testable" here: this
+  # upstream has no test_missing_capability tool (see the last group).
+  - server-stateless:sep-2575-http-server-header-mismatch-400
+  - server-stateless:sep-2575-http-server-meta-invalid-400
+  - server-stateless:sep-2575-http-server-method-not-found-404
+  - server-stateless:sep-2575-http-server-method-not-found-404-initialize
+  - server-stateless:sep-2575-http-server-method-not-found-404-logging-setlevel
+  - server-stateless:sep-2575-http-server-method-not-found-404-ping
+  - server-stateless:sep-2575-http-server-method-not-found-404-resources-subscribe
+  - server-stateless:sep-2575-http-server-method-not-found-404-resources-unsubscribe
+  - server-stateless:sep-2575-http-server-unsupported-version-400
+  - server-stateless:sep-2575-missing-capability-http-400
+  - server-stateless:sep-2575-request-meta-invalid-missing-meta
+  - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
+
+  # --- Same as netguard-2026-07-28.yml: netguard's decisions ---------------
+  # Undeclared capabilities. Decided in T0.3: netguard declares only `tools`
+  # and answers -32601 for prompts/*, resources/* and completion/complete
+  # (profile-schema section 8.2).
+  - completion-complete:completion-complete
+  - prompts-list:prompts-list
+  - prompts-get-simple:prompts-get-simple
+  - prompts-get-with-args:prompts-get-with-args
+  - prompts-get-embedded-resource:prompts-get-embedded-resource
+  - prompts-get-with-image:prompts-get-with-image
+  - resources-list:resources-list
+  - resources-read-text:resources-read-text
+  - resources-read-binary:resources-read-binary
+  - resources-templates-read:resources-templates-read
+  - caching:sep-2549-prompts-list-caching-hints
+  - caching:sep-2549-resources-list-caching-hints
+  - caching:sep-2549-resources-templates-list-caching-hints
+  - input-required-result-non-tool-request:sep-2322-non-tool-incomplete
+  # T0.3 (same decision), SHOULD-level: the resource-not-found probe gets
+  # -32601 because resources are undeclared.
+  - sep-2164-resource-not-found:sep-2164-error-code
+  - sep-2164-resource-not-found:sep-2164-data-uri
+  # ADR 0012 (the <server>.<tool> prefix, profile-schema section 8.1) and
+  # T0.4 (the relay renames only tools/call): the check looks for
+  # `test_missing_capability` in tools/list. This upstream does not have
+  # that tool either.
+  - server-stateless:sep-2575-server-rejects-undeclared-capability
+
+  # --- This upstream predates 2026-07-28 (T0.19) ---------------------------
+  # go-sdk v1.6.1's everything-server has none of the 2026-era diagnostic
+  # tools (test_input_required_result_*, test_streaming_elicitation,
+  # test_logging_tool, test_missing_capability; they arrived with MRTR in
+  # go-sdk v1.7.0). netguard answers "unknown tool" (-32602) for each, or the
+  # check reports "not testable". A 2025-11-25 server cannot return
+  # input_required at all: it asks mid-call with elicitation/create, which
+  # ADR 0014 refuses for this agent (era_pairs.py). MRTR through netguard is
+  # scored on the netguard leg, where these checks pass or are baselined
+  # with their own reasons.
+  - input-required-result-basic-elicitation:sep-2322-elicitation-incomplete
+  - input-required-result-basic-sampling:sep-2322-sampling-incomplete
+  - input-required-result-basic-list-roots:sep-2322-list-roots-incomplete
+  - input-required-result-request-state:sep-2322-request-state-incomplete
+  - input-required-result-multiple-input-requests:sep-2322-multiple-inputs-incomplete
+  - input-required-result-multi-round:sep-2322-multi-round-r1
+  - input-required-result-result-type:sep-2322-result-type-included
+  - input-required-result-tampered-state:sep-2322-reject-tampered-state
+  - input-required-result-capability-check:sep-2322-respect-client-capabilities
+  # SHOULD-level (the suite reports WARNING; a baseline run counts it). Same
+  # cause: the tool they call does not exist on this upstream.
+  - input-required-result-ignore-extra-params:sep-2322-ignore-unexpected-params
+  - input-required-result-missing-input-response:sep-2322-missing-response-rerequests
+  # Same cause: the diagnostic tools are not in tools/list, so the checks
+  # report "not testable".
+  - server-stateless:sep-2575-http-server-no-independent-requests-on-stream
+  - server-stateless:sep-2575-server-no-log-without-loglevel

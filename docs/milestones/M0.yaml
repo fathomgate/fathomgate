@@ -9,7 +9,8 @@ opened: 2026-09-23
 exit_criteria:
   - text: Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task
     met: 2026-09-23 (T0.4 PR #44, T0.17 and T0.18 PR #53; every remaining baseline entry cites an ADR or task)
-  - Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
+  - text: Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
+    met: 2026-09-23 (Claude Code 2.1.236 and Claude Desktop 2.7032.0 called show version through netguard in front of netdev-ssh-mcp v1.6.6, by the maintainer; client-smoke CI green; matrix rows 1 and 22 passing)
   - Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
   - GoReleaser produces linux/darwin/windows binaries on a tag
 validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server]
@@ -63,7 +64,7 @@ tasks:
     state: merged
     blocked_by: [T0.3]
     matrix: [22]
-    notes: 'Merged in PR #51 2026-09-23. CI job client-smoke drives netguard serve in front of the real krisiasty/netdev-ssh-mcp v1.6.6 (linux_amd64 release, sha256-pinned) with a new fake SSH device (tests/fixtures/device/, show-only, canned FAKE transcript): tools/list returns the five prefixed tools, a read-only run_show_command reaches the device once, reload is refused by the upstream with nothing sent; the job cannot pass by skipping. Stripped-PATH cases fail fast with a clear stderr cause, never hang. Claude Code 2.1.236 (print mode, empty PATH) listed all five tools through netguard; the tool call did not run (client OAuth expired, not touched). docs/install.md covers Claude Code, Cursor, the PATH case and a manual Check it works step. Exit criterion 2 stays unticked until the maintainer runs that step in Claude Code and Cursor. Rows 1 and 22 stay planned. Follow-ups T0.23 to T0.26.'
+    notes: 'Merged in PR #51 2026-09-23. CI job client-smoke drives netguard serve in front of the real krisiasty/netdev-ssh-mcp v1.6.6 (linux_amd64 release, sha256-pinned) with a new fake SSH device (tests/fixtures/device/, show-only, canned FAKE transcript): tools/list returns the five prefixed tools, a read-only run_show_command reaches the device once, reload is refused by the upstream with nothing sent; the job cannot pass by skipping. Stripped-PATH cases fail fast with a clear stderr cause, never hang. Claude Code 2.1.236 (print mode, empty PATH) listed all five tools through netguard; the tool call did not run (client OAuth expired, not touched). docs/install.md covers Claude Code, Cursor, the PATH case and a manual Check it works step. Exit criterion 2 stays unticked until the maintainer runs that step in Claude Code and Cursor. Rows 1 and 22 stay planned. Follow-ups T0.23 to T0.26. Exit criterion 2 met 2026-09-23: the maintainer ran the Check it works step in Claude Code 2.1.236 and Claude Desktop 2.7032.0 (Dock launch); Cursor not installed, Claude Desktop is the second client.'
   - id: T0.6
     title: Verify GoReleaser snapshot and distroless image build with the new toolchain
     package: .goreleaser.yaml
@@ -185,10 +186,10 @@ tasks:
     package: tests/conformance
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.4]
     matrix: [2]
-    notes: 'From T0.4: the fixture upstream always negotiates 2026-07-28 with netguard, and neither go-sdk v1.8 nor the Python SDK 2.2.0 can be held on 2025, so the stateless-agent x stateful-upstream and stateful x stateful paths are only covered by tier 1 tests. Find or build a 2025-only fixture upstream (e.g. a pinned older SDK in tests/, no new Go dependency).'
+    notes: 'From T0.4: the fixture upstream always negotiates 2026-07-28 with netguard, and neither go-sdk v1.8 nor the Python SDK 2.2.0 can be held on 2025, so the stateless-agent x stateful-upstream and stateful x stateful paths are only covered by tier 1 tests. Find or build a 2025-only fixture upstream (e.g. a pinned older SDK in tests/, no new Go dependency). Merged in PR #66 2026-09-23: go-sdk conformance everything-server v1.6.1 (last release before 2026-07-28 support) in a test-only nested module tests/conformance/upstream-2025/ (root go.mod unchanged; judged test tooling, not a dependency), new legs control-up2025 and netguard-up2025 for both agent eras; era_pairs.py asserts the 2025 agent gets the labelled prompt and the 2026 agent gets the ADR 0014 refusal. tools-call-elicitation and elicitation-sep1034-defaults pass on the new leg; sep1330-enums fails there for a different reason (T0.35, T0.36). CI job ~45 s. Row 2 still needs the real 2025 upstream: T0.34.'
   - id: T0.20
     title: Evaluate installing golangci-lint via go run so the checksum database verifies it
     package: .github/workflows
@@ -219,9 +220,9 @@ tasks:
     package: cmd/netguard
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: merged
     matrix: [22]
-    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code. ADR 0017 (PR #55) merged 2026-09-23 with status proposed: recommends --upstream-env-pass NAME. Awaiting the maintainer''s acceptance and answers to its four open questions before implementation. ADR 0017 accepted by the maintainer 2026-09-23: --upstream-env-pass NAME; no secret-key warning; NETGUARD_* refused on both flags; exact passed values (4 bytes or more) scrubbed from relayed upstream stderr as [redacted:NAME]; an empty value exits 2. Ready for implementation.'
+    notes: 'From T0.5. The only way to give netdev-ssh-mcp a device password is --upstream-env DEVICE_PASSWORD=..., which shows in ps and sits in the client mcp.json. ssh-agent works but SSH_AUTH_SOCK must be passed explicitly. Changes the CLI surface, so it needs an ADR (e.g. --upstream-env-file, or passing through named variables from netguard''s own environment) before code. ADR 0017 (PR #55) merged 2026-09-23 with status proposed: recommends --upstream-env-pass NAME. Awaiting the maintainer''s acceptance and answers to its four open questions before implementation. ADR 0017 accepted by the maintainer 2026-09-23: --upstream-env-pass NAME; no secret-key warning; NETGUARD_* refused on both flags; exact passed values (4 bytes or more) scrubbed from relayed upstream stderr as [redacted:NAME]; an empty value exits 2. Ready for implementation. Merged in PR #64 2026-09-23: --upstream-env-pass per ADR 0017; security review requested changes (E1 medium: a password typed as a separate argument was echoed), E1-E7 fixed in the PR. The PR merged before the re-review finished; the post-merge re-review against main (b4c3b4e) found no issue: E1-E7 fixed or documented residuals, no new bypass from the T0.28 merge. Doc note N1 (the built transport holds the value in Env; M4 audit must never log it) goes into the next internal/proxy PR.'
   - id: T0.24
     title: Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64
     package: internal/audit
@@ -243,27 +244,27 @@ tasks:
     package: tests/fixtures/device
     owner: network-safety-engineer
     reviewers: [test-engineer]
-    state: in review
+    state: merged
     matrix: [22]
-    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step. PR #56: the maintainer''s HPE vEOS 4.16.6M running-config (public sample) as a fake-device show running-config transcript and a redaction fixture (eos-4.16.txt), four secrets replaced with FAKE values of the same shape; client-smoke fetches it via get_config. show_version stays synthetic. Found T0.29.'
+    notes: 'From T0.5. tests/fixtures/device/transcripts/eos/show_version.txt is synthetic and marked FAKE. Replace with a real capture, every secret and serial replaced with FAKE values, and keep the client-smoke assertions (FAKE0000SN01) in step. PR #56: the maintainer''s HPE vEOS 4.16.6M running-config (public sample) as a fake-device show running-config transcript and a redaction fixture (eos-4.16.txt), four secrets replaced with FAKE values of the same shape; client-smoke fetches it via get_config. show_version stays synthetic. Found T0.29. Merged in PR #56 2026-09-23.'
   - id: T0.27
     title: (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in progress
     blocked_by: [T0.28]
     adr: "0016"
     matrix: [23]
-    notes: 'First of the HTTP listener tasks (maintainer decision 2026-09-23; ADR 0016 accepted 2026-09-23 with named tokens for attribution, built-in TLS in M1, not an M0 exit criterion, conformance shim accepted). Loopback-only bind, token required on every request, Origin and cross-site Sec-Fetch-Site refused before auth, no CORS, go-sdk localhost Host check on, caps and limits as in ADR 0016. Followed by T0.30 to T0.33.'
+    notes: 'First of the HTTP listener tasks (maintainer decision 2026-09-23; ADR 0016 accepted 2026-09-23 with named tokens for attribution, built-in TLS in M1, not an M0 exit criterion, conformance shim accepted). Loopback-only bind, token required on every request, Origin and cross-site Sec-Fetch-Site refused before auth, no CORS, go-sdk localhost Host check on, caps and limits as in ADR 0016. Followed by T0.30 to T0.33. In progress 2026-09-23. Must also meet the T0.28 review requirements (T1-T4, see T0.28).'
   - id: T0.28
     title: Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine)
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: merged
     matrix: [2]
-    notes: 'Security review S2 on PR #53. go-sdk handles an upstream''s notifications one at a time, and the progress relay writes to the agent under r.mu on that goroutine, so a stuck agent blocks every later message from that upstream (incl. elicitation/create for other calls), and finish() then blocks the deferred end(). Minor over stdio; real once several agents share an upstream over HTTP. Fix: per-relay one-slot latest mailbox plus sender goroutine (or bounded channel), mutex only for state, final notification with a deadline, and flush a held-back update on a timer (S4). Blocks T0.27.'
+    notes: 'Security review S2 on PR #53. go-sdk handles an upstream''s notifications one at a time, and the progress relay writes to the agent under r.mu on that goroutine, so a stuck agent blocks every later message from that upstream (incl. elicitation/create for other calls), and finish() then blocks the deferred end(). Minor over stdio; real once several agents share an upstream over HTTP. Fix: per-relay one-slot latest mailbox plus sender goroutine (or bounded channel), mutex only for state, final notification with a deadline, and flush a held-back update on a timer (S4). Blocks T0.27. Merged in PR #63 2026-09-23. Security review: approve. Its follow-ups are requirements on T0.27: per-session and per-token call caps, write deadlines (T3); no JSONResponse and a pinned no-progress-after-result HTTP test (T4); remove the call from in-flight before waiting on the relay (T1); comment fix (T2).'
   - id: T0.29
     title: Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash
     package: profiles
@@ -311,6 +312,38 @@ tasks:
     blocked_by: [T0.31]
     adr: "0016"
     matrix: [23]
+  - id: T0.34
+    title: Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [mcp-protocol-engineer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'Gates M0 exit criterion 3. T0.19 proved all four era pairs against go-sdk fixtures only; M0 validates_against names upa/mcp-netmiko-server as the real 2025-era upstream, and a matrix case is validated only against the named real server. Pin the upstream version, run it behind netguard with the fake device (or a netmiko-compatible fake), check initialize fallback (protocol=2025-11-25 era=stateful), prefixed tools/list, a read-only call, and both agent eras. Needs a profile if none exists (upstream-server-scout).'
+  - id: T0.35
+    title: Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline.'
+  - id: T0.36
+    title: Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects
+    package: docs
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer]
+    state: open
+    matrix: []
+    notes: 'From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead.'
+  - id: T0.37
+    title: Note in the Command.Secrets godoc that the built transport holds passed values in its Env
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer]
+    state: open
+    matrix: []
+    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

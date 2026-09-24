@@ -48,11 +48,14 @@ jobs:
   # it must run on every pull request, with no `paths:` filter, including
   # Dependabot's (it needs no secrets). A go-sdk bump rebuilds the fixture
   # upstream (go-sdk's own conformance everything-server at the go.mod
-  # version) and must pass here before it merges (CONTRIBUTING.md). The
-  # suite version is pinned in tests/conformance/package-lock.json; the
-  # legs, the relay and the baselines are explained in
-  # tests/conformance/README.md. python3 on ubuntu-latest runs relay.py,
-  # which uses the standard library only.
+  # version) and must pass here before it merges (CONTRIBUTING.md). A
+  # second upstream, the same server at go-sdk v1.6.1 (2025-11-25 only,
+  # T0.19), is built from the test-only module tests/conformance/upstream-2025
+  # and never moves with a bump. The suite version is pinned in
+  # tests/conformance/package-lock.json; the legs, the relay and the
+  # baselines are explained in tests/conformance/README.md. python3 on
+  # ubuntu-latest runs relay.py and era_pairs.py, which use the standard
+  # library only.
   conformance:
     name: mcp-conformance
     runs-on: ubuntu-latest
@@ -67,12 +70,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tests/conformance/upstream-2025/go.sum
       - name: Go in use is the go.mod toolchain
         run: make toolchain-check
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: conformance suite, 2025-11-25 and 2026-07-28 (control and netguard legs)
+      - name: conformance suite, 2025-11-25 and 2026-07-28 (control and netguard legs, current and 2025 upstreams), era pairs
         run: make conformance PYTHON=python3
       - name: keep results on failure
         if: failure()

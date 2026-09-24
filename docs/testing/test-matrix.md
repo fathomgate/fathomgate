@@ -4,8 +4,8 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 
 | # | Case | Tier | Upstream server | Expected | Milestone | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | planned; ran locally against v1.6.6, see [run notes](#run-notes) |
-| 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned |
+| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
+| 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned; conformance runs all four era pairs through netguard against go-sdk fixtures, not validated, see [run notes](#run-notes) |
 | 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
 | 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
 | 5 | `show running-config` through free-form tool | 2 | ntunes `send_command` | Reclassified `READ_CONFIG`; output redacted; `class_source: reclassify` | M1, M2 | planned |
@@ -25,11 +25,17 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | 19 | Audit tamper | 1 | none | `netguard audit verify` fails on an edited line and names it; exit status 1 | M4 | planned |
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
-| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind netguard | Proxy starts and serves `tools/list`; no ENOENT | M0 | planned; ran locally against v1.6.6 (python-sdk client; Claude Code 2.1.236 `tools/list` only), not validated, see [run notes](#run-notes) |
+| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind netguard | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
 
 ## Run notes
 
 Runs that moved a row forward without closing it. A row becomes `passing` only when its case runs green in CI against the named real server; rows 1 and 22 also need the manual real-client check in [install.md](../install.md#check-it-works) before M0 exit criterion 2 can be ticked.
+- **2026-09-23, rows 1 and 22 passing, M0 exit criterion 2 met.** Upstream `krisiasty/netdev-ssh-mcp` v1.6.6 (`go install`), netguard from `main`, fake EOS device (`tests/fixtures/device/fake_ssh.py`, port 22022). The maintainer asked each client, in plain words, for `show version` on `127.0.0.1` port 22022 device type `eos`; each answer contained `Serial number: FAKE0000SN01`, and the device's `commands.log` recorded exactly one `show version` per client (two lines in total).
+  - **Claude Code 2.1.236**, `claude mcp add` with absolute paths, run from a terminal.
+  - **Claude Desktop 2.7032.0**, `claude_desktop_config.json` with absolute paths, started from the Dock (the PATH-stripped launch, row 22).
+  - CI job `tier2 client smoke (netdev-ssh-mcp)` green on `main` at `b4c3b4e`.
+  - Cursor was not installed on the test Mac; Claude Desktop is the second client. Cursor stays documented in `docs/install.md` but unexercised.
+
 
 **Rows 1 and 22, 2026-09-23 (T0.5).** Upstream: krisiasty/netdev-ssh-mcp v1.6.6, both the release binary `netdev-ssh-mcp_1.6.6_darwin_arm64` (sha256 `42b4f18a…b4493`, commit `be3e3634`) and a `go install …@v1.6.6` build. Device: `tests/fixtures/device/fake_ssh.py` (EOS persona, exec channel). netguard at `20781c7`, macOS arm64. `uv run --extra integration pytest integration -m tier2`: 11 passed, 2 skipped (the M1 cases).
 
@@ -46,6 +52,14 @@ Runs that moved a row forward without closing it. A row becomes `passing` only w
 - With the upstream's `--no-obfuscate` (passed after `--`), the agent gets all four FAKE credentials unchanged. That is the M0 fact, and the test asserts it on purpose: `netguard serve` forwards results as they are.
 - Row 15 (tier 1): the same text, with rule annotations, is the redaction fixture `tests/fixtures/configs/eos-4.16.txt`. `make fixtures-check` shows the redactor catches all four in EOS-4.16 syntax (`cisco-snmp-community` 2, `cisco-password-type` 2), with no hits anywhere else in the config. The original published values give the same four hits.
 - Row 15 (tier 2): `test_running_config_redacted_by_netguard` is a strict xfail until the redactor runs at the response serialiser (ROADMAP M2). When it runs there, the case XPASSes, strict mode fails it, and `test_running_config_secrets_reach_agent_in_m0` fails with it. Flip both in that PR. Row 15 stays `planned`.
+
+**Row 2, 2026-09-23 (T0.19).** Upstreams: go-sdk's conformance everything-server at v1.8.0 (the `go.mod` version; negotiates `2026-07-28` with netguard) and at v1.6.1 (the last release without `2026-07-28`; negotiates `2025-11-25`, logged as `upstream ready ... protocol=2025-11-25 era=stateful`). Suite `@modelcontextprotocol/conformance` 0.2.0-alpha.11. netguard at `b4c3b4e` (main, with T0.28 and T0.23) plus this change, macOS arm64. `make conformance PYTHON=python3`: every leg green against its baseline.
+
+- 2025 agent x 2025 upstream (`netguard-up2025`, `--requirements 2025-11-25`): 14 of 30 scored scenarios clean, 50 scored checks passing, 16 baseline entries. `tools-call-elicitation` and `elicitation-sep1034-defaults` pass: the upstream's `elicitation/create` reaches the agent and the answer goes back. They stay baselined on the `netguard` leg, where the upstream is on `2026-07-28`. `elicitation-sep1330-enums` fails because go-sdk v1.8.0 (netguard's upstream client) refuses the fixture's `titledMulti` schema before netguard sees it, and netguard's allow-list would refuse it next (profile-schema section 8.4).
+- 2026 agent x 2025 upstream (`netguard-up2025`, `--requirements 2026-07-28`): 12 of 37 scored scenarios clean, 65 scored checks passing, 42 baseline entries: 12 HTTP-transport checks (as on the control leg), 17 netguard decisions (as on the `netguard` leg), 13 checks that call 2026-era tools this upstream does not have. Listing, calls, content types, errors and progress cross the era boundary.
+- `era_pairs.py`: for a 2025 agent the prompt arrives as `[from conf] <message>` and the accepted answer completes the tool; for a 2026 agent the call ends with `isError` and the exact ADR 0014 refusal, with no prompt shown. Both cells fail against the v1.8.0 fixture, so the check needs the 2025 upstream to pass.
+- The existing legs are unchanged: `netguard` 12 of 30 (2025) and 18 of 37 (2026) scored scenarios clean, with 18 and 34 entries.
+- Not validated: both upstreams are go-sdk fixtures. To be `passing`: netdev-ssh-mcp (go-sdk, 2026 era) and upa/mcp-netmiko-server (FastMCP, 2025 era) initialise behind netguard in tier 2 CI.
 
 ## Coverage by component
 

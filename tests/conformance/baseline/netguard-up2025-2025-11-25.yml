@@ -1,0 +1,54 @@
+# Expected failures: netguard-up2025 leg (relay -> netguard serve -> go-sdk
+# v1.6.1 everything-server, a 2025-11-25-only upstream), --requirements
+# 2025-11-25. Agent 2025-11-25 x upstream 2025-11-25: stateful on both sides.
+# Format and exit rules: tests/conformance/README.md. An entry that starts
+# passing fails the run, so a fix must delete its entry in the same PR.
+#
+# control-up2025-2025-11-25.yml is empty, so each failure here is a
+# difference netguard makes. Every group names the ADR or board task that
+# decided it (M0 exit criterion 1).
+#
+# Compared with netguard-2025-11-25.yml (same agent era, 2026 upstream),
+# tools-call-elicitation and elicitation-sep1034-defaults pass here: the
+# upstream's elicitation/create is relabelled and relayed to the stateful
+# agent, and the answer goes back (T0.19).
+server:
+  # Undeclared capabilities. Decided in T0.3: netguard declares only `tools`
+  # toward the agent and answers -32601 for prompts/*, resources/*,
+  # logging/setLevel and completion/complete (profile-schema section 8.2).
+  # Same list as netguard-2025-11-25.yml.
+  - completion-complete:completion-complete
+  - logging-set-level:logging-set-level
+  - prompts-list:prompts-list
+  - prompts-get-simple:prompts-get-simple
+  - prompts-get-with-args:prompts-get-with-args
+  - prompts-get-embedded-resource:prompts-get-embedded-resource
+  - prompts-get-with-image:prompts-get-with-image
+  - resources-list:resources-list
+  - resources-read-text:resources-read-text
+  - resources-read-binary:resources-read-binary
+  - resources-templates-read:resources-templates-read
+  - resources-subscribe:resources-subscribe
+  - resources-unsubscribe:resources-unsubscribe
+  # T0.3 (same decision): logging/setLevel is undeclared and no upstream
+  # notifications/message is relayed.
+  - tools-call-with-logging:tools-call-with-logging
+  # ADR 0008: upstream sampling/createMessage is refused (profile-schema
+  # section 8.4). By design, in every era pair.
+  - tools-call-sampling:tools-call-sampling
+  # T0.3 (the elicitation schema allow-list, profile-schema section 8.4),
+  # hit one layer earlier by go-sdk. The fixture's test_elicitation_sep1330_enums
+  # asks for five enum fields; `titledMulti` is an array whose `items` has
+  # `type: "string"` and `anyOf` but no `enum`. netguard's upstream client
+  # (go-sdk v1.8.0, validateElicitArrayProperty in mcp/client.go) reads
+  # items.type "string" as an untitled multi-select, refuses the request with
+  # -32602 "items must specify enum for untitled enums" before netguard's
+  # handler runs, and the fixture tool returns that as a tool error, so no
+  # prompt reaches the agent ("Server did not request elicitation from
+  # client"). The control leg passes because the suite's client (TypeScript
+  # SDK) does not validate the schema. Behind that layer netguard's
+  # allow-list would still refuse `titledMulti` (an array property needs
+  # items.enum; items.anyOf is not on the list) and drop `legacyEnum`'s
+  # deprecated `enumNames`, so the per-field checks could not pass either.
+  # go-sdk v1.8.0's own everything-server sends the same schema.
+  - elicitation-sep1330-enums:elicitation-sep1330-general
