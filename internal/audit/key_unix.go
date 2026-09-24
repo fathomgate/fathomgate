@@ -87,8 +87,10 @@ func checkLogFile(f *os.File, path string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s: no ownership information", errUnsafeLog, path)
 	}
-	if n := uint64(st.Nlink); n != 1 { //nolint:unconvert // Nlink is uint16, uint32 or uint64 depending on the OS
-		return fmt.Errorf("%w: %s has %d hard links", errUnsafeLog, path, n)
+	// Nlink is uint16 (darwin), uint32 (linux/arm64) or uint64 (linux/amd64);
+	// comparing with the untyped constant 1 needs no conversion on any of them.
+	if st.Nlink != 1 {
+		return fmt.Errorf("%w: %s has %d hard links", errUnsafeLog, path, st.Nlink)
 	}
 	if euid := os.Geteuid(); uint64(st.Uid) != uint64(euid) { //nolint:gosec // euid is never negative on Unix
 		return fmt.Errorf("%w: %s is owned by uid %d, not the current user (uid %d)", errUnsafeLog, path, st.Uid, euid)

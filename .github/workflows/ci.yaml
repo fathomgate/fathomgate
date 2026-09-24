@@ -217,8 +217,9 @@ jobs:
       # `make lint` downloads the golangci-lint release archive pinned in the
       # Makefile (GOLANGCI_LINT_VERSION), checks its sha256 against the hash
       # committed there before unpacking it, then runs `config verify` and
-      # `run` for linux/amd64 (T0.20). It replaces golangci-lint-action,
-      # which downloads the archive without verifying it. Must be built with a
+      # `run` for linux and darwin on amd64 and arm64 plus windows/amd64
+      # (T0.20, T0.24). It replaces golangci-lint-action, which downloads the
+      # archive without verifying it. Must be built with a
       # Go at least as new as the go.mod toolchain minor, or it refuses to run
       # (v2.9.0 is the first release built with Go 1.26).
       - name: golangci-lint (sha256-verified release binary)
