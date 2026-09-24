@@ -175,6 +175,14 @@ Accepted by the maintainer on 2026-09-23, with these answers:
 3. **Principals: several named tokens now, for attribution only.** `--listen-token-file` is repeatable as `name=path`, and the principal name is carried on `call` for the M4 audit line and bound into `requestState` (T0.30). A principal is **never** an approver identity. Approver identity stays server-side (CLAUDE.md invariant 6), so an MRTR answer from a second principal does not satisfy `approver_must_differ`.
 4. **Conformance shim: accepted.** The two-rule shim (token and tool prefix) runs in the netguard leg. The test-engineer files an upstream request for a suite header option and a tool-name map, and the shim is removed when both exist.
 
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-23 | "One export is added" is spelled out: the export's surface is `(*Proxy).HTTPHandler`, its parameter type `HTTPOptions` (with the `MaxSessionsPerPrincipal` cap the review of PR #68 added beside the others) and the path constant `HTTPPath`. The listener helpers T0.27 had exported from `internal/proxy` moved, unexported, to `cmd/netguard`, which this record already makes their owner | T0.38, the security and Go reviews of PR #68 (H5, G1): the code had grown exports beyond the one this record names |
+
 ## References
 
 - [ADR 0002, standalone proxy](0002-standalone-proxy-not-gateway-plugin.md)
