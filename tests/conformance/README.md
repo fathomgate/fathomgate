@@ -99,8 +99,9 @@ Every entry says why it fails, in one of six groups:
 | HTTP transport (both legs, 2026) | 12 `server-stateless` checks: HTTP 400/404 status mapping and the `MCP-Protocol-Version` header | The relay's HTTP behaviour, not netguard's; netguard has no HTTP listener in M0 | This file |
 
 A baseline entry is not a pass. "The conformance suite passes on the
-client-facing side" means: every scored check passes except those listed
-here, each for a recorded reason.
+client-facing side" (M0 exit criterion 1) means: every scored check passes
+except those listed here, and each listed check points at an ADR or a
+board task. A reason that is only a gap, not a design choice, needs a task.
 
 ## Changing things
 

@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 7 · merged 15
+Tasks: open 6 · blocked 1 · merged 15
 
 ## In flight
 
@@ -30,12 +30,12 @@ Tasks: open 7 · merged 15
 | T0.18 | Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | T0.4 | 2 | — |
 | T0.19 | Conformance coverage for a 2025-11-25 upstream behind netguard | `tests/conformance` | test-engineer | go-reviewer | open | T0.4 | 2 | — |
 | T0.20 | Evaluate installing golangci-lint via go run so the checksum database verifies it | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | open | — | — | — |
-| T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | open | T0.4 | — | — |
+| T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | blocked | T0.4 | — | — |
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | open | — | — | — |
 
 ## Exit criteria
 
-- [ ] Official MCP conformance suite passes on the client-facing side
+- [ ] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task (ticked once T0.17 and T0.18 are resolved)
 - [ ] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp
 - [ ] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
 - [ ] GoReleaser produces linux/darwin/windows binaries on a tag

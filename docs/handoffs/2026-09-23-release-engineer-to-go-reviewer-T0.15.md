@@ -1,5 +1,7 @@
 # T0.15 merged before review: post-merge check of the base image digest pins
 
+> **Review waived** by joshscott13 on 2026-09-23. This note is kept as the record of what merged; no action needed.
+
 - **Task:** T0.15 — Pin the Dockerfile builder and distroless base images by digest
 - **From → To:** release-engineer → go-reviewer, security-reviewer
 - **State now:** merged
