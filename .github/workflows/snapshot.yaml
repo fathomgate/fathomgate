@@ -26,14 +26,19 @@ jobs:
     runs-on: [self-hosted, Linux, X64, netguard]
     timeout-minutes: 20
     steps:
-      # The WSL runners' docker CLI is Rancher Desktop's, whose default config
-      # names the Windows credential helper; a runner service cannot start a
-      # Windows binary, so every docker call fails. Give each job its own
-      # empty docker config under RUNNER_TEMP (docs/ci-runners.md).
+      # The WSL runners' docker CLI is Rancher Desktop's. It uses the Windows
+      # credential helper (docker-credential-wincred.exe) whenever that is on
+      # PATH, and a runner service cannot start a Windows binary, so every
+      # docker call fails. Drop Rancher's win32 directories from PATH and give
+      # the job its own docker config that keeps only the plugin directory
+      # (buildx lives there). docs/ci-runners.md.
       - name: job-local docker config
         run: |
+          path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/win32' | paste -sd: -)"
+          echo "PATH=$path" >> "$GITHUB_ENV"
+          plugins="$(cd "$(dirname "$(command -v docker)")/../docker-cli-plugins" && pwd)"
           mkdir -p "$RUNNER_TEMP/docker-config"
-          echo '{}' > "$RUNNER_TEMP/docker-config/config.json"
+          printf '{"cliPluginsExtraDirs":["%s"]}\n' "$plugins" > "$RUNNER_TEMP/docker-config/config.json"
           echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

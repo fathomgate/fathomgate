@@ -14,7 +14,7 @@ The consequence to keep in mind: **CI runs only while that machine is on and WSL
 
 The conformance tests pick a free loopback port on every run, so jobs from different pull requests can share the machine.
 
-The runners use Rancher Desktop's docker CLI. Its default config names `docker-credential-wincred.exe`, which a runner service cannot start, so every job that uses docker (`snapshot.yaml`, `release.yaml`) first points `DOCKER_CONFIG` at an empty, job-local config.
+The runners use Rancher Desktop's docker CLI, which uses `docker-credential-wincred.exe` whenever Rancher's `win32` directory is on `PATH`, and a runner service cannot start a Windows binary. So every job that uses docker (`snapshot.yaml`, `release.yaml`) first drops Rancher's `win32` directories from `PATH` and points `DOCKER_CONFIG` at a job-local config that keeps only Rancher's plugin directory, where `buildx` lives.
 
 ## While the Windows job is skipped
 
