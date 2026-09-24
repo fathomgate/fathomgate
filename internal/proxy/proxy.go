@@ -53,14 +53,17 @@ type Options struct {
 // upstream. It is built by [New], served by [Proxy.Run] and released by
 // [Proxy.Close].
 type Proxy struct {
-	server    *mcp.Server
-	logger    *slog.Logger
-	states    *sealer              // requestState envelopes for stateless agents
-	now       func() time.Time     // clock for the progress rate limit
-	upstreams map[string]*upstream // by server name
-	routes    map[string]route     // by prefixed tool name
-	closeOnce sync.Once
-	closeErr  error
+	server *mcp.Server
+	logger *slog.Logger
+	states *sealer          // requestState envelopes for stateless agents
+	now    func() time.Time // clock for the progress rate limit
+	// progressWait bounds how long a call's end waits for its queued
+	// progress to reach the agent (progressFinalWait; tests shorten it).
+	progressWait time.Duration
+	upstreams    map[string]*upstream // by server name
+	routes       map[string]route     // by prefixed tool name
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 // route maps one agent-facing tool name to its upstream and unprefixed name.
@@ -122,11 +125,12 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 	}
 	impl := &mcp.Implementation{Name: Name, Version: opts.Version}
 	p := &Proxy{
-		logger:    logger,
-		states:    states,
-		now:       time.Now,
-		upstreams: make(map[string]*upstream, len(upstreams)),
-		routes:    make(map[string]route),
+		logger:       logger,
+		states:       states,
+		now:          time.Now,
+		progressWait: progressFinalWait,
+		upstreams:    make(map[string]*upstream, len(upstreams)),
+		routes:       make(map[string]route),
 		server: mcp.NewServer(impl, &mcp.ServerOptions{
 			Logger: slog.New(minLevel{logger.Handler(), slog.LevelWarn}),
 			// Tools only. The tool list is fixed at startup, so no
@@ -524,7 +528,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 
 	f := up.begin(ctx, c, prompts)
 	defer up.end(f)
-	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now); pr != nil {
+	if pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now, p.progressWait); pr != nil {
 		up.watchProgress(pr)
 		defer up.unwatchProgress(pr)
 		params.SetProgressToken(pr.upToken)
