@@ -634,12 +634,13 @@ func (h minLevel) WithGroup(name string) slog.Handler {
 //
 // No request on the session is keyed before it is recorded. go-sdk may
 // dispatch a request before Connect returns, so Run registers itself as
-// connecting before it calls Connect; a request whose session is not
-// recorded yet waits (agentSessionKey, localKey) until every Run that was
-// connecting has recorded its session, or until the request's context
-// ends, in which case it gets the empty key and fails closed. No lock is
-// held across Connect, so t's Connect may block; requests on other sessions
-// that arrive meanwhile wait for it too, for as long as it takes.
+// connecting before it calls Connect; a local request (no session id, no
+// principal) whose session is not recorded yet waits (agentSessionKey,
+// localKey) until every Run that was connecting has recorded its session,
+// or until the request's context ends, in which case it gets the empty key
+// and fails closed. No lock is held across Connect, so t's Connect may
+// block; only local requests wait for it. A call over the HTTP listener
+// never waits: it is keyed by its session id, or gets the empty key.
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	ready := make(chan struct{})
 	p.localMu.Lock()
@@ -648,22 +649,34 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	}
 	p.connecting[ready] = struct{}{}
 	p.localMu.Unlock()
+	// release takes Run out of connecting and wakes the waiters. It runs
+	// right after the session is recorded, and in a defer, so a panic in
+	// Connect (recovered further up) cannot leave the entry behind.
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			p.localMu.Lock()
+			delete(p.connecting, ready)
+			p.localMu.Unlock()
+			close(ready)
+		})
+	}
+	defer release()
 
 	ss, err := p.server.Connect(ctx, t, nil)
-	if err == nil && p.testHookConnected != nil {
-		p.testHookConnected()
-	}
-	p.localMu.Lock()
-	delete(p.connecting, ready)
 	if err == nil {
+		if p.testHookConnected != nil {
+			p.testHookConnected()
+		}
+		p.localMu.Lock()
 		p.runs++
 		if p.locals == nil {
 			p.locals = make(map[*mcp.ServerSession]string)
 		}
 		p.locals[ss] = localKeyPrefix + strconv.Itoa(p.runs)
+		p.localMu.Unlock()
 	}
-	p.localMu.Unlock()
-	close(ready)
+	release()
 	if err != nil {
 		return fmt.Errorf("proxy: connect agent session: %w", err)
 	}

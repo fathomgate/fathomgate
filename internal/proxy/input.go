@@ -72,18 +72,25 @@ const localKeyPrefix = "l"
 //     which is foreign to every later call, including calls this same key
 //     makes, so a session netguard cannot name gets the most blocking
 //     answer, never the local agent's (S5 in the same review).
+//
+// A call that came over the listener (it has a session id, or a principal,
+// which the listener's authentication always sets, stateless requests
+// included) is keyed without asking localKey, so it never waits for a
+// connecting Run: that wait would happen before the listener's call caps
+// admit the call (L1 in the security re-review of PR #78). Only a call with
+// neither can be a local agent's.
 func (p *Proxy) agentSessionKey(ctx context.Context, c call) string {
 	ss := c.agent.session
 	if ss == nil {
 		return ""
 	}
-	if key := p.localKey(ctx, ss); key != "" {
-		return key
-	}
 	if id := ss.ID(); id != "" {
 		return "s" + id
 	}
-	return ""
+	if c.principal != "" {
+		return ""
+	}
+	return p.localKey(ctx, ss)
 }
 
 // promptLabel is the origin label every upstream prompt carries. Server

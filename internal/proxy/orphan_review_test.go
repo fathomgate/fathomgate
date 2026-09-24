@@ -251,6 +251,65 @@ func TestLocalKeyDuringConnect(t *testing.T) {
 	p.localMu.Unlock()
 }
 
+// TestListenerCallNeverWaitsForRun (L1 in the security re-review of
+// PR #78): while a Run is connecting (an entry in p.connecting that is
+// never released here), a call over the HTTP listener is neither delayed
+// nor mis-keyed. A stateful session's call is keyed by its session id and
+// a stateless call goes to the shared entry, both without waiting, so no
+// listener call sits outside the call caps behind a stdio connect.
+func TestListenerCallNeverWaitsForRun(t *testing.T) {
+	h := newHTTPHarness(t, httpSetup{upstream: v2025})
+	p := h.proxy
+	stuck := make(chan struct{})
+	p.localMu.Lock()
+	if p.connecting == nil {
+		p.connecting = make(map[chan struct{}]struct{})
+	}
+	p.connecting[stuck] = struct{}{}
+	p.localMu.Unlock()
+	waited := make(chan struct{}, 1)
+	p.testHookKeyWaiting = func() {
+		select {
+		case waited <- struct{}{}:
+		default:
+		}
+	}
+	up := p.upstreams[testServer]
+	for _, era := range []string{v2025, v2026} {
+		cs := h.connect(t, era, tokAlice, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		start := time.Now()
+		_, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}})
+		cancel()
+		if err != nil {
+			t.Fatalf("agent %s: %v", era, err)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("agent %s: the call took %v with a Run connecting", era, d)
+		}
+		select {
+		case <-waited:
+			t.Fatalf("agent %s: a listener call waited for a connecting Run", era)
+		default:
+		}
+		up.mu.Lock()
+		_, keyed := up.orphans["s"+cs.ID()]
+		shared := p.now().Before(up.orphanOverflow)
+		for key := range up.orphans {
+			if strings.HasPrefix(key, localKeyPrefix) {
+				t.Errorf("agent %s: listener call keyed %q, a local agent's key", era, key)
+			}
+		}
+		up.mu.Unlock()
+		switch {
+		case era == v2025 && !keyed:
+			t.Errorf("stateful call not keyed by its session id %q", cs.ID())
+		case era == v2026 && !shared:
+			t.Error("stateless call did not go to the shared entry")
+		}
+	}
+}
+
 // TestPOSTBeforeRegistration (T0.45, S7): a POST that arrives on a new
 // session before settleSession has registered it (the agent had the
 // session id from the response header already) counts as in progress once

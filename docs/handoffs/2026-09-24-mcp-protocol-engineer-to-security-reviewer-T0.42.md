@@ -28,11 +28,19 @@
 - **N4**: SECURITY.md, the threat model and 8.4 now say that which refusal an agent sees reveals whether another session ended a call on that upstream within `OrphanTTL`, the same disclosure `errEndedElsewhere` makes.
 - **Evidence**: added `TestLocalKeyDuringConnect` and `TestOrphanRefusalNeverReplacesUpstreamError` to row 37, and `TestPOSTBeforeRegistration` to the slow-agents / idle-expiry row.
 
+### Second fix round (security re-review at 3666825, approved)
+
+- **L1**, `input.go`: `agentSessionKey` now checks the session id first (`s<id>`), then the principal (a principal means the call came over the listener, including every stateless request, so it gets `""`). It asks `localKey` only when a call has neither. A listener call therefore never waits behind a connecting Run ahead of `l.admit`. New test `TestListenerCallNeverWaitsForRun`: with an entry that is never released in `p.connecting`, a 2025 and a 2026 listener call each finish at once. The wait hook never fires, the stateful call is keyed `s<id>` and the stateless one lands in the shared entry. It fails with the old lookup order (checked).
+- **N1**, `proxy.go`: `Run` releases its `ready` entry through a `sync.Once` that runs right after the record and in a defer, so a recovered panic in `Connect` cannot leave the entry behind.
+- **N2**: no doc now says listener calls wait. `Run`'s doc, the CHANGELOG, 8.4 and the threat-model evidence say that only a local request waits.
+- **N3**: profile-schema 8.4 has its own **Open.** paragraph for the shared entry (T0.44, before `--listen`).
+- `go test ./internal/proxy/ -count=5` passed (58 s) after this round; CI runs `-race` on the pushed head.
+
 ## Look at this first
 
 1. **`TestProgressStuckAgent` and `TestEndBeforeFinish` (`progress_stall_test.go`) changed meaning.** They run two agents on one proxy through two `Run` calls. Before, both were keyed `local`, so agent B was shown a prompt although agent A's call had just ended on the same upstream: exactly the grouping the T0.40 handoff asked you to attack (question 1 there), and it was real in-process. They now first expect the orphan refusal (`refusedB`: not the "2 in flight" reason, so A's call did leave the in-flight set, which is what they pin), then age A's orphan and expect the prompt to reach B.
 2. **Over the HTTP listener, a 2026-era agent against a 2025-era upstream now gets the upstream's JSON-RPC error**, which quotes netguard's ADR 0014 refusal, instead of netguard's tool error (`TestHTTPEraMatrix` updated). That is S3 working as intended: the per-request session's earlier call sits in the shared entry, so the exception path fires on nearly every such call. On stdio the prompt is attributed, so the tool error is unchanged, and `era_pairs` still reads `refused per ADR 0014`.
-3. `Proxy.localKey` and `Run`'s `connecting` / `ready` handshake (fix round, Go 1). The marker is registered before `Connect`, and the record and the channel close happen after it. A request on any session not yet recorded waits while any Run is connecting. That includes an HTTP session's request during a stdio Run's connect, which netguard serve never does, and the wait lasts only as long as the connect.
+3. `Proxy.localKey` and `Run`'s `connecting` / `ready` handshake (fix round, Go 1). The marker is registered before `Connect`, and the record and the channel close happen after it. Only a local request (no session id, no principal) waits while a Run is connecting; since the second fix round a listener call never waits (below).
 
 ## Deliberately unfinished
 
