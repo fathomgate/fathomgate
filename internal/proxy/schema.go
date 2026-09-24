@@ -241,7 +241,9 @@ func relabelProperty(server, name string, v any) (map[string]any, error) {
 func enumValue(v any) bool {
 	switch x := v.(type) {
 	case string:
-		return len(x) <= maxPromptText && strings.IndexFunc(x, isControl) < 0 && !hasOriginLabel(x)
+		// Enum values cross verbatim, so one that escapeControl would
+		// change (a control character or a backslash) is refused.
+		return len(x) <= maxPromptText && strings.IndexFunc(x, isControl) < 0 && !strings.ContainsRune(x, '\\') && !hasOriginLabel(x)
 	case float64, bool:
 		return true
 	default:

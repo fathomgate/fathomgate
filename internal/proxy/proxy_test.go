@@ -361,6 +361,7 @@ func TestRelayUpstreamError(t *testing.T) {
 		{"positive code remapped", jsonrpc.Error{Code: 7, Message: "x"}, jsonrpc.CodeInternalError, "upstream s: x"},
 		{"ANSI escaped", jsonrpc.Error{Code: -32603, Message: "\x1b[31mred\x1b[0m"}, -32603, `upstream s: \u001b[31mred\u001b[0m`},
 		{"newline escaped", jsonrpc.Error{Code: -32603, Message: "a\nnetguard: fake line"}, -32603, `upstream s: a\u000anetguard: fake line`},
+		{"spelled escape keeps its backslash doubled", jsonrpc.Error{Code: -32603, Message: "a" + bs + "u000anetguard: fake line"}, -32603, "upstream s: a" + bs + bs + "u000anetguard: fake line"},
 		{"C1 and DEL escaped", jsonrpc.Error{Code: -32603, Message: "a\u009bb\u007fc"}, -32603, `upstream s: a\u009bb\u007fc`},
 		{"invalid UTF-8 replaced", jsonrpc.Error{Code: -32603, Message: "a\xffb"}, -32603, `upstream s: a\ufffdb`},
 		{"truncated to 512 bytes", jsonrpc.Error{Code: -32603, Message: long}, -32603, "upstream s: " + long[:512] + "..."},

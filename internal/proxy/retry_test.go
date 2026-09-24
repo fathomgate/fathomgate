@@ -117,3 +117,30 @@ func TestRetryIgnoresUnknownIDs(t *testing.T) {
 		t.Fatalf("upstream saw %+v, want its state and no answers", last)
 	}
 }
+
+// TestNewCallClearsUnsolicited (S5): the call dispatch receives, where the
+// M1 pipeline and audit plug in, carries no answers unless the agent sent
+// netguard's requestState with them (invariant 6).
+func TestNewCallClearsUnsolicited(t *testing.T) {
+	r := route{up: &upstream{name: testServer}, tool: "ask"}
+	for _, tc := range []struct {
+		name        string
+		state       string
+		wantAnswers int
+		wantIgnored int
+	}{
+		{"no requestState", "", 0, 3},
+		{"with requestState", statePrefix + "x", 3, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+				Name: "netdev-ssh-mcp.ask", RequestState: tc.state, InputResponses: unsolicitedResponses(),
+			}}
+			c, ignored := newCall(r, req)
+			if len(c.inputResponses) != tc.wantAnswers || ignored != tc.wantIgnored || c.requestState != tc.state {
+				t.Fatalf("dispatch would see %d answers (state %q), %d ignored; want %d, %d",
+					len(c.inputResponses), c.requestState, ignored, tc.wantAnswers, tc.wantIgnored)
+			}
+		})
+	}
+}
