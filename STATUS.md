@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 4 · in progress 1 · in review 1 · merged 34 · validated 2
+Tasks: open 4 · blocked 4 · in progress 1 · merged 36 · validated 2
 
 ## In flight
 
@@ -39,7 +39,7 @@ Tasks: open 5 · blocked 4 · in progress 1 · in review 1 · merged 34 · valid
 | T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
 | T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
-| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | T0.27, T0.40 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | T0.27, T0.40 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
@@ -48,10 +48,10 @@ Tasks: open 5 · blocked 4 · in progress 1 · in review 1 · merged 34 · valid
 | T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | merged | — | — | — |
 | T0.38 | Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.40 | Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.41 | Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG | `docs/testing` | test-engineer | docs-writer | in review | — | 2 | — |
+| T0.41 | Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG | `docs/testing` | test-engineer | docs-writer | merged | — | 2 | — |
 | T0.42 | Put the ADR 0014 refusal in the note slot, not the refused slot, so an upstream error is never replaced (S3) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2, 23 | [0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md) |
 | T0.43 | Key the local stdio agent session explicitly so a built HTTP listener cannot push it into the shared orphan bucket (S1) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2, 23 | — |
-| T0.44 | Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 23 | — |
+| T0.44 | Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | — |
 | T0.45 | Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7) | `internal/proxy` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
 | T0.46 | Kill the upstream's whole process tree so a launcher's grandchild cannot outlive a restart or shutdown (S2) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 22 | — |
 | T0.47 | Label the upstream era from the negotiated protocol version, not from how netguard connected, before M1 audits it (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
