@@ -5,7 +5,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | # | Case | Tier | Upstream server | Expected | Milestone | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | planned; ran locally against v1.6.6, see [run notes](#run-notes) |
-| 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned |
+| 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned; conformance runs all four era pairs through netguard against go-sdk fixtures, not validated, see [run notes](#run-notes) |
 | 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
 | 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
 | 5 | `show running-config` through free-form tool | 2 | ntunes `send_command` | Reclassified `READ_CONFIG`; output redacted; `class_source: reclassify` | M1, M2 | planned |
@@ -46,6 +46,14 @@ Runs that moved a row forward without closing it. A row becomes `passing` only w
 - With the upstream's `--no-obfuscate` (passed after `--`), the agent gets all four FAKE credentials unchanged. That is the M0 fact, and the test asserts it on purpose: `netguard serve` forwards results as they are.
 - Row 15 (tier 1): the same text, with rule annotations, is the redaction fixture `tests/fixtures/configs/eos-4.16.txt`. `make fixtures-check` shows the redactor catches all four in EOS-4.16 syntax (`cisco-snmp-community` 2, `cisco-password-type` 2), with no hits anywhere else in the config. The original published values give the same four hits.
 - Row 15 (tier 2): `test_running_config_redacted_by_netguard` is a strict xfail until the redactor runs at the response serialiser (ROADMAP M2). When it runs there, the case XPASSes, strict mode fails it, and `test_running_config_secrets_reach_agent_in_m0` fails with it. Flip both in that PR. Row 15 stays `planned`.
+
+**Row 2, 2026-09-23 (T0.19).** Upstreams: go-sdk's conformance everything-server at v1.8.0 (the `go.mod` version; negotiates `2026-07-28` with netguard) and at v1.6.1 (the last release without `2026-07-28`; negotiates `2025-11-25`, logged as `upstream ready ... protocol=2025-11-25 era=stateful`). Suite `@modelcontextprotocol/conformance` 0.2.0-alpha.11. netguard at `8e6b808` plus this change, macOS arm64. `make conformance PYTHON=python3`: every leg green against its baseline.
+
+- 2025 agent x 2025 upstream (`netguard-up2025`, `--requirements 2025-11-25`): 14 of 30 scored scenarios clean, 50 scored checks passing, 16 baseline entries. `tools-call-elicitation` and `elicitation-sep1034-defaults` pass: the upstream's `elicitation/create` reaches the agent and the answer goes back. They stay baselined on the `netguard` leg, where the upstream is on `2026-07-28`. `elicitation-sep1330-enums` fails because go-sdk v1.8.0 (netguard's upstream client) refuses the fixture's `titledMulti` schema before netguard sees it, and netguard's allow-list would refuse it next (profile-schema section 8.4).
+- 2026 agent x 2025 upstream (`netguard-up2025`, `--requirements 2026-07-28`): 12 of 37 scored scenarios clean, 65 scored checks passing, 42 baseline entries: 12 HTTP-transport checks (as on the control leg), 17 netguard decisions (as on the `netguard` leg), 13 checks that call 2026-era tools this upstream does not have. Listing, calls, content types, errors and progress cross the era boundary.
+- `era_pairs.py`: for a 2025 agent the prompt arrives as `[from conf] <message>` and the accepted answer completes the tool; for a 2026 agent the call ends with `isError` and the exact ADR 0014 refusal, with no prompt shown. Both cells fail against the v1.8.0 fixture, so the check needs the 2025 upstream to pass.
+- The existing legs are unchanged: `netguard` 12 of 30 (2025) and 18 of 37 (2026) scored scenarios clean, with 18 and 34 entries.
+- Not validated: both upstreams are go-sdk fixtures. To be `passing`: netdev-ssh-mcp (go-sdk, 2026 era) and upa/mcp-netmiko-server (FastMCP, 2025 era) initialise behind netguard in tier 2 CI.
 
 ## Coverage by component
 
