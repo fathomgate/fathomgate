@@ -4,7 +4,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 
 | # | Case | Tier | Upstream server | Expected | Milestone | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | planned |
+| 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | planned; ran locally against v1.6.6, see [run notes](#run-notes) |
 | 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | planned |
 | 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
 | 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
@@ -25,7 +25,18 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | 19 | Audit tamper | 1 | none | `netguard audit verify` fails on an edited line and names it; exit status 1 | M4 | planned |
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
-| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH` | Proxy starts and serves `tools/list`; no ENOENT | M0 | planned |
+| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind netguard | Proxy starts and serves `tools/list`; no ENOENT | M0 | planned; ran locally against v1.6.6 (python-sdk client; Claude Code 2.1.236 `tools/list` only), not validated, see [run notes](#run-notes) |
+
+## Run notes
+
+Runs that moved a row forward without closing it. A row becomes `passing` only when its case runs green in CI against the named real server; rows 1 and 22 also need the manual real-client check in [install.md](../install.md#check-it-works) before M0 exit criterion 2 can be ticked.
+
+**Rows 1 and 22, 2026-09-23 (T0.5).** Upstream: krisiasty/netdev-ssh-mcp v1.6.6, both the release binary `netdev-ssh-mcp_1.6.6_darwin_arm64` (sha256 `42b4f18a…b4493`, commit `be3e3634`) and a `go install …@v1.6.6` build. Device: `tests/fixtures/device/fake_ssh.py` (EOS persona, exec channel). netguard at `20781c7`, macOS arm64. `uv run --extra integration pytest integration -m tier2`: 11 passed, 2 skipped (the M1 cases).
+
+- Row 1: `tests/integration/test_passthrough.py`. `tools/list` returns exactly the five upstream tools as `netdev-ssh-mcp.<tool>`, matching `profiles/netdev-ssh-mcp.yaml`. A read-only `tools/call` (`run_show_command`, `show version`) reaches the fake device once and returns the transcript unchanged. The upstream's own refusal of `reload` comes back as `isError` and nothing reaches the device. In M0 that is not a `deny`: netguard decides nothing yet. Client: python-sdk `mcp` 2.2.0.
+- Row 22: `tests/integration/test_launcher_path.py`. With absolute paths, `PATH=""` and a fully empty environment (`env -i`), netguard serves `tools/list` and a read call. Every broken form fails fast with exit 1 and the cause on stderr, with no hang (under 1 s each): a bare `--upstream` name gives `executable file not found in $PATH`; a wrapper that looks up the server on `PATH` gives the upstream's `not found` line and then `connection closed: calling "initialize"`; netdev-ssh-mcp with no `HOME` and no `SSH_KNOWN_HOSTS` exits at startup. The `--upstream-env PATH=…` fix is tested.
+- Real client: Claude Code 2.1.236 in print mode, with `--mcp-config --strict-mcp-config` and `"env": {"PATH": ""}`, reported the server `connected` and listed `mcp__netdev__netdev-ssh-mcp_run_show_command` and the other four tools (Claude Code turns the `.` into `_`). The model turn did not run, because the CLI had no working login in the test session, so no `tools/call` went through Claude Code. Cursor was not run, because it cannot be driven headless.
+- To be `passing`: the `client-smoke` job in `ci.yaml` green on `main` (linux_amd64 release binary, sha256 pinned). To tick exit criterion 2: a person does the install.md check in Claude Code and in Cursor.
 
 ## Coverage by component
 

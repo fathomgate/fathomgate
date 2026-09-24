@@ -13,7 +13,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pyyaml>=6.0"]
-integration = ["mcp>=1.0", "pytest-asyncio>=0.23", "asyncssh>=2.14"]
+# Exact pins: tier 2 asserts on the python-sdk client API (snake_case since mcp 2.x).
+integration = ["mcp==2.2.0", "pytest-asyncio==1.4.0", "asyncssh==2.24.0"]
 
 [project.scripts]
 policy-lint = "policy_lint.lint:main"
