@@ -17,18 +17,19 @@
 // Dual era (T0.3, ADR 0008): go-sdk negotiates each side's protocol version
 // on its own, stateful (2025-11-25, initialise handshake) or stateless
 // (2026-07-28, _meta on every request). An upstream that does not connect
-// within 5 seconds of go-sdk's server/discover probe is restarted once and
-// connected with the initialise handshake only (ADR 0018). The proxy records both per call,
-// forwards no _meta in either direction, and relays an upstream's form
-// elicitation to the agent only relabelled with its origin: as MRTR
-// input_required to a stateless agent, behind an AES-GCM sealed requestState
-// (state.go), or as elicitation/create to a stateful one (input.go).
+// within 5 seconds of starting the first connect, spawn included, is
+// restarted once and connected with the initialise handshake only (ADR
+// 0018). The proxy records both per call, forwards no _meta in either
+// direction, and relays an upstream's form elicitation to the agent only
+// relabelled with its origin: as MRTR input_required to a stateless agent,
+// behind an AES-GCM sealed requestState (state.go), or as
+// elicitation/create to a stateful one (input.go).
 // Progress (T0.17) crosses as netguard's own notifications: the upstream gets
 // a token netguard issued, and its notifications for that token reach the
 // agent under the agent's token, rate-limited and with the message labelled,
 // written by a sender goroutine per call so a slow agent never stalls the
-// upstream's dispatch (progress.go, T0.28). The normative rules are in docs/specs/profile-schema.md
-// section 8.4.
+// upstream's dispatch (progress.go, T0.28). The normative rules are in
+// docs/specs/profile-schema.md section 8.4.
 //
 // Streamable HTTP toward the agent (T0.27, ADR 0016): [Proxy.HTTPHandler]
 // serves /mcp for both eras through two go-sdk handlers (stateful and

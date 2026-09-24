@@ -16,6 +16,16 @@ import (
 // must not hang shutdown.
 const waitDelay = 2 * time.Second
 
+// terminateDuration is how long go-sdk's Close waits, after closing the
+// upstream's stdin, before it signals the process (then as long again
+// before it kills it). It is go-sdk's default, set explicitly so a go-sdk
+// change cannot move it unnoticed: exitGrace (2 s), the time a failed
+// startup gives an upstream to end on its own, must stay shorter, so that
+// an upstream still running when that grace ends is killed by netguard,
+// not signalled by go-sdk first, and an exit status go-sdk caused is never
+// reported as the upstream's (proxy.go, trackedTransport.kill).
+const terminateDuration = 5 * time.Second
+
 // Command describes a stdio upstream: the process the proxy spawns and talks
 // to over its stdin and stdout.
 //
@@ -85,7 +95,7 @@ func (c Command) Transport() *mcp.CommandTransport {
 		cmd.Stderr = &lineWriter{w: w, prefix: c.StderrPrefix, red: red, scrub: red.newStream()}
 	}
 	cmd.WaitDelay = waitDelay
-	return &mcp.CommandTransport{Command: cmd}
+	return &mcp.CommandTransport{Command: cmd, TerminateDuration: terminateDuration}
 }
 
 // Variables an upstream inherits from the proxy. Everything else, including

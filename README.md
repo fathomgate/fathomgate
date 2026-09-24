@@ -104,7 +104,7 @@ The trace lists every rule NetGuard checked, top to bottom, and why each one did
 }
 ```
 
-The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. For now every request passes straight through (see above).
+The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. Point `--upstream` at the server itself (its binary, or the Python interpreter in its virtual environment), not at a launcher such as `uvx`, `npx`, `uv run`, a shell script or `docker run -i`. A server that has not answered within 5 seconds is restarted on the older protocol, and a launcher that is stopped can leave the real server running ([why](docs/install.md#point---upstream-at-the-server-not-at-a-launcher)). If you must use `uvx` or `npx`, run it once by hand first so it starts fast. For now every request passes straight through (see above).
 
 Step-by-step setup for Claude Code and Cursor, device credentials, and what to do if the client can't find netguard or the server, is in [docs/install.md](docs/install.md).
 
