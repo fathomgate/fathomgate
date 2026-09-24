@@ -188,7 +188,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// unsupported protocol version, for one), so a spawned upstream
 		// could outlive the error. Kill it and close the connection.
 		tt.kill()
-		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, err)
+		return nil, fmt.Errorf("proxy: upstream %s: connect: %w", u.Server, escapedError{err})
 	}
 	up.session = cs
 	if ir := cs.InitializeResult(); ir != nil {
@@ -278,7 +278,7 @@ func listTools(ctx context.Context, up *upstream) ([]*mcp.Tool, error) {
 	tools := make([]*mcp.Tool, 0, 16)
 	for t, err := range up.session.Tools(ctx, nil) {
 		if err != nil {
-			return nil, fmt.Errorf("proxy: upstream %s: tools/list: %w", up.name, err)
+			return nil, fmt.Errorf("proxy: upstream %s: tools/list: %w", up.name, escapedError{err})
 		}
 		if len(tools) == maxUpstreamTools {
 			return nil, fmt.Errorf("proxy: upstream %s: tools/list: more than %d tools", up.name, maxUpstreamTools)

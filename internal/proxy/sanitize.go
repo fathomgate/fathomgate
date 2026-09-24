@@ -35,6 +35,18 @@ func relayUpstreamError(server string, werr *jsonrpc.Error) *jsonrpc.Error {
 	}
 }
 
+// escapedError is an error from an upstream exchange whose text may carry
+// the upstream's own words: go-sdk's jsonrpc.Error (WireError) returns the
+// upstream's message verbatim. Its Error has control characters escaped as
+// in escapeControl, so a startup error printed to the operator's terminal
+// (netguard serve writes New's error to stderr) cannot move the cursor,
+// colour the terminal or forge a log line. Unwrap keeps the original for
+// errors.Is and errors.As.
+type escapedError struct{ err error }
+
+func (e escapedError) Error() string { return escapeControl(e.err.Error(), 0) }
+func (e escapedError) Unwrap() error { return e.err }
+
 // isControl reports characters that must not reach a terminal, log or model
 // verbatim: C0 controls (including ESC, tab and newline), DEL, C1 controls,
 // format characters (Cf: bidi embeddings and overrides U+202A-U+202E and

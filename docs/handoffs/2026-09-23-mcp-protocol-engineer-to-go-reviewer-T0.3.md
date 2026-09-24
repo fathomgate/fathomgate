@@ -1,10 +1,40 @@
-# T0.3 review rounds 1 and 2 applied: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
+# T0.3 review rounds 1, 2 and the final security pass applied: both eras negotiate through the proxy, no _meta crosses, upstream prompts reach the agent only labelled
 
 - **Task:** T0.3 — Dual-era negotiation (initialize handshake vs _meta self-description, MRTR passthrough)
 - **From → To:** mcp-protocol-engineer → go-reviewer (re-review), then security-reviewer
 - **State now:** in review
 - **Branch / PR:** `feat/proxy-dual-era` (origin/main merged in; #25 is on main) · none yet (not pushed)
 - **Date:** 2026-09-23
+
+## Final security pass (approve with nits) and go-sdk v1.8.0
+
+`origin/main` is merged in, including Dependabot #28 (go-sdk v1.7.0 → v1.8.0), #27 (setup-go 7.0.0) and #30 (golangci-lint-action 9.3.0). The orchestrator's 72bb90f (CLAUDE.md repo map) was already on the branch.
+
+**go-sdk v1.7.0 → v1.8.0: what touches the proxy.** I read the module-cache diff of every changed non-test file. No change contradicts ADR 0008, 0012 or 0014, and nothing needed a workaround.
+
+- **`Connect` on an unsupported version.** It now closes the session itself (`_ = cs.Close()`). For a stdio upstream that means the 5-second shutdown grace runs before the child is reaped. `TestConnectFailureKillsUpstream` still passes, but takes 5s instead of about 0.1s. Our `trackedTransport.kill` is still needed for the other failure paths and is harmless here. Spec §8.3 now says so. The ADR 0012 promise (the process is killed if `New` fails) still holds.
+- **MRTR retry params.** They are now copied instead of mutated (`setMultiRoundTripRetryParams`). No effect: our upstream client runs with `MultiRoundTrip.Disabled`, and we never hand a stateful agent `InputRequests`.
+  - `MultiRoundTripOptions.Disabled`, the client's `server/discover`-then-initialise fallback, `ServerSession.Elicit`, `clientSupportsMultiRoundTrip` and async dispatch of incoming calls are unchanged. The S1 prompt slot is still needed.
+- **Agent cancellation.** `notifications/cancelled` is now sent from a go-sdk goroutine after the call returns (at most 5s). Cancellation still reaches the upstream: `TestAgentCancelCancelsUpstream` and `TestAgentCancelDuringPrompt` pass, and the leak check passes.
+- **`NegotiatedProtocolVersion`.** `ServerSessionState` gains this field, and `initialize` now negotiates against `ServerOptions.SupportedProtocolVersions`. go-sdk's MRTR decision still reads `InitializeParams.ProtocolVersion`, the version the client asked for, and `agentOf` deliberately mirrors that.
+  - A pre-existing go-sdk quirk remains: a client that sends `initialize` with a 2026 version is negotiated down to 2025-11-25 but still treated as MRTR-capable, on both v1.7 and v1.8. It is noted for T0.4 and not changed here.
+- **Size and depth caps.** Stdio and `CommandTransport` connections now cap one inbound JSON-RPC frame at 16 MiB (`DefaultMaxLineLength`), and `internal/json` caps nesting at depth 1000. This partly closes the "payload size" note in SECURITY.md. An upstream frame over 16 MiB now ends its session, and it reads as "not running".
+- **`WireError`.** `Is` is nil-safe; `Error()` is unchanged and still returns the upstream message, so item 2 applies to v1.8.0.
+- **`ClientSessionOptions.ProtocolVersion`.** Now exported. Tests could pin an agent to 2025-11-25 with it instead of the `legacyAgent` ping rewrite. That is left as a follow-up, since the wire-level fake still works.
+- **New, not used:**
+  - `ServerOptions.SupportedProtocolVersions`, `SetCacheable` and `SupportedProtocolVersions()`;
+  - `ServerSession.NotifyElicitationComplete`;
+  - `subscriptions/listen` session tracking;
+  - the client subscribing to list changes only when the server declares `listChanged`;
+  - notifications no longer selecting the new protocol.
+- **ADR 0011.** go-sdk v1.8.0's `go.mod` hash is identical to v1.7.0's, so no indirect module changed and the module rows stand. The title, context and header naming v1.7.0 are stale. I added this to the T0.16 notes on the board.
+
+**Fixes in this pass:**
+
+- **(2) Startup errors.** `proxy.New` wraps the upstream-derived connect and `tools/list` errors in `escapedError`. Its `Error()` escapes control, bidi and zero-width characters, and `Unwrap` keeps the chain. This covers `serve.go`'s `fmt.Fprintf` without exporting a new API. `TestStartupErrorsEscaped` fails the handshake and `tools/list` with ESC, a newline and U+202E in the message.
+- **(3) The fold.** `foldLabel` now removes combining marks (Mn, Me) and the blank fillers U+115F, U+1160, U+3164, U+FFA0 and U+2800. It maps Latin small capitals and the brackets ⎡ ⎣ ⌈ ⌊ ﹇ ﹁ ﹃ 「 『 ｢. The comment and the documented limits are rewritten; NFKC itself would need `golang.org/x/text`, so it is not used. `TestHasOriginLabel` has 25 rows, including two that pin documented limits (mathematical bold, precomposed accent).
+- **(4)** The stale "titles escaped, not individually prefixed" line is replaced.
+- **(5) SECURITY.md.** New row for upstream text on the operator's stderr at startup. The impersonation residual now lists the remaining fold limits.
 
 ## Review round 2
 
@@ -79,7 +109,7 @@ A check that expects empty lists for undeclared capabilities would now fail, and
 - **Replay within 30 minutes:** accepted for M0. M3 needs a single-use id.
 - **Session binding:** the envelope and prompt attribution are not bound to an agent session, since stdio has one. Required once Streamable HTTP lands.
 - **Not relayed:** content-block `_meta` (passes until M2), progress notifications, and the `Mcp-Method`/`Mcp-Name` headers (HTTP only).
-- **Property titles and descriptions** are escaped, not individually prefixed; the message and the form title carry the label.
+- **Look-alike fold limits:** mathematical alphanumerics, precomposed accented letters, other scripts and font-only homoglyphs pass `hasOriginLabel`. The label on the message, the form title and every property title is the second layer.
 - **Validation:** row 2 is not validated. That needs `upa/mcp-netmiko-server` and the test-engineer. Row 17 is not validated.
 - **`CLAUDE.md` line 88:** left for the orchestrator.
 
