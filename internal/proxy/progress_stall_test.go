@@ -243,7 +243,7 @@ func TestProgressStuckAgent(t *testing.T) {
 			// key), so the prompt is refused for that reason, and not as
 			// one of two calls in flight: A's call has left the set.
 			refusedB(t, agentB)
-			expireOrphan(t, up, localKeyPrefix+"1")
+			expireOrphan(t, h.proxy, up, localKeyPrefix+"1")
 			// Once A's orphan has expired, the prompt is B's alone.
 			res, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
 			if err != nil || res.IsError {
@@ -418,7 +418,7 @@ func TestEndBeforeFinish(t *testing.T) {
 			// as an orphan and not as one of two calls in flight, and once
 			// it has expired the prompt is attributed to B.
 			refusedB(t, agentB)
-			expireOrphan(t, up, localKeyPrefix+"1")
+			expireOrphan(t, h.proxy, up, localKeyPrefix+"1")
 			res, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
 			if err != nil || res.IsError {
 				t.Fatalf("B's call: %v %q", err, text(res))

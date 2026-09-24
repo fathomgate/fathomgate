@@ -415,35 +415,41 @@ func TestOrphanAttribution(t *testing.T) {
 // at all) is keyed by the empty key, the shared entry; a stateful session
 // over the listener is keyed by its session id.
 func TestAgentSessionKey(t *testing.T) {
-	stdio := newHarness(t, nil).proxy
-	first := localSessions(t, stdio, 1)[0]
-	if got := stdio.agentSessionKey(call{agent: agentPeer{session: first}}); got != localKeyPrefix+"1" {
-		t.Errorf("stdio: key %q, want %q", got, localKeyPrefix+"1")
+	ctx := context.Background()
+	stdio := newHarness(t, nil)
+	// Each local agent's own call leaves an orphan under its own key: l1
+	// for the first Run, l2 for a second one on the same proxy (in-process
+	// only; netguard serve runs one), never one key for both.
+	second, _ := connectAgent(t, stdio.proxy, eraSetup{agent: v2025}, &promptLog{})
+	for _, agent := range []*mcp.ClientSession{stdio.agent, second} {
+		if _, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// A second agent on the same proxy (in-process only; netguard serve
-	// runs one) is a different session with a different key.
-	connectAgent(t, stdio, eraSetup{agent: v2025}, &promptLog{})
-	keys := map[string]bool{}
-	for _, ss := range localSessions(t, stdio, 2) {
-		keys[stdio.agentSessionKey(call{agent: agentPeer{session: ss}})] = true
-	}
-	if len(keys) != 2 || !keys[localKeyPrefix+"1"] || !keys[localKeyPrefix+"2"] {
-		t.Errorf("two local agents: keys %v, want l1 and l2", keys)
+	sup := stdio.proxy.upstreams[testServer]
+	sup.mu.Lock()
+	_, l1 := sup.orphans[localKeyPrefix+"1"]
+	_, l2 := sup.orphans[localKeyPrefix+"2"]
+	n, shared := len(sup.orphans), sup.orphanOverflow
+	sup.mu.Unlock()
+	if !l1 || !l2 || n != 2 || !shared.IsZero() {
+		t.Errorf("two local agents: l1 %v, l2 %v, %d orphans, shared entry until %v; want l1 and l2 only", l1, l2, n, shared)
 	}
 	// No session: the shared entry, never a local agent's key (S5).
-	if got := stdio.agentSessionKey(call{}); got != "" {
+	if got := stdio.proxy.agentSessionKey(ctx, call{}); got != "" {
 		t.Errorf("stdio, no session: key %q, want the empty key", got)
 	}
 	h := newHTTPHarness(t, httpSetup{upstream: v2025})
 	for _, principal := range []string{"alice", ""} {
-		// Over the listener a call with no session id is a session of its
-		// own, whether or not its principal reached this far.
-		if got := h.proxy.agentSessionKey(call{principal: principal}); got != "" {
+		// Over the listener a call with no session id gets the shared
+		// entry, foreign to every call including its own, whether or not
+		// its principal reached this far.
+		if got := h.proxy.agentSessionKey(ctx, call{principal: principal}); got != "" {
 			t.Errorf("listener, principal %q: key %q, want the empty key", principal, got)
 		}
 	}
 	cs := h.connect(t, v2025, tokAlice, nil)
-	if _, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
+	if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}}); err != nil {
 		t.Fatal(err)
 	}
 	up := h.proxy.upstreams[testServer]

@@ -72,12 +72,12 @@ const localKeyPrefix = "l"
 //     which is foreign to every later call, including calls this same key
 //     makes, so a session netguard cannot name gets the most blocking
 //     answer, never the local agent's (S5 in the same review).
-func (p *Proxy) agentSessionKey(c call) string {
+func (p *Proxy) agentSessionKey(ctx context.Context, c call) string {
 	ss := c.agent.session
 	if ss == nil {
 		return ""
 	}
-	if key := p.localKey(ss); key != "" {
+	if key := p.localKey(ctx, ss); key != "" {
 		return key
 	}
 	if id := ss.ID(); id != "" {
@@ -560,7 +560,7 @@ func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 		}
 	}
 	u.mu.Unlock()
-	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason)
+	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason, "attributed", f != nil)
 	return r
 }
 
@@ -575,7 +575,7 @@ func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
 		f.note = r
 	}
 	u.mu.Unlock()
-	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason)
+	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason, "attributed", false)
 	return r
 }
 

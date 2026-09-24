@@ -741,6 +741,10 @@ type liveSession struct {
 	active  int // POSTs in progress
 	timer   *time.Timer
 	stopped bool // the session has ended or expired; the timer is dead
+	// running reports that the idle clock is counting down: armed, no POST
+	// in progress, not stopped. Kept beside the timer so it can be read
+	// without touching the timer.
+	running bool
 }
 
 // arm starts the idle clock once the session is registered.
@@ -751,8 +755,10 @@ func (s *liveSession) arm() {
 		return
 	}
 	s.timer = time.AfterFunc(s.h.opts.SessionTimeout, s.expire)
+	s.running = true
 	if s.active > 0 {
 		s.timer.Stop()
+		s.running = false
 	}
 }
 
@@ -761,6 +767,7 @@ func (s *liveSession) startPOST() {
 	defer s.mu.Unlock()
 	if s.active == 0 && s.timer != nil {
 		s.timer.Stop()
+		s.running = false
 	}
 	s.active++
 }
@@ -771,6 +778,7 @@ func (s *liveSession) endPOST() {
 	s.active--
 	if s.active == 0 && s.timer != nil && !s.stopped {
 		s.timer.Reset(s.h.opts.SessionTimeout)
+		s.running = true
 	}
 }
 
@@ -779,6 +787,7 @@ func (s *liveSession) stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopped = true
+	s.running = false
 	if s.timer != nil {
 		s.timer.Stop()
 	}
@@ -793,6 +802,7 @@ func (s *liveSession) expire() {
 		return
 	}
 	s.stopped = true
+	s.running = false
 	s.mu.Unlock()
 	n := s.h.p.limits.Load().cancelSession(s.sid, s.principal)
 	s.h.logger.Info("agent session idle; closing it", "session", shortHash(s.sid), "principal", s.principal, "calls_cancelled", n)

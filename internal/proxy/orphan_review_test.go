@@ -13,37 +13,22 @@ import (
 
 // Tests for the post-merge security review of T0.40 (T0.42, T0.43, T0.45).
 
-// localSessions waits until p's Run calls are serving n agent sessions and
-// returns them. The agent's connect can return before Run has recorded its
-// session, because go-sdk answers initialise on its own.
-func localSessions(t *testing.T, p *Proxy, n int) []*mcp.ServerSession {
-	t.Helper()
-	var out []*mcp.ServerSession
-	waitFor(t, "Run to record its agent sessions", func() bool {
-		p.localMu.RLock()
-		defer p.localMu.RUnlock()
-		out = out[:0]
-		for ss := range p.locals {
-			out = append(out, ss)
-		}
-		return len(out) == n
-	})
-	return out
-}
-
-// foreignOrphan makes up remember that another agent session ended a call
-// on it an hour from now, so the orphan rule refuses every prompt on up.
-func foreignOrphan(up *upstream) {
+// foreignOrphan makes p's upstream remember that another agent session
+// ended a call on it, live for an hour on p's clock, so the orphan rule
+// refuses every prompt on it.
+func foreignOrphan(p *Proxy) {
+	up := p.upstreams[testServer]
 	up.mu.Lock()
 	defer up.mu.Unlock()
 	if up.orphans == nil {
 		up.orphans = make(map[string]orphan)
 	}
-	up.orphans["sforeign"] = orphan{principal: "bob", expires: time.Now().Add(time.Hour)}
+	up.orphans["sforeign"] = orphan{principal: "bob", expires: p.now().Add(time.Hour)}
 }
 
-// expireOrphan ages the orphan key left on up, as OrphanTTL would.
-func expireOrphan(t *testing.T, up *upstream, key string) {
+// expireOrphan ages the orphan key left on up to just before now on p's
+// clock, as OrphanTTL would.
+func expireOrphan(t *testing.T, p *Proxy, up *upstream, key string) {
 	t.Helper()
 	up.mu.Lock()
 	defer up.mu.Unlock()
@@ -51,7 +36,7 @@ func expireOrphan(t *testing.T, up *upstream, key string) {
 	if !ok {
 		t.Fatalf("no orphan %q on %s", key, up.name)
 	}
-	o.expires = time.Now().Add(-time.Second)
+	o.expires = p.now().Add(-time.Second)
 	up.orphans[key] = o
 }
 
@@ -99,7 +84,7 @@ func TestOrphanRefusalNeverReplacesUpstreamError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newEraHarness(t, tc.setup)
-			foreignOrphan(h.proxy.upstreams[testServer])
+			foreignOrphan(h.proxy)
 			ctx := context.Background()
 
 			// The upstream fails the call: the agent gets the upstream's
@@ -172,6 +157,100 @@ func TestLocalAgentOwnOrphanWithListener(t *testing.T) {
 	}
 }
 
+// TestLocalKeyDuringConnect (T0.43, kept at the security reviewer's
+// request): a stdio tools/call that go-sdk dispatches while Run is still
+// connecting, before it has recorded its session, waits for the record and
+// is keyed l1, never the empty key. The Run is held between Connect and the
+// record by a test hook while the agent initialises and calls; the call's
+// handler must be seen waiting before the hook lets Run go on.
+func TestLocalKeyDuringConnect(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	upSrvT, upCliT := mcp.NewInMemoryTransports()
+	if _, err := fakeUpstream(rec, nil).Connect(ctx, upSrvT, nil); err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := make(chan struct{}, 1)
+	p.testHookKeyWaiting = func() {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+	}
+	agSrvT, agCliT := mcp.NewInMemoryTransports()
+	var agent *mcp.ClientSession
+	callDone := make(chan error, 1)
+	p.testHookConnected = func() {
+		// Run has connected and not recorded its session yet.
+		var err error
+		agent, err = mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, nil).Connect(ctx, agCliT, nil)
+		if err != nil {
+			callDone <- err
+			return
+		}
+		go func() {
+			_, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01"}})
+			callDone <- err
+		}()
+		select {
+		case <-waiting:
+		case <-time.After(5 * time.Second):
+			t.Error("the call's handler never waited for Run to record its session")
+		}
+	}
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run(ctx, agSrvT) }()
+	t.Cleanup(func() {
+		if agent != nil {
+			_ = agent.Close()
+		}
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("Run did not return after the agent disconnected")
+		}
+		if err := p.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	select {
+	case err := <-callDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the call did not finish")
+	}
+	up := p.upstreams[testServer]
+	up.mu.Lock()
+	_, own := up.orphans[localKeyPrefix+"1"]
+	n, shared := len(up.orphans), up.orphanOverflow
+	up.mu.Unlock()
+	if !own || n != 1 || !shared.IsZero() {
+		t.Fatalf("call made during connect: l1 orphan %v, %d orphans, shared entry until %v; want l1 only", own, n, shared)
+	}
+
+	// A request still waiting for a connecting Run when its context ends
+	// gets the empty key: it fails closed into the shared entry.
+	stuck := make(chan struct{})
+	p.localMu.Lock()
+	p.connecting[stuck] = struct{}{}
+	p.localMu.Unlock()
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if got := p.localKey(cctx, &mcp.ServerSession{}); got != "" {
+		t.Fatalf("key %q for a request whose context ended while waiting, want the empty key", got)
+	}
+	p.localMu.Lock()
+	delete(p.connecting, stuck)
+	p.localMu.Unlock()
+}
+
 // TestPOSTBeforeRegistration (T0.45, S7): a POST that arrives on a new
 // session before settleSession has registered it (the agent had the
 // session id from the response header already) counts as in progress once
@@ -179,21 +258,18 @@ func TestLocalAgentOwnOrphanWithListener(t *testing.T) {
 // POST that ended before the registration, or another principal's, does
 // not count.
 func TestPOSTBeforeRegistration(t *testing.T) {
+	p := newHarness(t, nil).proxy
 	hd := &httpHandler{
-		opts:  HTTPOptions{SessionTimeout: time.Hour},
-		live:  make(map[string]*liveSession),
-		early: make(map[earlyPOST]int),
+		p:      p,
+		logger: p.logger,
+		opts:   HTTPOptions{SessionTimeout: time.Hour},
+		live:   make(map[string]*liveSession),
+		early:  make(map[earlyPOST]int),
 	}
 	active := func(ls *liveSession) (int, bool) {
 		ls.mu.Lock()
 		defer ls.mu.Unlock()
-		// The timer is stopped while a POST is in progress; Stop reports
-		// whether it was still running.
-		running := ls.timer != nil && ls.timer.Stop()
-		if running {
-			ls.timer.Reset(hd.opts.SessionTimeout)
-		}
-		return ls.active, running
+		return ls.active, ls.running
 	}
 
 	endDone := hd.beginPOST("s1", "alice") // ends before registration
