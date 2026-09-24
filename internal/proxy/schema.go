@@ -115,7 +115,9 @@ func relabelSchema(server string, s any) (any, error) {
 		}
 		slices.Sort(names) // deterministic errors
 		for _, name := range names {
-			if name == "" || len(name) > maxPropertyName || strings.IndexFunc(name, isControl) >= 0 {
+			// Names cross verbatim (the agent's accept content uses them as
+			// keys), so one escapeControl would change is refused.
+			if name == "" || len(name) > maxPropertyName || strings.IndexFunc(name, isControl) >= 0 || strings.IndexByte(name, backslash) >= 0 {
 				return nil, errSchemaName
 			}
 			if hasOriginLabel(name) {
@@ -297,15 +299,22 @@ func oneOfOptions(o any) ([]any, error) {
 }
 
 // defaultValue keeps a default that is a primitive or an array of
-// primitives, with strings escaped; anything else is dropped (ok false).
-// A string that reads as an origin label is an error.
+// primitives; anything else is dropped (ok false). A default is a value the
+// upstream gets back if the human accepts it, so like an enum value it must
+// round-trip: a string escapeControl would change (a control character, a
+// backslash, invalid UTF-8) or longer than maxPromptText is dropped, and
+// the human types the value. A string that reads as an origin label is an
+// error.
 func defaultValue(d any) (any, bool, error) {
 	switch x := d.(type) {
 	case string:
 		if hasOriginLabel(x) {
 			return nil, false, errSchemaLabel
 		}
-		return escapeControl(x, maxPromptText), true, nil
+		if len(x) > maxPromptText || escapeControl(x, 0) != x {
+			return nil, false, nil
+		}
+		return x, true, nil
 	case float64, bool:
 		return x, true, nil
 	case []any:

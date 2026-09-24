@@ -39,6 +39,11 @@ func TestRelabelElicit(t *testing.T) {
 			t.Errorf("message %q passed", spoof)
 		}
 	}
+	for _, spoof := range append(markupSpoofs, nestedEscape(maxDecodePasses+1)) {
+		if _, r := relabelElicit("junos-mcp-server", "commit", &mcp.ElicitParams{Message: spoof}); r == nil {
+			t.Errorf("message %q passed", spoof)
+		}
+	}
 	// Upstream text that spells an escape keeps its backslash doubled, so
 	// only netguard's own escapes read as escapes (S1).
 	got, r = relabelElicit("s", "t", &mcp.ElicitParams{Message: "ok" + bs + "u000aapprove"})
