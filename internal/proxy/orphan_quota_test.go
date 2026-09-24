@@ -352,18 +352,73 @@ func TestUnattributedRefusalLog(t *testing.T) {
 }
 
 // TestRefusalLimiterBounded: the rate limiter keeps at most
-// maxRefusalLogKeys entries, and making room never holds a line back.
+// maxRefusalLogKeys entries and making room never holds a line back. The
+// stale sweep drops only entries older than the interval, the full clear
+// drops the rest, and either way the held-back counts it drops come back
+// as lost (L2 in the security re-review of PR #82).
 func TestRefusalLimiterBounded(t *testing.T) {
 	var l refusalLimiter
 	t0 := time.Unix(1_000_000, 0)
-	for i := range maxRefusalLogKeys + 10 {
-		if ok, _ := l.allow(strconv.Itoa(i), t0); !ok {
-			t.Fatalf("a new key %d was held back", i)
+	for i := range maxRefusalLogKeys {
+		if ok, _, lost := l.allow(strconv.Itoa(i), t0); !ok || lost != 0 {
+			t.Fatalf("a new key %d: allowed %v, lost %d", i, ok, lost)
 		}
 	}
-	if n := len(l.last); n > maxRefusalLogKeys {
-		t.Fatalf("%d limiter entries, want at most %d", n, maxRefusalLogKeys)
+	// Two lines for key 0 are held back.
+	for range 2 {
+		if ok, _, _ := l.allow("0", t0.Add(time.Second)); ok {
+			t.Fatal("a line within the interval was let through")
+		}
 	}
+	// Stale sweep: past the interval every entry is stale, so a new key
+	// sweeps them all, reporting key 0's two held-back lines as lost.
+	t1 := t0.Add(refusalLogInterval)
+	if ok, sup, lost := l.allow("new", t1); !ok || sup != 0 || lost != 2 || len(l.last) != 1 {
+		t.Fatalf("stale sweep: allowed %v, suppressed %d, lost %d, %d entries; want true, 0, 2, 1", ok, sup, lost, len(l.last))
+	}
+	// Refill with fresh entries only: nothing is stale, so a new key clears
+	// the table, and "new"'s one held-back line is reported as lost.
+	for i := range maxRefusalLogKeys - 1 {
+		if ok, _, _ := l.allow("fresh"+strconv.Itoa(i), t1); !ok {
+			t.Fatalf("fresh key %d was held back", i)
+		}
+	}
+	if ok, _, _ := l.allow("new", t1.Add(time.Second)); ok {
+		t.Fatal("a line within the interval was let through")
+	}
+	if ok, _, lost := l.allow("another", t1.Add(time.Second)); !ok || lost != 1 || len(l.last) != 1 {
+		t.Fatalf("full clear: allowed %v, lost %d, %d entries; want true, 1, 1", ok, lost, len(l.last))
+	}
+}
+
+// TestAttributedRefusalRateLimited (L1 in the security re-review of
+// PR #82): a refusal of a prompt attributed to one call (here, an agent
+// that did not declare form elicitation) is rate-limited like the
+// unattributed ones, and names the call's principal.
+func TestAttributedRefusalRateLimited(t *testing.T) {
+	buf := newSyncBuffer()
+	clk := &testClock{now: time.Unix(1_000_000, 0)}
+	p := &Proxy{logger: slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})), now: clk.Now}
+	up := &upstream{name: testServer}
+	f := up.begin(context.Background(), call{sessionKey: "sA", tool: "t", principal: "alice", agent: agentPeer{version: v2025}}, 0)
+	ask := p.upstreamElicitation(up)
+	for range 5 {
+		if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
+			t.Fatal("a prompt was relayed to an agent without form elicitation")
+		}
+	}
+	logs := buf.String()
+	if n := strings.Count(logs, "netguard refused an upstream input request"); n != 1 || !strings.Contains(logs, "attributed=true principal=alice suppressed=0") {
+		t.Fatalf("%d attributed refusal lines within one interval; want 1 naming alice:\n%s", n, logs)
+	}
+	clk.Add(refusalLogInterval)
+	if _, err := ask(context.Background(), &mcp.ElicitRequest{Params: promptFor("pw")}); err == nil {
+		t.Fatal("a prompt was relayed to an agent without form elicitation")
+	}
+	if logs := buf.String(); strings.Count(logs, "netguard refused an upstream input request") != 2 || !strings.Contains(logs, "suppressed=4") {
+		t.Fatalf("after the interval; want a second line with suppressed=4:\n%s", logs)
+	}
+	up.end(f, clk.Now(), time.Time{})
 }
 
 // TestStatelessSessionHasNoID pins what N1 in the security review of

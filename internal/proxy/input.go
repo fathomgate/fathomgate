@@ -561,12 +561,7 @@ type principalSet map[string]struct{}
 
 func newPrincipalSet() principalSet { return make(principalSet) }
 
-func (s principalSet) add(principal string) {
-	if principal == "" {
-		principal = localPrincipal
-	}
-	s[principal] = struct{}{}
-}
+func (s principalSet) add(principal string) { s[logPrincipal(principal)] = struct{}{} }
 
 func (s principalSet) sorted() []string { return slices.Sorted(maps.Keys(s)) }
 
@@ -670,25 +665,17 @@ func (p *Proxy) endCall(u *upstream, f *inflight, now time.Time) {
 	}
 }
 
-// refuse records r against f, or, when the request could not be attributed
-// (f is nil), as a note on every call in flight on u, since any of them may
-// be the one waiting. It logs r and returns it as the error the upstream
-// receives.
+// refuse records r against f, the one call the request was attributed
+// to, logs it (rate-limited, naming f's principal; warnRefusal) and
+// returns it as the error the upstream receives.
 func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 	u.mu.Lock()
-	if f != nil {
-		if f.refused == nil {
-			f.refused = r
-		}
-	} else {
-		for c := range u.calls {
-			if c.note == nil {
-				c.note = r
-			}
-		}
+	if f.refused == nil {
+		f.refused = r
 	}
 	u.mu.Unlock()
-	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason, "attributed", f != nil)
+	name := logPrincipal(f.principal)
+	p.warnRefusal(u, r, true, r.kind+":"+r.reason.Error(), []string{name}, "principal", name)
 	return r
 }
 
@@ -707,27 +694,44 @@ func (p *Proxy) refuseUnattributed(u *upstream, at attribution, r *refusal) erro
 	}
 	u.mu.Unlock()
 	if errors.Is(at.err, errEndedElsewhere) {
-		p.warnRefusal(u, r, "orphan", "ended_calls_of", at.endedCallsOf)
+		p.warnRefusal(u, r, false, "orphan", at.endedCallsOf, "ended_calls_of", at.endedCallsOf)
 	} else {
-		p.warnRefusal(u, r, "count", "in_flight_of", at.inFlightOf)
+		p.warnRefusal(u, r, false, "count", at.inFlightOf, "in_flight_of", at.inFlightOf)
 	}
 	return r
 }
 
-// warnRefusal logs an unattributed refusal at Warn with the principals
-// under key, at most once per refusalLogInterval for each server, class
-// of refusal and principal set (L4 in the security review of PR #82): an
-// upstream that asks in a loop must not flood the log. A line carries
-// suppressed, the number of lines for the same server, class and
-// principals held back since the last one; a burst's count is reported by
-// the next line, if any.
-func (p *Proxy) warnRefusal(u *upstream, r *refusal, class, key string, principals []string) {
-	ok, suppressed := p.refusalLog.allow(u.name+"\x00"+class+"\x00"+strings.Join(principals, ","), p.now())
+// warnRefusal logs a refusal of an upstream input request at Warn, with
+// attrs (the principals behind it), at most once per refusalLogInterval
+// for each server, attribution, class of refusal and set of principals
+// (who) (L4 and L1 in the security reviews of PR #82): an upstream that
+// asks in a loop, attributed or not, must not flood the log. A line
+// carries suppressed, the number of lines for the same key held back since
+// the last; a burst's count is reported by the next line for that key, if
+// any. suppressed_lost, when present, is the number of held-back lines
+// whose count was lost because the limiter swept its table to make room.
+func (p *Proxy) warnRefusal(u *upstream, r *refusal, attributed bool, class string, who []string, attrs ...any) {
+	key := u.name + "\x00" + strconv.FormatBool(attributed) + "\x00" + class + "\x00" + strings.Join(who, ",")
+	ok, suppressed, lost := p.refusalLog.allow(key, p.now())
 	if !ok {
 		return
 	}
-	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind,
-		"reason", r.reason, "attributed", false, key, principals, "suppressed", suppressed)
+	args := []any{"server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason, "attributed", attributed}
+	args = append(args, attrs...)
+	args = append(args, "suppressed", suppressed)
+	if lost > 0 {
+		args = append(args, "suppressed_lost", lost)
+	}
+	p.logger.Warn("netguard refused an upstream input request", args...)
+}
+
+// logPrincipal is how a principal is named in a log line: the local agent,
+// which has none, as localPrincipal.
+func logPrincipal(principal string) string {
+	if principal == "" {
+		return localPrincipal
+	}
+	return principal
 }
 
 const (
@@ -735,12 +739,15 @@ const (
 	// same unattributed refusal (warnRefusal).
 	refusalLogInterval = 10 * time.Second
 	// maxRefusalLogKeys bounds the rate limiter's memory. Past it, entries
-	// older than refusalLogInterval are dropped, and if none is, all are:
-	// that can only let a line through early, never hide one.
+	// older than refusalLogInterval are dropped, and if that frees nothing,
+	// all are: that can only let a line through early, never hide one. The
+	// held-back counts of dropped entries are not reported by their own
+	// key's next line; allow returns their sum, which the line that caused
+	// the sweep carries as suppressed_lost.
 	maxRefusalLogKeys = 1024
 )
 
-// refusalLimiter rate-limits the Warn lines of unattributed refusals.
+// refusalLimiter rate-limits the Warn lines of refusals (warnRefusal).
 // The zero value is ready to use.
 type refusalLimiter struct {
 	mu   sync.Mutex
@@ -753,15 +760,16 @@ type refusalLogEntry struct {
 }
 
 // allow reports whether a line for key may be logged at now and, if so,
-// how many lines for key were held back since the last one.
-func (l *refusalLimiter) allow(key string, now time.Time) (bool, int) {
+// how many lines for key were held back since the last one, and how many
+// held-back lines of other keys were dropped uncounted to make room.
+func (l *refusalLimiter) allow(key string, now time.Time) (ok bool, suppressed, lost int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e, seen := l.last[key]
 	if seen && now.Sub(e.at) < refusalLogInterval {
 		e.suppressed++
 		l.last[key] = e
-		return false, 0
+		return false, 0, 0
 	}
 	if l.last == nil {
 		l.last = make(map[string]refusalLogEntry)
@@ -769,15 +777,19 @@ func (l *refusalLimiter) allow(key string, now time.Time) (bool, int) {
 	if !seen && len(l.last) >= maxRefusalLogKeys {
 		for k, old := range l.last {
 			if now.Sub(old.at) >= refusalLogInterval {
+				lost += old.suppressed
 				delete(l.last, k)
 			}
 		}
 		if len(l.last) >= maxRefusalLogKeys {
+			for _, old := range l.last {
+				lost += old.suppressed
+			}
 			clear(l.last)
 		}
 	}
 	l.last[key] = refusalLogEntry{at: now}
-	return true, e.suppressed
+	return true, e.suppressed, lost
 }
 
 // refuseAsNote records r as a note on f alone: a refusal of a prompt that
@@ -794,7 +806,8 @@ func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
 	u.mu.Unlock()
 	in := newPrincipalSet()
 	in.add(f.principal)
-	p.warnRefusal(u, r, "sole:"+r.reason.Error(), "in_flight_of", in.sorted())
+	who := in.sorted()
+	p.warnRefusal(u, r, false, "sole:"+r.reason.Error(), who, "in_flight_of", who)
 	return r
 }
 

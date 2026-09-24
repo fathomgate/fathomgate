@@ -75,7 +75,31 @@ Maintainer decisions: (a) the per-principal quota design and the residual are ac
 11. **L2 in docs:** the hold-a-call-open variant is in the threat model's rows 38 and 39, 8.4, SECURITY.md and the CHANGELOG.
 12. **L3:** the quota Warn is documented as expected above about 0.85 calls/s per principal per upstream (256 per 5 minutes). It applies to any upstream, not only a stateful one: every upstream records orphans.
 
-CI: GitHub-hosted minutes are exhausted and PR #83 (self-hosted runners) is not merged, so CI is pending. The local gate is green; the numbers are in the PR comment.
+CI at `0170909`: pending. Hosted minutes were exhausted and #83 was not merged yet.
+
+## Second fix round (security re-review of PR #82 at 0170909)
+
+The coordinator merged main, with #83's self-hosted WSL runners, as `8969e14`. After this round I merged main again (for #81), without rebasing.
+
+1. **M1, the reference model.** `TestOrphanModelNeverFailsOpen` gained three operations:
+   - a flood: "a" ends 266 to 285 calls at once, so its overflow record is made again and again;
+   - a quiet phase: every call ends, one second apart with "a"'s last, and then the clock jumps by `ttl/2`, `ttl-1m`, `ttl-3s` or `ttl+1s`;
+   - a probe whenever nothing is in flight: one call with a fixed or fresh key is checked and then ended without leaving a record.
+
+   The relaxed oracle now accepts only a *live* overflow record. Each seed must reach at least 3 overflows, 20 relays and 10 probes under a live overflow record, and the seeds together at least 16 probes where a live overflow record alone decides. Measured per seed: 12 to 21 overflows, 82 to 170 relays, 356 to 654 overflow probes; 77 decided probes in total. It runs in about 0.45 s. Both mutants were checked and then reverted:
+   - `attribute` ignoring `u.overflow`: fails at seed 1 step 178 on the naming check. With that check disabled, it fails at step 875 with "fail open: relayed to r3410 while the oracle refuses".
+   - `key != f.sessionKey` made always true: fails at seed 1 step 1983 with "refused ... while the oracle relays, with no live overflow record".
+2. **L1.** `refuse` (the attributed refusals: no form elicitation, a busy prompt slot, too many prompts) now goes through the limiter too. The key is server, attributed, kind with reason, and principal; the line names `principal`. Test: `TestAttributedRefusalRateLimited`. `TestAskAgentSharesPromptSlot`'s bare `Proxy` gets a clock.
+3. **L2.**
+   - The limiter comment says the held-back counts of swept keys are dropped.
+   - `allow` now returns their sum, which the line that caused the sweep carries as `suppressed_lost`.
+   - `TestRefusalLimiterBounded` covers both the stale sweep (lost 2) and the full clear (lost 1).
+4. **L3.** The threat model's OWASP mapping now lists rows 39 and 40 under MCP05.
+5. **Notes.**
+   - `refuse`'s dead `f == nil` branch and its godoc are gone; `logPrincipal` is shared.
+   - The ADR 0016 amendment row names `ended_calls_of`, `in_flight_of`, `principal` and `suppressed`.
+   - Row 39's evidence describes the strengthened model and `TestAttributedRefusalRateLimited`.
+   - profile-schema 8.4, SECURITY.md and the CHANGELOG now say that every refusal line, attributed or not, is rate-limited.
 
 ## Questions for the receiver
 
