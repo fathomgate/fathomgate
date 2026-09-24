@@ -45,47 +45,53 @@ import (
 //     verifier): 401 with WWW-Authenticate: Bearer.
 //  5. POSTs in flight, overall and per principal: 503 with Retry-After: 1.
 //  6. Era dispatch on MCP-Protocol-Version.
-//  7. Stateful sessions: a POST that could open one when the cap is reached
-//     gets 503.
+//  7. Stateful sessions: a POST that could open one when the overall or the
+//     principal's cap is reached gets 503.
 //  8. go-sdk: body size (413), Content-Type, Accept, _meta and header
 //     agreement, Mcp-Method and Mcp-Name.
 //
-// Tool calls are then capped per session and per principal in Proxy.handler
-// (calls.go). Every write to the agent runs under a write deadline, so an
-// agent that stops reading costs a bounded time per write, not a goroutine
-// forever (T3 in the review of PR #63).
+// Every 401, 403, 404, 413 and 503 also carries Connection: close, so a
+// refused client holds none of the listener's connection slots (H3 in the
+// review of PR #68). Tool calls are then capped per session and per
+// principal in Proxy.handler (calls.go). Every write to the agent runs under
+// a write deadline, so an agent that stops reading costs a bounded time per
+// write, not a goroutine forever (T3 in the review of PR #63). A stateful
+// session with no POST in progress for SessionTimeout has its calls
+// cancelled and is closed (liveSession).
 
 // HTTPPath is the only path the listener serves.
 const HTTPPath = "/mcp"
 
-// Defaults for HTTPOptions. They are the values ADR 0016 fixes for M0, and
-// the per-session and per-principal call caps the review of PR #63 (T3)
-// added.
+// Defaults for HTTPOptions. They are the values ADR 0016 fixes for M0, the
+// per-session and per-principal call caps the review of PR #63 (T3) added,
+// and the per-principal session cap the review of PR #68 (H2) added.
 const (
-	DefaultMaxInFlight             = 64
-	DefaultMaxInFlightPerPrincipal = 32
-	DefaultMaxSessions             = 16
-	DefaultMaxCallsPerSession      = 8
-	DefaultMaxCallsPerPrincipal    = 32
-	DefaultSessionTimeout          = 30 * time.Minute
-	DefaultWriteTimeout            = 10 * time.Second
-	DefaultBodyReadTimeout         = 30 * time.Second
-	// MaxRequestBodyBytes is the body limit; go-sdk answers 413 past it.
-	MaxRequestBodyBytes = 4 << 20
-	// MinTokenBytes is the shortest bearer token accepted.
-	MinTokenBytes = 32
+	defaultMaxInFlight             = 64
+	defaultMaxInFlightPerPrincipal = 32
+	defaultMaxSessions             = 16
+	defaultMaxSessionsPerPrincipal = 4
+	defaultMaxCallsPerSession      = 8
+	defaultMaxCallsPerPrincipal    = 32
+	defaultSessionTimeout          = 30 * time.Minute
+	defaultWriteTimeout            = 10 * time.Second
+	defaultBodyReadTimeout         = 30 * time.Second
+	// maxRequestBodyBytes is the body limit; go-sdk answers 413 past it.
+	maxRequestBodyBytes = 4 << 20
+	// minTokenBytes is the shortest bearer token accepted.
+	minTokenBytes = 32
 )
 
 // HTTPOptions configures [Proxy.HTTPHandler]. Tokens is required. Every
-// other field's zero value means its default above; a negative value is an
-// error. No field turns a check off.
+// other field's zero value means its default (profile-schema section 8.5);
+// a negative value is an error. No field turns a check off.
 type HTTPOptions struct {
-	// Tokens maps each principal name to its bearer token. Names are 1 to 64
-	// characters from [A-Za-z0-9_.:-] ([TokenPrincipal] makes one for an
-	// unnamed token). Each token is at least MinTokenBytes of printable ASCII
-	// without spaces, and no two names share a token. A principal is
-	// attribution only (audit, requestState binding): never an approver
-	// identity (CLAUDE.md invariant 6).
+	// Tokens maps each principal name to its bearer token. Every token is
+	// named: names are 1 to 64 characters from [A-Za-z0-9_.:-]. Each token
+	// is at least 32 bytes of printable ASCII without spaces, and no two
+	// names share a token. Tokens must be random (for example the output of
+	// `openssl rand -hex 32`); netguard checks their shape, not their
+	// entropy. A principal is attribution only (audit, requestState
+	// binding): never an approver identity (CLAUDE.md invariant 6).
 	Tokens map[string][]byte
 
 	// MaxInFlight caps POSTs in flight across every principal, long-lived
@@ -96,12 +102,19 @@ type HTTPOptions struct {
 	MaxInFlightPerPrincipal int
 	// MaxSessions caps open stateful (2025-era) sessions.
 	MaxSessions int
+	// MaxSessionsPerPrincipal caps one principal's open stateful sessions,
+	// so one principal cannot take every slot of MaxSessions.
+	MaxSessionsPerPrincipal int
 	// MaxCallsPerSession and MaxCallsPerPrincipal cap tool calls in flight.
 	// They count calls, not requests: a 2025-era call whose POST was dropped
 	// keeps running and keeps counting.
 	MaxCallsPerSession   int
 	MaxCallsPerPrincipal int
-	// SessionTimeout closes a stateful session with no request for this long.
+	// SessionTimeout closes a stateful session with no POST in progress for
+	// this long, cancelling any call still running on it first. It is also
+	// how long a call the agent abandoned (cancelled before the upstream
+	// answered) keeps a stateful upstream's prompt from being attributed to
+	// another agent session (profile-schema section 8.4).
 	SessionTimeout time.Duration
 	// WriteTimeout bounds each write (and flush) to the agent. A write that
 	// cannot complete in time fails and the connection is dropped.
@@ -118,11 +131,12 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 		v    *int
 		def  int
 	}{
-		{"MaxInFlight", &o.MaxInFlight, DefaultMaxInFlight},
-		{"MaxInFlightPerPrincipal", &o.MaxInFlightPerPrincipal, DefaultMaxInFlightPerPrincipal},
-		{"MaxSessions", &o.MaxSessions, DefaultMaxSessions},
-		{"MaxCallsPerSession", &o.MaxCallsPerSession, DefaultMaxCallsPerSession},
-		{"MaxCallsPerPrincipal", &o.MaxCallsPerPrincipal, DefaultMaxCallsPerPrincipal},
+		{"MaxInFlight", &o.MaxInFlight, defaultMaxInFlight},
+		{"MaxInFlightPerPrincipal", &o.MaxInFlightPerPrincipal, defaultMaxInFlightPerPrincipal},
+		{"MaxSessions", &o.MaxSessions, defaultMaxSessions},
+		{"MaxSessionsPerPrincipal", &o.MaxSessionsPerPrincipal, defaultMaxSessionsPerPrincipal},
+		{"MaxCallsPerSession", &o.MaxCallsPerSession, defaultMaxCallsPerSession},
+		{"MaxCallsPerPrincipal", &o.MaxCallsPerPrincipal, defaultMaxCallsPerPrincipal},
 	}
 	for _, f := range ints {
 		switch {
@@ -137,9 +151,9 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 		v    *time.Duration
 		def  time.Duration
 	}{
-		{"SessionTimeout", &o.SessionTimeout, DefaultSessionTimeout},
-		{"WriteTimeout", &o.WriteTimeout, DefaultWriteTimeout},
-		{"BodyReadTimeout", &o.BodyReadTimeout, DefaultBodyReadTimeout},
+		{"SessionTimeout", &o.SessionTimeout, defaultSessionTimeout},
+		{"WriteTimeout", &o.WriteTimeout, defaultWriteTimeout},
+		{"BodyReadTimeout", &o.BodyReadTimeout, defaultBodyReadTimeout},
 	}
 	for _, f := range durs {
 		switch {
@@ -151,6 +165,10 @@ func (o HTTPOptions) resolved() (HTTPOptions, error) {
 	}
 	return o, nil
 }
+
+// errMCPGODEBUG is HTTPHandler's refusal when MCPGODEBUG is set, even to an
+// empty value. cmd/netguard runs the same check first so it can exit 2.
+var errMCPGODEBUG = errors.New("proxy: MCPGODEBUG is set: its go-sdk compatibility switches (allowsessionsinstateless=1 among them) would change transport security without appearing on the command line; unset it to use the HTTP listener")
 
 // tokenEntry is one configured token, kept only as its digest.
 type tokenEntry struct {
@@ -170,8 +188,8 @@ func checkTokens(tokens map[string][]byte) ([]tokenEntry, error) {
 			return nil, err
 		}
 		// The error never quotes the token.
-		if len(tok) < MinTokenBytes {
-			return nil, fmt.Errorf("proxy: the token for principal %s is %d bytes; at least %d are required", name, len(tok), MinTokenBytes)
+		if len(tok) < minTokenBytes {
+			return nil, fmt.Errorf("proxy: the token for principal %s is %d bytes; at least %d are required", name, len(tok), minTokenBytes)
 		}
 		for _, b := range tok {
 			if b <= ' ' || b >= 0x7f {
@@ -197,30 +215,23 @@ func validPrincipalName(name string) error {
 	for _, r := range name {
 		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_.:-", r)
 		if !ok {
-			return fmt.Errorf("proxy: principal name %q may contain only letters, digits and _.:-", escapeControl(clip(name), 200))
+			return fmt.Errorf("proxy: principal name %q may contain only letters, digits and _.:-", clip(name))
 		}
 	}
 	return nil
 }
 
-// TokenPrincipal is the principal name for a token that has none of its
-// own (NETGUARD_LISTEN_TOKEN, or a --listen-token-file without name=):
-// "token:" and the first 12 hex digits of the token's SHA-256.
-func TokenPrincipal(token []byte) string {
-	return "token:" + shortHash(string(token))
-}
-
-// shortHash is the first 12 hex digits of s's SHA-256: how session ids (and
-// token-derived principals) appear in logs. Never log either in full.
+// shortHash is the first 12 hex digits of s's SHA-256: how session ids
+// appear in logs. Never log one in full.
 func shortHash(s string) string {
 	d := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(d[:6])
 }
 
-// Principal returns the principal authenticated for an HTTP request, from
-// its context, or "" (on stdio, or before authentication). Attribution
-// only; see [HTTPOptions].
-func Principal(ctx context.Context) string {
+// contextPrincipal returns the principal authenticated for an HTTP request,
+// from its context, or "" (before authentication). Attribution only; see
+// [HTTPOptions].
+func contextPrincipal(ctx context.Context) string {
 	if ti := auth.TokenInfoFromContext(ctx); ti != nil {
 		return ti.UserID
 	}
@@ -250,22 +261,30 @@ type httpHandler struct {
 
 	lastAuthLog atomic.Int64 // unix nanoseconds; rate-limits refusal logs
 
-	mu           sync.Mutex
-	inFlight     int
-	perPrincipal map[string]int
-	sessions     int
+	mu                   sync.Mutex
+	inFlight             int
+	perPrincipal         map[string]int
+	sessions             int
+	sessionsPerPrincipal map[string]int
+	live                 map[string]*liveSession // stateful sessions by id
 }
 
 // HTTPHandler returns the Streamable HTTP handler for the agent side, serving
 // HTTPPath for both protocol eras with every check in the list at the top of
 // http.go. It can be built once per Proxy. It fails if opts is invalid or if
-// MCPGODEBUG is set ([CheckEnvironment]). The caller owns the listener and
-// http.Server ([NewHTTPServer], [LimitListener]) and must call [Proxy.Close]
-// after the server has shut down: Close cancels calls in flight and closes
-// the agent sessions.
+// MCPGODEBUG is set in the environment (go-sdk's compatibility switches
+// would change transport security unseen).
+//
+// The caller owns the listener, its connection cap and the http.Server
+// (ADR 0016). It must register [Proxy.Close] to run when the server shuts
+// down, srv.RegisterOnShutdown(func() { _ = p.Close() }), and call Close
+// again after Shutdown returns, which waits for the first Close to finish.
+// Shutdown alone does not end a 2025-era session's open GET stream, so
+// without the hook it waits for its deadline; Close cancels the calls in
+// flight and closes every agent session, which ends those streams.
 func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
-	if err := CheckEnvironment(os.LookupEnv); err != nil {
-		return nil, err
+	if _, set := os.LookupEnv("MCPGODEBUG"); set {
+		return nil, errMCPGODEBUG
 	}
 	o, err := opts.resolved()
 	if err != nil {
@@ -277,15 +296,18 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 	}
 	o.Tokens = nil // only digests are kept
 	limits := newCallLimits(o.MaxCallsPerSession, o.MaxCallsPerPrincipal)
+	limits.orphanTTL = o.SessionTimeout
 	if !p.limits.CompareAndSwap(nil, limits) {
 		return nil, errors.New("proxy: HTTPHandler was already built for this proxy")
 	}
 	h := &httpHandler{
-		p:            p,
-		opts:         o,
-		logger:       p.logger,
-		tokens:       tokens,
-		perPrincipal: make(map[string]int),
+		p:                    p,
+		opts:                 o,
+		logger:               p.logger,
+		tokens:               tokens,
+		perPrincipal:         make(map[string]int),
+		sessionsPerPrincipal: make(map[string]int),
+		live:                 make(map[string]*liveSession),
 	}
 	getServer := func(*http.Request) *mcp.Server { return p.server }
 	sdkLogger := slog.New(minLevel{p.logger.Handler(), slog.LevelWarn})
@@ -294,15 +316,20 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 	// call's result (T4 in the review of PR #63; pinned by
 	// TestHTTPProgressNeverFollowsResult). Neither has an EventStore (no
 	// resumption), and neither sets DisableLocalhostProtection.
+	//
+	// go-sdk's own SessionTimeout stays set as a backstop, but netguard
+	// runs its own idle expiry on the same clock (liveSession): go-sdk's
+	// idle Close waits for the session's calls instead of cancelling them,
+	// so a call stuck upstream would pin the session and its slot forever.
 	h.stateful = mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
 		Logger:              sdkLogger,
 		SessionTimeout:      o.SessionTimeout,
-		MaxRequestBodyBytes: MaxRequestBodyBytes,
+		MaxRequestBodyBytes: maxRequestBodyBytes,
 	})
 	h.stateless = mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
 		Stateless:                    true,
 		Logger:                       sdkLogger,
-		MaxRequestBodyBytes:          MaxRequestBodyBytes,
+		MaxRequestBodyBytes:          maxRequestBodyBytes,
 		PropagateRequestCancellation: true,
 	})
 	h.authed = auth.RequireBearerToken(h.verify, &auth.RequireBearerTokenOptions{
@@ -315,11 +342,15 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 // ServeHTTP runs the checks in order and hands the request to go-sdk.
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
+	// The previous request on a keep-alive connection left a deadline armed
+	// for its final flush (finish); nothing of this request may inherit it.
+	_ = rc.SetWriteDeadline(time.Time{})
 	dw := &deadlineWriter{w: w, rc: rc, timeout: h.opts.WriteTimeout}
 	defer dw.finish()
 	// The body must arrive within BodyReadTimeout. The read deadline is
 	// cleared once the body has been read to its end, before net/http starts
-	// its background read (which would cancel the request on a deadline). A
+	// its background read (which would cancel the request on a deadline;
+	// net/http 1.26 and later also clear it when they start that read). A
 	// request without a body gets none: net/http has already started that
 	// background read.
 	if r.Body != nil && r.Body != http.NoBody {
@@ -445,7 +476,7 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 	if aw, ok := w.(*authWriter); ok {
 		w = aw.ResponseWriter
 	}
-	principal := Principal(r.Context())
+	principal := contextPrincipal(r.Context())
 	if r.Method == http.MethodPost {
 		release, ok := h.acquirePOST(principal)
 		if !ok {
@@ -467,13 +498,21 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 		if n := h.p.limits.Load().cancelSession(sid, principal); n > 0 {
 			h.logger.Info("agent session deleted; cancelling its calls", "session", shortHash(sid), "principal", principal, "calls", n)
 		}
+	case r.Method == http.MethodPost && sid != "":
+		// A POST on the session's own principal's behalf pauses netguard's
+		// idle expiry, as it pauses go-sdk's; another principal's gets 403
+		// from go-sdk and touches nothing.
+		if ls := h.liveSession(sid, principal); ls != nil {
+			ls.startPOST()
+			defer ls.endPOST()
+		}
 	case r.Method == http.MethodPost && sid == "":
 		// go-sdk creates a session for every session-less POST on the
 		// stateful handler, and keeps it if the POST was an initialise.
-		release, ok := h.reserveSession()
-		if !ok {
+		release, reason := h.reserveSession(principal)
+		if release == nil {
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, "Service Unavailable: too many sessions open", http.StatusServiceUnavailable)
+			http.Error(w, "Service Unavailable: "+reason, http.StatusServiceUnavailable)
 			return
 		}
 		defer h.settleSession(w, principal, release)
@@ -509,31 +548,43 @@ func (h *httpHandler) acquirePOST(principal string) (func(), bool) {
 	}, true
 }
 
-// reserveSession takes one stateful session slot. go-sdk has no session cap
-// and Server.Sessions also lists stateless requests' sessions, so netguard
-// counts its own.
-func (h *httpHandler) reserveSession() (func(), bool) {
+// reserveSession takes one stateful session slot, overall and for
+// principal, or returns nil and the reason for the 503. go-sdk has no
+// session cap and Server.Sessions also lists stateless requests' sessions,
+// so netguard counts its own.
+func (h *httpHandler) reserveSession(principal string) (func(), string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.sessions >= h.opts.MaxSessions {
-		return nil, false
+	switch {
+	case h.sessionsPerPrincipal[principal] >= h.opts.MaxSessionsPerPrincipal:
+		return nil, "too many sessions open for this principal"
+	case h.sessions >= h.opts.MaxSessions:
+		return nil, "too many sessions open"
 	}
 	h.sessions++
+	h.sessionsPerPrincipal[principal]++
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			h.sessions--
+			if h.sessionsPerPrincipal[principal]--; h.sessionsPerPrincipal[principal] <= 0 {
+				delete(h.sessionsPerPrincipal, principal)
+			}
 		})
-	}, true
+	}, ""
 }
 
 // settleSession runs after the stateful handler served a session-less POST.
 // If go-sdk kept the session (an initialise: the response names it and the
 // session has its initialise parameters), the slot is held until the session
-// ends: by DELETE, the idle timeout or Proxy.Close. The goroutine that waits
-// for that is owned by the session. Otherwise the slot is released now.
+// ends: by DELETE, netguard's idle expiry (liveSession) or Proxy.Close.
+// Otherwise the slot is released now.
+//
+// The goroutine that waits for the session to end is tracked by callLimits
+// and joined by Proxy.Close. If the proxy is already closing, the session is
+// closed at once instead.
 func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, release func()) {
 	sid := w.Header().Get("Mcp-Session-Id")
 	var kept *mcp.ServerSession
@@ -549,12 +600,119 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 		release()
 		return
 	}
-	h.logger.Info("agent session opened", "session", shortHash(sid), "principal", principal, "protocol", kept.InitializeParams().ProtocolVersion)
-	go func() {
+	limits := h.p.limits.Load()
+	ls := &liveSession{h: h, ss: kept, sid: sid, principal: principal}
+	h.mu.Lock()
+	h.live[sid] = ls
+	h.mu.Unlock()
+	started := limits.track(func() {
 		_ = kept.Wait()
+		ls.stop()
+		h.mu.Lock()
+		if h.live[sid] == ls {
+			delete(h.live, sid)
+		}
+		h.mu.Unlock()
 		release()
 		h.logger.Info("agent session closed", "session", shortHash(sid), "principal", principal)
-	}()
+	})
+	if !started {
+		h.mu.Lock()
+		delete(h.live, sid)
+		h.mu.Unlock()
+		_ = kept.Close()
+		release()
+		return
+	}
+	ls.arm()
+	h.logger.Info("agent session opened", "session", shortHash(sid), "principal", principal, "protocol", kept.InitializeParams().ProtocolVersion)
+}
+
+// liveSession returns the open stateful session sid if it belongs to
+// principal, or nil.
+func (h *httpHandler) liveSession(sid, principal string) *liveSession {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ls := h.live[sid]; ls != nil && ls.principal == principal {
+		return ls
+	}
+	return nil
+}
+
+// liveSession is netguard's idle expiry for one stateful session (H2 in the
+// review of PR #68). It mirrors go-sdk's: the clock runs while no POST for
+// the session is in progress (a GET stream does not stop it) and is reset
+// when the last one ends. When it runs out, the session's calls are
+// cancelled first and only then is the session closed, because go-sdk's
+// Close waits for calls in flight and a call stuck upstream would otherwise
+// hold the session, and its slot, forever. The timer's callback is owned by
+// the session; it returns once the session is closed.
+type liveSession struct {
+	h         *httpHandler
+	ss        *mcp.ServerSession
+	sid       string
+	principal string
+
+	mu      sync.Mutex
+	active  int // POSTs in progress
+	timer   *time.Timer
+	stopped bool // the session has ended or expired; the timer is dead
+}
+
+// arm starts the idle clock once the session is registered.
+func (s *liveSession) arm() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped || s.timer != nil {
+		return
+	}
+	s.timer = time.AfterFunc(s.h.opts.SessionTimeout, s.expire)
+	if s.active > 0 {
+		s.timer.Stop()
+	}
+}
+
+func (s *liveSession) startPOST() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active == 0 && s.timer != nil {
+		s.timer.Stop()
+	}
+	s.active++
+}
+
+func (s *liveSession) endPOST() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.active--
+	if s.active == 0 && s.timer != nil && !s.stopped {
+		s.timer.Reset(s.h.opts.SessionTimeout)
+	}
+}
+
+// stop kills the idle clock for good.
+func (s *liveSession) stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopped = true
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+}
+
+// expire runs when the idle clock runs out: it cancels the session's calls,
+// then closes the session. A POST that started meanwhile wins.
+func (s *liveSession) expire() {
+	s.mu.Lock()
+	if s.stopped || s.active > 0 {
+		s.mu.Unlock()
+		return
+	}
+	s.stopped = true
+	s.mu.Unlock()
+	n := s.h.p.limits.Load().cancelSession(s.sid, s.principal)
+	s.h.logger.Info("agent session idle; closing it", "session", shortHash(s.sid), "principal", s.principal, "calls_cancelled", n)
+	_ = s.ss.Close()
 }
 
 // deadlineWriter puts a write deadline on every write and flush to the
@@ -573,11 +731,27 @@ type deadlineWriter struct {
 func (d *deadlineWriter) Header() http.Header { return d.w.Header() }
 
 // WriteHeader sends the status line (buffered by net/http until a write or
-// flush).
+// flush). A refusal also closes the connection (closesConnection).
 func (d *deadlineWriter) WriteHeader(code int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if closesConnection(code) {
+		d.w.Header().Set("Connection", "close")
+	}
 	d.w.WriteHeader(code)
+}
+
+// closesConnection reports a refusal after which net/http closes the
+// connection (Connection: close) instead of keeping it alive: 401, 403,
+// 404, 413 and 503. A refused client, authenticated or not, then holds none
+// of the listener's connection slots.
+func closesConnection(code int) bool {
+	switch code {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound,
+		http.StatusRequestEntityTooLarge, http.StatusServiceUnavailable:
+		return true
+	}
+	return false
 }
 
 // Write writes b under the write deadline.

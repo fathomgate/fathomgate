@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -56,7 +57,7 @@ func TestAskAgentSharesPromptSlot(t *testing.T) {
 	reqs := mcp.InputRequestMap{"pw": &mcp.ElicitParams{Message: "m"}}
 
 	f := up.begin(ctx, c, 0)
-	defer up.end(f)
+	defer up.end(f, time.Time{}, time.Time{})
 	if err := up.startPrompt(f); err != nil { // an elicitation/create prompt is open
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestAskAgentSharesPromptSlot(t *testing.T) {
 	up.endPrompt(f)
 
 	g := up.begin(ctx, c, maxPromptsPerCall) // earlier rounds used the limit
-	defer up.end(g)
+	defer up.end(g, time.Time{}, time.Time{})
 	_, stop, err = p.askAgent(ctx, c, g, reqs)
 	if err != nil || stop == nil || !strings.Contains(text(stop), "more than 10 prompts in one call") {
 		t.Fatalf("askAgent past the limit: %v %q", err, text(stop))

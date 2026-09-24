@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -205,7 +206,20 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	h.srv = httptest.NewUnstartedServer(counted)
 	h.lst = &gateListener{Listener: h.srv.Listener}
 	h.srv.Listener = h.lst
-	h.srv.Config = NewHTTPServer(counted, s.logger)
+	// As cmd/netguard configures it (newHTTPServer there): no server-wide
+	// ReadTimeout or WriteTimeout, so the handler's own deadlines are what
+	// is tested.
+	errLog := s.logger
+	if errLog == nil {
+		errLog = discardLogger()
+	}
+	h.srv.Config = &http.Server{
+		Handler:           counted,
+		MaxHeaderBytes:    64 << 10,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ErrorLog:          slog.NewLogLogger(errLog.Handler(), slog.LevelWarn),
+	}
 	h.srv.Start()
 	h.url = h.srv.URL + HTTPPath
 	t.Cleanup(func() {
@@ -472,7 +486,7 @@ func TestHTTPChecks(t *testing.T) {
 		}
 		return out
 	}
-	big := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"pad":"` + strings.Repeat("x", MaxRequestBodyBytes) + `"}}`
+	big := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"pad":"` + strings.Repeat("x", maxRequestBodyBytes) + `"}}`
 	cases := []struct {
 		name   string
 		method string
@@ -631,6 +645,10 @@ func TestHTTPSessionBinding(t *testing.T) {
 	if resp, _ := h.do(t, h.request(ctx, "DELETE", tokBob, map[string]string{"Mcp-Session-Id": cs.ID()}, "")); resp.StatusCode != 403 {
 		t.Fatalf("bob's DELETE of alice's session: status %d, want 403", resp.StatusCode)
 	}
+	// A negative check: nothing to wait for, so give a wrong cancellation
+	// 100 ms to show. The DELETE has already been answered, and on the bug
+	// this guards against cancelSession runs before go-sdk answers, so the
+	// window is generous rather than racy.
 	select {
 	case <-hooks.cancelled:
 		t.Fatal("bob's DELETE cancelled alice's call")
@@ -942,12 +960,33 @@ func TestHTTPProgressNeverFollowsResult(t *testing.T) {
 			// A plain call: SSE, progress then result.
 			body, hdr := req("netdev-ssh-mcp.progress", "plain")
 			bob := h.connect(t, v2026, tokBob, nil)
-			relDone := make(chan struct{})
+			// Release the call once its relay has written at least one
+			// notification to the agent, so the stream has progress before
+			// the result. The poll runs here, not in waitFor, because
+			// t.Fatal must not be called off the test goroutine: a timeout
+			// is reported on relErr and the call is released anyway, so the
+			// POST below cannot hang.
+			relErr := make(chan error, 1)
 			go func() {
-				defer close(relDone)
-				waitFor(t, "the plain call's relay", func() bool { return anyRelay(up) != nil })
-				time.Sleep(50 * time.Millisecond)
+				deadline := time.Now().Add(5 * time.Second)
+				var err error
+				for {
+					if r := anyRelay(up); r != nil {
+						r.mu.Lock()
+						sent := r.sent
+						r.mu.Unlock()
+						if sent >= 1 {
+							break
+						}
+					}
+					if time.Now().After(deadline) {
+						err = errors.New("timed out waiting for the plain call's relay to write a notification")
+						break
+					}
+					time.Sleep(2 * time.Millisecond)
+				}
 				_, _ = bob.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.progress_release"})
+				relErr <- err
 			}()
 			resp, err := h.raw.Do(h.request(ctx, "POST", tokAlice, hdr, body))
 			if err != nil {
@@ -956,11 +995,14 @@ func TestHTTPProgressNeverFollowsResult(t *testing.T) {
 			if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
 				t.Fatalf("tools/call answered as %q, want text/event-stream (JSONResponse must stay off)", ct)
 			}
-			if n := checkOrder(t, sseKinds(t, resp.Body)); n == 0 {
+			kinds := sseKinds(t, resp.Body)
+			_ = resp.Body.Close()
+			if err := <-relErr; err != nil {
+				t.Fatal(err)
+			}
+			if n := checkOrder(t, kinds); n == 0 {
 				t.Fatal("no progress reached the POST stream")
 			}
-			_ = resp.Body.Close()
-			<-relDone
 
 			// finish gives up: the agent stops reading with a write in
 			// progress, the call ends, the relay abandons its queue.
@@ -1028,6 +1070,9 @@ func TestHTTPProgressNeverFollowsResult(t *testing.T) {
 			if err := r.session.NotifyProgress(context.WithoutCancel(r.ctx), late); err == nil {
 				t.Fatal("go-sdk accepted a progress notification after the call's result")
 			}
+			// A negative check: a misrouted notification would reach the
+			// GET stream within a few milliseconds on loopback, so 100 ms
+			// is ample for it to show, and nothing positive can be awaited.
 			time.Sleep(100 * time.Millisecond)
 			if got := getLog.all(); len(got) != 0 {
 				t.Fatalf("%d progress notifications reached the GET stream", len(got))
@@ -1065,19 +1110,22 @@ func TestHTTPLogs(t *testing.T) {
 // TestHTTPOptions: invalid options and a set MCPGODEBUG are refused, and a
 // proxy builds one handler.
 func TestHTTPOptions(t *testing.T) {
-	long := []byte(strings.Repeat("a", MinTokenBytes))
+	long := []byte(strings.Repeat("a", minTokenBytes))
 	cases := []struct {
 		name string
 		opts HTTPOptions
 		want string
 	}{
 		{"no tokens", HTTPOptions{}, "at least one bearer token"},
-		{"short token", HTTPOptions{Tokens: map[string][]byte{"a": long[:MinTokenBytes-1]}}, "at least 32"},
+		{"short token", HTTPOptions{Tokens: map[string][]byte{"a": long[:minTokenBytes-1]}}, "at least 32"},
 		{"space in token", HTTPOptions{Tokens: map[string][]byte{"a": append([]byte("x "), long...)}}, "white space"},
 		{"newline in token", HTTPOptions{Tokens: map[string][]byte{"a": append(append([]byte{}, long...), '\n')}}, "white space"},
 		{"non-ASCII token", HTTPOptions{Tokens: map[string][]byte{"a": append([]byte("é"), long...)}}, "non-ASCII"},
 		{"empty name", HTTPOptions{Tokens: map[string][]byte{"": long}}, "1 to 64"},
 		{"bad name", HTTPOptions{Tokens: map[string][]byte{"a b": long}}, "letters, digits"},
+		// G8 in the review of PR #68: %q escapes the name once, not twice.
+		{"control character in name", HTTPOptions{Tokens: map[string][]byte{"a\x1bb": long}}, `principal name "a\x1bb" may contain`},
+		{"long name", HTTPOptions{Tokens: map[string][]byte{strings.Repeat("n", 65): long}}, `"` + strings.Repeat("n", 65) + `" must be 1 to 64`},
 		{"shared token", HTTPOptions{Tokens: map[string][]byte{"a": long, "b": long}}, "same token"},
 		{"negative cap", HTTPOptions{Tokens: map[string][]byte{"a": long}, MaxInFlight: -1}, "negative"},
 		{"negative timeout", HTTPOptions{Tokens: map[string][]byte{"a": long}, WriteTimeout: -time.Second}, "negative"},
@@ -1107,84 +1155,70 @@ func TestHTTPOptions(t *testing.T) {
 	t.Run("MCPGODEBUG", func(t *testing.T) {
 		t.Setenv("MCPGODEBUG", "")
 		h := newHarness(t, nil)
-		if _, err := h.proxy.HTTPHandler(HTTPOptions{Tokens: map[string][]byte{"a": long}}); !errors.Is(err, ErrMCPGODEBUG) {
-			t.Fatalf("error %v, want ErrMCPGODEBUG", err)
+		if _, err := h.proxy.HTTPHandler(HTTPOptions{Tokens: map[string][]byte{"a": long}}); !errors.Is(err, errMCPGODEBUG) {
+			t.Fatalf("error %v, want errMCPGODEBUG", err)
 		}
 	})
 }
 
-func TestTokenPrincipal(t *testing.T) {
-	p := TokenPrincipal(tokAlice)
-	if !strings.HasPrefix(p, "token:") || len(p) != len("token:")+12 || validPrincipalName(p) != nil {
-		t.Fatalf("TokenPrincipal = %q", p)
+// TestHTTPOptionsResolved (G7 in the review of PR #68): for every field but
+// Tokens, zero means the default, a negative value is an error that names
+// the field, and a positive value is kept. The fields are enumerated by
+// reflection, so a new field without a row in defaults fails here.
+func TestHTTPOptionsResolved(t *testing.T) {
+	defaults := map[string]int64{
+		"MaxInFlight":             defaultMaxInFlight,
+		"MaxInFlightPerPrincipal": defaultMaxInFlightPerPrincipal,
+		"MaxSessions":             defaultMaxSessions,
+		"MaxSessionsPerPrincipal": defaultMaxSessionsPerPrincipal,
+		"MaxCallsPerSession":      defaultMaxCallsPerSession,
+		"MaxCallsPerPrincipal":    defaultMaxCallsPerPrincipal,
+		"SessionTimeout":          int64(defaultSessionTimeout),
+		"WriteTimeout":            int64(defaultWriteTimeout),
+		"BodyReadTimeout":         int64(defaultBodyReadTimeout),
 	}
-	if strings.Contains(p, string(tokAlice[:12])) {
-		t.Fatal("the principal shows the token")
-	}
-}
-
-func TestCheckEnvironment(t *testing.T) {
-	env := func(set bool) func(string) (string, bool) {
-		return func(k string) (string, bool) { return "", set && k == "MCPGODEBUG" }
-	}
-	if err := CheckEnvironment(env(false)); err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckEnvironment(env(true)); !errors.Is(err, ErrMCPGODEBUG) || !strings.Contains(err.Error(), "MCPGODEBUG") {
-		t.Fatalf("error %v", err)
-	}
-}
-
-func TestNewHTTPServer(t *testing.T) {
-	s := NewHTTPServer(http.NotFoundHandler(), nil)
-	if s.MaxHeaderBytes != 64<<10 || s.ReadHeaderTimeout != 10*time.Second || s.IdleTimeout != 120*time.Second || s.ReadTimeout != 0 || s.WriteTimeout != 0 {
-		t.Fatalf("server limits %+v", s)
-	}
-}
-
-func TestLimitListener(t *testing.T) {
-	inner, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	l := LimitListener(inner, 2)
-	accepted := make(chan net.Conn, 3)
-	go func() {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				close(accepted)
-				return
+	typ := reflect.TypeFor[HTTPOptions]()
+	seen := 0
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if f.Name == "Tokens" {
+			continue
+		}
+		seen++
+		def, ok := defaults[f.Name]
+		if !ok {
+			t.Errorf("HTTPOptions.%s has no default in this test", f.Name)
+			continue
+		}
+		t.Run(f.Name, func(t *testing.T) {
+			with := func(v int64) HTTPOptions {
+				var o HTTPOptions
+				reflect.ValueOf(&o).Elem().Field(i).SetInt(v)
+				return o
 			}
-			accepted <- c
-		}
-	}()
-	clients := make([]net.Conn, 0, 3)
-	for range 3 {
-		c, err := net.Dial("tcp", inner.Addr().String())
-		if err != nil {
-			t.Fatal(err)
-		}
-		clients = append(clients, c)
+			get := func(o HTTPOptions) int64 { return reflect.ValueOf(o).Field(i).Int() }
+
+			got, err := with(0).resolved()
+			if err != nil || get(got) != def {
+				t.Fatalf("zero: %d, %v; want the default %d", get(got), err, def)
+			}
+			if _, err := with(-1).resolved(); err == nil || !strings.Contains(err.Error(), "HTTPOptions."+f.Name+" is negative") {
+				t.Fatalf("negative: error %v, want one naming HTTPOptions.%s", err, f.Name)
+			}
+			const kept = 7
+			if got, err := with(kept).resolved(); err != nil || get(got) != kept {
+				t.Fatalf("positive: %d, %v; want %d kept", get(got), err, kept)
+			}
+			// The other fields still resolve to their defaults.
+			got, _ = with(kept).resolved()
+			for j := range typ.NumField() {
+				if g := typ.Field(j); j != i && g.Name != "Tokens" && reflect.ValueOf(got).Field(j).Int() != defaults[g.Name] {
+					t.Errorf("%s set: %s = %d, want its default", f.Name, g.Name, reflect.ValueOf(got).Field(j).Int())
+				}
+			}
+		})
 	}
-	first, second := <-accepted, <-accepted
-	select {
-	case <-accepted:
-		t.Fatal("a third connection was accepted past the cap")
-	case <-time.After(100 * time.Millisecond):
-	}
-	_ = first.Close()
-	select {
-	case c := <-accepted:
-		_ = c.Close()
-	case <-time.After(5 * time.Second):
-		t.Fatal("closing a connection did not free a slot")
-	}
-	_ = second.Close()
-	_ = l.Close()
-	for range accepted {
-	}
-	for _, c := range clients {
-		_ = c.Close()
+	if seen != len(defaults) {
+		t.Errorf("%d fields checked, %d defaults listed", seen, len(defaults))
 	}
 }

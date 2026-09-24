@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,11 +26,19 @@ import (
 // built by HTTPHandler and read by Proxy.handler; stdio has none.
 type callLimits struct {
 	perSession, perPrincipal int
+	// orphanTTL is how long a call the agent abandoned keeps blocking the
+	// attribution of an upstream prompt to another agent session
+	// (HTTPOptions.SessionTimeout; input.go).
+	orphanTTL time.Duration
 
 	mu         sync.Mutex
 	closed     bool
 	sessions   map[*mcp.ServerSession]*sessionCalls
 	principals map[string]int
+	// wg tracks the goroutines that wait for a stateful session to end
+	// (httpHandler.settleSession); Proxy.Close joins them. Add happens only
+	// under mu while closed is false, so it never races with Wait.
+	wg sync.WaitGroup
 }
 
 // sessionCalls is the calls in flight on one agent session. principal is
@@ -121,6 +130,23 @@ func (l *callLimits) cancelSession(sessionID, principal string) int {
 	}
 	return n
 }
+
+// track runs fn on a goroutine that Proxy.Close waits for, unless the
+// limits are already closed, in which case it reports false and fn does not
+// run.
+func (l *callLimits) track(fn func()) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return false
+	}
+	l.wg.Go(fn)
+	return true
+}
+
+// wait blocks until every goroutine started by track has returned. Call it
+// after close, and after the sessions those goroutines wait for are closed.
+func (l *callLimits) wait() { l.wg.Wait() }
 
 // close cancels every call in flight and refuses new ones. It is
 // idempotent.
