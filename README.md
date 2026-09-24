@@ -38,7 +38,7 @@ make fixtures-check
 make conformance  # official MCP conformance suite against netguard serve, both eras (needs Node.js)
 ```
 
-Go 1.25. Direct dependencies: `github.com/goccy/go-yaml`, the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.8.x, pinned to one minor for the proxy) and `golang.org/x/sys` (Windows audit key DACL). See [ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md). The Python companion under `tests/` needs `uv` and is optional.
+Go 1.26. Direct dependencies: `github.com/goccy/go-yaml`, the official MCP `github.com/modelcontextprotocol/go-sdk` (v1.8.x, pinned to one minor for the proxy) and `golang.org/x/sys` (Windows audit key DACL). See [ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md). The Python companion under `tests/` needs `uv` and is optional.
 
 ## How a call is decided
 
