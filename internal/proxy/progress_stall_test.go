@@ -359,7 +359,7 @@ func TestProgressQueueBounded(t *testing.T) {
 // never less than a millisecond when the clock does not move.
 func TestUntilToken(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	r := newProgressRelay(context.Background(), testServer, agentPeer{session: &mcp.ServerSession{}}, "t", func() time.Time { return now }, progressFinalWait)
+	r := newProgressRelay(context.Background(), call{up: &upstream{name: testServer}, agent: agentPeer{session: &mcp.ServerSession{}}, progressToken: "t"}, func() time.Time { return now }, progressFinalWait)
 	defer r.cancelSend()
 	for r.take() {
 	}

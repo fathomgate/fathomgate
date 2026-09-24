@@ -258,6 +258,18 @@ func principalOf(req *mcp.CallToolRequest) string {
 	return req.Extra.TokenInfo.UserID
 }
 
+// transportOf is the agent transport a tools/call arrived on. go-sdk's
+// Streamable HTTP server sets the request's Extra, with its HTTP header,
+// on every JSON-RPC request it serves (both handlers; streamable.go), and
+// the listener's authentication sets TokenInfo; the stdio and in-memory
+// transports set neither. Anything else is a session Proxy.Run serves.
+func transportOf(req *mcp.CallToolRequest) string {
+	if req != nil && req.Extra != nil && (req.Extra.Header != nil || req.Extra.TokenInfo != nil) {
+		return transportHTTP
+	}
+	return transportStdio
+}
+
 // httpHandler is the chain HTTPHandler returns.
 type httpHandler struct {
 	p         *Proxy

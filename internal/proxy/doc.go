@@ -22,7 +22,8 @@
 // 0018). The proxy records both per call, forwards no _meta in either
 // direction, and relays an upstream's form elicitation to the agent only
 // relabelled with its origin: as MRTR input_required to a stateless agent,
-// behind an AES-GCM sealed requestState (state.go), or as
+// behind an AES-GCM sealed requestState bound to the transport and
+// principal it was issued to (state.go), or as
 // elicitation/create to a stateful one (input.go).
 // Progress (T0.17) crosses as netguard's own notifications: the upstream gets
 // a token netguard issued, and its notifications for that token reach the

@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// testBinding is the binding the sealer tests seal and open under.
+var testBinding = stateBinding{transport: transportHTTP, principal: "alice"}
+
 func testSealer(t *testing.T, now time.Time) *sealer {
 	t.Helper()
 	s, err := newSealer()
@@ -24,7 +27,7 @@ func testSealer(t *testing.T, now time.Time) *sealer {
 
 func mustSeal(t *testing.T, s *sealer, st sealedState) string {
 	t.Helper()
-	token, err := s.seal(st)
+	token, err := s.seal(st, testBinding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +42,7 @@ func TestSealer(t *testing.T) {
 	if !strings.HasPrefix(token, statePrefix) {
 		t.Fatalf("token %q lacks prefix", token)
 	}
-	got, err := s.open(token)
+	got, err := s.open(token, testBinding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +77,8 @@ func TestSealer(t *testing.T) {
 	}{
 		{"empty", "", errStateMalformed},
 		{"not ours", "FAKE-up-state", errStateMalformed},
-		{"old format", "ng1." + body, errStateMalformed},
+		{"retired ng1", "ng1." + body, errStateRetired},
+		{"retired ng2", "ng2." + body, errStateRetired},
 		{"prefix only", statePrefix, errStateMalformed},
 		{"not base64", statePrefix + "!!", errStateMalformed},
 		{"too short", statePrefix + "AAAA", errStateMalformed},
@@ -83,23 +87,23 @@ func TestSealer(t *testing.T) {
 		{"oversized", statePrefix + strings.Repeat("A", maxSealedState), errStateMalformed},
 	}
 	for _, tc := range cases {
-		if _, err := s.open(tc.token); !errors.Is(err, tc.want) {
+		if _, err := s.open(tc.token, testBinding); !errors.Is(err, tc.want) {
 			t.Errorf("%s: open error %v, want %v", tc.name, err, tc.want)
 		}
 	}
 
 	// Another process (another key) cannot open it.
-	if _, err := testSealer(t, now).open(token); !errors.Is(err, errStateAuth) {
+	if _, err := testSealer(t, now).open(token, testBinding); !errors.Is(err, errStateAuth) {
 		t.Errorf("foreign key: %v", err)
 	}
 
 	// Valid up to the TTL, expired after it.
 	s.now = func() time.Time { return now.Add(stateTTL) }
-	if _, err := s.open(token); err != nil {
+	if _, err := s.open(token, testBinding); err != nil {
 		t.Errorf("at TTL: %v", err)
 	}
 	s.now = func() time.Time { return now.Add(stateTTL + time.Second) }
-	if _, err := s.open(token); !errors.Is(err, errStateExpired) {
+	if _, err := s.open(token, testBinding); !errors.Is(err, errStateExpired) {
 		t.Errorf("after TTL: %v", err)
 	}
 }
@@ -124,7 +128,7 @@ func TestSealLimit(t *testing.T) {
 			sealN := func(n int) (string, error) {
 				st := base
 				st.Up = strings.Repeat(k.unit, n)
-				return s.seal(st)
+				return s.seal(st, testBinding)
 			}
 			// Largest n that seals, by binary search over repeat counts.
 			n := sort.Search(maxSealedState, func(n int) bool {
@@ -141,7 +145,7 @@ func TestSealLimit(t *testing.T) {
 			if len(at) > maxSealedState {
 				t.Fatalf("issued %d bytes, cap %d", len(at), maxSealedState)
 			}
-			if _, err := s.open(at); err != nil {
+			if _, err := s.open(at, testBinding); err != nil {
 				t.Fatalf("open refuses what seal issued at the limit (%d bytes): %v", len(at), err)
 			}
 			if _, err := sealN(n + 1); !errors.Is(err, errStateTooLarge) {
@@ -153,7 +157,7 @@ func TestSealLimit(t *testing.T) {
 	// plain text, so a plain 64 KiB state is carried.
 	st := base
 	st.Up = strings.Repeat("a", maxRequestState)
-	if _, err := s.seal(st); err != nil {
+	if _, err := s.seal(st, testBinding); err != nil {
 		t.Fatalf("plain state at maxRequestState: %v", err)
 	}
 }

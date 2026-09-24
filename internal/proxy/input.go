@@ -278,8 +278,9 @@ type resumed struct {
 // upstream decides whether a missing answer means asking again.
 func (p *Proxy) resume(c call) (resumed, error) {
 	name := prefixName(c.up.name, c.tool)
-	st, err := p.states.open(c.requestState)
+	st, err := p.states.open(c.requestState, c.binding())
 	if err != nil {
+		p.warnState(c, err)
 		return resumed{}, invalidRetry(name, reasonInvalidRequestState, err)
 	}
 	switch {
@@ -304,6 +305,26 @@ func (p *Proxy) resume(c call) (resumed, error) {
 		out[id] = clean
 	}
 	return resumed{responses: out, upState: st.Up, round: st.Round, prompts: st.Prompts}, nil
+}
+
+// warnState logs a requestState netguard refused to open, naming the
+// principal and transport that presented it, so an operator can tell whose
+// client replays, forges or holds stale states. A state issued to another
+// principal or transport cannot be told from a forgery (errStateAuth), so
+// the line says what failed, never whose state it was. It is rate-limited
+// like the refusal lines (refusalLog), since the agent decides how often it
+// happens.
+func (p *Proxy) warnState(c call, err error) {
+	key := "state\x00" + c.up.name + "\x00" + c.transport + "\x00" + c.principal + "\x00" + err.Error()
+	ok, suppressed, lost := p.refusalLog.allow(key, p.now())
+	if !ok {
+		return
+	}
+	args := []any{"server", c.up.name, "tool", c.tool, "transport", c.transport, "principal", logPrincipal(c.principal), "reason", err, "suppressed", suppressed}
+	if lost > 0 {
+		args = append(args, "suppressed_lost", lost)
+	}
+	p.logger.Warn("netguard refused a requestState", args...)
 }
 
 // askAgent puts relabelled input requests to a stateful agent as

@@ -21,12 +21,16 @@ import (
 // that never leaves the process. The upstream's own state and the binding
 // (server, tool, arguments, outstanding input request ids, round, expiry)
 // are inside the ciphertext, so the agent can neither read nor change them.
-// See docs/specs/profile-schema.md section 8.4.
+// The agent side it was issued to (transport and principal, stateBinding)
+// is authenticated as additional data, so the envelope opens only for the
+// same transport and principal (T0.30, ADR 0016). See
+// docs/specs/profile-schema.md section 8.4.
 
 const (
 	// statePrefix starts every requestState netguard issues; it versions
-	// the envelope format and is authenticated as additional data.
-	statePrefix = "ng2."
+	// the envelope format and is authenticated as additional data, with
+	// the binding (stateBinding.aad). ng3 added the binding (T0.30).
+	statePrefix = "ng3."
 	// maxRequestState caps the upstream's requestState (untrusted) before
 	// netguard tries to seal it.
 	maxRequestState = 64 << 10
@@ -56,13 +60,63 @@ type sealedState struct {
 	Exp     int64    `json:"e"`           // expiry, Unix seconds
 }
 
-// Reasons a requestState is refused. They are shown to the agent.
+// retiredStatePrefixes are the envelope versions earlier netguard builds
+// issued. None can open here: the key is random per process, so an upgrade,
+// being a restart, has already invalidated every one of them, and nothing
+// migrates (ADR 0016). They are refused with errStateRetired, which tells
+// the agent what to do, rather than as not issued by netguard.
+var retiredStatePrefixes = []string{"ng1.", "ng2."}
+
+// Reasons a requestState is refused. They are shown to the agent, so none
+// names a principal, a transport or anything read from the envelope.
 var (
 	errStateMalformed = errors.New("requestState was not issued by netguard")
-	errStateAuth      = errors.New("requestState does not verify")
-	errStateExpired   = errors.New("requestState has expired; call the tool again without it")
-	errStateTooLarge  = errors.New("the sealed requestState would exceed the size netguard accepts")
+	// errStateAuth is also the answer when the envelope was issued to
+	// another principal or over another transport: the binding is
+	// authenticated data, so that case cannot be told from a forgery, and
+	// the agent learns nothing about who the state was issued to.
+	errStateAuth     = errors.New("requestState does not verify")
+	errStateRetired  = errors.New("requestState was issued by an earlier netguard process; call the tool again without it")
+	errStateExpired  = errors.New("requestState has expired; call the tool again without it")
+	errStateTooLarge = errors.New("the sealed requestState would exceed the size netguard accepts")
 )
+
+// Agent transports, as a call carries them (call.transport) and as the
+// envelope binds them. transportStdio is a session Proxy.Run serves
+// (`netguard serve` passes it the stdio transport; tests an in-memory one);
+// transportHTTP is a request over the HTTP listener (HTTPHandler).
+const (
+	transportStdio = "stdio"
+	transportHTTP  = "http"
+)
+
+// stateBinding is the agent side a requestState is issued to: the
+// transport the call arrived on and its principal (the named listen token;
+// "" on stdio). A stateless request has no session to bind to, and a
+// stateful agent never receives a requestState (it gets elicitation/create),
+// so these two are the binding (ADR 0016, T0.30). The principal is
+// attribution only, never an approver identity (invariant 6): binding a
+// state to it keeps one token's holder from replaying another's, and says
+// nothing about who answered.
+type stateBinding struct {
+	transport string
+	principal string
+}
+
+// aad is the additional authenticated data of an envelope bound to b: the
+// prefix, the transport and the principal, each followed by a NUL. Neither
+// value can hold a NUL (the transport is one of two constants; principal
+// names are [A-Za-z0-9_.:-], validPrincipalName), so the encoding is
+// unambiguous. The binding is authenticated, not encrypted: it is not in the
+// token at all, and the opener supplies its own.
+func (b stateBinding) aad() []byte {
+	out := make([]byte, 0, len(statePrefix)+len(b.transport)+len(b.principal)+2)
+	out = append(out, statePrefix...)
+	out = append(out, b.transport...)
+	out = append(out, 0)
+	out = append(out, b.principal...)
+	return append(out, 0)
+}
 
 // sealer issues and opens requestState envelopes. The key is random per
 // process, so a restart invalidates every outstanding state; the agent then
@@ -90,9 +144,10 @@ func newSealer() (*sealer, error) {
 	return &sealer{aead: aead, now: time.Now}, nil
 }
 
-// seal returns the requestState for st, with its expiry set from now. It
-// fails with errStateTooLarge rather than issue a state open would refuse.
-func (s *sealer) seal(st sealedState) (string, error) {
+// seal returns the requestState for st, bound to b, with its expiry set
+// from now. It fails with errStateTooLarge rather than issue a state open
+// would refuse.
+func (s *sealer) seal(st sealedState, b stateBinding) (string, error) {
 	st.Exp = s.now().Add(stateTTL).Unix()
 	plain, err := json.Marshal(st)
 	if err != nil {
@@ -102,7 +157,7 @@ func (s *sealer) seal(st sealedState) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("proxy: requestState nonce: %w", err)
 	}
-	sealed := s.aead.Seal(nonce, nonce, plain, []byte(statePrefix))
+	sealed := s.aead.Seal(nonce, nonce, plain, b.aad())
 	out := statePrefix + base64.RawURLEncoding.EncodeToString(sealed)
 	if len(out) > maxSealedState {
 		return "", errStateTooLarge
@@ -110,15 +165,22 @@ func (s *sealer) seal(st sealedState) (string, error) {
 	return out, nil
 }
 
-// open decrypts and authenticates a requestState and checks its expiry; the
-// caller checks the binding.
-func (s *sealer) open(state string) (sealedState, error) {
+// open decrypts and authenticates a requestState presented with binding b
+// and checks its expiry; the caller checks the call binding (server, tool,
+// arguments). A state issued to another transport or principal fails
+// authentication (errStateAuth), before anything in it is read.
+func (s *sealer) open(state string, b stateBinding) (sealedState, error) {
 	var st sealedState
 	if len(state) > maxSealedState {
 		return st, errStateMalformed
 	}
 	body, ok := strings.CutPrefix(state, statePrefix)
 	if !ok {
+		for _, old := range retiredStatePrefixes {
+			if strings.HasPrefix(state, old) {
+				return st, errStateRetired
+			}
+		}
 		return st, errStateMalformed
 	}
 	sealed, err := base64.RawURLEncoding.DecodeString(body)
@@ -126,7 +188,7 @@ func (s *sealer) open(state string) (sealedState, error) {
 		return st, errStateMalformed
 	}
 	n := s.aead.NonceSize()
-	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], []byte(statePrefix))
+	plain, err := s.aead.Open(nil, sealed[:n], sealed[n:], b.aad())
 	if err != nil {
 		return st, errStateAuth
 	}
