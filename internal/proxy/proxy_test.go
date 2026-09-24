@@ -32,10 +32,12 @@ type recordedCall struct {
 	MetaKeys     []string // request _meta keys, sorted
 	RequestState string
 	Responses    string // inputResponses as JSON, "" if none
+	// ProgressToken is the request's _meta progressToken, nil if none.
+	ProgressToken any
 }
 
 func (r *recorder) add(req *mcp.CallToolRequest) {
-	rc := recordedCall{Name: req.Params.Name, Version: req.ProtocolVersion(), RequestState: req.Params.RequestState}
+	rc := recordedCall{Name: req.Params.Name, Version: req.ProtocolVersion(), RequestState: req.Params.RequestState, ProgressToken: req.Params.GetProgressToken()}
 	_ = json.Unmarshal(req.Params.Arguments, &rc.Args)
 	if ci := req.ClientInfo(); ci != nil {
 		rc.ClientName = ci.Name
