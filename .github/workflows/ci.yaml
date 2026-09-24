@@ -165,18 +165,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          # Must be built with a Go at least as new as the go.mod toolchain
-          # minor, or it refuses to run ("the Go language version (go1.25)
-          # used to build golangci-lint is lower than the targeted Go
-          # version"). v2.9.0 is the first release built with Go 1.26
-          # (go1.26.0, commit 72798d34); v2.8.0 is built with go1.25.5.
-          version: v2.9.0
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
+      # `make lint` downloads the golangci-lint release archive pinned in the
+      # Makefile (GOLANGCI_LINT_VERSION), checks its sha256 against the hash
+      # committed there before unpacking it, then runs `config verify` and
+      # `run` for linux/amd64 (T0.20). It replaces golangci-lint-action,
+      # which downloads the archive without verifying it. Must be built with a
+      # Go at least as new as the go.mod toolchain minor, or it refuses to run
+      # (v2.9.0 is the first release built with Go 1.26).
+      - name: golangci-lint (sha256-verified release binary)
+        run: make lint
 
   vuln:
     name: govulncheck
