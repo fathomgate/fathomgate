@@ -3,9 +3,38 @@
 #
 # The server is read-only by design and already enforces a show/get prefix on
 # run_show_command, redirects config dumps to get_config, and obfuscates
-# secrets. Its `host` parameter is free-form with no inventory, so the
+# some secrets with an unkeyed hash (see below). Its `host` parameter is free-form with no inventory, so the
 # proxy's contribution here is the host allow-list (unknown targets) and
 # defence-in-depth command checking.
+#
+# Upstream secret obfuscation is NOT a redaction control (T0.29, 2026-09-23).
+# Verified [src] at tag v1.6.6, commit be3e36342b0c71007ce416a435dfdfecc966ea13:
+#   https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/internal/netdev/obfuscate.go
+#   (called from internal/netdev/show.go and config.go; --no-obfuscate in main.go)
+# - get_config and run_show_command output passes through obfuscateConfig,
+#   which replaces the value captured by the first matching line regex with
+#   "[h:" + hex(sha256(value)[:6]) + "]". run_ping, run_traceroute and error
+#   strings are not obfuscated. On by default; --no-obfuscate turns it off.
+# - The hash is unkeyed, so a word list recovers short values offline:
+#   public -> [h:efa1f375d761], private -> [h:715dc8493c36]. This does not meet
+#   NetGuard invariant 4 (keyed HMAC tokens); NetGuard must not rely on it or
+#   count it as redaction. The proxy's own redactor (M2, matrix row 15) runs
+#   on every result regardless and must not treat a line holding an [h:...]
+#   token as already clean (see the wrong-token cases below).
+# - Several patterns capture the wrong token, so the secret stays in clear
+#   next to a hash of a keyword. Run against tests/fixtures/configs/:
+#     username X ... secret sha512 <hash>          hashes "sha512" (EOS default)
+#     ntp authentication-key N md5 7 <key>         hashes "7"
+#     ip ospf message-digest-key N md5 7 <key>     hashes "7"
+#     key-string 7 <key>                           hashes "7"
+#     pre-shared-key ascii-text "<key>" (Junos)    hashes "ascii-text"
+#   and these are missed entirely: snmp-server host ... <community>,
+#   NX-OS radius-server host ... key 7 "<key>", NX-OS snmp-server user ...
+#   priv <key>, Junos tacplus/radius secret "...", Junos set-format lines.
+#   Fixture totals missed: eos 5/13, ios-xe 3/22, nxos 5/13, junos 7/13,
+#   eos-4.16 0/4, fortios 0/6. No upstream unit tests cover obfuscation.
+# - Install docs recommend leaving obfuscation ON in M0 (defence in depth
+#   while NetGuard does not redact). Revisit once M2 redaction ships.
 server: netdev-ssh-mcp
 source: https://github.com/krisiasty/netdev-ssh-mcp
 description: Read-only multi-vendor SSH server (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS)
