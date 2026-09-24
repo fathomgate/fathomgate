@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 5 · blocked 4 · in progress 2 · merged 27
+Tasks: open 5 · blocked 4 · in progress 2 · merged 28
 
 ## In flight
 
@@ -43,17 +43,18 @@ Tasks: open 5 · blocked 4 · in progress 2 · merged 27
 | T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.34 | Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2 | `tests/integration` | test-engineer | mcp-protocol-engineer, go-reviewer | open | — | 2 | — |
+| T0.34 | Run upa/mcp-netmiko-server (FastMCP, 2025-11-25) behind netguard in tier 2 and validate matrix row 2 | `tests/integration` | test-engineer | mcp-protocol-engineer, go-reviewer | merged | — | 2 | — |
 | T0.35 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | T0.36 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | in progress | — | — | — |
 | T0.38 | Apply the post-merge security and Go reviews of PR | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.39 | Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 
 ## Exit criteria
 
 - [x] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task — met 2026-09-23 (T0.4 PR
 - [x] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp — met 2026-09-23 (Claude Code 2.1.236 and Claude Desktop 2.7032.0 called show version through netguard in front of netdev-ssh-mcp v1.6.6, by the maintainer; client-smoke CI green; matrix rows 1 and 22 passing)
-- [ ] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR)
+- [x] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR) — met 2026-09-23 (maintainer decision; netdev-ssh-mcp v1.6.6 at 2026-07-28 and upa/mcp-netmiko-server 96e8ff3 at 2025-11-25 behind netguard in tier 2 CI with both agent eras, T0.34 PR
 - [ ] GoReleaser produces linux/darwin/windows binaries on a tag
 
 Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
