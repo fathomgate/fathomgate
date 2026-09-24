@@ -280,20 +280,20 @@ tasks:
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: open
-    blocked_by: [T0.27]
+    blocked_by: [T0.27, T0.40]
     adr: "0016"
     matrix: [2, 23]
-    notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well.'
+    notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well. Starts after T0.40 (both change input.go and http.go).'
   - id: T0.31
     title: netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling
     package: cmd/netguard
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
     state: open
-    blocked_by: [T0.27, T0.30, T0.38]
+    blocked_by: [T0.27, T0.30, T0.38, T0.40]
     adr: "0016"
     matrix: [23]
-    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then.'
+    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself.'
   - id: T0.32
     title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
     package: tests/conformance
@@ -342,26 +342,35 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer]
-    state: in progress
+    state: merged
     matrix: []
-    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR. Folded into T0.38.'
+    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR. Folded into T0.38. Merged with T0.38 in PR #72.'
   - id: T0.38
     title: Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: merged
+    adr: "0016"
+    matrix: [23]
+    notes: 'H1 bind stateful prompt attribution to the agent session (orphaned calls tracked; refuse when calls from more than one session are live), H2 per-principal session cap and idle expiry that cancels calls, H3 Connection close on refusals, H4 clear write deadline per request, H5/G1 exports back to ADR 0016 (server helpers move to cmd/netguard, Principal unexported, TokenPrincipal dropped), H6 named random tokens only, G2 RegisterOnShutdown, G5 join settleSession goroutines, G3/G4/G6/G7/G8 test and nit fixes, plus T0.37. Held for re-review before merge. Blocks T0.31. Merged in PR #72 (2f78271) 2026-09-24 after security re-review (approve with conditions) and Go re-review (approve with nits, 30 race runs without flakes). Remaining findings J1-J6 and K2-K4 are T0.40.'
+  - id: T0.39
+    title: Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in progress
+    matrix: [2]
+    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. Needs an ADR first (it changes the negotiation in ADR 0008). Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed.'
+  - id: T0.40
+    title: Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text)
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: in progress
     adr: "0016"
     matrix: [23]
-    notes: 'H1 bind stateful prompt attribution to the agent session (orphaned calls tracked; refuse when calls from more than one session are live), H2 per-principal session cap and idle expiry that cancels calls, H3 Connection close on refusals, H4 clear write deadline per request, H5/G1 exports back to ADR 0016 (server helpers move to cmd/netguard, Principal unexported, TokenPrincipal dropped), H6 named random tokens only, G2 RegisterOnShutdown, G5 join settleSession goroutines, G3/G4/G6/G7/G8 test and nit fixes, plus T0.37. Held for re-review before merge. Blocks T0.31.'
-  - id: T0.39
-    title: Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize)
-    package: internal/proxy
-    owner: mcp-protocol-engineer
-    reviewers: [security-reviewer, go-reviewer]
-    state: open
-    matrix: [2]
-    notes: 'From T0.34. go-sdk probes with server/discover before initialize and falls back only on an error reply; Python MCP SDK <= 1.9.3 servers (protocol 2024-11-05, e.g. upa on its own uv.lock) never answer, so netguard waits out its 30 s startup limit and exits 1 with context deadline exceeded. netguard passes ProtocolVersion nil at internal/proxy/proxy.go:200. Maintainer decision 2026-09-23: option A: if the probe gets no answer within about 5 s, restart the upstream and connect with initialize only (go-sdk skips the probe when ClientSessionOptions.ProtocolVersion is below 2026-07-28), with a clear log line. No CLI flag for now. Needs an ADR first (it changes the negotiation in ADR 0008). Do with T0.25. When fixed, the strict xfail test_locked_upstream_initialises_behind_netguard passes and must be removed. Tabled until 2026-09-24.'
+    notes: 'J1 (medium) a stateful prompt sent after its call finished normally (background job, or result-before-prompt dispatch race in go-sdk) still reaches another session''s human: track every ended call per session, not only cancelled ones. J2 register liveSession when a session-less POST''s response carries Mcp-Session-Id; go-sdk backstop timer longer than netguard''s. J3 separate shorter orphan TTL (default 5 min, orchestrator recommendation pending maintainer confirmation), Info log naming the blocking principal, threat-model row accepted. J5 key orphans by a netguard-assigned session id, not the pointer. J6 ADR 0016 principal text amendment. K2 prune orphans in end(); K3 comment on real-time idle clock; K4 single MCPGODEBUG refusal text. J4 (shutdown grace) stays in T0.31. Held for re-review. Blocks T0.30 and T0.31.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
