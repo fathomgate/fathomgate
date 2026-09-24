@@ -80,6 +80,16 @@ type progressRelay struct {
 	upToken    string // netguard's token, as sent to the upstream
 	agentToken any    // the agent's token, returned verbatim
 	session    *mcp.ServerSession
+	// sessionKey, transport and principal name the one agent request the
+	// relay belongs to (ADR 0016: session or stateless POST, and
+	// principal). The upstream names only upToken, which is fresh for
+	// every agent request, so a relay is keyed per request and therefore
+	// per session; these fields keep that owner on the relay, and
+	// watchProgress never maps one token to two relays, so a token can
+	// never reach two sessions.
+	sessionKey string
+	transport  string
+	principal  string
 	ctx        context.Context // the agent's request context
 	now        func() time.Time
 	finalWait  time.Duration // how long finish waits for the sender
@@ -104,19 +114,23 @@ type progressRelay struct {
 	exited    chan struct{}                     // closed when the sender returns
 }
 
-// newProgressRelay returns the relay for one call, with a fresh random token
-// for the upstream. It returns nil when the agent sent no usable token.
-func newProgressRelay(ctx context.Context, server string, agent agentPeer, agentToken any, now func() time.Time, finalWait time.Duration) *progressRelay {
-	if agentToken == nil || agent.session == nil {
+// newProgressRelay returns the relay for call c, with a fresh random token
+// for the upstream, owned by c's agent request. It returns nil when the
+// agent sent no usable token.
+func newProgressRelay(ctx context.Context, c call, now func() time.Time, finalWait time.Duration) *progressRelay {
+	if c.progressToken == nil || c.agent.session == nil || c.up == nil {
 		return nil
 	}
 	t := now()
 	sendCtx, cancel := context.WithCancel(ctx)
 	return &progressRelay{
-		server:     server,
+		server:     c.up.name,
 		upToken:    rand.Text(),
-		agentToken: agentToken,
-		session:    agent.session,
+		agentToken: c.progressToken,
+		session:    c.agent.session,
+		sessionKey: c.sessionKey,
+		transport:  c.transport,
+		principal:  c.principal,
 		ctx:        ctx,
 		now:        now,
 		finalWait:  finalWait,
@@ -342,7 +356,11 @@ func agentProgressToken(req *mcp.CallToolRequest) any {
 }
 
 // watchProgress registers r on u, so upstream notifications naming its token
-// find it.
+// find it. A token already mapped (to another request, and so possibly to
+// another agent session) is never shared or replaced: r draws a fresh one.
+// At 128 random bits that does not happen in practice; the loop makes the
+// one-token-one-request property hold by construction rather than by odds.
+// It runs before the token is sent upstream.
 func (u *upstream) watchProgress(r *progressRelay) {
 	if r == nil {
 		return
@@ -351,6 +369,9 @@ func (u *upstream) watchProgress(r *progressRelay) {
 	defer u.mu.Unlock()
 	if u.progress == nil {
 		u.progress = make(map[string]*progressRelay)
+	}
+	for u.progress[r.upToken] != nil {
+		r.upToken = rand.Text()
 	}
 	u.progress[r.upToken] = r
 }
@@ -363,7 +384,9 @@ func (u *upstream) unwatchProgress(r *progressRelay) {
 		return
 	}
 	u.mu.Lock()
-	delete(u.progress, r.upToken)
+	if u.progress[r.upToken] == r {
+		delete(u.progress, r.upToken)
+	}
 	u.mu.Unlock()
 	r.finish()
 }

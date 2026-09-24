@@ -975,7 +975,8 @@ func (p *Proxy) Close() error {
 
 // call is one agent tools/call after the prefix has been resolved. It is
 // what M1's pipeline and audit read: the agent's era is in agent.version,
-// the upstream's in up.version.
+// the upstream's in up.version, and the agent side it arrived on in
+// transport and principal (ADR 0016).
 type call struct {
 	up        *upstream
 	tool      string          // unprefixed upstream tool name
@@ -985,10 +986,15 @@ type call struct {
 	// sent upstream; netguard issues its own (progress.go).
 	progressToken any
 
+	// transport is the agent transport the call arrived on:
+	// transportStdio or transportHTTP (transportOf).
+	transport string
 	// principal names the bearer token the request arrived with over the
 	// HTTP listener (HTTPOptions.Tokens); it is "" on stdio. It is
-	// attribution only, for the M4 audit line and (T0.30) the sealed
-	// requestState: never an approver identity (invariant 6).
+	// attribution only, for the M4 audit line, and binds the sealed
+	// requestState together with transport (stateBinding, T0.30). It is
+	// never an approver identity (invariant 6), and nothing in M1 may read
+	// it as one.
 	principal string
 	// sessionKey is netguard's own key for the agent session behind the
 	// call, used to attribute a stateful upstream's prompt (input.go). The
@@ -999,6 +1005,12 @@ type call struct {
 	// requestState netguard issued. Both are empty on a first call.
 	inputResponses mcp.InputResponseMap
 	requestState   string
+}
+
+// binding is the agent side a requestState issued for c is bound to, and
+// the one a retry must present (T0.30).
+func (c call) binding() stateBinding {
+	return stateBinding{transport: c.transport, principal: c.principal}
 }
 
 // handler is the go-sdk tool handler for one route. The agent's _meta is
@@ -1036,7 +1048,7 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 // then goes up as a first call and an upstream that needs input asks again.
 // It returns how many answers it cleared.
 func newCall(r route, req *mcp.CallToolRequest) (call, int) {
-	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req), principal: principalOf(req)}
+	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req), transport: transportOf(req), principal: principalOf(req)}
 	ignored := 0
 	if req.Params != nil {
 		c.arguments = req.Params.Arguments
@@ -1099,7 +1111,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		"agent_protocol", c.agent.version, "upstream_protocol", up.version, "round", round)
 
 	f := up.begin(ctx, c, prompts)
-	pr := newProgressRelay(ctx, up.name, c.agent, c.progressToken, p.now, p.progressWait)
+	pr := newProgressRelay(ctx, c, p.now, p.progressWait)
 	if pr != nil {
 		up.watchProgress(pr)
 		params.SetProgressToken(pr.upToken)
@@ -1175,7 +1187,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 				Server: up.name, Tool: c.tool, Args: argsDigest(c.arguments),
 				IDs: ids, Up: res.RequestState, Round: round + 1,
 				Prompts: up.promptsSoFar(f) + len(reqs),
-			})
+			}, c.binding())
 			if err != nil {
 				r = newRefusal(up.name, c.tool, "input_required", err)
 				_ = p.refuse(up, f, r)
