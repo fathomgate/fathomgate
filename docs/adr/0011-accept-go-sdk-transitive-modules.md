@@ -1,14 +1,15 @@
-# ADR 0011: Accept go-sdk v1.7.0 and its transitive modules
+# ADR 0011: Accept go-sdk and its transitive modules
 
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23)
+- Amended: 2026-09-23 (T0.16), facts only; the decision is unchanged. See [Amendments](#amendments).
 
 ## Context
 
-M0 needs `github.com/modelcontextprotocol/go-sdk v1.7.0` for the proxy transport ([ADR 0001](0001-go-core-with-python-companion.md), [ADR 0008](0008-dual-era-mcp-support.md)). Before T0.1, `go.mod` had one dependency, `github.com/goccy/go-yaml`, and the repo rule is no new dependency without an ADR ([CLAUDE.md](../../CLAUDE.md#toolchain-facts)). ADR 0001 chose go-sdk but did not record the modules it brings with it. This record does.
+M0 needs `github.com/modelcontextprotocol/go-sdk` for the proxy transport ([ADR 0001](0001-go-core-with-python-companion.md), [ADR 0008](0008-dual-era-mcp-support.md)). Before T0.1, `go.mod` had one dependency, `github.com/goccy/go-yaml`, and the repo rule is no new dependency without an ADR ([CLAUDE.md](../../CLAUDE.md#toolchain-facts)). ADR 0001 chose go-sdk but did not record the modules it brings with it. This record does. It was accepted at go-sdk `v1.7.0` (T0.1); `main` is on `v1.8.0` since Dependabot PR #28.
 
-go-sdk v1.7.0 declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25.0`. T0.1 (branch `build/go-1.25-go-sdk`) adds the SDK as a direct require. The `mcp` package build graph adds eight indirect modules, and `go.sum` also records three modules used only by go-sdk's own tests. The table below lists them all, checked against `go.mod` and `go.sum` at commit `d8bca15`.
+go-sdk `v1.7.0` declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25.0`. T0.1 (branch `build/go-1.25-go-sdk`) adds the SDK as a direct require. The `mcp` package build graph adds eight modules, and `go.sum` also records three modules used only by go-sdk's own tests. go-sdk `v1.8.0` has the same `go.mod` as `v1.7.0` (identical `/go.mod` hash in `go.sum`), so the bump adds and moves no module. Since T0.12, `golang.org/x/sys` is also a direct require of NetGuard, so seven of the eight are indirect. The table below lists them all, checked against `go.mod`, `go.sum` and `go mod graph` at commit `53701e9` (go-sdk `v1.8.0`).
 
 | Module | Version | In | Why (`go mod why -m`, shortest path from `go-sdk/mcp`) |
 | --- | --- | --- | --- |
@@ -18,7 +19,7 @@ go-sdk v1.7.0 declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25
 | `github.com/yosida95/uritemplate/v3` | `v3.0.2` | `go.mod` indirect | `mcp` → `uritemplate/v3` (resource templates) |
 | `golang.org/x/oauth2` | `v0.35.0` | `go.mod` indirect | `mcp` → `golang.org/x/oauth2` (Streamable HTTP client, `mcp/streamable.go`) |
 | `golang.org/x/sync` | `v0.20.0` | `go.mod` indirect | `mcp` → `golang.org/x/sync/errgroup` |
-| `golang.org/x/sys` | `v0.41.0` | `go.mod` indirect | `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` |
+| `golang.org/x/sys` | `v0.47.0` | `go.mod` direct (T0.12) | `internal/audit` → `golang.org/x/sys/windows` (audit key and log DACL, Windows only); also `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` on every platform |
 | `golang.org/x/time` | `v0.15.0` | `go.mod` indirect | `mcp` → `golang.org/x/time/rate` (log rate limiting, `mcp/logging.go`) |
 | `github.com/golang-jwt/jwt/v5` | `v5.3.1` | `go.sum` only | `go-sdk/oauthex.test` (go-sdk tests only) |
 | `github.com/google/go-cmp` | `v0.7.0` | `go.sum` only | `go-sdk/mcp.test` (go-sdk tests only) |
@@ -26,11 +27,11 @@ go-sdk v1.7.0 declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.25
 
 ## Decision
 
-We will accept go-sdk v1.7.0 and the eleven modules above as they are, and hold them in place with four guardrails.
+We will accept go-sdk (accepted at `v1.7.0`, now `v1.8.0`) and the eleven modules above as they are, and hold them in place with four guardrails.
 
-1. **No cgo.** `CGO_ENABLED=0` builds of `go-sdk/mcp` and `./internal/tools` (`-tags tools`) succeed for `linux/amd64`, `linux/arm64`, `darwin/arm64` and `windows/amd64`. Verified 2026-09-23 with `go1.26.7` against the Go 1.25.0 module floor. A module that breaks this property is a regression, and fixing it needs a new ADR.
+1. **No cgo.** `CGO_ENABLED=0` builds succeed for `linux/amd64`, `linux/arm64`, `darwin/arm64` and `windows/amd64`. Verified 2026-09-23 with `go1.26.7` against the Go 1.25.0 module floor, on `go-sdk/mcp` and `./internal/tools` (`-tags tools`) at T0.1. Re-verified 2026-09-23 with `go1.27.0` on `./cmd/netguard` at go-sdk `v1.8.0` and `golang.org/x/sys` `v0.47.0` (T0.16). A module that breaks this property is a regression, and fixing it needs a new ADR.
 2. **Recorded justification.** The "Why" column above is the `go mod why -m` output. Any PR that adds or removes a module in `go.mod` updates this table or supersedes this record.
-3. **Update watch.** `.github/dependabot.yml` already watches `gomod` weekly and groups all modules under `go-deps`. The transitive modules are covered with no config change. A go-sdk minor bump is still its own PR (CLAUDE.md).
+3. **Update watch.** `.github/dependabot.yml` already watches `gomod` weekly and groups all modules under `go-deps`. The transitive modules are covered with no config change. A go-sdk minor bump is still its own PR (CLAUDE.md); `go.mod` holds one go-sdk minor at a time, currently `v1.8`.
 4. **Vulnerability scan.** `govulncheck ./...` belongs in CI as a follow-up. This record does not add it.
 
 ## Consequences
@@ -43,15 +44,15 @@ We will accept go-sdk v1.7.0 and the eleven modules above as they are, and hold 
 
 ### Negative
 
-- Supply-chain surface grows from one third-party module (`goccy/go-yaml`) to ten in the build graph: go-yaml, go-sdk and eight indirect modules. Four come from `golang.org/x`, maintained by the Go team. Four come from single-vendor or single-maintainer projects (`google/jsonschema-go`, `segmentio/encoding`, `segmentio/asm`, `yosida95/uritemplate`). Mitigated by guardrails 2 to 4 and by go.sum checksum verification.
+- Supply-chain surface grows from one third-party module (`goccy/go-yaml`) to ten in the build graph: go-yaml, go-sdk and eight modules go-sdk brings (one of them, `golang.org/x/sys`, now also a direct require). Four come from `golang.org/x`, maintained by the Go team. Four come from single-vendor or single-maintainer projects (`google/jsonschema-go`, `segmentio/encoding`, `segmentio/asm`, `yosida95/uritemplate`). Mitigated by guardrails 2 to 4 and by go.sum checksum verification.
 - `golang.org/x/oauth2` is in the build graph although M0 uses stdio only. It is linked only where `internal/proxy` reaches it, and the Go linker drops unreachable code.
-- Binary size grows. Measured on `linux/amd64` with `-trimpath -ldflags="-s -w"`: a hello-world binary is 1.59 MB, and a minimal go-sdk stdio server is 6.05 MB. `bin/netguard` today, without go-sdk linked, is 4.78 MB. The proxy will add at most about 4.5 MB, less wherever go-sdk and `netguard` already share standard-library packages (`net/http`, `crypto`). This stays inside ADR 0001's 10 to 20 MB distroless image.
+- Binary size grows. Measured on `linux/amd64` with `-trimpath -ldflags="-s -w"`: a hello-world binary is 1.59 MB, and a minimal go-sdk stdio server is 6.05 MB. `bin/netguard` at T0.1, without go-sdk linked, was 4.78 MB. The proxy will add at most about 4.5 MB, less wherever go-sdk and `netguard` already share standard-library packages (`net/http`, `crypto`). This stays inside ADR 0001's 10 to 20 MB distroless image.
 - The toolchain floor rises to Go 1.25. `golangci-lint` in CI moves from v2.1 to v2.4, because v2.1 release binaries are built with Go 1.24 and refuse a module that declares `go 1.25.0`.
 
 ### Neutral
 
 - The three test-only modules appear in `go.sum` but never in the build graph of `bin/netguard`.
-- Until `internal/proxy` imports go-sdk, `internal/tools/tools.go` (`//go:build tools`) keeps the require in `go.mod`, and `go list -deps ./cmd/netguard` shows no go-sdk.
+- From T0.1 until T0.2, `internal/tools/tools.go` (`//go:build tools`) kept the require in `go.mod`. T0.2 removed it: `internal/proxy` imports go-sdk, so it is linked into `bin/netguard`.
 
 ## Alternatives considered
 
@@ -60,6 +61,16 @@ We will accept go-sdk v1.7.0 and the eleven modules above as they are, and hold 
 | Hand-roll the MCP transport on the standard library only | Keeps one dependency but makes NetGuard own JSON-RPC framing, the stdio and Streamable HTTP transports, and both protocol eras, and keep them conformant as the spec moves. [ADR 0008](0008-dual-era-mcp-support.md) makes dual-era support a requirement, and the official conformance suite (T0.4) would test our code instead of the SDK's. |
 | Vendor a fork of go-sdk trimmed of `golang.org/x/oauth2` and the auth packages | Removes one module and some code, but NetGuard would own a fork and rebase it on every go-sdk release, including security fixes. The Streamable HTTP authorization that M1 and later need would come back anyway. |
 
+## Amendments
+
+This section records factual corrections. It does not change the decision, the module set or the guardrails.
+
+| Date | Task | What changed | Why |
+| --- | --- | --- | --- |
+| 2026-09-23 | T0.16 | `golang.org/x/sys` row: `v0.41.0` indirect via `segmentio/asm` became `v0.47.0` direct, with both import paths | T0.12 (PR #33) imports `golang.org/x/sys/windows` in `internal/audit` for the key-file DACL and moved to `v0.47.0` for GO-2026-5024 |
+| 2026-09-23 | T0.16 | Title, Context, Decision and guardrail 3 no longer name go-sdk `v1.7.0` as current; the table is re-checked at `53701e9` | Dependabot PR #28 moved go-sdk to `v1.8.0`. Its `go.mod` is identical to `v1.7.0`'s, so no module row changed |
+| 2026-09-23 | T0.16 | Guardrail 1 re-verified on `./cmd/netguard`; the `internal/tools` and binary-size lines are marked as T0.1 facts | T0.2 removed `internal/tools/tools.go` and links go-sdk into `bin/netguard` |
+
 ## References
 
 - [ADR 0001, Go core with a Python companion](0001-go-core-with-python-companion.md)
@@ -67,4 +78,8 @@ We will accept go-sdk v1.7.0 and the eleven modules above as they are, and hold 
 - [T0.1 handoff note](../handoffs/2026-09-23-mcp-protocol-engineer-to-go-reviewer-T0.1.md)
 - [M0 board](../milestones/M0.yaml), task T0.1 and blocker B2
 - [go-sdk v1.7.0 release](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.7.0)
+- [go-sdk v1.8.0 release](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.8.0)
+- [T0.3 handoff note](../handoffs/2026-09-23-mcp-protocol-engineer-to-go-reviewer-T0.3.md), go-sdk v1.7.0 to v1.8.0 review
+- [T0.12 security review handoff](../handoffs/2026-09-23-policy-engineer-to-security-reviewer-T0.12.md), `golang.org/x/sys` as a direct require
+- [GO-2026-5024](https://pkg.go.dev/vuln/GO-2026-5024)
 - [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)

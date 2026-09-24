@@ -43,7 +43,7 @@ Each stage is one Go package under `internal/`. The table is the contract betwee
 
 Data that contributors edit without Go lives outside `internal/`: `profiles/` (one YAML per upstream server), `policies/examples/` (with `*.test.yaml` cases), and `tests/fixtures/configs/` (redaction corpus).
 
-Toolchain note: `go.mod` declares Go 1.25.0 as the floor, builds with the Go named by its `toolchain` line ([ADR 0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md)) and pins go-sdk v1.7.0, which `internal/proxy` imports. In M0 the proxy is pass-through: `tools/list` and `tools/call` are forwarded with the `<server>.` prefix and no pipeline stage runs yet ([profile-schema section 8](docs/specs/profile-schema.md#8-proxy-config-m0)).
+Toolchain note: `go.mod` declares Go 1.25.0 as the floor, builds with the Go named by its `toolchain` line ([ADR 0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md)) and pins go-sdk v1.8.0, which `internal/proxy` imports ([ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md)). In M0 the proxy is pass-through: `tools/list` and `tools/call` are forwarded with the `<server>.` prefix and no pipeline stage runs yet ([profile-schema section 8](docs/specs/profile-schema.md#8-proxy-config-m0)).
 
 ## The two MCP eras
 
@@ -58,7 +58,7 @@ Most network MCP servers on GitHub still run 2025-era SDKs. The current spec, 20
 | How NetGuard holds a call | Tool error naming the pending id; agent polls `check_approval` | `input_required` whose `requestState` carries the signed pending id |
 | How an upstream prompt reaches the agent (M0) | `elicitation/create` relayed by NetGuard, prefixed `[from <server>]` | `input_required` with the relabelled request and a NetGuard-sealed (AES-GCM) `requestState` wrapping the upstream's |
 
-The proxy detects each peer's era per the spec's [backward-compatibility fallback](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#backward-compatibility) and translates between them. The go-sdk v1.7.0 negotiates the highest mutual version back to 2024-11-05. Each hop describes itself: the agent's `_meta` never reaches the upstream and the upstream's result `_meta` never reaches the agent. Only form elicitation crosses, labelled with its origin; a stateful upstream's prompt to a stateless agent is refused for now ([ADR 0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md)). See [ADR 0008](docs/adr/0008-dual-era-mcp-support.md) and [profile-schema section 8.4](docs/specs/profile-schema.md#84-protocol-eras-_meta-and-input-requests).
+The proxy detects each peer's era per the spec's [backward-compatibility fallback](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#backward-compatibility) and translates between them. The go-sdk (v1.8.0) negotiates the highest mutual version back to 2024-11-05. Each hop describes itself: the agent's `_meta` never reaches the upstream and the upstream's result `_meta` never reaches the agent. Only form elicitation crosses, labelled with its origin; a stateful upstream's prompt to a stateless agent is refused for now ([ADR 0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md)). See [ADR 0008](docs/adr/0008-dual-era-mcp-support.md) and [profile-schema section 8.4](docs/specs/profile-schema.md#84-protocol-eras-_meta-and-input-requests).
 
 ## A held call, end to end
 

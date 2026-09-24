@@ -16,7 +16,7 @@ To propose one, copy the template to the next number, open a pull request, and l
 | [0008](0008-dual-era-mcp-support.md) | Dual-era MCP support | accepted | 2026-09-23 |
 | [0009](0009-fathom-design-system-policy-layer.md) | Fathom design system plus a policy layer | accepted | 2026-09-23 |
 | [0010](0010-classify-by-payload-not-annotations.md) | Classify by payload, not by annotations | accepted | 2026-09-23 |
-| [0011](0011-accept-go-sdk-transitive-modules.md) | Accept go-sdk v1.7.0 and its transitive modules | accepted | 2026-09-23 |
+| [0011](0011-accept-go-sdk-transitive-modules.md) | Accept go-sdk and its transitive modules | accepted | 2026-09-23 |
 | [0012](0012-serve-cli-and-proxy-api-for-m0.md) | `netguard serve` flags and the `internal/proxy` API for M0 | accepted | 2026-09-23 |
 | [0013](0013-pin-go-toolchain-in-go-mod.md) | Pin the Go build toolchain in go.mod | accepted | 2026-09-23 |
 | [0014](0014-stateful-upstream-prompts-to-stateless-agents.md) | Refuse a stateful upstream's prompt to a stateless agent in M0; defer parking to row 17 | accepted | 2026-09-23 |
