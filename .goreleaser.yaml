@@ -65,7 +65,7 @@ release:
 brews:
   - name: fathomgate
     repository:
-      owner: joshscott13
+      owner: fathomgate
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
