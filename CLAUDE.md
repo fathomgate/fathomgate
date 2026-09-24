@@ -27,6 +27,7 @@ make vet            # go vet + gofmt check
 make lint           # golangci-lint (v2 config in .golangci.yaml)
 make policy-test    # every policies/**/*.test.yaml through `netguard policy test`
 make fixtures-check # redaction fixtures vs their .expect.json
+make conformance    # official MCP conformance suite vs netguard serve, both eras (needs Node.js/npm)
 make status         # re-render STATUS.md from docs/milestones/<CURRENT>.yaml + docs/handoffs/
 tools/policy-lint/policy-lint policies/examples/prod-approval.yaml   # Python, no Go needed
 bin/netguard policy eval --policy policies/examples/prod-approval.yaml \
@@ -34,7 +35,7 @@ bin/netguard policy eval --policy policies/examples/prod-approval.yaml \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
-Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`. Do not open a PR that is not green.
+Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
 
 ## Toolchain facts
 

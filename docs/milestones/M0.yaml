@@ -50,9 +50,10 @@ tasks:
     package: .github/workflows
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.2]
     matrix: [1, 2]
+    notes: 'Merged in PR #44 2026-09-23 (post-merge review by go-reviewer pending). make conformance and CI job mcp-conformance run @modelcontextprotocol/conformance 0.2.0-alpha.11 (lockfile-pinned; the version go-sdk v1.8.0 pins) for 2025-11-25 and 2026-07-28 against the real netguard serve, upstream go-sdk conformance/everything-server; tests/conformance/relay.py (stdlib) fronts stdio because the suite is HTTP-only; a control leg without netguard proves the relay transparent. netguard leg: 2025 11/30 scenarios clean, 2026 16/37; every other scored check is a per-check baseline entry with a reason, and a stale entry fails the run. Findings split out as T0.17 (progress), T0.18 (retry strictness), T0.19 (2025-era upstream coverage). Required-check switch is T0.21. Exit criterion 1 stays unticked until the maintainer rules on the baseline. Rows 1 and 2 not validated.'
   - id: T0.5
     title: Client smoke — Claude Code and Cursor mcp.json snippets, PATH-stripped launcher case
     package: tests/integration
@@ -146,19 +147,71 @@ tasks:
     package: Dockerfile
     owner: release-engineer
     reviewers: [go-reviewer, security-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.14]
     matrix: []
-    notes: 'From the T0.14 review. gcr.io/distroless/static-debian12:nonroot in Dockerfile.goreleaser ships in release images and is only tag-pinned, and so is the golang builder in Dockerfile. Pin both as tag@sha256 (Dependabot docker updates keep digest pins current). Optionally install golangci-lint via go run ...@vX so the checksum database verifies it.'
+    notes: 'From the T0.14 review. gcr.io/distroless/static-debian12:nonroot in Dockerfile.goreleaser ships in release images and is only tag-pinned, and so is the golang builder in Dockerfile. Pin both as tag@sha256 (Dependabot docker updates keep digest pins current). Optionally install golangci-lint via go run ...@vX so the checksum database verifies it. Merged in PR #36 2026-09-23 (post-merge review pending). golang:1.26-alpine@sha256:8ac98ca5... (go1.26.8) and gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872... (same digest in Dockerfile and Dockerfile.goreleaser), both multi-arch OCI index digests from docker buildx imagetools inspect, cross-checked against each registry. Existing Dependabot docker entry covers both files. Both release images built for amd64 and arm64 and run as nonroot; GoReleaser snapshot green in CI. golangci-lint via go run split out as T0.20.'
   - id: T0.16
     title: Update the ADR 0011 module table for golang.org/x/sys as a direct dependency
     package: docs/adr
     owner: docs-writer
     reviewers: [go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.12]
     matrix: []
-    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR. Also (from T0.3): main is on go-sdk v1.8.0 since Dependabot #28, so the ADR 0011 title, context and table header naming v1.7.0 (and CLAUDE.md/AGENTS.md "pinned to the v1.7 minor") are stale; the module rows are unchanged, since go-sdk v1.8.0 has the same go.mod (go.sum go.mod hash identical) and pulls no new or bumped modules.'
+    notes: 'From the T0.12 security review. T0.12 makes golang.org/x/sys a direct require at v0.47.0 (GO-2026-5024, x/sys/windows for the audit key DACL). The ADR 0011 table still lists it as indirect v0.41.0 via segmentio. This corrects the table; it does not supersede the ADR. Also (from T0.3): main is on go-sdk v1.8.0 since Dependabot #28, so the ADR 0011 title, context and table header naming v1.7.0 (and CLAUDE.md/AGENTS.md "pinned to the v1.7 minor") are stale; the module rows are unchanged, since go-sdk v1.8.0 has the same go.mod (go.sum go.mod hash identical) and pulls no new or bumped modules. Merged in PR #37 2026-09-23 (post-merge review pending). ADR 0011 amended in place (facts only; title no longer names a go-sdk version); maintainer approved the in-place amendment, and GOVERNANCE.md plus docs/adr/README.md now allow fact-only amendments dated in an Amendments section. Pin wording is one go-sdk minor, currently v1.8, in CLAUDE.md, AGENTS.md, README.md and ARCHITECTURE.md. x/sys row moved to v0.48.0 (Dependabot #39) in the board-sync PR. Remaining stale v1.7 mentions split out as T0.22.'
+  - id: T0.17
+    title: Relay upstream progress notifications to the agent with a proxy-issued progress token
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [T0.4]
+    matrix: [2]
+    notes: 'From T0.4: conformance scenario tools-call-with-progress fails in both eras because no _meta crosses the proxy (spec section 8.4), so the agent''s progressToken never reaches the upstream. Issue a proxy-owned token upstream, map notifications/progress back to the agent''s token, and carry no upstream text beyond progress/total/message rules the spec allows. Delete the matching entries in tests/conformance/baseline/ in the same PR. May need an ADR if it changes the no-_meta rule in ADR 0014.'
+  - id: T0.18
+    title: Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [T0.4]
+    matrix: [2]
+    notes: 'From T0.4: warning-level checks input-required-result-ignore-extra-params and input-required-result-missing-input-response fail because netguard answers -32602 where SEP-2322 suggests ignoring extra params or re-asking (spec section 8.2). Either keep strict behaviour and record why (security reasoning with the sealed requestState) or relax it; either way the baseline reason or the entry changes in the same PR.'
+  - id: T0.19
+    title: Conformance coverage for a 2025-11-25 upstream behind netguard
+    package: tests/conformance
+    owner: test-engineer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [T0.4]
+    matrix: [2]
+    notes: 'From T0.4: the fixture upstream always negotiates 2026-07-28 with netguard, and neither go-sdk v1.8 nor the Python SDK 2.2.0 can be held on 2025, so the stateless-agent x stateful-upstream and stateful x stateful paths are only covered by tier 1 tests. Find or build a 2025-only fixture upstream (e.g. a pinned older SDK in tests/, no new Go dependency).'
+  - id: T0.20
+    title: Evaluate installing golangci-lint via go run so the checksum database verifies it
+    package: .github/workflows
+    owner: release-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    matrix: []
+    notes: 'From T0.15. CI uses golangci-lint-action, which downloads a release binary; golangci-lint discourages source builds. Decide between go run ...@vX, verifying the release checksum, or keeping the action, and record the reason.'
+  - id: T0.21
+    title: Mark mcp-conformance as a required status check on main
+    package: .github/workflows
+    owner: joshscott13
+    reviewers: [release-engineer]
+    state: open
+    blocked_by: [T0.4]
+    matrix: []
+    notes: 'Maintainer decision 2026-09-23: go-sdk bumps (Dependabot included) must pass conformance before merge. The job name is mcp-conformance; it runs on every push and pull request with no path filter and needs no secrets. A repository setting, changed by the maintainer or with their explicit go-ahead.'
+  - id: T0.22
+    title: Sweep remaining stale go-sdk v1.7 and go 1.24 mentions
+    package: docs
+    owner: docs-writer
+    reviewers: [go-reviewer]
+    state: open
+    matrix: []
+    notes: 'From T0.16: internal/proxy/doc.go comment (v1.7.x), .claude/agents/go-reviewer.md (v1.7, go 1.24), .claude/agents/mcp-protocol-engineer.md, ROADMAP.md line 10 (M0 status text also stale on T0.3). Leave accepted ADR reference labels and historical records alone.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

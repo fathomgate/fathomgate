@@ -24,7 +24,7 @@ NetGuard is a policy-enforcing MCP proxy between AI agents and network-device MC
 go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check
 ```
 
-All six must pass. `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
+All six must pass. A change to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod` also runs `make conformance` (needs Node.js and npm). `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.
 
 ## Rules
 
