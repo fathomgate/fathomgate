@@ -1,6 +1,6 @@
 # ADR 0020: Open core under Apache-2.0, with outside contributions by DCO sign-off
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; chose open core, Apache-2.0 and DCO on 2026-09-24); proposed by docs-writer. The boundary table and the contested rows below are recommendations for the maintainer to accept or change. Reviewers: security-reviewer (boundary rule, extension invariants), release-engineer (LICENSE, NOTICE, artefacts), policy-engineer and network-safety-engineer (the core/commercial split of their packages), mcp-protocol-engineer (MRTR approval, `Proxy.dispatch`)
 
