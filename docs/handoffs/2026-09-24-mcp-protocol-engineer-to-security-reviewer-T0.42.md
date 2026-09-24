@@ -3,7 +3,7 @@
 - **Task:** T0.42 — Put the ADR 0014 refusal in the note slot, not the refused slot, so an upstream error is never replaced (S3). Also T0.43 (S1), T0.45 (S5, S7) and the documentation part of T0.44 (S2, S4)
 - **From → To:** mcp-protocol-engineer → security-reviewer (go-reviewer for T0.45)
 - **State now:** in review (the board is not touched here: T0.39 is in flight in parallel and the orchestrator syncs `docs/milestones/M0.yaml`)
-- **Branch / PR:** `fix/proxy-orphan-review` · PR link in the PR description (opened after this note)
+- **Branch / PR:** `fix/proxy-orphan-review` · https://github.com/joshscott13/netguard/pull/78
 - **Date:** 2026-09-24
 
 ## Done
@@ -25,7 +25,7 @@
 
 - **T0.44 code** (bound, reap, log the shared entry; S2): needs the maintainer's choice of direction. The docs now say plainly that it is open.
 - The board (`docs/milestones/M0.yaml`) is not edited here; `STATUS.md` is re-rendered only for this note.
-- `-race` not run: no C toolchain on this Windows machine (`CGO_ENABLED=1` needs gcc). `internal/proxy` passed with `-count=5`; CI runs `-race`.
+- `-race` not run: no C toolchain on this Windows machine (`CGO_ENABLED=1` needs gcc). `internal/proxy` passed with `-count=5`; CI runs `-race`. One `-count=5` run, made while the conformance suite ran alongside, failed once in T0.39's `TestDiscoverProbeRestartsStdioUpstream` (stderr line not seen before its deadline, before any code this PR touches runs); it passed `-count=20` alone and `-count=5` again. Looks like a load-sensitive timing in that test, not this change.
 - `golangci-lint` not run locally (no pinned Windows binary, no `make`); CI runs `make lint`.
 
 ## Reproduce green
