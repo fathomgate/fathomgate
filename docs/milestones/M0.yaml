@@ -252,11 +252,11 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     blocked_by: [T0.28]
     adr: "0016"
     matrix: [23]
-    notes: 'First of the HTTP listener tasks (maintainer decision 2026-09-23; ADR 0016 accepted 2026-09-23 with named tokens for attribution, built-in TLS in M1, not an M0 exit criterion, conformance shim accepted). Loopback-only bind, token required on every request, Origin and cross-site Sec-Fetch-Site refused before auth, no CORS, go-sdk localhost Host check on, caps and limits as in ADR 0016. Followed by T0.30 to T0.33. In progress 2026-09-23. Must also meet the T0.28 review requirements (T1-T4, see T0.28).'
+    notes: 'First of the HTTP listener tasks (maintainer decision 2026-09-23; ADR 0016 accepted 2026-09-23 with named tokens for attribution, built-in TLS in M1, not an M0 exit criterion, conformance shim accepted). Loopback-only bind, token required on every request, Origin and cross-site Sec-Fetch-Site refused before auth, no CORS, go-sdk localhost Host check on, caps and limits as in ADR 0016. Followed by T0.30 to T0.33. In progress 2026-09-23. Must also meet the T0.28 review requirements (T1-T4, see T0.28). Merged in PR #68 (c816209) 2026-09-23, before its reviews finished. Post-merge security review: request changes (H1 medium: a stateful upstream prompt can reach another principal''s agent via the sole-in-flight rule; H2 session-slot pinning; H3 refused connections held open; H4-H6 nits). Post-merge Go review: no correctness bugs, 30 race runs without flakes; G1 exports beyond ADR 0016, G2 shutdown order, G5 unjoined goroutine, test hygiene. All fixed in T0.38.'
   - id: T0.28
     title: Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine)
     package: internal/proxy
@@ -289,10 +289,10 @@ tasks:
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
     state: open
-    blocked_by: [T0.27]
+    blocked_by: [T0.27, T0.30, T0.38]
     adr: "0016"
     matrix: [23]
-    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback).'
+    notes: 'ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then.'
   - id: T0.32
     title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
     package: tests/conformance
@@ -341,9 +341,18 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer]
-    state: open
+    state: in progress
     matrix: []
-    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR.'
+    notes: 'Post-merge review of PR #64, note N1: *mcp.CommandTransport from Command.Transport() carries the value in Env because the child needs it; the godoc claim should not extend to it, so the M4 audit writer never logs a transport or exec.Cmd. Doc-only; fold into the next internal/proxy PR. Folded into T0.38.'
+  - id: T0.38
+    title: Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in progress
+    adr: "0016"
+    matrix: [23]
+    notes: 'H1 bind stateful prompt attribution to the agent session (orphaned calls tracked; refuse when calls from more than one session are live), H2 per-principal session cap and idle expiry that cancels calls, H3 Connection close on refusals, H4 clear write deadline per request, H5/G1 exports back to ADR 0016 (server helpers move to cmd/netguard, Principal unexported, TokenPrincipal dropped), H6 named random tokens only, G2 RegisterOnShutdown, G5 join settleSession goroutines, G3/G4/G6/G7/G8 test and nit fixes, plus T0.37. Held for re-review before merge. Blocks T0.31.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
