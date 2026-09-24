@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
 import yaml
 
-from .conftest import REPO, SERVER, FakeDevice, client_env, serve_args
+from .conftest import REPO, SERVER, FakeDevice, RawClient, client_env, serve_args
 
 pytestmark = [pytest.mark.tier2, pytest.mark.netdev_ssh_mcp]
 
@@ -54,6 +55,27 @@ async def test_tools_list_passes_through_with_prefix(proxy_server_params: dict) 
     assert all(len(f"mcp__{SERVER}__{n}") <= 64 for n in names)
     show = next(t for t in tools if t.name == f"{SERVER}.run_show_command")
     assert {"host", "command", "port"} <= set(show.input_schema["required"])
+
+
+def test_upstream_negotiates_2026_07_28_stateless(netguard_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> None:
+    """Row 2, the 2026-era half (the 2025-era half is test_upa_netmiko.py):
+    netguard's `server/discover` succeeds against netdev-ssh-mcp (go-sdk), so
+    it logs `upstream ready ... protocol=2026-07-28 era=stateless`, and a
+    2025-11-25 agent still initialises in front of it."""
+    client = RawClient([str(netguard_binary), *serve_args(upstream_binary, fake_device)], client_env(dict(os.environ)))
+    try:
+        init = client.initialize()
+        assert init["result"]["protocolVersion"] == "2025-11-25"
+        # wait() -> communicate() closes stdin (the agent disconnects), so
+        # netguard exits 0; do not close it here first (Python 3.12 then
+        # raises on the flush of a closed pipe).
+        code, err, _ = client.wait(timeout=20)
+    finally:
+        client.close()
+    assert code == 0, err
+    ready = [line for line in err.splitlines() if 'msg="upstream ready"' in line]
+    assert len(ready) == 1, err
+    assert f"server={SERVER} tools={len(UPSTREAM_TOOLS)} protocol=2026-07-28 era=stateless" in ready[0]
 
 
 def test_profile_matches_upstream_tools() -> None:

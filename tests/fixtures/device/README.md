@@ -4,9 +4,16 @@
 tier 2, so a real upstream MCP server can run a real SSH session without a
 real device. See the module docstring for its command line.
 
-What it does today (T0.5):
+What it does today (T0.5, T0.34):
 
-- The SSH exec channel only, which is what netdev-ssh-mcp v1.6.6 uses.
+- The SSH exec channel, which is what netdev-ssh-mcp v1.6.6 uses.
+- An interactive shell (a PTY and the prompt `fake-eos#`, set with
+  `--hostname`), which is what netmiko uses for upa/mcp-netmiko-server with
+  `device_type = "arista_eos"`. Input is echoed and each line is one
+  command. `terminal width <n>` answers `Width set to <n> columns.` and
+  `terminal length 0` answers `Pagination disabled.`, the words netmiko's
+  EOS session preparation waits for. `exit` or `quit` ends the session.
+  Every other line is looked up in the transcripts as below.
 - Password auth; the username defaults to `admin`, the password comes from
   `FAKE_DEVICE_PASSWORD` (default `FAKE-device-pass`).
 - Answers a command from `transcripts/<vendor>/<name>.txt`
@@ -14,9 +21,10 @@ What it does today (T0.5):
   trailing `| no-more` is dropped before the lookup, because it only turns
   paging off; netdev-ssh-mcp's `get_config` sends
   `show running-config | no-more`.
-- Logs every exec request to `<state-dir>/commands.log`.
+- Logs every exec request, and every non-empty shell line (netmiko's
+  session setup and `exit` included), to `<state-dir>/commands.log`.
 
-What it does not do yet: interactive prompts, config mode, and the
+What it does not do yet: enable mode, config mode, and the
 change-safety sequences (`commit confirmed`, `configure session`,
 `checkpoint`, ...). Those land with the M3 drivers.
 

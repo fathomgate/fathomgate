@@ -25,7 +25,7 @@ Run: `make test` (equals `go test ./... && netguard policy test policies/ && pyt
 ## Tier 2: what it proves
 
 - `tools/list` from each real upstream matches its profile: every listed tool has a profile entry and every profiled tool exists. A mismatch fails the build and is the drift signal for upstream schema changes.
-- Both eras initialise: netdev-ssh-mcp (go-sdk, 2026 era) and upa/mcp-netmiko-server (FastMCP, 2025 era).
+- Both eras initialise: netdev-ssh-mcp (go-sdk, 2026 era; `tests/integration/test_passthrough.py`, CI job `client-smoke`) and upa/mcp-netmiko-server (FastMCP, 2025 era; `tests/integration/test_upa_netmiko.py`, CI job `tier2-upa`), each asserted from netguard's `upstream ready` log line, with a 2025-11-25 and a 2026-07-28 agent in front of the 2025 upstream.
 - The official conformance suite passes against the proxy's client-facing side, with every remaining failure baselined against an ADR or a board task (see "Conformance suite" below; it runs on every pull request and needs no Docker).
 - End-to-end decisions: a `reload` through eos-mcp `run_command` is denied with `no-exec`; a `show running-config` through ntunes `send_command` comes back redacted; an unknown `host` on netdev-ssh-mcp is denied.
 - Approval flow against junos-mcp-server with the fake SSH device standing in for the router: hold, approve via CLI, approve after TTL refused, drift cancelled, MRTR accept forwards.

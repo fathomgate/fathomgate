@@ -1,0 +1,371 @@
+"""Tier 2: `netguard serve` in front of the real 2025-era upstream
+upa/mcp-netmiko-server (FastMCP, one file, pinned by commit and sha256 in
+conftest), which reaches the fake SSH device through netmiko's interactive
+shell (`device_type = "arista_eos"`).
+
+Matrix row 2 (dual-era handshake), the 2025-era half. The 2026-era half is
+netdev-ssh-mcp in test_passthrough.py. M0 exit criterion 3.
+
+The upstream runs with two dependency sets (install.sh):
+
+- current: its code with mcp 1.30.0, the newest 1.x, which its pyproject.toml
+  (`mcp[cli]>=1.6.0`) allows. netguard's go-sdk client sends `server/discover`,
+  the upstream answers with an error, and go-sdk falls back to `initialize`:
+  2025-11-25, stateful. Every netguard assertion below runs on this set.
+- locked: its own uv.lock, mcp 1.6.0 (2024-11-05 only). That SDK does not
+  answer a request whose method it does not know: its receive loop dies, and
+  the process lives on without reading. So netguard's `server/discover` gets
+  no answer, go-sdk never reaches `initialize`, and `netguard serve` gives up
+  at the 30-second startup limit. The upstream's side of that is asserted
+  directly; netguard's side is a strict xfail until netguard can reach a
+  stateful upstream that stops answering on an unknown method.
+
+Not covered here: upa's three tools take no Context and never elicit
+(main.py at the pinned commit), so the ADR 0014 case (a 2026 agent calling a
+tool whose stateful upstream sends elicitation/create) cannot happen against
+this upstream. tests/conformance/era_pairs.py covers it against go-sdk
+v1.6.1's conformance server.
+
+Everything the upstream returns is data: compared, never acted on.
+"""
+
+from __future__ import annotations
+
+import json
+import queue
+import re
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from .conftest import REPO, UPA_SERVER, FakeDevice, UpaInstall
+
+pytestmark = [pytest.mark.tier2, pytest.mark.upa_mcp_netmiko_server]
+
+V2025 = "2025-11-25"
+V2026 = "2026-07-28"
+DEVICE = "fake-eos"
+DEVICE_PASSWORD = "FAKE-device-pass"  # conftest.DEVICE_PASSWORD; upa reads it from its TOML inventory
+
+# The upstream's full tool set at the pinned commit. Equality, not subset.
+UPSTREAM_TOOLS = {"get_network_device_list", "send_command_and_get_output", "set_config_commands_and_commit_or_save"}
+
+SHOW_VERSION = (REPO / "tests/fixtures/device/transcripts/eos/show_version.txt").read_text()
+
+# What netmiko 4.5.0's arista_eos driver types into the shell for one
+# send_command: session preparation (terminal width, paging off), the
+# command, then `exit` on disconnect. The device sees `show version` once.
+NETMIKO_SESSION = ["terminal width 511", "terminal length 0", "show version", "exit"]
+
+# netguard's startup line for the upstream (slog text handler).
+READY = re.compile(r'msg="upstream ready" server=(\S+) tools=(\d+) protocol=(\S+) era=(\S+)')
+
+
+class NetguardExited(Exception):
+    """netguard closed stdout before answering."""
+
+
+class Netguard:
+    """`netguard serve` over stdio, one JSON-RPC message per line, with its
+    stderr collected (the upstream's stderr is relayed there too)."""
+
+    def __init__(self, argv: list[str]) -> None:
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.lines: queue.Queue[str | None] = queue.Queue()
+        self.stderr: list[str] = []
+        threading.Thread(target=self._pump_out, daemon=True).start()
+        threading.Thread(target=self._pump_err, daemon=True).start()
+
+    def _pump_out(self) -> None:
+        for line in self.proc.stdout:
+            self.lines.put(line)
+        self.lines.put(None)
+
+    def _pump_err(self) -> None:
+        for line in self.proc.stderr:
+            self.stderr.append(line.rstrip("\n"))
+
+    def send(self, msg: dict) -> None:
+        self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", **msg}) + "\n")
+        self.proc.stdin.flush()
+
+    def request(self, id_: int, method: str, params: dict, timeout: float = 40) -> dict:
+        """The response to one request; notifications in between are skipped.
+        A server-initiated request fails the test: upa never sends one."""
+        self.send({"id": id_, "method": method, "params": params})
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                line = self.lines.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                raise TimeoutError(f"no response to {method} within {timeout:.0f}s") from None
+            if line is None:
+                try:
+                    code = self.proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    code = None
+                tail = "\n".join(l for l in self.stderr if not l.startswith(f"upstream {UPA_SERVER}:"))[-2000:]
+                raise NetguardExited(f"netguard exited ({code}) before answering {method}:\n{tail}")
+            msg = json.loads(line)
+            if "method" in msg and "id" in msg:
+                raise AssertionError(f"server-initiated request reached the agent: {msg['method']}")
+            if msg.get("id") == id_:
+                return msg
+
+    def ready(self, timeout: float = 5) -> tuple[str, int, str, str]:
+        """(server, tools, protocol, era) from the `upstream ready` line.
+        netguard writes it before it serves the agent, but stderr is read on
+        its own thread, so allow it a moment to arrive."""
+        deadline = time.monotonic() + timeout
+        while True:
+            for line in list(self.stderr):
+                if m := READY.search(line):
+                    return m.group(1), int(m.group(2)), m.group(3), m.group(4)
+            if time.monotonic() > deadline:
+                raise AssertionError("netguard logged no `upstream ready` line:\n" + "\n".join(self.stderr[-20:]))
+            time.sleep(0.05)
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            try:
+                self.proc.stdin.close()
+            except BrokenPipeError:
+                pass
+            try:
+                self.proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
+
+def _texts(result: dict) -> str:
+    return "".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
+
+
+def _inventory(tmp_path: Path, device: FakeDevice) -> Path:
+    """upa's TOML inventory: one device, the fake EOS box. The password is a
+    FAKE fixture; upa has no other way to take it."""
+    toml = tmp_path / "devices.toml"
+    toml.write_text(
+        "[default]\n"
+        'username = "admin"\n'
+        f'password = "{DEVICE_PASSWORD}"\n'
+        f"port = {device.port}\n"
+        f"\n[{DEVICE}]\n"
+        'hostname = "127.0.0.1"\n'
+        'device_type = "arista_eos"\n',
+        encoding="utf-8",
+    )
+    return toml
+
+
+def _serve(netguard: Path, python: Path, main: Path, toml: Path) -> list[str]:
+    return [str(netguard), "serve", "--server", UPA_SERVER, "--upstream", str(python), "--", str(main), str(toml)]
+
+
+@pytest.fixture
+def upa_argv(netguard_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> list[str]:
+    """netguard serve in front of upa on mcp 1.30.0 (the current leg)."""
+    return _serve(netguard_binary, upa_install.python, upa_install.main, _inventory(tmp_path, fake_device))
+
+
+@pytest.fixture
+def ng(upa_argv: list[str]):
+    n = Netguard(upa_argv)
+    yield n
+    n.close()
+
+
+def _initialize_2025(ng: Netguard) -> dict:
+    resp = ng.request(1, "initialize", {"protocolVersion": V2025, "capabilities": {}, "clientInfo": {"name": "netguard-tier2", "version": "0"}})
+    ng.send({"method": "notifications/initialized"})
+    return resp
+
+
+META_2026 = {
+    "io.modelcontextprotocol/protocolVersion": V2026,
+    "io.modelcontextprotocol/clientInfo": {"name": "netguard-tier2", "version": "0"},
+    "io.modelcontextprotocol/clientCapabilities": {},
+}
+
+
+def _call_show_version(ng: Netguard, id_: int, meta: dict | None = None) -> dict:
+    params: dict = {"name": f"{UPA_SERVER}.send_command_and_get_output", "arguments": {"name": DEVICE, "command": "show version"}}
+    if meta is not None:
+        params["_meta"] = meta
+    return ng.request(id_, "tools/call", params)
+
+
+# --- current leg: upa at the pinned commit on mcp 1.30.0 ---------------------
+
+
+def test_upstream_negotiates_2025_11_25_stateful(ng: Netguard) -> None:
+    """netguard tried the stateless era first, the upstream refused
+    `server/discover`, and the initialise fallback settled on 2025-11-25:
+    netguard logs `upstream ready server=upa tools=3 protocol=2025-11-25
+    era=stateful`."""
+    resp = _initialize_2025(ng)
+    assert resp["result"]["serverInfo"]["name"] == "netguard"
+    assert ng.ready() == (UPA_SERVER, len(UPSTREAM_TOOLS), V2025, "stateful")
+    # The fallback happened: the upstream logged its own refusal of the
+    # stateless probe (mcp 1.30.0 answers an unknown method with an error),
+    # relayed by netguard with the `upstream upa: ` prefix.
+    assert any(l.startswith(f"upstream {UPA_SERVER}: ") and "input_value='server/discover'" in l for l in list(ng.stderr))
+
+
+def test_tools_list_prefixed_for_2025_agent(ng: Netguard) -> None:
+    """A 2025-11-25 agent sees exactly the upstream's three tools as `upa.<tool>`."""
+    init = _initialize_2025(ng)
+    assert init["result"]["protocolVersion"] == V2025
+    tools = ng.request(2, "tools/list", {})["result"]["tools"]
+    names = sorted(t["name"] for t in tools)
+    assert names == sorted(f"{UPA_SERVER}.{t}" for t in UPSTREAM_TOOLS)
+    # Claude Code's mcp__<config key>__<tool> within 64, with the key "upa".
+    assert all(len(f"mcp__{UPA_SERVER}__{n}") <= 64 for n in names)
+    send = next(t for t in tools if t["name"] == f"{UPA_SERVER}.send_command_and_get_output")
+    assert set(send["inputSchema"]["required"]) == {"name", "command"}
+
+
+def test_show_version_reaches_device_once_for_2025_agent(ng: Netguard, fake_device: FakeDevice) -> None:
+    """A read-only call from a 2025-11-25 agent: `show version` runs once on
+    the device, and the transcript comes back unchanged (M0 forwards: no
+    policy, no redaction)."""
+    _initialize_2025(ng)
+    resp = _call_show_version(ng, 2)
+    result = resp["result"]
+    assert result.get("isError") is not True, resp
+    assert _texts(result).strip() == SHOW_VERSION.strip()
+    assert fake_device.commands() == NETMIKO_SESSION
+    assert ng.ready()[2:] == (V2025, "stateful")
+
+
+def test_2026_agent_through_netguard_to_2025_upstream(ng: Netguard, fake_device: FakeDevice) -> None:
+    """A 2026-07-28 agent (no initialize; every request carries `_meta`) lists
+    and calls the 2025-11-25 upstream through netguard. The upstream side
+    stays stateful; no `_meta` crosses it."""
+    disc = ng.request(1, "server/discover", {"_meta": META_2026})
+    assert V2026 in disc["result"]["supportedVersions"], disc
+    tools = ng.request(2, "tools/list", {"_meta": META_2026})["result"]["tools"]
+    assert sorted(t["name"] for t in tools) == sorted(f"{UPA_SERVER}.{t}" for t in UPSTREAM_TOOLS)
+    resp = _call_show_version(ng, 3, META_2026)
+    result = resp["result"]
+    assert result.get("isError") is not True, resp
+    assert _texts(result).strip() == SHOW_VERSION.strip()
+    assert fake_device.commands() == NETMIKO_SESSION
+    assert ng.ready()[2:] == (V2025, "stateful")
+
+
+@pytest.mark.asyncio
+async def test_python_sdk_client_through_netguard(upa_argv: list[str], fake_device: FakeDevice) -> None:
+    """The same read with a real client library, as test_passthrough.py does
+    for netdev-ssh-mcp. python-sdk mcp 2.2.0's stdio client initialises at
+    2025-11-25 with netguard, so this is a second 2025 agent; the 2026 agent
+    is the raw client above."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    params = StdioServerParameters(command=upa_argv[0], args=upa_argv[1:])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            init = await session.initialize()
+            assert init.server_info.name == "netguard"
+            assert init.protocol_version == V2025
+            names = sorted(t.name for t in (await session.list_tools()).tools)
+            result = await session.call_tool(f"{UPA_SERVER}.send_command_and_get_output", {"name": DEVICE, "command": "show version"})
+
+    assert names == sorted(f"{UPA_SERVER}.{t}" for t in UPSTREAM_TOOLS)
+    assert not result.is_error
+    assert "".join(getattr(c, "text", "") or "" for c in result.content).strip() == SHOW_VERSION.strip()
+    assert fake_device.commands() == NETMIKO_SESSION
+
+
+# --- locked leg: upa at the pinned commit on its own uv.lock (mcp 1.6.0) -----
+
+
+def _raw_upstream(install: UpaInstall, toml: Path) -> subprocess.Popen:
+    return subprocess.Popen(
+        [str(install.locked_python), str(install.main), str(toml)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _exchange(proc: subprocess.Popen, messages: list[dict], want: int, wait: float) -> tuple[list[dict], str]:
+    """Send messages; collect replies until `want` arrive or `wait` seconds
+    pass; then kill the upstream (the locked one never exits on its own once
+    its receive loop has died) and return the replies and its stderr."""
+    replies: queue.Queue[str] = queue.Queue()
+
+    def pump() -> None:
+        for line in proc.stdout:
+            if line.strip():
+                replies.put(line)
+
+    threading.Thread(target=pump, daemon=True).start()
+    for m in messages:
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", **m}) + "\n")
+    proc.stdin.flush()
+    got: list[dict] = []
+    deadline = time.monotonic() + wait
+    while len(got) < want or want == 0:
+        try:
+            got.append(json.loads(replies.get(timeout=max(0.0, deadline - time.monotonic()))))
+        except queue.Empty:
+            break
+    proc.kill()
+    _, err = proc.communicate()
+    return got, err
+
+
+INIT_2025 = {"id": 1, "method": "initialize", "params": {"protocolVersion": V2025, "capabilities": {}, "clientInfo": {"name": "netguard-tier2", "version": "0"}}}
+# What go-sdk v1.8 sends first (mcp/client.go, Client.Connect).
+DISCOVER = {"id": 0, "method": "server/discover", "params": {"_meta": META_2026}}
+
+
+def test_locked_upstream_speaks_2024_11_05(upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> None:
+    """Direct, no netguard: the upstream as its authors lock it answers a
+    2025-11-25 initialize with 2024-11-05, the only version mcp 1.6.0 knows."""
+    replies, _ = _exchange(_raw_upstream(upa_install, _inventory(tmp_path, fake_device)), [INIT_2025], want=1, wait=20)
+    assert [r.get("id") for r in replies] == [1]
+    assert replies[0]["result"]["protocolVersion"] == "2024-11-05"
+
+
+def test_locked_upstream_stops_answering_after_server_discover(upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> None:
+    """Direct, no netguard: after `server/discover` the locked upstream answers
+    nothing, not even a following initialize. The SDK's receive loop raised
+    on the unknown method (a pydantic ValidationError) instead of replying
+    -32601. This is the upstream's defect; netguard's handling of it is the
+    xfail below."""
+    # 5 s: the same upstream answers a lone initialize in about 1 s (above).
+    replies, err = _exchange(_raw_upstream(upa_install, _inventory(tmp_path, fake_device)), [DISCOVER, INIT_2025], want=0, wait=5)
+    assert replies == []
+    assert "ValidationError" in err and "input_value='server/discover'" in err
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=NetguardExited,
+    reason=(
+        "netguard serve cannot start in front of upa/mcp-netmiko-server as locked (mcp 1.6.0): go-sdk's "
+        "server/discover probe kills the upstream's receive loop, initialize is never sent, and serve exits 1 "
+        "after the 30 s startup limit with `connect: context deadline exceeded`. go-sdk skips the probe when "
+        "ClientSessionOptions.ProtocolVersion is below 2026-07-28; netguard passes none (internal/proxy)."
+    ),
+)
+def test_locked_upstream_initialises_behind_netguard(netguard_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> None:
+    """Row 2 target for the upstream as shipped: netguard reaches it at
+    2024-11-05, stateful, and serves its tools. When netguard can, this
+    XPASSes and strict mode fails it: drop the xfail in that PR."""
+    ng = Netguard(_serve(netguard_binary, upa_install.locked_python, upa_install.main, _inventory(tmp_path, fake_device)))
+    try:
+        _initialize_2025(ng)
+        tools = ng.request(2, "tools/list", {})["result"]["tools"]
+        assert sorted(t["name"] for t in tools) == sorted(f"{UPA_SERVER}.{t}" for t in UPSTREAM_TOOLS)
+        assert ng.ready() == (UPA_SERVER, len(UPSTREAM_TOOLS), "2024-11-05", "stateful")
+    finally:
+        ng.close()

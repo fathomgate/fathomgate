@@ -129,8 +129,9 @@ contains only `go.mod` (a `tool` line naming go-sdk v1.6.1's
   leg a copy of `netguard`. Dependabot watches only the root module, so it
   will not propose a bump. A security fix in a shared module (`x/sys`,
   `x/oauth2`) may be applied here by hand; go-sdk must stay at v1.6.1.
-- It is go-sdk's server, not FastMCP. Matrix row 2 still needs
-  upa/mcp-netmiko-server (FastMCP, 2025 era) behind netguard.
+- It is go-sdk's server, not FastMCP. The real 2025-era upstream for matrix
+  row 2, upa/mcp-netmiko-server, runs behind netguard in tier 2
+  (`tests/integration/test_upa_netmiko.py`, CI job `tier2-upa`).
 
 ## Baselines
 
