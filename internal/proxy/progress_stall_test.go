@@ -238,7 +238,13 @@ func TestProgressStuckAgent(t *testing.T) {
 			})
 
 			// The upstream's next request (elicitation/create for B's call)
-			// and B's result still flow, and the prompt is B's alone.
+			// and B's result still flow. A's ended call is an orphan of A's
+			// own session (T0.43: two agents on one proxy never share a
+			// key), so the prompt is refused for that reason, and not as
+			// one of two calls in flight: A's call has left the set.
+			refusedB(t, agentB)
+			expireOrphan(t, h.proxy, up, localKeyPrefix+"1")
+			// Once A's orphan has expired, the prompt is B's alone.
 			res, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
 			if err != nil || res.IsError {
 				t.Fatalf("B's call: %v %q", err, text(res))
@@ -408,6 +414,11 @@ func TestEndBeforeFinish(t *testing.T) {
 				return r.done
 			})
 
+			// As in TestProgressStuckAgent: A's orphan refuses the prompt,
+			// as an orphan and not as one of two calls in flight, and once
+			// it has expired the prompt is attributed to B.
+			refusedB(t, agentB)
+			expireOrphan(t, h.proxy, up, localKeyPrefix+"1")
 			res, err := agentB.CallTool(bg, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask_direct"})
 			if err != nil || res.IsError {
 				t.Fatalf("B's call: %v %q", err, text(res))

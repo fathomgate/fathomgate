@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,9 +95,24 @@ type Proxy struct {
 	// limits caps and tracks tool calls per agent session and principal.
 	// It is set by HTTPHandler and nil on stdio, where one agent owns the
 	// process (calls.go).
-	limits    atomic.Pointer[callLimits]
-	closeOnce sync.Once
-	closeErr  error
+	limits atomic.Pointer[callLimits]
+	// locals are the agent sessions Run is serving, each with the
+	// attribution key it gave it (agentSessionKey); runs numbers them.
+	// connecting holds one ready channel per Run between its registration
+	// and the recording of its session, closed once recorded, so no request
+	// on a session is keyed before its entry exists (localKey). All three
+	// are guarded by localMu, which is never held across Connect.
+	localMu    sync.Mutex
+	locals     map[*mcp.ServerSession]string
+	connecting map[chan struct{}]struct{}
+	runs       int
+	// testHookConnected runs in Run after Connect returns and before the
+	// session is recorded; testHookKeyWaiting runs when localKey is about
+	// to wait for a connecting Run. Nil outside tests.
+	testHookConnected  func()
+	testHookKeyWaiting func()
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 // route maps one agent-facing tool name to its upstream and unprefixed name.
@@ -606,9 +622,113 @@ func (h minLevel) WithGroup(name string) slog.Handler {
 }
 
 // Run serves one agent session on t until the agent disconnects or ctx is
-// cancelled. For `netguard serve`, t is [mcp.StdioTransport].
+// cancelled. For `netguard serve`, t is [mcp.StdioTransport], and Run is
+// called once (ADR 0012). A second Run on the same proxy is allowed (tests
+// run two agents that way) and its session gets a key of its own.
+//
+// Run records the session it serves as a local agent with an attribution
+// key of its own (localKeyPrefix and the Run's number, so "l1" for the
+// first), so its calls are recognised as that one session's whether or not
+// an HTTP handler has also been built, and two Runs never share a key (S1
+// in the security review of T0.40).
+//
+// No request on the session is keyed before it is recorded. go-sdk may
+// dispatch a request before Connect returns, so Run registers itself as
+// connecting before it calls Connect; a local request (no session id, no
+// principal) whose session is not recorded yet waits (agentSessionKey,
+// localKey) until every Run that was connecting has recorded its session,
+// or until the request's context ends, in which case it gets the empty key
+// and fails closed. No lock is held across Connect, so t's Connect may
+// block; only local requests wait for it. A call over the HTTP listener
+// never waits: it is keyed by its session id, or gets the empty key.
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
-	return p.server.Run(ctx, t)
+	ready := make(chan struct{})
+	p.localMu.Lock()
+	if p.connecting == nil {
+		p.connecting = make(map[chan struct{}]struct{})
+	}
+	p.connecting[ready] = struct{}{}
+	p.localMu.Unlock()
+	// release takes Run out of connecting and wakes the waiters. It runs
+	// right after the session is recorded, and in a defer, so a panic in
+	// Connect (recovered further up) cannot leave the entry behind.
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			p.localMu.Lock()
+			delete(p.connecting, ready)
+			p.localMu.Unlock()
+			close(ready)
+		})
+	}
+	defer release()
+
+	ss, err := p.server.Connect(ctx, t, nil)
+	if err == nil {
+		if p.testHookConnected != nil {
+			p.testHookConnected()
+		}
+		p.localMu.Lock()
+		p.runs++
+		if p.locals == nil {
+			p.locals = make(map[*mcp.ServerSession]string)
+		}
+		p.locals[ss] = localKeyPrefix + strconv.Itoa(p.runs)
+		p.localMu.Unlock()
+	}
+	release()
+	if err != nil {
+		return fmt.Errorf("proxy: connect agent session: %w", err)
+	}
+	defer func() {
+		p.localMu.Lock()
+		delete(p.locals, ss)
+		p.localMu.Unlock()
+	}()
+
+	// As mcp.Server.Run: wait for the session to end, or close it when ctx
+	// is cancelled.
+	closed := make(chan error, 1)
+	go func() { closed <- ss.Wait() }()
+	select {
+	case <-ctx.Done():
+		_ = ss.Close()
+		<-closed
+		return ctx.Err()
+	case err := <-closed:
+		return err
+	}
+}
+
+// localKey is the attribution key Run gave ss, or "" when ss is not a
+// session Run is serving. While a Run is connecting, a session it has not
+// recorded yet may be that Run's, so localKey waits for it, and returns ""
+// if ctx ends first.
+func (p *Proxy) localKey(ctx context.Context, ss *mcp.ServerSession) string {
+	for {
+		p.localMu.Lock()
+		if key, ok := p.locals[ss]; ok {
+			p.localMu.Unlock()
+			return key
+		}
+		var wait chan struct{}
+		for c := range p.connecting {
+			wait = c
+			break
+		}
+		p.localMu.Unlock()
+		if wait == nil {
+			return ""
+		}
+		if p.testHookKeyWaiting != nil {
+			p.testHookKeyWaiting()
+		}
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ""
+		}
+	}
 }
 
 // Close ends every upstream session (for a stdio upstream: close its stdin,
@@ -687,7 +807,7 @@ type call struct {
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		c, ignored := newCall(r, req)
-		c.sessionKey = p.agentSessionKey(c)
+		c.sessionKey = p.agentSessionKey(ctx, c)
 		if ignored > 0 {
 			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
 		}
