@@ -77,12 +77,14 @@ const (
 // write fails within it and the sender exits.
 type progressRelay struct {
 	server string
-	// upToken is netguard's token, as sent to the upstream. watchProgress
-	// draws it, fresh for every agent request and never one already mapped
-	// on the upstream, so a relay belongs to exactly one agent request, and
-	// so to one session and one principal (ADR 0016). That ownership is
-	// the token's uniqueness plus session and ctx below, which are the
-	// request's own; the relay keeps no other record of its owner.
+	// upToken is netguard's token, as sent to the upstream. It is set once
+	// by watchProgress under u.mu, before the relay is reachable from
+	// u.progress, and is read-only after. It is fresh for every agent
+	// request and never one already mapped on the upstream, so a relay
+	// belongs to exactly one agent request, and so to one session and one
+	// principal (ADR 0016). That ownership is the token's uniqueness plus
+	// session and ctx below, which are the request's own; the relay keeps
+	// no other record of its owner.
 	upToken    string
 	agentToken any // the agent's token, returned verbatim
 	session    *mcp.ServerSession
