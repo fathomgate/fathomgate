@@ -22,6 +22,9 @@ RUN go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /etc/fathomgate
 COPY --from=build /out/fathomgate /usr/local/bin/fathomgate
+# Licence, attributions and every linked module's licence text (ADR 0020).
+COPY LICENSE NOTICE /usr/share/doc/fathomgate/
+COPY THIRD_PARTY_LICENSES /usr/share/doc/fathomgate/THIRD_PARTY_LICENSES
 COPY policies/examples /etc/fathomgate/policies/examples
 COPY profiles /etc/fathomgate/profiles
 COPY inventory.example.yaml /etc/fathomgate/inventory.example.yaml

@@ -29,13 +29,14 @@ make policy-test    # every policies/**/*.test.yaml through `fathomgate policy t
 make fixtures-check # redaction fixtures vs their .expect.json
 make conformance    # official MCP conformance suite vs fathomgate serve, both eras (needs Node.js/npm)
 make status         # re-render STATUS.md from docs/milestones/<CURRENT>.yaml + docs/handoffs/
+make licences       # regenerate THIRD_PARTY_LICENSES/ after a go.mod change; licences-check also checks NOTICE and SPDX lines (ADR 0020)
 tools/policy-lint/policy-lint policies/examples/prod-approval.yaml   # Python, no Go needed
 bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
   --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
-Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
+Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check && make licences-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
 
 ## Toolchain facts
 
@@ -95,6 +96,7 @@ tests/               Python: policy_lint, tiered pytest, fixtures/configs (annot
 tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview
 docs/                PLAN, PRD, adr/, specs/, testing/, agents/, milestones/ (board), handoffs/ (notes), research/, glossary
+tools/licences/      third_party.py (THIRD_PARTY_LICENSES/, `make licences`), spdx.py (SPDX lines); CI `licences-check`
 tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`)
 .claude/             agents/ (11 specialists) and commands/ (8 slash commands)
 ```

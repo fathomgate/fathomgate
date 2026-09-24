@@ -102,6 +102,15 @@ Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`
 
 Every commit must carry a `Signed-off-by` line matching the author, certifying the [Developer Certificate of Origin 1.1](https://developercertificate.org/). Use `git commit -s`. The DCO check runs on every pull request. Anonymous or pseudonymous sign-offs are fine as long as they are consistent.
 
+## Licence of contributions
+
+Fathomgate is licensed under the [Apache License 2.0](LICENSE) ([ADR 0020](docs/adr/0020-open-core-apache-2.md)). By signing off a commit you certify the DCO for it and license it under Apache-2.0, the licence it goes out under. There is no CLA: the project gets no rights to your contribution beyond Apache-2.0, so it cannot relicense your code without your consent.
+
+- Every Go, Python and shell source file starts with `SPDX-License-Identifier: Apache-2.0` in its comment syntax (`// ` or `# `), after any `#!` line; Go files have a blank line after it. `python3 tools/licences/spdx.py --fix` adds it. Data files (policies, profiles, fixtures, Markdown) need no header. Do not add per-file copyright lines; `NOTICE` and git history carry authorship.
+- Code copied from another project keeps its own licence notice, and the pull request names the source and its licence. It must be compatible with Apache-2.0.
+- `THIRD_PARTY_LICENSES/` holds the licence text of every module linked into the binary, without versions. A `go.mod` change that adds or drops a linked module, or a bump that changes a module's licence text, runs `make licences` and commits the result; a new module also gets an entry in `NOTICE`. `make licences-check` (CI job `go build / vet / test`, and the GoReleaser before hook) fails otherwise, and fails on a module whose licence it does not recognise or allow. A Dependabot pull request that trips it gets the regenerated folder pushed to its branch before it merges.
+- The name is not licensed with the code: see [TRADEMARKS.md](TRADEMARKS.md).
+
 ## Pull requests
 
 - One change per pull request. A profile and a redaction pattern are two pull requests.

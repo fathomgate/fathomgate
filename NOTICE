@@ -1,0 +1,61 @@
+Fathomgate
+Copyright 2026 Josh Scott
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+------------------------------------------------------------------------
+Third-party software
+------------------------------------------------------------------------
+
+The fathomgate binary links the following modules. Each remains under
+its own licence. The full licence texts are in THIRD_PARTY_LICENSES/,
+which ships in every release archive and container image.
+
+Go standard library
+  BSD-3-Clause, with an additional patent grant (PATENTS)
+  Copyright 2009 The Go Authors
+
+github.com/goccy/go-yaml
+  MIT
+  Copyright (c) 2019 Masaaki Goshima
+
+github.com/google/jsonschema-go
+  MIT
+  Copyright (c) 2025 JSON Schema Go Project Authors
+
+github.com/modelcontextprotocol/go-sdk
+  Apache-2.0 for new contributions, MIT for earlier contributions not
+  yet relicensed (its LICENSE states the transition)
+  Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+
+github.com/segmentio/asm
+  MIT
+  Copyright (c) 2021 Segment
+
+github.com/segmentio/encoding
+  MIT
+  Copyright (c) 2019 Segment.io, Inc.
+
+github.com/yosida95/uritemplate/v3
+  BSD-3-Clause
+  Copyright (C) 2016, Kohei YOSHIDA <https://yosida95.com/>
+
+golang.org/x/oauth2
+  BSD-3-Clause
+  Copyright 2009 The Go Authors
+
+golang.org/x/sync
+golang.org/x/sys
+golang.org/x/time
+  BSD-3-Clause, with an additional patent grant (PATENTS)
+  Copyright 2009 The Go Authors

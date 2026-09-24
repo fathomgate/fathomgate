@@ -56,4 +56,4 @@ Everyone participating is bound by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Mai
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). Contributions are accepted under the same licence with a DCO sign-off ([CONTRIBUTING.md](CONTRIBUTING.md#dco-sign-off)). There is no CLA.
+Apache License 2.0, see [LICENSE](LICENSE), [NOTICE](NOTICE) and [ADR 0020](docs/adr/0020-open-core-apache-2.md). Contributions are accepted under the same licence with a DCO sign-off ([CONTRIBUTING.md](CONTRIBUTING.md#licence-of-contributions)). There is no CLA, so the project holds no rights to a contribution beyond Apache-2.0 and cannot relicense the core without its contributors' consent. The name is covered by [TRADEMARKS.md](TRADEMARKS.md), not by the licence.

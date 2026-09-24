@@ -216,4 +216,6 @@ As of September 2026 there is no vendor-neutral guardrail for AI assistants that
 
 ## Licence
 
-MIT. The product was called NetGuard, a placeholder, until [ADR 0019](docs/adr/0019-rename-to-fathomgate.md) renamed it Fathomgate; older ADRs and handoff notes keep the old name.
+Apache License 2.0, see [LICENSE](LICENSE) and [ADR 0020](docs/adr/0020-open-core-apache-2.md). [NOTICE](NOTICE) carries the copyright line and the attributions for every module linked into the binary, and [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/README.md) their full licence texts; both ship in every release archive and image. Contributions are accepted under Apache-2.0 by DCO sign-off, with no CLA ([CONTRIBUTING.md](CONTRIBUTING.md#licence-of-contributions)). The licence covers the code, not the name: a fork must not ship as Fathomgate ([TRADEMARKS.md](TRADEMARKS.md)).
+
+The product was called NetGuard, a placeholder, until [ADR 0019](docs/adr/0019-rename-to-fathomgate.md) renamed it Fathomgate; older ADRs and handoff notes keep the old name.

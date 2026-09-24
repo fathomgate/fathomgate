@@ -8,6 +8,9 @@ before:
   hooks:
     - go mod tidy
     - go test ./...
+    # THIRD_PARTY_LICENSES/ must match the modules this release links
+    # (ADR 0020); `make licences` regenerates it.
+    - python3 tools/licences/third_party.py --check
 
 builds:
   - id: fathomgate
@@ -32,8 +35,13 @@ archives:
       - goos: windows
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # LICENSE, NOTICE and THIRD_PARTY_LICENSES/ (every linked module's
+    # licence text) travel with every binary (ADR 0020).
     files:
-      - LICENSE*
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_LICENSES/**/*
+      - TRADEMARKS.md
       - README.md
       - policies/examples/*
       - profiles/*
@@ -71,7 +79,7 @@ brews:
     directory: Formula
     homepage: https://github.com/fathomgate/fathomgate
     description: Policy-enforcing MCP proxy for network-device MCP servers
-    license: MIT
+    license: Apache-2.0
     test: |
       system "#{bin}/fathomgate", "version"
     skip_upload: auto
@@ -80,6 +88,11 @@ dockers:
   - image_templates:
       - "ghcr.io/fathomgate/fathomgate:{{ .Version }}-amd64"
     dockerfile: Dockerfile.goreleaser
+    # Copied into the image under /usr/share/doc/fathomgate/ (ADR 0020).
+    extra_files:
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_LICENSES
     goarch: amd64
     use: buildx
     build_flag_templates: ["--platform=linux/amd64"]
