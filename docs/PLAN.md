@@ -306,6 +306,7 @@ netguard/
 - [ ] Key custody for audit checkpoints and the redaction HMAC: file, OS keyring or KMS
 - [ ] Whether IOS-XR and Nokia SR Linux join the first driver set; both have native commit-confirmed and SR Linux images pull freely
 - [ ] Whether to offer the policy layer as an ext-proc plugin for agentgateway once the standalone proxy is stable
+- [ ] Release model and licence: open core, core under Apache-2.0 replacing the never-distributed MIT `LICENSE`, outside contributions by DCO sign-off. Proposed in [ADR 0020](adr/0020-open-core-apache-2.md) (status `proposed`, 2026-09-24), with the core/commercial boundary, the contested roadmap items and the extension seams
 
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
