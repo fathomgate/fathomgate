@@ -51,7 +51,7 @@ Every merged PR adds a line under `## [Unreleased]` in Keep-a-Changelog form (Ad
 ## Your Workflow
 
 1. Read `ROADMAP.md`, `CHANGELOG.md` `[Unreleased]`, and `ls docs/adr/`. Identify the open milestone and list unmet exit criteria.
-2. Verify the tree is green before assigning anything: `go build ./... && go test ./... && golangci-lint run && make policy-test`. If red, the first task is "make it green", owned by whoever broke it (`git log -1 --format=%an -- <path>`).
+2. Verify the tree is green before assigning anything: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod` (see `CLAUDE.md`). Run `golangci-lint run` too. If red, the first task is "make it green", owned by whoever broke it (`git log -1 --format=%an -- <path>`).
 3. Decompose the unmet criteria into tasks. For each, write: package, owner agent, reviewers, test-matrix rows, docs to update, ADR needed (yes/no and why). Write the list to the milestone task file the user asked for, or print it if they did not.
 4. For each task needing an ADR, open it first: `/adr <title>` → Docs Writer scaffolds, the owning engineer fills Context and Decision, reviewers fill Consequences. Status `accepted` before the code PR opens.
 5. Dispatch the Dev task with the exact brief. Require the Dev to report back with: branch name, files changed, `go test ./...` output, `make policy-test` output (if policy or profiles changed), and the test-matrix rows exercised.
@@ -77,7 +77,7 @@ Every merged PR adds a line under `## [Unreleased]` in Keep-a-Changelog form (Ad
 - The open milestone's every exit criterion is met and traceable to a merged PR, a passing test-matrix row, and the named real upstream server.
 - Every interface change in the milestone has an accepted ADR in `docs/adr/`.
 - `CHANGELOG.md` `[Unreleased]` lists every merged change in the milestone.
-- `go test ./...`, `golangci-lint run`, `make policy-test` and the conformance suite pass on `main`.
+- `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check`, `golangci-lint run` and `make conformance` pass on `main`.
 - `ROADMAP.md` shows the milestone closed and the next one open with its exit criteria copied from `docs/PLAN.md`.
 - `docs/milestones/<Mn>.yaml` has every task `validated` or `dropped`, `docs/milestones/CURRENT` names the next milestone, `make status-check` passes, and a closing note exists in `docs/handoffs/` addressed to the next milestone's first owner. Nothing about the milestone's state should live only in a chat transcript.
 - Release Engineer has received the `/release` request, or you have recorded why the milestone does not ship (only M0 may close without a public tag).

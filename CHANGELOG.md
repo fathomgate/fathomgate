@@ -47,6 +47,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 - `github.com/modelcontextprotocol/go-sdk` v1.7.0 → v1.8.0 (Dependabot PR #28). Its `go.mod` is identical to v1.7.0's, so no other module moves. Decision record `docs/adr/0011-accept-go-sdk-transitive-modules.md` is amended to match (T0.16): the title drops the version, the table is re-checked at go-sdk v1.8.0, and the `golang.org/x/sys` row reads v0.47.0, direct (T0.12). The decision is unchanged. `CLAUDE.md`, `AGENTS.md`, `README.md` and `ARCHITECTURE.md` now say go-sdk is pinned to one minor, currently v1.8.
 - `make vulncheck` moves from govulncheck v1.7.0 to v1.8.0, which declares `go 1.26.0` and now runs under the go.mod toolchain. A reachable vulnerability still fails the job (T0.14).
 - The root `Dockerfile` builder moves from `golang:1.25-alpine` to `golang:1.26-alpine` (go1.26.8 when checked on 2026-09-23), matching the toolchain minor (T0.14).
+- Agent definitions `.claude/agents/go-reviewer.md` and `.claude/agents/mcp-protocol-engineer.md` no longer name go-sdk v1.7.x or `go 1.24`: go-sdk is pinned to one minor, currently v1.8, and the Go version is read from `go.mod`. `.claude/agents/go-reviewer.md`, `.claude/agents/netguard-orchestrator.md` and `.claude/commands/milestone.md` use the `CLAUDE.md` green definition, with `make conformance` for changes to `internal/proxy`, `cmd/netguard/serve.go` or `go.mod` (T0.22).
 
 ### Fixed
 
