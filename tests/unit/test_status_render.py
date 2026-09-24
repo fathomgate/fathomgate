@@ -42,3 +42,18 @@ def test_check_fails_on_crlf_copy(tmp_path, monkeypatch):
     assert render.main([]) == 0
     out.write_bytes(out.read_bytes().replace(b"\n", b"\r\n"))
     assert render.main(["--check"]) == 1
+
+
+@pytest.mark.parametrize(
+    "criterion, line",
+    [
+        ("Binaries on a tag", "- [ ] Binaries on a tag"),
+        ({"text": "Binaries on a tag"}, "- [ ] Binaries on a tag"),
+        (
+            {"text": "Binaries on a tag", "met": "2026-09-23 (PR #1)"},
+            "- [x] Binaries on a tag — met 2026-09-23 (PR #1)",
+        ),
+    ],
+)
+def test_exit_criterion_ticks_only_when_met(criterion, line):
+    assert load_render().criterion_line(criterion) == line

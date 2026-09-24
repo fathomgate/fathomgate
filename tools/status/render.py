@@ -93,6 +93,15 @@ def latest_handoffs(n: int = 5) -> list[tuple[str, str, str, str, str]]:
     return out
 
 
+
+def criterion_line(c) -> str:
+    """One exit criterion: a string is open; a mapping with `met` is ticked."""
+    if isinstance(c, dict):
+        if c.get("met"):
+            return f"- [x] {c['text']} — met {c['met']}"
+        return f"- [ ] {c['text']}"
+    return f"- [ ] {c}"
+
 def adr_link(num) -> str:
     if not num:
         return "—"
@@ -150,7 +159,7 @@ def render(cur: str, data: dict) -> str:
         lines.append("## Exit criteria")
         lines.append("")
         for c in data["exit_criteria"]:
-            lines.append(f"- [ ] {c}")
+            lines.append(criterion_line(c))
         lines.append("")
         lines.append("Validated against: " + ", ".join(f"`{s}`" for s in data.get("validates_against", [])))
         lines.append("")
