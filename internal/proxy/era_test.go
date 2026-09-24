@@ -278,6 +278,7 @@ type eraSetup struct {
 	extra           func(*mcp.Server) // adds test-specific upstream tools
 	gate            <-chan struct{}   // if set, the agent answers a prompt only once it closes (or after 5s)
 	progress        *progressLog      // if set, the agent records the progress notifications it gets
+	reads           *readGate         // if set, the agent reads only while it is open (progress_stall_test.go)
 }
 
 type eraHarness struct {
@@ -346,7 +347,11 @@ func connectAgent(t *testing.T, p *Proxy, s eraSetup, prompts *promptLog) (*mcp.
 	if s.progress != nil {
 		opts.ProgressNotificationHandler = s.progress.record
 	}
-	tap := &wireTap{Transport: pinAgent(s.agent, agCliT)}
+	agentT := pinAgent(s.agent, agCliT)
+	if s.reads != nil {
+		agentT = gatedTransport{agentT, s.reads}
+	}
+	tap := &wireTap{Transport: agentT}
 	agent, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, opts).Connect(ctx, tap, nil)
 	if err != nil {
 		t.Fatal(err)
