@@ -118,6 +118,28 @@ shell profile (1Password, Secretive, a plain `ssh-agent`) is not seen. On
 Linux it depends on the desktop session. If it is missing, netguard stops at
 once with the "not set" message above; nothing hangs.
 
+### Leave netdev-ssh-mcp's obfuscation on
+
+netguard M0 does not redact anything. Device output reaches the agent
+exactly as the upstream sends it, and netguard's own redaction arrives in
+M2. Until then, do not start netdev-ssh-mcp with `--no-obfuscate`. Its
+default obfuscation replaces many secrets in `get_config` and
+`run_show_command` output with tokens like `[h:efa1f375d761]`, which is
+better than nothing.
+
+It is not a security control. Treat everything the agent sees as if it
+contained your secrets:
+
+- The token is a plain, unkeyed SHA-256. Anyone who has the output can hash
+  a word list and match it. `[h:efa1f375d761]` is `public`.
+- Some lines keep the secret in clear next to a token. For example, in
+  `key-string 7 <key>` it is the `7` that gets hashed. Other lines, such as
+  `snmp-server host ... <community>`, are not touched at all.
+
+Details, checked against the v1.6.6 source, are in
+[docs/research/02-network-mcp-servers.md](research/02-network-mcp-servers.md#update-2026-09-23-the-obfuscation-is-an-unkeyed-hash-with-gaps-t029).
+Use lab devices and lab credentials only.
+
 ## Claude Code
 
 Add netguard with `claude mcp add`. Everything after `--` is the command

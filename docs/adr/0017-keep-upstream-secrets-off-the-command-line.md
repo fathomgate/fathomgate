@@ -1,8 +1,8 @@
 # ADR 0017: Keep upstream secrets off the command line with `--upstream-env-pass`
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-23
-- Deciders: Josh Scott (maintainer); proposed by mcp-protocol-engineer in T0.23
+- Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer in T0.23
 - Extends: [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md) (`netguard serve` flags). It adds one flag and tightens one error message. It does not change the default allow-list or any other part of ADR 0012.
 
 ## Context
@@ -92,12 +92,14 @@ We will add `--upstream-env-pass NAME`, a repeatable `netguard serve` flag. It c
 | (f) Add `SSH_AUTH_SOCK` (and similar) to the default allow-list | ADR 0012 withholds agent sockets deliberately: every upstream would then get the operator's SSH agent whether it needs it or not. Opt-in per variable keeps that decision with the operator. |
 | (g) Read secrets from netguard's stdin | stdin is the MCP transport toward the agent. |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. Should `--upstream-env` warn on stderr (naming the key only) when the key looks like a secret (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*_KEY`), pointing to `--upstream-env-pass`? It is cheap, but it is a heuristic, and it would fire on the fake-device example.
-2. Should `--upstream-env NETGUARD_*=...` also be refused, for symmetry with the pass flag? Today it is allowed and carries its value explicitly.
-3. Should netguard scrub the exact values it passed with `--upstream-env-pass` out of upstream stderr lines (replacing them with `[redacted:NAME]`)? This would catch an upstream that prints its environment. It means holding the values for the process lifetime, and it misses a value split across the 4096-byte line boundary. It could instead wait for M2 redaction.
-4. Should an empty value count as unset (exit 2)? This ADR passes it through, as the environment defines it.
+Accepted by the maintainer on 2026-09-23, with these answers:
+
+1. **No secret-looking-key warning on `--upstream-env`.** It would fire on the documented fake-device example, and `docs/install.md` moves to `--upstream-env-pass` instead.
+2. **Refuse `--upstream-env NETGUARD_*=...` too**, the same as `--upstream-env-pass NETGUARD_*`, so neither flag can hand an upstream netguard's own settings.
+3. **Scrub passed values from upstream stderr.** netguard replaces every exact value it passed with `--upstream-env-pass` by `[redacted:NAME]` in relayed upstream stderr lines, before any other escaping. Exact matching of known values is cheap and certain, so this does not wait for M2 redaction. Values shorter than 4 bytes are not scrubbed, because they would produce too many false matches; that limit is documented.
+4. **An empty value counts as unset: exit 2**, naming the variable, never the value.
 
 ## References
 
