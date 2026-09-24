@@ -73,7 +73,9 @@ Runs that moved a row forward without closing it. A row becomes `passing` only w
   - 2.x: `main.py` fails at import, because `mcp.server.fastmcp` became `MCPServer`. So the README's `uv run --with "mcp[cli]" ...` install, which resolves the newest mcp when run outside the project directory, fails today with or without netguard.
 - ADR 0014 (a 2026 agent calling a tool whose stateful upstream sends `elicitation/create`) cannot happen here: upa's tools never elicit. `tests/conformance/era_pairs.py` covers that case against go-sdk v1.6.1.
 - 2026-era half: `test_passthrough.py::test_upstream_negotiates_2026_07_28_stateless` asserts `protocol=2026-07-28 era=stateless` for netdev-ssh-mcp v1.6.6 (CI job `client-smoke`).
-- CI: job `tier2 upa/mcp-netmiko-server (2025 era)` on the pull request.
+- CI, on the pull request (ubuntu-latest, linux/amd64):
+  - job `tier2 upa/mcp-netmiko-server (2025 era)`: 7 passed, 1 xfailed; 45 s of tests, 1 min 38 s including the build and install ([run 35956218324](https://github.com/joshscott13/netguard/actions/runs/35956218324/job/107494992904)).
+  - `client-smoke`, with the netdev-ssh-mcp era check: 16 passed, 2 skipped, 1 xfailed.
 - Why the row is not `passing`: behind netguard, the named 2025 upstream runs only with an SDK its authors did not lock. The row passes when netguard reaches upa as locked and the xfail flips. Alternatively, the maintainer can rule the lock out of scope; that ruling would need recording here.
 
 ## Coverage by component
