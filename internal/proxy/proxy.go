@@ -115,6 +115,9 @@ type Proxy struct {
 	locals     map[*mcp.ServerSession]string
 	connecting map[chan struct{}]struct{}
 	runs       int
+	// requestKeys numbers the keys requestKey makes up for calls whose
+	// agent session netguard cannot name (input.go).
+	requestKeys atomic.Uint64
 	// testHookConnected runs in Run after Connect returns and before the
 	// session is recorded; testHookKeyWaiting runs when localKey is about
 	// to wait for a connecting Run. Nil outside tests.
@@ -155,11 +158,13 @@ type upstream struct {
 	// upstream, which may still be working on it, each until its expiry.
 	// They are keyed by netguard's own key for the agent session
 	// (agentSessionKey), never by the session itself, which would keep a
-	// closed session alive for the whole TTL. orphanOverflow stands for
-	// every session past maxOrphans and for every session that can never
-	// own another call (input.go).
-	orphans        map[string]orphan
-	orphanOverflow time.Time
+	// closed session alive for the whole TTL. orphansOf counts them by
+	// principal; overflow holds, by principal, one record for that
+	// principal's ended calls past maxOrphansPerPrincipal (input.go,
+	// T0.44).
+	orphans   map[string]orphan
+	orphansOf map[string]int
+	overflow  map[string]orphan
 }
 
 // exited reports whether the upstream session has ended.
@@ -824,10 +829,12 @@ func (h minLevel) WithGroup(name string) slog.Handler {
 // connecting before it calls Connect; a local request (no session id, no
 // principal) whose session is not recorded yet waits (agentSessionKey,
 // localKey) until every Run that was connecting has recorded its session,
-// or until the request's context ends, in which case it gets the empty key
-// and fails closed. No lock is held across Connect, so t's Connect may
-// block; only local requests wait for it. A call over the HTTP listener
-// never waits: it is keyed by its session id, or gets the empty key.
+// or until the request's context ends, in which case it gets a key of its
+// own (requestKey) and fails closed: its ended call is foreign to every
+// later call, the local agent's included. No lock is held across Connect,
+// so t's Connect may block; only local requests wait for it. A call over
+// the HTTP listener never waits: it is keyed by its session id, or gets a
+// key of its own.
 func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	ready := make(chan struct{})
 	p.localMu.Lock()
@@ -1106,8 +1113,7 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	// after that result, and either way the prompt must not reach another
 	// agent session's human (J1 in the re-review of PR #72).
 	defer func() {
-		now := p.now()
-		p.logReaped(up, up.end(f, now, now.Add(p.orphanTTL())))
+		p.endCall(up, f, p.now())
 		up.unwatchProgress(pr) // no-op when pr is nil
 	}()
 	for ; ; round++ {

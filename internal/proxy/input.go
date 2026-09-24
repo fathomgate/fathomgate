@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,9 +38,14 @@ const (
 	// maxPromptsPerCall caps the prompts one call may put to the human,
 	// across every path and every MRTR round.
 	maxPromptsPerCall = 10
-	// maxOrphans caps the agent sessions an upstream remembers ended calls
-	// for; past it, one overflow entry stands for all the others.
-	maxOrphans = 1024
+	// maxOrphansPerPrincipal caps the keyed ended-call records one
+	// principal has on one upstream. Past it, that principal's further
+	// ended calls are folded into one overflow record of its own, which is
+	// foreign to every call, that principal's included (T0.44). The table
+	// therefore holds at most maxOrphansPerPrincipal+1 records per
+	// principal, and principals are configured (HTTPOptions.Tokens) plus
+	// the empty principal of the local agent.
+	maxOrphansPerPrincipal = 256
 )
 
 // localKeyPrefix tags the attribution key of a local agent session: a
@@ -50,6 +57,18 @@ const (
 // the process); tests that run two agents on one proxy get two keys, never
 // one shared by both.
 const localKeyPrefix = "l"
+
+// requestKeyPrefix tags the attribution key netguard makes up for a call
+// whose agent session it cannot name: a per-request session of the
+// stateless era over the listener (which serves exactly one request), a
+// call with no session at all, or a local call whose context ended while
+// it waited for Run to record its session. Each such call gets a key of
+// its own, "r" and a number no other call on the proxy gets, so its ended
+// call is an ordinary record: foreign to every later call, pruned at
+// OrphanTTL, logged when reaped and attributed to its principal (T0.44,
+// maintainer decision 2026-09-24). The tag keeps it apart from "s<id>"
+// (a stateful session over the listener) and "l<n>" (a local agent).
+const requestKeyPrefix = "r"
 
 // agentSessionKey is the id netguard gives the agent session behind a call,
 // for the ended-call records an upstream keeps (J5 in the re-review of
@@ -65,13 +84,15 @@ const localKeyPrefix = "l"
 //   - A stateful session over the HTTP listener has a session id, unique for
 //     all time (go-sdk generates 130 random bits and netguard never reuses
 //     one); that id, tagged "s", is the key.
-//   - Anything else gets the empty key: a per-request session of the
-//     stateless era over the listener (which serves exactly one request), or
-//     a call with no session at all. The empty key is not a session of its
-//     own. Its record goes to the shared entry (upstream.orphanOverflow),
-//     which is foreign to every later call, including calls this same key
-//     makes, so a session netguard cannot name gets the most blocking
-//     answer, never the local agent's (S5 in the same review).
+//   - Anything else gets a key of its own that no other call gets
+//     (requestKey): a per-request session of the stateless era over the
+//     listener, a call with no session at all, or a local call whose
+//     context ended before Run recorded its session. Its record is foreign
+//     to every later call, since no later call has its key, so a session
+//     netguard cannot name gets the most blocking answer, never the local
+//     agent's (S5 in the same review); and it is an ordinary table entry,
+//     pruned, logged and attributed to its principal like any other
+//     (T0.44).
 //
 // A call that came over the listener (it has a session id, or a principal,
 // which the listener's authentication always sets, stateless requests
@@ -80,17 +101,22 @@ const localKeyPrefix = "l"
 // admit the call (L1 in the security re-review of PR #78). Only a call with
 // neither can be a local agent's.
 func (p *Proxy) agentSessionKey(ctx context.Context, c call) string {
-	ss := c.agent.session
-	if ss == nil {
-		return ""
+	if ss := c.agent.session; ss != nil {
+		if id := ss.ID(); id != "" {
+			return "s" + id
+		}
+		if c.principal == "" {
+			if key := p.localKey(ctx, ss); key != "" {
+				return key
+			}
+		}
 	}
-	if id := ss.ID(); id != "" {
-		return "s" + id
-	}
-	if c.principal != "" {
-		return ""
-	}
-	return p.localKey(ctx, ss)
+	return p.requestKey()
+}
+
+// requestKey returns a key no other call on p has had or will have.
+func (p *Proxy) requestKey() string {
+	return requestKeyPrefix + strconv.FormatUint(p.requestKeys.Add(1), 10)
 }
 
 // promptLabel is the origin label every upstream prompt carries. Server
@@ -371,6 +397,10 @@ func (u *upstream) begin(ctx context.Context, c call, prompts int) *inflight {
 type orphan struct {
 	principal string // attribution only, for the log
 	expires   time.Time
+	// overflow is the number of ended calls an overflow record stands for
+	// (a principal's calls past maxOrphansPerPrincipal); zero for a keyed
+	// record.
+	overflow int
 }
 
 // end removes f from the calls in flight at now and, when expires is after
@@ -378,38 +408,55 @@ type orphan struct {
 // the same critical section, so no prompt finds f gone and its orphan not
 // yet there. It also forgets the orphans that have expired by now (K2 in
 // the re-review of PR #72) and returns them, so the caller can log them
-// outside the lock.
+// outside the lock. overflowed reports that f's principal has just gone
+// over its quota on u, which the caller logs too.
 //
-// A call whose agent session can never own another call (a per-request
-// session of the stateless era: agentSessionKey returns "") is remembered
-// in the shared bucket, which is foreign to every later call, so a busy
-// stateless agent adds no entries to the table.
-func (u *upstream) end(f *inflight, now, expires time.Time) []orphan {
+// Every call has a key of its own session's (agentSessionKey), so every
+// ended call is a table entry of its principal's. A principal holds at most
+// maxOrphansPerPrincipal of them per upstream (T0.44). Past that, its
+// further ended calls are folded into one overflow record of its own,
+// which is foreign to every call, that principal's own sessions included:
+// netguard no longer knows which of its sessions they were, and refusing
+// is the safe answer. It fails closed, it is attributed to the principal,
+// it is pruned and logged like any record, and it cannot crowd out another
+// principal's records, so another principal's session is never pushed
+// into anonymity by someone else's volume. It blocks other principals'
+// prompts exactly as long as the ended calls it stands for would have as
+// keyed records: an overflow gives a principal no reach over others that
+// its ordinary ended calls do not already have.
+func (u *upstream) end(f *inflight, now, expires time.Time) (reaped []orphan, overflowed bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	delete(u.calls, f)
-	reaped := u.pruneOrphans(now)
+	reaped = u.pruneOrphans(now)
 	if !now.Before(expires) {
-		return reaped
+		return reaped, false
 	}
 	key := f.sessionKey
-	if key == "" {
-		u.orphanOverflow = later(u.orphanOverflow, expires)
-		return reaped
+	if o, ok := u.orphans[key]; ok && key != "" {
+		u.orphans[key] = orphan{principal: o.principal, expires: later(o.expires, expires)}
+		return reaped, false
 	}
-	if u.orphans == nil {
-		u.orphans = make(map[string]orphan)
+	// The empty key never reaches here from a tool handler
+	// (agentSessionKey always names a key); if it does, it is folded into
+	// the overflow record, which is foreign to everyone.
+	if key != "" && u.orphansOf[f.principal] < maxOrphansPerPrincipal {
+		if u.orphans == nil {
+			u.orphans = make(map[string]orphan)
+		}
+		if u.orphansOf == nil {
+			u.orphansOf = make(map[string]int)
+		}
+		u.orphans[key] = orphan{principal: f.principal, expires: expires}
+		u.orphansOf[f.principal]++
+		return reaped, false
 	}
-	if o, ok := u.orphans[key]; ok {
-		u.orphans[key] = orphan{principal: f.principal, expires: later(o.expires, expires)}
-		return reaped
+	if u.overflow == nil {
+		u.overflow = make(map[string]orphan)
 	}
-	if len(u.orphans) >= maxOrphans {
-		u.orphanOverflow = later(u.orphanOverflow, expires)
-		return reaped
-	}
-	u.orphans[key] = orphan{principal: f.principal, expires: expires}
-	return reaped
+	o, had := u.overflow[f.principal]
+	u.overflow[f.principal] = orphan{principal: f.principal, expires: later(o.expires, expires), overflow: o.overflow + 1}
+	return reaped, !had
 }
 
 // later returns the later of a and b.
@@ -420,14 +467,23 @@ func later(a, b time.Time) time.Time {
 	return b
 }
 
-// pruneOrphans forgets the orphans that have expired by now and returns
-// them. Callers hold mu.
+// pruneOrphans forgets the orphans, keyed and overflow, that have expired
+// by now and returns them. Callers hold mu.
 func (u *upstream) pruneOrphans(now time.Time) []orphan {
 	var reaped []orphan
 	for key, o := range u.orphans {
 		if !now.Before(o.expires) {
 			reaped = append(reaped, o)
 			delete(u.orphans, key)
+			if u.orphansOf[o.principal]--; u.orphansOf[o.principal] <= 0 {
+				delete(u.orphansOf, o.principal)
+			}
+		}
+	}
+	for principal, o := range u.overflow {
+		if !now.Before(o.expires) {
+			reaped = append(reaped, o)
+			delete(u.overflow, principal)
 		}
 	}
 	return reaped
@@ -472,15 +528,28 @@ func (u *upstream) attribute(now time.Time) attribution {
 	for c := range u.calls {
 		f = c
 	}
-	foreign := now.Before(u.orphanOverflow)
+	var by map[string]struct{}
+	add := func(principal string) {
+		if principal == "" {
+			principal = localPrincipal
+		}
+		if by == nil {
+			by = make(map[string]struct{})
+		}
+		by[principal] = struct{}{}
+	}
 	for key, o := range u.orphans {
 		if now.Before(o.expires) && key != f.sessionKey {
-			foreign = true
-			break
+			add(o.principal)
 		}
 	}
-	if foreign {
-		return attribution{sole: f, err: errEndedElsewhere}
+	for principal, o := range u.overflow {
+		if now.Before(o.expires) {
+			add(principal)
+		}
+	}
+	if by != nil {
+		return attribution{sole: f, err: errEndedElsewhere, blockedBy: slices.Sorted(maps.Keys(by))}
 	}
 	return attribution{sole: f}
 }
@@ -492,7 +561,17 @@ func (u *upstream) attribute(now time.Time) attribution {
 type attribution struct {
 	sole *inflight
 	err  error
+	// blockedBy names the principals whose live ended calls made the
+	// orphan rule refuse, sorted, for the log only: it never reaches the
+	// agent or the upstream (T0.44, S4 in the security review of T0.40).
+	// The local agent, which has no principal, is localPrincipal.
+	blockedBy []string
 }
+
+// localPrincipal names the local agent (no principal) in blockedBy. It is
+// not a valid principal name (validPrincipalName), so it cannot be
+// mistaken for one.
+const localPrincipal = "(local)"
 
 // promptable reports why f's agent cannot be shown any prompt from this
 // upstream, or nil when it can.
@@ -542,10 +621,32 @@ func (u *upstream) endPrompt(f *inflight) {
 // principal each of them was blocking cross-session attribution for (J3 in
 // the re-review of PR #72). It is Info: an operator who saw a refused
 // prompt needs to see when the block lifted.
+//
+// An overflow record (a principal's ended calls past its quota, T0.44) is
+// logged with the number of ended calls it stood for.
 func (p *Proxy) logReaped(u *upstream, reaped []orphan) {
 	for _, o := range reaped {
+		if o.overflow > 0 {
+			p.logger.Info("ended calls over the principal's orphan quota no longer block prompt attribution on this upstream",
+				"server", u.name, "principal", o.principal, "calls", o.overflow)
+			continue
+		}
 		p.logger.Info("an ended call no longer blocks prompt attribution on this upstream",
 			"server", u.name, "principal", o.principal)
+	}
+}
+
+// endCall ends f on u at now: it leaves the calls in flight and becomes an
+// orphan of its agent session for the orphan TTL (end). It logs the orphans
+// that expired, and, at Warn, a principal going over its orphan quota on u:
+// from then until the overflow record is reaped, that principal's further
+// ended calls refuse every session's prompts on u, its own sessions' too.
+func (p *Proxy) endCall(u *upstream, f *inflight, now time.Time) {
+	reaped, overflowed := u.end(f, now, now.Add(p.orphanTTL()))
+	p.logReaped(u, reaped)
+	if overflowed {
+		p.logger.Warn("a principal's ended calls on this upstream exceed its orphan quota; further ones refuse every agent session's prompts on it until they expire",
+			"server", u.name, "principal", f.principal, "quota", maxOrphansPerPrincipal)
 	}
 }
 
@@ -609,6 +710,14 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		p.logReaped(u, u.prune(now))
 		at := u.attribute(now)
 		if at.err != nil {
+			if len(at.blockedBy) > 0 {
+				// Which principals' ended calls stood in the way, so a
+				// refused prompt can be explained from the log. Principal
+				// names only, never session ids; none of it reaches the
+				// agent or the upstream (T0.44, S4).
+				p.logger.Warn("an upstream prompt was refused: other agent sessions' ended calls on this upstream may still be running",
+					"server", u.name, "blocked_by", at.blockedBy)
+			}
 			// When one call is in flight but the orphan rule refuses it,
 			// and its agent could not have been shown any prompt anyway,
 			// say that instead: nothing crosses to a human either way, and
