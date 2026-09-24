@@ -16,6 +16,15 @@ jobs:
       # id-token: write comes back with cosign keyless signing of
       # checksums.txt and the image; nothing signs yet, so it is not granted.
     steps:
+      # The WSL runners' docker CLI is Rancher Desktop's, whose default config
+      # names the Windows credential helper; a runner service cannot start a
+      # Windows binary, so every docker call fails. Give each job its own
+      # empty docker config under RUNNER_TEMP (docs/ci-runners.md).
+      - name: job-local docker config
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker-config"
+          echo '{}' > "$RUNNER_TEMP/docker-config/config.json"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/docker-config" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

@@ -14,6 +14,8 @@ The consequence to keep in mind: **CI runs only while that machine is on and WSL
 
 The conformance tests pick a free loopback port on every run, so jobs from different pull requests can share the machine.
 
+The runners use Rancher Desktop's docker CLI. Its default config names `docker-credential-wincred.exe`, which a runner service cannot start, so every job that uses docker (`snapshot.yaml`, `release.yaml`) first points `DOCKER_CONFIG` at an empty, job-local config.
+
 ## While the Windows job is skipped
 
 The Windows job is the only place the audit key-file DACL, junction and other-owner tests run elevated. Until an elevated Windows runner exists, a pull request that touches `internal/audit` must paste the result of this, run from an **elevated** PowerShell or Git Bash, into its description:
