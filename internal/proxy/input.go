@@ -41,10 +41,15 @@ const (
 	maxOrphans = 1024
 )
 
-// localAgentKey is the attribution key of the local agent session: stdio
-// (and the in-memory transport in tests), where one agent session owns the
-// process (ADR 0012), so every call on it is the same session's.
-const localAgentKey = "local"
+// localKeyPrefix tags the attribution key of a local agent session: a
+// session Proxy.Run serves (stdio, or the in-memory transport in tests).
+// Run records the session and gives it a key of its own, "l1" for the
+// first Run, so every call on it is recognised as that session's whether or
+// not the proxy also has an HTTP listener (S1 in the security review of
+// T0.40). `netguard serve` calls Run once (ADR 0012: one agent session owns
+// the process); tests that run two agents on one proxy get two keys, never
+// one shared by both.
+const localKeyPrefix = "l"
 
 // agentSessionKey is the id netguard gives the agent session behind a call,
 // for the ended-call records an upstream keeps (J5 in the re-review of
@@ -52,30 +57,33 @@ const localAgentKey = "local"
 // and never a *mcp.ServerSession, which would keep a closed session, and
 // everything it references, alive for the whole TTL.
 //
+// The key comes from what the session is, never from whether the proxy has
+// a listener (S1 in the security review of T0.40):
+//
+//   - A session Proxy.Run serves is a local agent: the key Run gave it
+//     (localKeyPrefix and the Run's number).
 //   - A stateful session over the HTTP listener has a session id, unique for
 //     all time (go-sdk generates 130 random bits and netguard never reuses
-//     one); that id, tagged, is the key.
-//   - A session with no id, where the proxy has an HTTP listener, is a
-//     per-request session of the stateless era. Such a session serves exactly
-//     one request, so it can never own another call: its key is empty and its
-//     record goes to the shared bucket (upstream.orphanOverflow), which is
-//     foreign to every later call.
-//   - Everything else is the local agent (stdio, in-memory), which has no
-//     session id and one session per process.
-//
-// The listener is recognised from the proxy, not only from the call's
-// principal, so a call that somehow reached it unauthenticated would be
-// keyed as its own session rather than grouped with the local agent's.
+//     one); that id, tagged "s", is the key.
+//   - Anything else gets the empty key: a per-request session of the
+//     stateless era over the listener (which serves exactly one request), or
+//     a call with no session at all. The empty key is not a session of its
+//     own. Its record goes to the shared entry (upstream.orphanOverflow),
+//     which is foreign to every later call, including calls this same key
+//     makes, so a session netguard cannot name gets the most blocking
+//     answer, never the local agent's (S5 in the same review).
 func (p *Proxy) agentSessionKey(c call) string {
-	if ss := c.agent.session; ss != nil {
-		if id := ss.ID(); id != "" {
-			return "s" + id
-		}
-	}
-	if c.principal != "" || p.limits.Load() != nil {
+	ss := c.agent.session
+	if ss == nil {
 		return ""
 	}
-	return localAgentKey
+	if key := p.localKey(ss); key != "" {
+		return key
+	}
+	if id := ss.ID(); id != "" {
+		return "s" + id
+	}
+	return ""
 }
 
 // promptLabel is the origin label every upstream prompt carries. Server
@@ -316,9 +324,11 @@ type inflight struct {
 	// refused is netguard's refusal of this call's own prompt. The upstream
 	// may fail the call because of it, so it may replace an upstream error.
 	refused *refusal
-	// note is a refusal of a prompt that could not be attributed to one
-	// call. It is only ever appended to a result, never put in place of an
-	// upstream error or result: this call may not be the one that asked.
+	// note is a refusal of a prompt netguard did not attribute to this call:
+	// one that could not be attributed to one call, or one the orphan rule
+	// refused (the ADR 0014 wording included). It is only ever appended to a
+	// result, never put in place of an upstream error or result: this call
+	// may not be the one that asked.
 	note *refusal
 	// prompting is set while one of this call's prompts is with the agent;
 	// prompts counts those put to the human, including earlier MRTR rounds.
@@ -554,6 +564,21 @@ func (p *Proxy) refuse(u *upstream, f *inflight, r *refusal) error {
 	return r
 }
 
+// refuseAsNote records r as a note on f alone: a refusal of a prompt that
+// was not attributed to f, worded from f because f is the only call that
+// could have received it. Like every note it is only appended to f's
+// result, never put in place of an upstream error or result. It logs r and
+// returns it as the error the upstream receives.
+func (p *Proxy) refuseAsNote(u *upstream, f *inflight, r *refusal) error {
+	u.mu.Lock()
+	if f.note == nil {
+		f.note = r
+	}
+	u.mu.Unlock()
+	p.logger.Warn("netguard refused an upstream input request", "server", u.name, "tool", r.tool, "kind", r.kind, "reason", r.reason)
+	return r
+}
+
 // withRefusals appends the refusals recorded during a call to its final
 // result, so the agent learns what netguard declined on its behalf.
 func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResult {
@@ -591,12 +616,20 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			// attribution refusal for practically every 2026-era agent, and
 			// the era_pairs conformance check (a 2026 agent against a 2025
 			// upstream) would read the wrong text. The prompt is refused
-			// either way; only the reason differs. The refusal is recorded
-			// against that call because it is the only call that could have
-			// received the prompt at all.
+			// either way; only the reason differs.
+			//
+			// The refusal goes in s's note slot, never its own slot (S3 in
+			// the security review of T0.40): the orphan rule fired, so this
+			// is exactly a prompt netguard could NOT attribute to s, and the
+			// own slot would put netguard's text in place of the upstream's
+			// error. As a note it is only appended to a result s completes;
+			// an upstream error stays the upstream's. It goes to s alone,
+			// not to every call in flight (refuse with a nil call), because
+			// its text names s's tool and a call that began since may be
+			// another agent session's.
 			if s := at.sole; s != nil {
 				if err := promptable(s); err != nil {
-					return nil, p.refuse(u, s, newRefusal(u.name, s.tool, "elicitation", err))
+					return nil, p.refuseAsNote(u, s, newRefusal(u.name, s.tool, "elicitation", err))
 				}
 			}
 			return nil, p.refuse(u, nil, newRefusal(u.name, "", "elicitation", at.err))

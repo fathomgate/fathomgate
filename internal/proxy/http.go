@@ -276,7 +276,16 @@ type httpHandler struct {
 	sessions             int
 	sessionsPerPrincipal map[string]int
 	live                 map[string]*liveSession // stateful sessions by id
+	// early counts the POSTs in progress on a session id that is not (yet)
+	// in live, by id and principal: a POST can arrive on a new session
+	// before settleSession has registered it (S7 in the security review of
+	// T0.40), and the registration counts it as in progress. Entries last
+	// only as long as their POSTs, so the POST caps bound the map.
+	early map[earlyPOST]int
 }
+
+// earlyPOST names the POSTs counted in httpHandler.early.
+type earlyPOST struct{ sid, principal string }
 
 // HTTPHandler returns the Streamable HTTP handler for the agent side, serving
 // HTTPPath for both protocol eras with every check in the list at the top of
@@ -317,6 +326,7 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 		perPrincipal:         make(map[string]int),
 		sessionsPerPrincipal: make(map[string]int),
 		live:                 make(map[string]*liveSession),
+		early:                make(map[earlyPOST]int),
 	}
 	getServer := func(*http.Request) *mcp.Server { return p.server }
 	sdkLogger := slog.New(minLevel{p.logger.Handler(), slog.LevelWarn})
@@ -510,11 +520,9 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && sid != "":
 		// A POST on the session's own principal's behalf pauses netguard's
 		// idle expiry, as it pauses go-sdk's; another principal's gets 403
-		// from go-sdk and touches nothing.
-		if ls := h.liveSession(sid, principal); ls != nil {
-			ls.startPOST()
-			defer ls.endPOST()
-		}
+		// from go-sdk and touches nothing. That includes a POST that
+		// arrives before the session is registered (beginPOST).
+		defer h.beginPOST(sid, principal)()
 	case r.Method == http.MethodPost && sid == "":
 		// go-sdk creates a session for every session-less POST on the
 		// stateful handler, and keeps it if the POST was an initialise.
@@ -619,9 +627,7 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 	}
 	limits := h.p.limits.Load()
 	ls := &liveSession{h: h, ss: kept, sid: sid, principal: principal}
-	h.mu.Lock()
-	h.live[sid] = ls
-	h.mu.Unlock()
+	h.register(ls)
 	started := limits.track(func() {
 		_ = kept.Wait()
 		ls.stop()
@@ -650,15 +656,64 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 	h.logger.Info("agent session opened", "session", shortHash(sid), "principal", principal, "protocol", protocol)
 }
 
-// liveSession returns the open stateful session sid if it belongs to
-// principal, or nil.
-func (h *httpHandler) liveSession(sid, principal string) *liveSession {
+// register makes ls the live session for its id. The POSTs of its
+// principal already in progress on that id (beginPOST) count as in
+// progress on ls, so arm does not start the idle clock under them.
+//
+// Without this (S7 in the security review of T0.40), settleSession runs
+// only after the stateful handler has sent the response that names the new
+// session, so an agent that POSTs again at once (its first tools/call, say)
+// found no live session, paused nothing, and the idle clock then started
+// with that POST still in progress: a call made in it could be cancelled at
+// SessionTimeout while it ran.
+func (h *httpHandler) register(ls *liveSession) {
+	k := earlyPOST{ls.sid, ls.principal}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if ls := h.live[sid]; ls != nil && ls.principal == principal {
-		return ls
+	h.live[ls.sid] = ls
+	ls.mu.Lock()
+	ls.active += h.early[k]
+	ls.mu.Unlock()
+	delete(h.early, k)
+}
+
+// beginPOST marks a POST on session sid on principal's behalf as in
+// progress and returns the function that marks it ended. On a live session
+// of that principal it pauses the idle clock (startPOST). On an id that is
+// not live yet it is counted in early, which register adds to the session
+// if it is registered while the POST is still in progress. Another
+// principal's POST on a live session gets 403 from go-sdk and pauses
+// nothing.
+//
+// Session ids are never reused, so a POST counted in early that finds a
+// live session when it ends was counted by register into that session.
+func (h *httpHandler) beginPOST(sid, principal string) func() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ls := h.live[sid]; ls != nil {
+		if ls.principal != principal {
+			return func() {}
+		}
+		ls.startPOST()
+		return ls.endPOST
 	}
-	return nil
+	k := earlyPOST{sid, principal}
+	h.early[k]++
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if ls := h.live[sid]; ls != nil && ls.principal == principal {
+			ls.endPOST()
+			return
+		}
+		// Not registered, or registered and already gone: either way the
+		// count is ours to take back, if it is still there.
+		if h.early[k] > 0 {
+			if h.early[k]--; h.early[k] == 0 {
+				delete(h.early, k)
+			}
+		}
+	}
 }
 
 // liveSession is netguard's idle expiry for one stateful session (H2 in the

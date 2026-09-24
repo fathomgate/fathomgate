@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -612,14 +613,22 @@ func TestHTTPEraMatrix(t *testing.T) {
 				t.Fatalf("call: %v %q", err, text(res))
 			}
 			res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask"})
-			if err != nil {
-				t.Fatal(err)
-			}
 			if e.agent == v2026 && e.upstream == v2025 {
-				if !res.IsError || !strings.Contains(text(res), "ADR 0014") {
-					t.Fatalf("stateful prompt to a stateless agent: %q, want the ADR 0014 refusal", text(res))
+				// The run_show_command above left an orphan in the shared
+				// entry, so the orphan rule refuses the prompt with the
+				// ADR 0014 wording, as a note (S3 in the security review of
+				// T0.40). go-sdk's upstream then fails the call, and the
+				// agent gets that upstream error, relayed and labelled, not
+				// netguard's text in its place; it quotes the refusal the
+				// upstream received.
+				var werr *jsonrpc.Error
+				if !errors.As(err, &werr) || !strings.HasPrefix(werr.Message, "upstream netdev-ssh-mcp: ") || !strings.Contains(werr.Message, "ADR 0014") {
+					t.Fatalf("stateful prompt to a stateless agent: %v, want the upstream's error quoting the ADR 0014 refusal", err)
 				}
 				return
+			}
+			if err != nil {
+				t.Fatal(err)
 			}
 			if res.IsError || !strings.Contains(text(res), "pw=accept:"+agentPassword) {
 				t.Fatalf("prompt: %q", text(res))

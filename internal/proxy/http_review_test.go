@@ -408,15 +408,31 @@ func TestOrphanAttribution(t *testing.T) {
 }
 
 // TestAgentSessionKey (J5): the key netguard gives an agent session for the
-// ended-call records. A local agent (stdio, in-memory) is keyed by
-// localAgentKey; a call that arrived over the listener with no session id
-// comes from a per-request session of the stateless era, which can never
-// own another call, and is keyed by the empty key; a stateful session over
-// the listener is keyed by its session id.
+// ended-call records. A session Proxy.Run serves (stdio, in-memory) is
+// keyed by the key Run gave it, and two Runs on one proxy get two keys
+// (T0.43); a call with no session Run serves and no session id (a
+// per-request session of the stateless era over the listener, or no session
+// at all) is keyed by the empty key, the shared entry; a stateful session
+// over the listener is keyed by its session id.
 func TestAgentSessionKey(t *testing.T) {
 	stdio := newHarness(t, nil).proxy
-	if got := stdio.agentSessionKey(call{}); got != localAgentKey {
-		t.Errorf("stdio: key %q, want %q", got, localAgentKey)
+	first := localSessions(t, stdio, 1)[0]
+	if got := stdio.agentSessionKey(call{agent: agentPeer{session: first}}); got != localKeyPrefix+"1" {
+		t.Errorf("stdio: key %q, want %q", got, localKeyPrefix+"1")
+	}
+	// A second agent on the same proxy (in-process only; netguard serve
+	// runs one) is a different session with a different key.
+	connectAgent(t, stdio, eraSetup{agent: v2025}, &promptLog{})
+	keys := map[string]bool{}
+	for _, ss := range localSessions(t, stdio, 2) {
+		keys[stdio.agentSessionKey(call{agent: agentPeer{session: ss}})] = true
+	}
+	if len(keys) != 2 || !keys[localKeyPrefix+"1"] || !keys[localKeyPrefix+"2"] {
+		t.Errorf("two local agents: keys %v, want l1 and l2", keys)
+	}
+	// No session: the shared entry, never a local agent's key (S5).
+	if got := stdio.agentSessionKey(call{}); got != "" {
+		t.Errorf("stdio, no session: key %q, want the empty key", got)
 	}
 	h := newHTTPHarness(t, httpSetup{upstream: v2025})
 	for _, principal := range []string{"alice", ""} {
@@ -437,9 +453,9 @@ func TestAgentSessionKey(t *testing.T) {
 		t.Fatalf("%d orphans after one call, want 1", len(up.orphans))
 	}
 	for key := range up.orphans {
-		// Tagged, so it can collide with neither the empty key nor
-		// localAgentKey, and never the session itself (J5).
-		if key == "" || key == localAgentKey || !strings.Contains(key, cs.ID()) {
+		// Tagged, so it can collide with neither the empty key nor a local
+		// agent's key, and never the session itself (J5).
+		if key == "" || strings.HasPrefix(key, localKeyPrefix) || !strings.Contains(key, cs.ID()) {
 			t.Fatalf("orphan key %q does not name session %q", key, cs.ID())
 		}
 	}
