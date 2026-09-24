@@ -3,6 +3,8 @@ package audit
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -280,7 +282,8 @@ func TestKeyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows ignores Unix permission bits (ACLs govern access), so assert 0600 on Unix only.
+	// Windows ignores Unix permission bits (ACLs govern access), so assert 0600
+	// on Unix only; key_windows_test.go asserts the DACL instead.
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("key mode %v", info.Mode().Perm())
 	}
@@ -311,6 +314,145 @@ func TestKeyRoundTrip(t *testing.T) {
 	}
 	if _, err := LoadKey(filepath.Join(dir, "junk")); err == nil {
 		t.Fatal("junk key should error")
+	}
+}
+
+// SaveKey must never replace an existing file, whatever its contents.
+func TestSaveKeyRefusesExisting(t *testing.T) {
+	_, priv, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp := filepath.Join(t.TempDir(), "audit.key")
+	if err := os.WriteFile(kp, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveKey(kp, priv); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("SaveKey over an existing file: err = %v, want fs.ErrExist", err)
+	}
+	b, err := os.ReadFile(kp)
+	if err != nil || string(b) != "old" {
+		t.Fatalf("existing file changed: %q, %v", b, err)
+	}
+}
+
+func TestSavePublicKeyRefusesExisting(t *testing.T) {
+	pub, _, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pp := filepath.Join(t.TempDir(), "audit.pub")
+	if err := os.WriteFile(pp, []byte("verifier"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SavePublicKey(pp, pub); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("err = %v, want fs.ErrExist", err)
+	}
+	if b, _ := os.ReadFile(pp); string(b) != "verifier" {
+		t.Fatalf("existing public key changed: %q", b)
+	}
+}
+
+func TestWriteKeyPair(t *testing.T) {
+	pub, priv, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	kp, pp := filepath.Join(dir, "a.key"), filepath.Join(dir, "a.pub")
+	if err := WriteKeyPair(kp, pp, pub, priv); err != nil {
+		t.Fatal(err)
+	}
+	if k, err := LoadKey(kp); err != nil || !k.Equal(priv) {
+		t.Fatalf("private key: %v", err)
+	}
+	if p, err := LoadPublicKey(pp); err != nil || !p.Equal(pub) {
+		t.Fatalf("public key: %v", err)
+	}
+
+	// Existing public key: refused before any private key is written.
+	kp, pp = filepath.Join(dir, "b.key"), filepath.Join(dir, "b.pub")
+	if err := os.WriteFile(pp, []byte("verifier"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteKeyPair(kp, pp, pub, priv); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("existing pub: err = %v, want fs.ErrExist", err)
+	}
+	if _, err := os.Lstat(kp); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("private key written despite refusal: %v", err)
+	}
+	if b, _ := os.ReadFile(pp); string(b) != "verifier" {
+		t.Fatalf("existing public key changed: %q", b)
+	}
+
+	// Existing private key: refused, and the public key just written is
+	// removed again, so no half pair is left.
+	kp, pp = filepath.Join(dir, "c.key"), filepath.Join(dir, "c.pub")
+	if err := os.WriteFile(kp, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteKeyPair(kp, pp, pub, priv); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("existing key: err = %v, want fs.ErrExist", err)
+	}
+	if _, err := os.Lstat(pp); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("public key left behind: %v", err)
+	}
+	if b, _ := os.ReadFile(kp); string(b) != "old" {
+		t.Fatalf("existing private key changed: %q", b)
+	}
+}
+
+// A hard link at the log path is refused on every OS: resetting its
+// permissions would change the other name's file too.
+func TestNewWriterRefusesHardLink(t *testing.T) {
+	dir := t.TempDir()
+	orig := filepath.Join(dir, "orig.jsonl")
+	writeChain(t, orig, 2, Options{})
+	link := filepath.Join(dir, "audit.jsonl")
+	if err := os.Link(orig, link); err != nil {
+		t.Skipf("hard link not supported here: %v", err)
+	}
+	if _, err := NewWriter(link, Options{}); !errors.Is(err, errUnsafeLog) {
+		t.Fatalf("err = %v, want errUnsafeLog", err)
+	}
+}
+
+// NewWriter verifies the chain through the handle it opened. A file swapped
+// in at the path after the open is ignored: on Unix the rename succeeds and
+// the writer still resumes the original chain; on Windows the held handle
+// (no FILE_SHARE_DELETE) makes the rename fail.
+func TestResumeVerifiesThroughHeldHandle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	events := writeChain(t, path, 3, Options{})
+
+	f, created, err := openLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("openLog created a log that exists")
+	}
+	evil := filepath.Join(dir, "evil.jsonl")
+	if err := os.WriteFile(evil, []byte("{\"not\":\"a chain\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	swapped := os.Rename(evil, path) == nil
+	t.Logf("swap of the path while held: succeeded=%v", swapped)
+
+	w, err := resumeLog(f, created, path, Options{})
+	if err != nil {
+		t.Fatalf("resume through the held handle: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+	if w.Seq() != 3 || w.Hash() != events[2].Hash {
+		t.Fatalf("resumed seq %d hash %s, want the original chain", w.Seq(), w.Hash())
+	}
+	if swapped {
+		if b, _ := os.ReadFile(path); string(b) != "{\"not\":\"a chain\"}\n" {
+			t.Fatalf("swapped-in file was modified: %q", b)
+		}
 	}
 }
 

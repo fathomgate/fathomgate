@@ -42,6 +42,84 @@ jobs:
       - name: redaction fixtures
         run: make fixtures-check
 
+  # The Windows key and log DACL code in internal/audit (T0.12) only compiles
+  # and runs on Windows. Hosted windows-latest runners run elevated (the
+  # runner account is an administrator with UAC off), so they hold
+  # SeCreateSymbolicLinkPrivilege and may give a file another owner.
+  # NETGUARD_REQUIRE_PRIVILEGED_TESTS=1 turns the skip in needPrivilege
+  # (key_windows_test.go) into a failure: the symlink, dangling-symlink,
+  # junction and other-owner tests must run here and cannot skip. If GitHub
+  # ever runs this image unelevated or without the symlink privilege, this
+  # job must fail loudly. Do not drop the variable or accept skips to make it
+  # green; fix the runner or move to one that is elevated. No -race: the
+  # Linux `go` job covers the race detector.
+  windows:
+    name: go vet / test (windows, elevated)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      NETGUARD_REQUIRE_PRIVILEGED_TESTS: "1"
+    steps:
+      # Check out LF as on Linux, so go.mod, the fixtures and the golden files
+      # are the same bytes the other jobs test.
+      - name: no CRLF conversion on checkout
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # `make toolchain-check` in bash: GNU make is not on windows-latest.
+      - name: Go in use is the go.mod toolchain
+        run: |
+          want="$(sed -n 's/^toolchain //p' go.mod | tr -d '\r')"
+          got="$(go env GOVERSION)"
+          if [ -z "$want" ]; then
+            echo "go.mod has no toolchain line (ADR 0013)"
+            exit 1
+          fi
+          if [ "$got" != "$want" ]; then
+            echo "Go in use is $got, go.mod toolchain is $want (ADR 0013)"
+            exit 1
+          fi
+          echo "Go in use is $got, the go.mod toolchain"
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      # Proof in the log that every Windows DACL test ran and passed: each
+      # must print `--- PASS`, and no test may print `--- SKIP`.
+      - name: Windows audit tests ran elevated
+        run: |
+          go test -count=1 -v -run 'Windows' ./internal/audit/ | tee audit-windows.log
+          if grep -F -- '--- SKIP' audit-windows.log; then
+            echo "::error::a Windows audit test skipped; the runner is not elevated or lacks SeCreateSymbolicLinkPrivilege"
+            exit 1
+          fi
+          missing=0
+          for t in \
+            TestSaveKeyWindowsDACL \
+            TestWriterWindowsDACL \
+            TestNewWriterWindowsRefusesSymlink \
+            TestNewWriterWindowsRefusesJunction \
+            TestWindowsDanglingSymlinkNotFollowed \
+            TestWindowsDanglingSymlinkNotFollowed/key \
+            TestWindowsDanglingSymlinkNotFollowed/pub \
+            TestWindowsDanglingSymlinkNotFollowed/log \
+            TestNewWriterWindowsHardLinkKeepsDACL \
+            TestNewWriterWindowsBrokenChainKeepsDACL \
+            TestNewWriterWindowsRefusesOtherOwner; do
+            if ! grep -qF -- "--- PASS: $t (" audit-windows.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest

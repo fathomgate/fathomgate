@@ -81,7 +81,7 @@ Hash (`HashEvent` in `hash.go`):
 2. `hash = hex(SHA-256(canonical(record) || prev_hash))`, where `prev_hash` is appended as its 64 ASCII hex characters.
 3. Set `hash` on the record and write the line.
 
-The writer holds a mutex while assigning `seq` and `prev_hash`. The file is opened with `O_APPEND | O_CREATE | O_WRONLY`, mode `0600`. Opening an existing file replays and verifies its chain first and refuses to append to a broken one.
+The writer holds a mutex while assigning `seq` and `prev_hash`. A new log is created exclusively (`O_CREATE | O_EXCL`; `CREATE_NEW` with `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, so a symlink at the path, dangling or not, is never followed) for append-only writing and is owner-only from creation: mode `0600` on Unix, the protected owner-only DACL described in section 5 on Windows. An existing log is never truncated. It is opened once for read and append without following links (`O_NOFOLLOW`; `FILE_FLAG_OPEN_REPARSE_POINT` on Windows) and refused unless the open handle is a regular file with exactly one link (no reparse point on Windows) owned by the current user (`st_uid == geteuid()`; the token user on Windows). The chain is then replayed and verified by reading that same handle, so a file swapped in at the path is never what gets verified, and the writer refuses to append to a broken chain. Only after the chain verifies is the log set back to the owner-only protection, through the handle.
 
 ## 5. Checkpoint record
 
@@ -98,7 +98,14 @@ Written after every `CheckpointEvery` events (a writer option; `0` disables chec
 | `hash` | That record's `hash`. MUST equal the chain's current hash. |
 | `sig` | Base64 (standard alphabet) Ed25519 signature over `canonical({"type":"checkpoint","seq":<seq>,"hash":"<hash>"})`, that is over the bytes `{"hash":"<hash>","seq":<seq>,"type":"checkpoint"}`. |
 
-Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. On Windows the file mode is not enforced; see SECURITY.md "Hardening guidance for operators" until T0.12 lands.
+Keys are generated with `netguard audit keygen --out audit.key [--pub audit.pub]` (`key.go`). The private key MUST live outside the log directory. `SaveKey` guarantees:
+
+- It never overwrites. An existing path, including a symlink, fails with an error wrapping `fs.ErrExist` and the file is left untouched. There is no `--force`.
+- Unix (`key_unix.go`): created with `O_CREATE | O_EXCL` and mode `0600`, then `Chmod(0600)` on the open descriptor, so the umask cannot widen it.
+- Windows (`key_windows.go`): created with `CREATE_NEW` and `FILE_FLAG_OPEN_REPARSE_POINT` (a dangling symlink at the path is not followed to create the file elsewhere) and a security descriptor passed to `CreateFile`, so it is protected from the first instant. The descriptor is `O:<user>D:P(A;;FA;;;<user>)(A;;FA;;;SY)`: owned by the current process user, a protected DACL (no inherited ACEs), full control for that user and `LocalSystem`, nothing for Administrators, `Everyone`, `BUILTIN\Users` or `Authenticated Users`. The handle is not inheritable.
+- A failed write deletes the partial file through its handle (`FILE_DISPOSITION_INFO` on Windows; on Unix, unlink only if the path still has the descriptor's device and inode).
+
+The public key (`SavePublicKey`) is also created exclusively and never overwrites; it is `0644` and inherits its folder's ACL on Windows, by design. `keygen` calls `WriteKeyPair`, which writes the public key first and deletes it again if the private key cannot be written, so a failure never leaves a private key without its public half.
 
 Planned (M4): time-based checkpoint interval, `key_id` for rotation, a `ts` on the checkpoint, rotation with `prev_file`, and a checkpoint written at clean shutdown.
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,6 +110,20 @@ func TestAuditVerifyAndKeygen(t *testing.T) {
 	}
 	if got := run([]string{"audit", "keygen", "--out", key}); got != exitUsage {
 		t.Fatalf("keygen overwrite exit %d, want refusal", got)
+	}
+	// An existing public key is refused too, and no private key is left.
+	key2 := filepath.Join(dir, "second.key")
+	if err := os.WriteFile(key2+".pub", []byte("verifier"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := run([]string{"audit", "keygen", "--out", key2}); got != exitUsage {
+		t.Fatalf("keygen over existing .pub exit %d, want refusal", got)
+	}
+	if _, err := os.Lstat(key2); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("private key written despite refusal: %v", err)
+	}
+	if b, _ := os.ReadFile(key2 + ".pub"); string(b) != "verifier" {
+		t.Fatalf("existing .pub changed: %q", b)
 	}
 	priv, err := audit.LoadKey(key)
 	if err != nil {

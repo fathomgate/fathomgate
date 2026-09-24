@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"sync"
 	"time"
@@ -32,10 +34,17 @@ type Writer struct {
 	lastHash string
 }
 
-// NewWriter opens (or creates) the log at path with O_APPEND and resumes the
-// chain from the last valid line. It refuses to append to a file whose
-// existing chain does not verify, because appending to a broken chain would
-// hide the break behind valid new records.
+// NewWriter opens (or creates) the log at path and resumes the chain from
+// the last valid line. The log is never truncated.
+//
+// A new log is created exclusively and owner-only (mode 0600 on Unix, a
+// protected owner-only DACL on Windows). An existing log is opened without
+// following links and must be a regular file with one link, owned by the
+// current user; anything else is refused. Its chain is then verified
+// through that same handle, and only if it verifies is the file reset to
+// owner-only. NewWriter refuses to append to a chain that does not verify,
+// because appending to a broken chain would hide the break behind valid new
+// records.
 func NewWriter(path string, opts Options) (*Writer, error) {
 	if opts.CheckpointEvery > 0 && opts.Key == nil {
 		return nil, fmt.Errorf("audit: checkpoints require a signing key")
@@ -43,16 +52,57 @@ func NewWriter(path string, opts Options) (*Writer, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	rep, err := verifyFile(path, nil, true)
+	f, created, err := openLog(path)
 	if err != nil {
 		return nil, err
 	}
-	if !rep.OK {
-		return nil, fmt.Errorf("audit: %s: existing chain broken at seq %d: %s", path, rep.BrokenSeq, rep.Problem)
+	return resumeLog(f, created, path, opts)
+}
+
+// openLog creates the log at path, or opens the existing one after the
+// link, type and owner checks. The handle is open for read and append.
+func openLog(path string) (f *os.File, created bool, err error) {
+	f, err = createExclusive(path, os.O_RDWR|os.O_APPEND, true)
+	if err == nil {
+		return f, true, nil
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if !errors.Is(err, fs.ErrExist) {
+		// Windows reports CREATE_NEW over a directory or junction as
+		// access denied, not "exists". Name the reason when the path is
+		// something other than a regular file; either way nothing is
+		// created or changed.
+		if fi, lerr := os.Lstat(path); lerr == nil && !fi.Mode().IsRegular() {
+			return nil, false, fmt.Errorf("%w: %s is a symbolic link, junction, directory or other non-regular file (%w)", errUnsafeLog, path, err)
+		}
+		return nil, false, fmt.Errorf("audit: create log: %w", err)
+	}
+	f, err = openExistingLog(path)
 	if err != nil {
-		return nil, fmt.Errorf("audit: open: %w", err)
+		if errors.Is(err, errUnsafeLog) {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("audit: open log: %w", err)
+	}
+	return f, false, nil
+}
+
+// resumeLog verifies the chain by reading the held handle from the start,
+// so a file swapped in at path after openLog is never what gets verified,
+// then restricts an existing log to owner-only and returns the Writer. It
+// closes f on any failure.
+func resumeLog(f *os.File, created bool, path string, opts Options) (*Writer, error) {
+	rep, err := VerifyReader(f, nil)
+	if err == nil && !rep.OK {
+		err = fmt.Errorf("audit: %s: existing chain broken at seq %d: %s", path, rep.BrokenSeq, rep.Problem)
+	}
+	if err == nil && !created {
+		if rerr := restrictOpenFile(f); rerr != nil {
+			err = fmt.Errorf("audit: %s: restrict to owner: %w", path, rerr)
+		}
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
 	}
 	return &Writer{f: f, opts: opts, lastSeq: rep.LastSeq, lastHash: rep.LastHash}, nil
 }
