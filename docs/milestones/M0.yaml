@@ -285,8 +285,8 @@ tasks:
     matrix: [2, 23]
     notes: 'ADR 0016. A principal is a named listen token (attribution only, never an approver identity: invariant 6). Key the progress relay per session as well. Starts after T0.40 (both change input.go and http.go). T0.40 and T0.44 have merged, so this is unblocked (2026-09-24). It is the last task T0.31 waits on. Merged in PR #85 2026-09-24 (a8a7be0) before its reviews (maintainer); CI green on the self-hosted runners, -race included. The sealed state is ng3., with transport and principal bound as AES-GCM additional data; a cross-principal or cross-transport replay fails exactly like a forgery; ng1./ng2. get ''issued by an earlier netguard process''. call carries transport and principal; the progress relay never shares a token. ADR 0016 amendment row, profile-schema 8.4 cross-session attribution rule. Post-merge security and Go reviews both approve (no oracle, transport not spoofable, AAD unambiguous); their follow-ups are T0.48. Security reviewer on the log naming only the presenter: acceptable for M0; issuer lookup belongs to the M3 single-use id store, never trial decryption.'
   - id: T0.31
-    title: netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling
-    package: cmd/netguard
+    title: fathomgate serve --listen, repeatable --listen-token-file name=path, FATHOMGATE_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling
+    package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
     state: open
@@ -422,7 +422,7 @@ tasks:
     matrix: [2, 22]
     notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name.'
   - id: T0.47
-    title: Label the upstream era from the negotiated protocol version, not from how netguard connected, before M1 audits it (N6)
+    title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected, before M1 audits it (N6)
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
@@ -441,7 +441,7 @@ tasks:
   - id: T0.49
     title: Rename NetGuard to Fathomgate per ADR 0019 (module path, binary, FATHOMGATE_ env prefix, fg4. state prefix, fg- CSS prefix, reported server name, docs and design)
     package: repo
-    owner: netguard-orchestrator
+    owner: orchestrator
     reviewers: [security-reviewer, go-reviewer, release-engineer, design-guardian]
     state: open
     blocked_by: [T0.48]

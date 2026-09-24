@@ -40,7 +40,7 @@ Tasks: open 5 · blocked 5 · merged 37 · validated 2
 | T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
 | T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
 | T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.27, T0.40 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.31 | netguard serve --listen, repeatable --listen-token-file name=path, NETGUARD_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48, T0.49 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.31 | fathomgate serve --listen, repeatable --listen-token-file name=path, FATHOMGATE_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | blocked | T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48, T0.49 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | blocked | T0.31 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | blocked | T0.31 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.35 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
@@ -54,9 +54,9 @@ Tasks: open 5 · blocked 5 · merged 37 · validated 2
 | T0.44 | Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | — |
 | T0.45 | Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7) | `internal/proxy` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
 | T0.46 | Kill the upstream's whole process tree so a launcher's grandchild cannot outlive a restart or shutdown (S2) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 22 | — |
-| T0.47 | Label the upstream era from the negotiated protocol version, not from how netguard connected, before M1 audits it (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| T0.47 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected, before M1 audits it (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | T0.48 | Apply the post-merge reviews of T0.30 (log tampered requestState retries, drop or use the unused progress owner fields, doc and test nits) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.49 | Rename NetGuard to Fathomgate per ADR 0019 (module path, binary, FATHOMGATE_ env prefix, fg4. state prefix, fg- CSS prefix, reported server name, docs and design) | `repo` | netguard-orchestrator | security-reviewer, go-reviewer, release-engineer, design-guardian | blocked | T0.48 | — | [0019](docs/adr/0019-rename-to-fathomgate.md) |
+| T0.49 | Rename NetGuard to Fathomgate per ADR 0019 (module path, binary, FATHOMGATE_ env prefix, fg4. state prefix, fg- CSS prefix, reported server name, docs and design) | `repo` | orchestrator | security-reviewer, go-reviewer, release-engineer, design-guardian | blocked | T0.48 | — | [0019](docs/adr/0019-rename-to-fathomgate.md) |
 
 ## Done this milestone
 
@@ -82,10 +82,10 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
 | 2026-09-24 | test-engineer | docs-writer | T0.41 | [T0.41: row 2 reads `passing` in the cell, its run notes and the CHANGELOG; test-engineer sign-off on the rewritten text](docs/handoffs/2026-09-24-test-engineer-to-docs-writer-T0.41.md) |
+| 2026-09-24 | orchestrator | security-reviewer | T0.49 | [T0.49 ready for review: NetGuard renamed to Fathomgate per ADR 0019](docs/handoffs/2026-09-24-orchestrator-to-security-reviewer-T0.49.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.48 | [T0.48 ready for review: tampered requestState retries logged, unused progress owner fields removed, T0.30 review nits](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.48.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.44 | [T0.44 code part ready for review: a key per stateless request, a per-principal orphan quota, and the principals behind each refusal in the log](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.44.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.42 | [T0.42, T0.43, T0.45 and the T0.44 doc part ready for review: the post-merge security review of T0.40 applied](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.42.md) |
-| 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.40 | [T0.40 ready for re-review: an upstream prompt for a call that ended normally no longer reaches another session's human](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.40.md) |
 
 ## How to update
 
