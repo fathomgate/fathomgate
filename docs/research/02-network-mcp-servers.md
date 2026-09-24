@@ -41,6 +41,28 @@ Safety features (strongest of the SSH servers surveyed):
 
 Proxy notes: because target is a free-form `host` per call (no inventory), a proxy must supply its own allow-list of hosts. Credentials are ambient (env), so the proxy cannot see or scope them per call.
 
+#### Update 2026-09-23: the obfuscation is an unkeyed hash with gaps (T0.29)
+
+Read at tag `v1.6.6`, commit `be3e36342b0c71007ce416a435dfdfecc966ea13` **[src: [`internal/netdev/obfuscate.go`](https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/internal/netdev/obfuscate.go), [`show.go`](https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/internal/netdev/show.go), [`config.go`](https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/internal/netdev/config.go), [`main.go`](https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/main.go)]**. This corrects the "Secret obfuscation" bullet above.
+
+- **Mechanism [src].** `obfuscateConfig` splits output into lines and tries 28 line-anchored regexes (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS) in order. The first match wins, and its secret group becomes `[h:` + hex of the first 6 bytes of `sha256(value)` + `]`. It runs on `get_config` and `run_show_command` output only. `run_ping`, `run_traceroute` and error strings are not obfuscated. The package-level `Obfuscate` flag defaults to true, and `--no-obfuscate` turns it off.
+- **Unkeyed [src].** `hashSecret` is plain SHA-256 with no key or salt, so anyone holding the output can hash a word list and match it. For example `public` gives `[h:efa1f375d761]` and `private` gives `[h:715dc8493c36]` (reproduced with `printf public | shasum -a 256`). SNMP communities, type-7 strings and lab passwords are exactly the short values this recovers. It does not meet NetGuard invariant 4 (keyed HMAC tokens), so NetGuard must not count it as redaction.
+- **Wrong token captured [src, run].** We ran the upstream function unchanged against NetGuard's redaction fixtures (`tests/fixtures/configs/`). Several patterns hash a keyword and leave the secret in clear next to it. The output looks obfuscated, which makes this worse than no match at all:
+
+  | Line shape | What upstream hashes | Secret left in clear |
+  |---|---|---|
+  | `username X ... secret sha512 <crypt>` (the default EOS hash format) | `sha512` | the `$6$` hash |
+  | `ntp authentication-key N md5 7 <key>` | `7` | the key |
+  | `ip ospf message-digest-key N md5 7 <key>` | `7` | the key |
+  | `key-string 7 <key>` (key chain) | `7` | the key |
+  | Junos `pre-shared-key ascii-text "<key>"` (the IOS IKEv2 regex shadows the Junos one) | `ascii-text` | the `$9$` key |
+
+- **Not matched at all [src, run].** `snmp-server host <ip> [traps] version 2c <community>` (EOS, IOS-XE, NX-OS); NX-OS `radius-server host <ip> key 7 "<key>"`; NX-OS `snmp-server user ... priv <key>`; Junos `secret "$9$..."` under tacplus/radius; Junos `authentication-key 1 type md5 value "..."` (NTP); Junos `set`-format lines (the regexes expect the hierarchical form).
+- **Covered [src].** `enable secret|password`, `username ... secret|password <type-digit>`, `snmp-server community`, `Community:` lines in `show snmp community`, BGP `neighbor X password`, `tacacs-server`/`radius-server key`, IOS-XE `key` inside `tacacs server` blocks, `crypto isakmp key`, IOS IKEv2 `pre-shared-key`, bare `password` (line vty), OSPF `authentication-key`, IS-IS keys, Junos `encrypted-password`/`authentication-key "..."`/SNMPv3 passwords/`community`, and FortiOS `ENC` and quoted secrets.
+- **Totals per fixture (secrets left in clear / total):** `eos` 5/13, `ios-xe` 3/22, `nxos` 5/13, `junos` 7/13, `eos-4.16` 0/4, `fortios` 0/6. NetGuard's own rules (`internal/redact/rules.go`) cover all of them, with a type-digit-tolerant grammar (`(?:\d\s+)?` before the value) and the `unix-crypt-hash`, `cisco-snmp-host`, `junos-secret-data` and `junos-9-hash` rules.
+- **Tests [src].** At this tag the repo has no unit test for `obfuscateConfig` or `hashSecret`. Only `device_type_test.go` and `handlers_test.go` exist.
+- **Consequence for NetGuard.** Keep upstream obfuscation on in M0 as defence in depth, because NetGuard does not redact until M2 (`docs/install.md`). Do not treat it as a security control. When NetGuard redaction ships (matrix row 15), it runs on every result anyway and must not skip a line because it already holds an `[h:...]` token. An upstream issue suggesting a keyed HMAC is drafted, not filed, in [`draft-netdev-ssh-mcp-keyed-hash-issue.md`](draft-netdev-ssh-mcp-keyed-hash-issue.md).
+
 ---
 
 ### 1.2 carlmontanari/scrapli-mcp (Scrapli, Python)
@@ -405,7 +427,7 @@ Proposed classes (superset of the four requested, because inventory/lab operatio
 | Class | Definition | Default policy suggestion |
 |---|---|---|
 | `READ_OPERATIONAL` | Returns device/controller state; no persistence change. Includes ping/traceroute, facts, typed show tools, and free-form commands **after** the proxy verifies a `show`/`get`/`display`/`ping`/`traceroute` allow-list. | Allow; log; redact secrets in output. |
-| `READ_CONFIG` | Returns running/startup/candidate config or diffs, compliance/backups. Highest secret-leak risk. | Allow with mandatory redaction (adopt netdev-ssh-mcp's deterministic-hash approach); optional deny for `startup`. |
+| `READ_CONFIG` | Returns running/startup/candidate config or diffs, compliance/backups. Highest secret-leak risk. | Allow with mandatory redaction (deterministic tokens as netdev-ssh-mcp does, but keyed HMAC per invariant 4; see the §1.1 update of 2026-09-23); optional deny for `startup`. |
 | `WRITE_CONFIG` | Modifies device or controller configuration, including staged commits, confirms, aborts, rollbacks and SoT/tag writes. | Deny by default; allow with change-ticket / human approval; force `dry_run=true` first where the tool has it; cap fleet fan-out. |
 | `EXEC_ARBITRARY` | Free-form command execution that is not filtered by the server (or is filtered only by a blocklist), PFE/shell access, lab-node exec, XML `op`/XPath. | Deny by default; or rewrite into READ_OPERATIONAL when the string passes the proxy allow-list, else block. |
 | `INVENTORY_READ` (aux) | Lists devices/groups/tags/capabilities; no device contact or SoT reads. | Allow; use to seed the target allow-list. |
@@ -426,7 +448,7 @@ Normalization rules the proxy should apply on top of the class:
 1. **Target canonicalisation**: map `host|hostname|name|device|router_name|target|firewall` → `target`; `devices|hostnames|router_names|hosts` (array), comma-separated `devices` strings, `@group` tokens and `tags` → `targets[]`; resolve every target against the proxy's own inventory allow-list and reject unknowns (critical for netdev-ssh-mcp whose `host` is free-form).
 2. **Command canonicalisation**: map `command` / `commands[]` → `commands[]`; for EXEC_ARBITRARY tools, apply the union of the strongest existing filters — mcp-telecom's allow-prefix list + regex blocklist, pyATS's pipe/redirect ban, netdev-ssh-mcp's config-read redirection — and downgrade the call to READ_OPERATIONAL only if every command passes.
 3. **Config payload canonicalisation**: `commands|config_commands|config_lines|config_text|template_content(+vars_content)` → `config_payload` with `format` (`set|text|xml|cli`); run junos-style `block.cfg` regexes; if the backend exposes `dry_run` or `apply_config`, force a dry-run pass before any real commit; cap `max_concurrent`/`max_workers`/target-list length for fleet-wide variants.
-4. **Output redaction**: apply netdev-ssh-mcp-style deterministic hashing to all READ_CONFIG and READ_OPERATIONAL results (none of the other servers redact; Juniper's own Mist docs warn secrets flow to the model).
+4. **Output redaction**: apply deterministic tokens in the style of netdev-ssh-mcp, keyed with HMAC (its own hash is unkeyed; §1.1 update of 2026-09-23), to all READ_CONFIG and READ_OPERATIONAL results (none of the other servers redact; Juniper's own Mist docs warn secrets flow to the model).
 5. **Ambient-credential awareness**: most servers read credentials from env/inventory files, and the Meraki/PAN-OS/FortiGate ones bind one controller per process; the proxy must therefore run one backend instance per credential scope rather than expecting per-call auth.
 6. **Meta-tool handling**: for `execute_api(capability_id, ...)`-style servers, maintain a capability→class table rather than a tool→class table.
 
