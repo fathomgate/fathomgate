@@ -4,10 +4,13 @@
 # the run, so a fix must delete its entry in the same PR.
 #
 # The first block is identical to control-2026-07-28.yml (HTTP transport,
-# the relay's behaviour). Everything after it is a difference netguard makes,
-# and each is a documented M0 decision.
+# the relay's behaviour). Everything after it is a difference netguard makes.
+# Every group names the ADR or board task that decided it or owns the gap
+# (M0 exit criterion 1).
 server:
   # --- Same as the control leg: HTTP transport, not netguard -------------
+  # ADR 0012 (M0 serves the agent over stdio only) and T0.4 (the relay): see
+  # control-2026-07-28.yml.
   - server-stateless:sep-2575-http-server-header-mismatch-400
   - server-stateless:sep-2575-http-server-meta-invalid-400
   - server-stateless:sep-2575-http-server-method-not-found-404
@@ -22,8 +25,8 @@ server:
   - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
 
   # --- netguard ------------------------------------------------------------
-  # Undeclared capabilities: netguard declares only `tools` and answers
-  # -32601 for prompts/*, resources/* and completion/complete
+  # Undeclared capabilities. Decided in T0.3: netguard declares only `tools`
+  # and answers -32601 for prompts/*, resources/* and completion/complete
   # (profile-schema section 8.2). The caching checks call prompts/list,
   # resources/list and resources/templates/list; non-tool-request calls
   # prompts/get.
@@ -41,34 +44,35 @@ server:
   - caching:sep-2549-resources-list-caching-hints
   - caching:sep-2549-resources-templates-list-caching-hints
   - input-required-result-non-tool-request:sep-2322-non-tool-incomplete
-  # SHOULD-level (the suite reports WARNING; a baseline run counts it). The
-  # resource-not-found probe gets -32601 because resources are undeclared.
+  # T0.3 (same decision), SHOULD-level (the suite reports WARNING; a
+  # baseline run counts it). The resource-not-found probe gets -32601
+  # because resources are undeclared.
   - sep-2164-resource-not-found:sep-2164-error-code
   - sep-2164-resource-not-found:sep-2164-data-uri
-  # SHOULD-level, from netguard's strict retry rules (profile-schema section
-  # 8.2 rows "Agent retry ..."): inputResponses without the requestState
-  # netguard issued get -32602 invalid_request_state instead of being
-  # ignored, and a retry missing an answer gets -32602 instead of a fresh
-  # input_required. Nothing reaches the upstream either way. Finding for
-  # mcp-protocol-engineer and security-reviewer: SEP-2322 recommends ignoring
-  # and re-requesting; loosening section 8.2 is their call, not this suite's.
+  # T0.18 and ADR 0014 (the sealed requestState, normative in profile-schema
+  # section 8.4), SHOULD-level. The check sends inputResponses, one for the
+  # fixture's real input id plus two unknown ones, with no requestState, and
+  # wants the call to complete. netguard ignores them all (section 8.2: it
+  # forwards only answers to prompts it relayed, bound by its requestState)
+  # and returns the upstream's fresh, relabelled input_required. Completing
+  # would mean forwarding an agent's answer to an upstream prompt no human
+  # was shown through netguard, so this stays by design. T0.18 relaxed the
+  # rest: no -32602 for this case any more, and unknown ids under a valid
+  # requestState are dropped rather than refused.
   - input-required-result-ignore-extra-params:sep-2322-ignore-unexpected-params
-  - input-required-result-missing-input-response:sep-2322-missing-response-rerequests
-  # Progress is not relayed (no _meta crosses; profile-schema section 8.4).
-  # Finding for mcp-protocol-engineer, as in the 2025 baseline.
-  - tools-call-with-progress:tools-call-with-progress
-  # Upstream input requests for sampling/createMessage and roots/list are
-  # refused with a labelled tool error; only form elicitation is relayed
-  # (profile-schema section 8.4; ADR 0008). multiple-input-requests and
-  # capability-check include a sampling request, so the whole call is
-  # refused.
+  # ADR 0008 and T0.3: upstream input requests for sampling/createMessage
+  # and roots/list are refused with a labelled tool error; only form
+  # elicitation is relayed (profile-schema section 8.4).
+  # multiple-input-requests and capability-check include a sampling request,
+  # so the whole call is refused.
   - input-required-result-basic-sampling:sep-2322-sampling-incomplete
   - input-required-result-basic-list-roots:sep-2322-list-roots-incomplete
   - input-required-result-multiple-input-requests:sep-2322-multiple-inputs-incomplete
   - input-required-result-capability-check:sep-2322-respect-client-capabilities
-  # Tool-name prefix (profile-schema section 8.1). This check looks for
+  # ADR 0012 (the <server>.<tool> prefix, profile-schema section 8.1) and
+  # T0.4 (the relay renames only tools/call). This check looks for
   # `test_missing_capability` in tools/list, which netguard lists as
-  # `conf.test_missing_capability`; relay.py renames only tools/call. The
-  # check reports "Not testable", so the undeclared-capability rejection
-  # (-32021) is not exercised through netguard.
+  # `conf.test_missing_capability`. The check reports "Not testable", so the
+  # undeclared-capability rejection (-32021) is not exercised through
+  # netguard.
   - server-stateless:sep-2575-server-rejects-undeclared-capability
