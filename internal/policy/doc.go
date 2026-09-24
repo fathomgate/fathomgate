@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package policy implements the Fathomgate YAML policy DSL and its evaluator.
 //
 // It is the fourth stage of the pipeline (normalise -> classify -> resolve

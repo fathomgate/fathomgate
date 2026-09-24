@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tier 1 tests for policy_lint against the shipped example policies."""
 
 from __future__ import annotations

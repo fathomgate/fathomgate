@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package audit writes and verifies Fathomgate's hash-chained JSONL audit log.
 //
 // It is the last stage of the pipeline: after a call is allowed, held or

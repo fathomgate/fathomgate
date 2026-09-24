@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tier 1: tests/conformance/relay.py, the Streamable HTTP front the
 conformance suite drives fathomgate through (T0.4).
 

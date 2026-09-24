@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tier 2: `tools/list` and `tools/call` pass through `fathomgate serve` to the
 real upstream krisiasty/netdev-ssh-mcp (pinned in conftest), which reaches
 the fake SSH device.

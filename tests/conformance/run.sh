@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Run the official MCP conformance suite against one leg and one spec
 # revision. `make conformance` calls this for every leg and revision.
 #
