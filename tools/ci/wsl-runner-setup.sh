@@ -4,6 +4,11 @@
 # Idempotent: re-running it only restarts the services.
 set -euo pipefail
 
+if [ "$(id -u)" -eq 0 ]; then
+  echo "run this as your own user, not with sudo: it calls sudo itself, and under sudo \$HOME is /root, where the runners are not" >&2
+  exit 1
+fi
+
 sudo apt-get install -y shellcheck
 
 for i in 1 2 3; do
