@@ -66,7 +66,9 @@ def test_upstream_negotiates_2026_07_28_stateless(netguard_binary: Path, upstrea
     try:
         init = client.initialize()
         assert init["result"]["protocolVersion"] == "2025-11-25"
-        client.proc.stdin.close()
+        # wait() -> communicate() closes stdin (the agent disconnects), so
+        # netguard exits 0; do not close it here first (Python 3.12 then
+        # raises on the flush of a closed pipe).
         code, err, _ = client.wait(timeout=20)
     finally:
         client.close()
