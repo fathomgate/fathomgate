@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 9 · blocked 4 · in progress 1 · merged 31
+Tasks: open 6 · blocked 4 · in progress 1 · merged 36
 
 ## In flight
 
@@ -34,7 +34,7 @@ Tasks: open 9 · blocked 4 · in progress 1 · merged 31
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | merged | — | — | — |
 | T0.23 | Keep device passwords off the netguard command line (upstream secrets from a file or the environment) | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 22 | — |
 | T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | — |
-| T0.25 | Report the upstream's exit status when it dies at startup, not only EOF | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | open | — | 22 | — |
+| T0.25 | Report the upstream's exit status when it dies at startup, not only EOF | `internal/proxy` | mcp-protocol-engineer | go-reviewer, security-reviewer | merged | — | 22 | — |
 | T0.26 | Replace the synthetic fake-device transcript with a sanitised real EOS capture | `tests/fixtures/device` | network-safety-engineer | test-engineer | merged | — | 22 | — |
 | T0.27 | (*Proxy).HTTPHandler — era dispatcher over two go-sdk handlers, Host and Origin checks, bearer auth, in-flight and session caps, body limit | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.28 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.28 | Stop a slow agent from stalling an upstream's notification queue (progress relay writes off the dispatch goroutine) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
@@ -48,13 +48,15 @@ Tasks: open 9 · blocked 4 · in progress 1 · merged 31
 | T0.36 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | merged | — | — | — |
 | T0.38 | Apply the post-merge security and Go reviews of PR #68 (prompt attribution across sessions, session caps, connection close, exports, shutdown) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.39 | Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 2 | [0018](docs/adr/0018-bound-server-discover-then-initialize-only.md) |
+| T0.39 | Stop netguard hanging at startup on upstreams that never answer server/discover (probe timeout, restart, straight to initialize) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | [0018](docs/adr/0018-bound-server-discover-then-initialize-only.md) |
 | T0.40 | Apply the PR #72 re-review findings (prompts after a finished call, idle-timer gaps, orphan TTL and memory, ADR 0016 principal text) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.41 | Reconcile matrix row 2's status word across the matrix cell, its own prose and the CHANGELOG | `docs/testing` | test-engineer | docs-writer | open | — | 2 | — |
-| T0.42 | Put the ADR 0014 refusal in the note slot, not the refused slot, so an upstream error is never replaced (S3) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 23 | [0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md) |
-| T0.43 | Key the local stdio agent session explicitly so a built HTTP listener cannot push it into the shared orphan bucket (S1) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 23 | — |
-| T0.44 | Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | — |
-| T0.45 | Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7) | `internal/proxy` | mcp-protocol-engineer | go-reviewer | open | — | — | — |
+| T0.42 | Put the ADR 0014 refusal in the note slot, not the refused slot, so an upstream error is never replaced (S3) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2, 23 | [0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md) |
+| T0.43 | Key the local stdio agent session explicitly so a built HTTP listener cannot push it into the shared orphan bucket (S1) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2, 23 | — |
+| T0.44 | Bound, reap and log the shared orphan entry so cross-principal refusal is neither indefinite nor silent (S2, S4) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in progress | — | 23 | — |
+| T0.45 | Correct the agentSessionKey comment and record the register-after-flush idle-timer window (S5, S7) | `internal/proxy` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
+| T0.46 | Kill the upstream's whole process tree so a launcher's grandchild cannot outlive a restart or shutdown (S2) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2, 22 | — |
+| T0.47 | Label the upstream era from the negotiated protocol version, not from how netguard connected, before M1 audits it (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 
 ## Exit criteria
 
@@ -79,7 +81,6 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.39.review | [T0.39 review fixes are in PR #79 (PR #77 had merged): answered handshakes no longer restart, the budget bounds both attempts, the probe tests are deterministic](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.39.review.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.39 | [T0.39 and T0.25 are in PR #77: 5 s probe bound, one restart with initialize only, exit status at startup](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.39.md) |
 | 2026-09-24 | docs-writer | mcp-protocol-engineer | T0.39 | [T0.39's decision record is proposed in PR #74; the code waits on its acceptance](docs/handoffs/2026-09-24-docs-writer-to-mcp-protocol-engineer-T0.39.md) |
-| 2026-09-23 | test-engineer | joshscott13 | T0.5 | [T0.5 merged: exit criterion 2 needs one manual tool call in Claude Code and one in Cursor](docs/handoffs/2026-09-23-test-engineer-to-joshscott13-T0.5.md) |
 
 ## How to update
 
