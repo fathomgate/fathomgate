@@ -39,7 +39,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 
 ## Toolchain facts
 
-- `go.mod` is `go 1.25.0` with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported by `internal/audit` on Windows for the key-file DACL). Never add `gopkg.in/yaml.v3` (unmaintained).
+- `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported by `internal/audit` on Windows for the key-file DACL). Never add `gopkg.in/yaml.v3` (unmaintained).
 - `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.

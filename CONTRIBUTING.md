@@ -1,6 +1,6 @@
 # Contributing
 
-Most useful contributions to NetGuard are data, not Go: an upstream server profile, a policy example with tests, a redaction pattern with a fixture line. Those need no Go toolchain. Vendor drivers and core changes need Go 1.25 or later. Every commit is signed off under the DCO and follows Conventional Commits.
+Most useful contributions to NetGuard are data, not Go: an upstream server profile, a policy example with tests, a redaction pattern with a fixture line. Those need no Go toolchain. Vendor drivers and core changes need Go 1.26 or later. Every commit is signed off under the DCO and follows Conventional Commits.
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) first. The specs in [docs/specs/](docs/specs/) are normative; if code and spec disagree, file an issue rather than guessing.
 

@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23)
+- Partly superseded: the "keep `go 1.25.0` as the floor" clause by [ADR 0015](0015-raise-go-floor-to-1-26.md) (2026-09-23). The toolchain pin and every other rule here stand.
 
 ## Context
 

@@ -38,6 +38,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Changed
 
+- The `go.mod` floor is `go 1.26.0`, raised by `golang.org/x/sys` v0.47.0 -> v0.48.0 (Dependabot #39), whose own `go.mod` needs 1.26. Decision record `docs/adr/0015-raise-go-floor-to-1-26.md` (accepted) supersedes ADR 0013's 1.25.0 floor clause: the floor now follows the oldest supported Go release without a new ADR each time. Contributors need Go 1.26 or later; the build toolchain stays `go1.26.8`.
 - Go 1.25 toolchain: `go.mod` declares `go 1.25.0`, the minimum go-sdk v1.7.0 sets. CI, release and the `Dockerfile` builder follow it (Dockerfile already on golang:1.25-alpine, PR #1).
 - go-sdk v1.7.x pinned: `github.com/modelcontextprotocol/go-sdk v1.7.0` is in `go.mod` and imported by `internal/proxy`, so it is linked into `bin/netguard`. The interim `//go:build tools` pin `internal/tools/tools.go` is removed.
 - `release.yaml` pins GoReleaser to v2.18.2 instead of `~> v2`, the version `snapshot.yaml` runs, so a tag releases with the tool the last snapshot exercised (T0.6).
