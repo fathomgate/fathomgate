@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -125,6 +126,42 @@ func hangUpAttempt(t *testing.T, st mcp.Transport) func() []string {
 	return func() []string { return nil }
 }
 
+// badVersionAttempt answers server/discover with method-not-found and the
+// initialise request with a protocol version go-sdk rejects: an upstream
+// that answers, so it must never be restarted.
+func badVersionAttempt(t *testing.T, st mcp.Transport) func() []string {
+	conn, err := st.Connect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &methodLog{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx := context.Background()
+		for {
+			m, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			log.add(m)
+			r, ok := m.(*jsonrpc.Request)
+			if !ok || !r.IsCall() {
+				continue
+			}
+			resp := &jsonrpc.Response{ID: r.ID, Error: &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "method not found"}}
+			if r.Method == "initialize" { //nolint:misspell // MCP wire method name
+				resp = &jsonrpc.Response{ID: r.ID, Result: json.RawMessage(`{"protocolVersion":"1999-01-01","capabilities":{},"serverInfo":{"name":"bad","version":"0"}}`)}
+			}
+			if conn.Write(ctx, resp) != nil {
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() { _ = conn.Close(); <-done })
+	return log.get
+}
+
 // serverAttempt is the fake go-sdk upstream pinned to an era (pinServer),
 // with every method it reads recorded.
 func serverAttempt(version string) upstreamAttempt {
@@ -192,6 +229,12 @@ func TestDiscoverProbe(t *testing.T) {
 			name:  "probe refused: go-sdk's own fallback, no restart",
 			serve: []upstreamAttempt{serverAttempt(v2025)}, startup: 30 * time.Second,
 			builds: 1, version: v2025,
+		},
+		{
+			name:  "answered with a version go-sdk rejects: no restart",
+			serve: []upstreamAttempt{badVersionAttempt}, bound: bound, startup: 30 * time.Second,
+			builds:  1,
+			wantErr: []string{"proxy: upstream netdev-ssh-mcp: connect: ", "unsupported protocol version"},
 		},
 		{
 			name:  "probe unanswered: restart, initialise handshake only",
@@ -354,13 +397,16 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 
 // TestStartupExitStatus (T0.25): an upstream that dies during startup is
 // reported with its exit status, not only as a closed connection, and its
-// last stderr line still reaches the operator.
+// last stderr line still reaches the operator. An upstream that answered
+// with an error and exits only because netguard closed its stdin gets no
+// status: that exit is netguard's doing (S4 in the review of PR #77).
 func TestStartupExitStatus(t *testing.T) {
 	cases := []struct {
-		mode, phase, status string
+		mode, phase, status string // status "": none may be reported
 	}{
 		{"die", "connect", "exit status 3"},
 		{"dielist", "tools/list", "exit status 4"},
+		{"listerror", "tools/list", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -383,6 +429,12 @@ func TestStartupExitStatus(t *testing.T) {
 			if !strings.Contains(msg, "proxy: upstream netdev-ssh-mcp: "+tc.phase+": ") {
 				t.Errorf("error %q does not name the phase %s", msg, tc.phase)
 			}
+			if tc.status == "" {
+				if strings.Contains(msg, "upstream process ended") || !strings.Contains(msg, "FAKE tools/list failure") {
+					t.Errorf("error %q: want the upstream's error and no exit status", msg)
+				}
+				return
+			}
 			if !strings.HasSuffix(msg, "; upstream process ended: "+tc.status) {
 				t.Errorf("error %q does not end with the exit status %q", msg, tc.status)
 			}
@@ -390,6 +442,42 @@ func TestStartupExitStatus(t *testing.T) {
 				t.Errorf("the upstream's last stderr line was not relayed:\n%q", got)
 			}
 		})
+	}
+}
+
+// TestStartupBudgetBoundsRestart: the caller's startup budget bounds both
+// attempts, even when the restarted upstream answers nothing and ignores
+// stdin EOF (S3 in the review of PR #77). Both processes are reaped.
+func TestStartupBudgetBoundsRestart(t *testing.T) {
+	const budget = 2 * time.Second
+	b := &commandBuilds{cmd: Command{
+		Path: testExecutable(t),
+		Args: []string{"-test.run=^$"},
+		Env:  []string{fakeUpstreamEnv + "=silent", childRaceEnv},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	start := time.Now()
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}}, Options{discoverWait: 500 * time.Millisecond})
+	elapsed := time.Since(start)
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded against a silent upstream")
+	}
+	if elapsed > budget+time.Second {
+		t.Errorf("New took %s with a %s startup budget", elapsed, budget)
+	}
+	if !strings.Contains(err.Error(), "connect with "+initOnly) || strings.Contains(err.Error(), "upstream process ended") {
+		t.Errorf("error %q", err)
+	}
+	built := b.get()
+	if len(built) != 2 {
+		t.Fatalf("processes started: %d, want 2", len(built))
+	}
+	for i, ct := range built {
+		if ct.Command.ProcessState == nil {
+			t.Errorf("process %d was not reaped", i)
+		}
 	}
 }
 
@@ -401,6 +489,8 @@ func TestExitStatus(t *testing.T) {
 	if got := exitStatus(fmt.Errorf("closing stdin: %v", os.ErrClosed)); got != "" {
 		t.Errorf("not an exit error: %q", got)
 	}
+	// Identity, not errors.Is: without a status withExit must return the
+	// very error it was given, unwrapped.
 	if got := withExit(context.Canceled, ""); got != context.Canceled {
 		t.Errorf("withExit without a status changed the error: %v", got)
 	}

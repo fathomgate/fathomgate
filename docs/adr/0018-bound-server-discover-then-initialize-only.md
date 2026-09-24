@@ -72,6 +72,15 @@ We will bound go-sdk's `server/discover` probe at 5 seconds; when it neither ans
 | Keep the connection and send `initialize` on it after the probe times out | Observed behaviour is that the probe can kill the upstream's receive loop, so nothing more is answered on that connection; go-sdk also offers no way to re-drive negotiation on a session it has connected | Closed |
 | Probe `server/discover` ourselves on a scratch connection before handing the transport to go-sdk | Same restart cost, plus a hand-written negotiation path outside go-sdk that has to track the spec as it moves | Closed |
 
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-24 | "Only a deadline exceeded on that first attempt triggers the retry" is made exact: the bound has to run out before go-sdk has begun closing the connection. go-sdk closes the session itself inside `Connect` when it rejects an answer (an `initialize` error, an unsupported protocol version) and waits its 5-second shutdown grace, so the bound can run out during a close that an answer caused. That is an answered probe; it is not retried and its own error is reported. The code tells the two apart with a connection wrapper that records when a close was first requested (`trackedConn`, `internal/proxy/proxy.go`) | S1 and Go #1 in the reviews of PR #77: the first implementation checked only that the bound had expired, restarted an upstream that had answered, and logged a false warn line. The decision (retry only an unanswered probe) is unchanged |
+| 2026-09-24 | "`startupTimeout` (30 seconds) ... still bounds spawn, both attempts and `tools/list` together" held only for go-sdk's requests, not for go-sdk's own close of a failed session, which could run 5 to 10 seconds past it. netguard now kills the process of the attempt in progress when the startup context ends, and cuts the 2-second exit grace of a failed attempt to what is left of it, so the sentence holds as written | S3 and Go #2 in the reviews of PR #77: a 2-second budget returned after 7 seconds |
+
 ## References
 
 - [ADR 0008, dual-era MCP support](0008-dual-era-mcp-support.md) (amended by this record)

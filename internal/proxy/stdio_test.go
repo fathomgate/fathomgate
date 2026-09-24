@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -24,8 +25,9 @@ import (
 // (2025-11-25), as a FastMCP 1.x upstream is; "badversion" is a raw JSON-RPC
 // peer that answers the initialise request with a protocol version go-sdk
 // rejects, and then never exits on its own. "nodiscover" stops reading at
-// server/discover (ADR 0018); "die" exits 3 at once and "dielist" exits 4
-// on tools/list (T0.25).
+// server/discover (ADR 0018) and "silent" answers nothing at all; "die"
+// exits 3 at once, "dielist" exits 4 on tools/list, and "listerror"
+// answers tools/list with an error (T0.25).
 const fakeUpstreamEnv = "NETGUARD_TEST_FAKE_UPSTREAM"
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
@@ -44,8 +46,17 @@ func TestMain(m *testing.M) {
 	case "badversion":
 		runBadVersionUpstream()
 		return
+	case "silent":
+		// Reads everything, answers nothing, and ignores stdin EOF: only a
+		// kill ends it.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		time.Sleep(time.Hour)
+		return
 	case "nodiscover":
 		runNoDiscoverUpstream()
+		return
+	case "listerror":
+		runListErrorUpstream()
 		return
 	case "die":
 		fmt.Fprintln(os.Stderr, "fake upstream: FAKE startup failure")
@@ -157,7 +168,10 @@ func (c noDiscoverConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 	m, err := c.Connection.Read(ctx)
 	if r, ok := m.(*jsonrpc.Request); ok && err == nil && r.Method == "server/discover" {
 		fmt.Fprintln(os.Stderr, "fake upstream: unknown method server/discover; not reading any more")
-		select {} // the process lives on without reading
+		// The process lives on without reading. A sleep, not select{}:
+		// with every goroutine blocked the runtime could abort with "all
+		// goroutines are asleep", and the fake would exit on its own.
+		time.Sleep(time.Hour)
 	}
 	return m, err
 }
@@ -171,6 +185,25 @@ func runDieOnListUpstream() {
 			if method == "tools/list" {
 				fmt.Fprint(os.Stderr, "fake upstream: FAKE startup failure")
 				os.Exit(4)
+			}
+			return next(ctx, method, req)
+		}
+	})
+	if err := s.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+// runListErrorUpstream completes the handshake, answers tools/list with a
+// JSON-RPC error, and exits 0 when its stdin closes: an exit netguard
+// caused, which must not be reported as the upstream's exit status.
+func runListErrorUpstream() {
+	s := fakeUpstream(&recorder{}, nil)
+	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "tools/list" {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "FAKE tools/list failure"}
 			}
 			return next(ctx, method, req)
 		}
@@ -329,27 +362,44 @@ func TestStdioUpstreamRoundTripAndExit(t *testing.T) {
 }
 
 // G4: when go-sdk's Connect fails after the process started, the process is
-// killed rather than left running.
+// killed rather than left running. The upstream answers (with a version
+// go-sdk rejects) and ignores stdin EOF, so go-sdk is still inside its own
+// close when the probe bound runs out. That is an answer, not an unanswered
+// probe: no restart, no warn line, and the error is the real one (S1 in the
+// review of PR #77). netguard caused the process's end, so no exit status.
 func TestConnectFailureKillsUpstream(t *testing.T) {
-	ct := Command{
+	logs := newSyncBuffer()
+	b := &commandBuilds{cmd: Command{
 		Path: testExecutable(t),
 		Args: []string{"-test.run=^$"},
 		Env:  []string{fakeUpstreamEnv + "=badversion", childRaceEnv},
-	}.Transport()
+	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(ct)}}, Options{})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
+		Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverWait: time.Second})
 	if err == nil {
 		_ = p.Close()
 		t.Fatal("New succeeded against an unsupported protocol version")
 	}
-	if !strings.Contains(err.Error(), "connect") {
-		t.Fatalf("error %q", err)
+	msg := err.Error()
+	if !strings.Contains(msg, "proxy: upstream netdev-ssh-mcp: connect: ") || !strings.Contains(msg, "unsupported protocol version") {
+		t.Errorf("error %q is not the upstream's rejected answer", msg)
 	}
-	if ct.Command.Process == nil {
+	if strings.Contains(msg, "upstream process ended") {
+		t.Errorf("error %q reports an exit status netguard or go-sdk caused", msg)
+	}
+	if strings.Contains(logs.String(), restartWarning) {
+		t.Errorf("restart warning for an upstream that answered:\n%s", logs.String())
+	}
+	built := b.get()
+	if len(built) != 1 {
+		t.Fatalf("processes started: %d, want 1", len(built))
+	}
+	if built[0].Command.Process == nil {
 		t.Fatal("upstream was never started")
 	}
-	if ct.Command.ProcessState == nil {
+	if built[0].Command.ProcessState == nil {
 		t.Fatal("upstream process was not reaped; it is still running")
 	}
 }

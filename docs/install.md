@@ -250,6 +250,33 @@ The fixes:
 These cases run as automated tests with an empty `PATH` and with a fully
 empty environment (`env -i`): `tests/integration/test_launcher_path.py`.
 
+When the upstream process exits by itself during startup, netguard's error
+ends with its exit status, for example `; upstream process ended: exit
+status 1`. The upstream's own last stderr line, just above, usually says why.
+
+## Point `--upstream` at the server, not at a launcher
+
+Give `--upstream` the program that is the MCP server: the server's own
+binary, or for a Python server the interpreter inside its virtual
+environment (`/path/to/venv/bin/python`, with the script after `--`). Avoid
+launchers that start the server as a child of their own: `uvx`, `npx`,
+`uv run`, a shell script, `docker run -i`. Two reasons:
+
+- **A slow first start costs you the newer protocol.** netguard gives an
+  upstream 5 seconds to answer its first `server/discover` probe. An
+  upstream that has not answered by then is stopped, started again and
+  connected with the older `initialize` handshake (2025-11-25), and it stays
+  on that protocol until netguard restarts (ADR 0018). A launcher that is
+  still downloading or resolving packages on its first run, as `uvx` and
+  `npx` do, can take longer than 5 seconds. If you must use one, run it once
+  by hand first so its cache is warm.
+- **A stopped launcher can leave the server running.** netguard stops only
+  the process it started. If that process is a launcher, the real server
+  underneath can keep running, holding the same credentials you passed with
+  `--upstream-env-pass`, next to the copy netguard starts for the restart.
+  This is an open issue in [the threat model](security/threat-model.md).
+  Pointing `--upstream` at the server itself avoids it.
+
 ## Check it works
 
 Ask the client, in plain words: "Using the netdev tools, run `show version`

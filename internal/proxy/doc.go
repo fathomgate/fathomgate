@@ -18,9 +18,10 @@
 // on its own, stateful (2025-11-25, initialise handshake) or stateless
 // (2026-07-28, _meta on every request). An upstream that does not connect
 // within 5 seconds of go-sdk's server/discover probe is restarted once and
-// connected with the initialise handshake only (ADR 0018). The proxy records both per call,
-// forwards no _meta in either direction, and relays an upstream's form
-// elicitation to the agent only relabelled with its origin: as MRTR
+// connected with the initialise handshake only (ADR 0018). The proxy
+// records both per call, forwards no _meta in either direction, and relays
+// an upstream's form elicitation to the agent only relabelled with its
+// origin: as MRTR
 // input_required to a stateless agent, behind an AES-GCM sealed requestState
 // (state.go), or as elicitation/create to a stateful one (input.go).
 // Progress (T0.17) crosses as netguard's own notifications: the upstream gets
