@@ -118,9 +118,10 @@ Several exist; the two most substantive are `upa/mcp-netmiko-server` (most stars
 | Framework | `mcp.server.fastmcp.FastMCP` **[src: main.py]**, single file |
 | Transport | stdio default; `--sse` starts Starlette/uvicorn SSE on `--bind`/`--port` (default 127.0.0.1:10000) **[src]** |
 | Device targeting | TOML inventory path as positional CLI arg; `[default]` table for shared `device_type`/`username`/`password`/`port`; one table per device with `hostname` + `device_type` (validated against netmiko `platforms + telnet_platforms`). Tools take the device **name**. |
-| Install | `git clone` + `uv run`; no PyPI package; no Dockerfile seen *(uncertain)* |
-| Stars / license | 35 stars, 9 forks; license not shown *(uncertain)* |
-| Last activity | No releases; commit date *(uncertain)* |
+| Install | `git clone` + `uv run`; no PyPI package; no Dockerfile (repo root at `96e8ff3` holds `.gitignore`, `README.md`, `main.py`, `pyproject.toml`, `test/`, `uv.lock`) |
+| Stars / license | 35 stars, 9 forks; **no licence**: no `LICENSE` file, GitHub API `license: null` (checked 2026-09-25) |
+| Last activity | No releases or tags. Latest commit `96e8ff321cc839eeb525474736439ddc2ebc795c`, 2026-09-25 still HEAD, dated 2025-05-30 |
+| Pinned commit | `96e8ff3`, `main.py` sha256 `07e55298409e91dea62e2f245fad37be75e71a0dd8df9027f97ba0c7cca7babb`; tier 2 runs it (T0.34); profile `profiles/upa-mcp-netmiko-server.yaml`, server key `upa` (M1.13) |
 
 Tools **[src]**:
 
@@ -133,6 +134,8 @@ Tools **[src]**:
 Safety **[src]**:
 - `--disable-config` flag makes the config tool return a refusal string.
 - `--secured` flag: `send_command_and_get_output` rejects commands whose text *starts with* any of `r`, `clear`, `copy`, `file`, `write`, `delete`, `shut`, `start`, `power`, `debug`, `lock`, `set`. Note the single-letter `r` prefix (meant for request/reload/restart) also blocks `route`, `run`, etc.; and `show` is not an allow-list — anything not starting with those prefixes (e.g. `configure`, `terminal`, `ping`) passes.
+- Re-read at `96e8ff3` for M1.13 **[src: main.py:184-188]**: the check is a case-sensitive `str.startswith` on the untrimmed command, so ` reload` (leading space), `Reload` and `do reload` pass it. Neither flag is in the README. Both are off by default.
+- Also **[src]**: the handlers catch only netmiko `ConnectionException` (returned as `Connection Error: ...` text); an unknown device name is the text `Error: no device named '<name>'`, a normal result, not an MCP tool error. Each call logs the command (or the whole config list) and the first 100 characters of output to stderr at INFO (main.py:202, 234). `connect_kwargs` sets neither `ssh_strict` nor `system_host_keys`, so netmiko's defaults apply: paramiko `AutoAddPolicy`, no host-key checking. `--sse` has no authentication; `--debug` turns on Starlette debug mode.
 - Connect timeout 3 s, read timeout 20 s.
 - No secret redaction, no audit log.
 

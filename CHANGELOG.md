@@ -6,6 +6,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ## [Unreleased]
 
+### Added
+
+- Profile for upa/mcp-netmiko-server, `profiles/upa-mcp-netmiko-server.yaml`, server key `upa` (M1.13, #100). Every tool it exposes at commit `96e8ff3`, checked against `main.py` there: `send_command_and_get_output` is `EXEC_ARBITRARY` (target `name`, command `command`), so `show version` is allowed as `READ_OPERATIONAL` and `reload` is denied by `no-exec` under `read-only.yaml`; `set_config_commands_and_commit_or_save` is `WRITE_CONFIG` (target `name`, config payload `commands`), denied by `no-writes` under `read-only.yaml` and held on a `core` device under `prod-approval.yaml`; `get_network_device_list` is `INVENTORY_READ`. The header records the upstream's `--secured` and `--disable-config` flags and why Fathomgate does not rely on them.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
