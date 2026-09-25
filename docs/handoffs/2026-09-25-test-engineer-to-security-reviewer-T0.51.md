@@ -18,7 +18,7 @@
   - six injected commands refused with nothing sent.
   - All eight cases fail against v1.6.6.
 - The upstream obfuscator, unchanged, over `tests/fixtures/configs/`: v1.7.1 leaves 0/71 in clear with the annotations stripped. v1.6.6, as a control, leaves 20/71, the T0.29 totals.
-- Profile notes (T0.29 kept as history), research brief 02 (new dated section), `docs/install.md` (v1.7.1, key file, both advisories), matrix rows 1, 2, 15 and 22 with a run note, and CHANGELOG.
+- Profile notes (T0.29 kept as history), research brief 02 (new dated section), `docs/install.md` (v1.7.1, both advisories; key file optional since the fix round), matrix rows 1, 2, 15 and 22 with a run note, and CHANGELOG.
 - CI [run 36087378002](https://github.com/fathomgate/fathomgate/actions/runs/36087378002) is all green. `client-smoke`: 23 passed, 2 skipped (M1), 1 xfailed (row 15).
 
 ## Look at this first
@@ -44,10 +44,20 @@ FATHOMGATE_UPSTREAM=/abs/netdev-ssh-mcp_1.7.1_<os>_<arch> uv run --extra integra
 
 ## Decisions made without an ADR
 
-- install.md recommends a key file passed with `--upstream-env OBFUSCATION_KEY_FILE=<path>`, not the key through `--upstream-env-pass OBFUSCATION_KEY`. The path is not secret, and the upstream's own README recommends the file.
+- Superseded in the fix round (security M1): install.md keeps the default per-run key, and a key file is optional.
 - The notice-block test pins the opening words of an upstream string. It is compared as data, never acted on (invariant 7).
 
 ## Questions for the receiver
 
 - Should M1 or M2 strip or label the upstream's appended notice block, or is forwarding it as tool output enough under invariant 7?
 - Is "keep obfuscation on, with a key file" still the right M0 advice, now that the upstream's tokens are keyed?
+
+## Fix round (2026-09-25)
+
+Security approved with one medium; the docs review requested changes. Where they conflicted, security won. Commit `d40bb64`, CI [run 36088442110](https://github.com/fathomgate/fathomgate/actions/runs/36088442110) all green; `client-smoke` 23 passed, 2 skipped (M1), 1 xfailed (row 15).
+
+- **M1:** `docs/install.md` keeps the upstream's default per-run key, and says why it is the safest setting and that its notice block is harmless. A key file is optional, only for tokens that must match across runs. Keep it where the agent's tools cannot read it, and never put the key in a client `env` block. The three examples stay keyless, with one sentence on adding the flag. Table rows updated. The profile and the test comments say the same.
+- **L2:** each injection case asserts the upstream's exact refusal text, taken from `command_safety.go` at `6fc6ab0`. **N4:** the per-run-key case asserts that the agent's `initialize` result carries no upstream `instructions`. **L3:** added a CHANGELOG `### Security` entry.
+- Profile note, checked against the source: `show  running-config` (two spaces) passes the upstream's `show ru` prefix check, so the `get_config` redirect can be bypassed (the output is still obfuscated), and `run_ping` / `run_traceroute` arguments may start with `-`.
+- Docs findings 1 to 3 and 5 to 15 applied. Finding 4 was replaced by M1. The review text was not on the PR, so the wording for findings 3, 5, 10 and 13 is mine, written to the brief. Please check it.
+- Not touched, as asked: the threat-model rows and the Fathomgate-in-prose sweep.
