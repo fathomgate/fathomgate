@@ -1,17 +1,124 @@
 # Profile for shigechika/eos-mcp (Python FastMCP, stdio, Arista eAPI).
-# Source: docs/research/02-network-mcp-servers.md §1.5.
+# Source: docs/research/02-network-mcp-servers.md §1.5, each tool re-checked
+# against its handler at the pinned tag below (M1-14).
 #
 # Exemplary two-phase config push (dry-run by default, configure session with
 # commit timer) next to an unrestricted run_command* family that the README
 # itself calls a second write path. Batch tools select devices by hostnames
 # and/or tags; tags become "@tag" group tokens for the inventory to expand.
+#
+# Pinned upstream: v1.3.0 (PyPI eos-mcp 1.3.0, uploaded 2026-08-15; the
+# newest tag and release on 2026-09-25), commit
+# bffb89377b3fa6b544b45b0cab44d5191cf8981a. Its uv.lock resolves pyeapi 1.0.4
+# (pyproject.toml asks for any pyeapi). Verified [src] in:
+#   https://github.com/shigechika/eos-mcp/blob/bffb89377b3fa6b544b45b0cab44d5191cf8981a/eos_mcp/server.py
+#   (and eos_mcp/eapi.py, eos_mcp/config.py at the same commit)
+# Line numbers below are at that commit.
+#
+# Tools [src]. server.py registers exactly 17 tools with @mcp.tool() (FastMCP
+# from the official SDK, `mcp>=1.2,<2`); the argument names are the Python
+# parameter names. Every tool also takes config_path: str = "" (see hazard 2).
+#   health_check            server.py:53-109   config_path
+#   get_router_list         112-126            tags, config_path
+#   get_device_facts        129-160            hostname
+#   get_device_facts_batch  163-209            hostnames, tags, max_workers=5
+#   get_version             212-222            hostname
+#   get_config_diff         225-239            hostname, rollback_id=1
+#   list_config_sessions    242-254            hostname
+#   run_command             257-265            hostname, command
+#   run_commands            268-276            hostname, commands
+#   run_command_batch       279-320            command, hostnames, tags, max_workers=5
+#   run_commands_batch      323-365            commands, hostnames, tags, max_workers=5
+#   get_config              368-376            hostname
+#   push_config             379-411            hostname, config_lines, session_name="mcp-push",
+#                                              dry_run=True, commit_timer=300
+#   confirm_config_session  414-426            hostname, session_name="mcp-push"
+#   abort_config_session    429-441            hostname, session_name="mcp-push"
+#   collect_tech_support    444-452            hostname
+#   daily_brief             455-553            hostnames, tags, max_workers=5, since_hours=24
+# What each sends over eAPI runCmds (eapi.py): run_command and _batch send
+# [command] (94-97); run_commands and _batch send the list as given (100-104);
+# get_config sends "show running-config" (107-109); get_config_diff "show
+# rollback config <n>" then "show running-config diffs" (187-207);
+# list_config_sessions "show configuration sessions detail" (210-212);
+# collect_tech_support "show tech-support" (158-160); push_config
+# ["configure session <name>", *config_lines, "show session-config diffs",
+# "abort" | "commit timer hh:mm:ss"] in one call (118-143); confirm and abort
+# "configure session <name> commit|abort" (146-155); get_version and
+# get_device_facts "show version" (+ "show hostname"); daily_brief
+# (check_health, eapi.py:368-480) only show commands: version, hostname,
+# clock, logging, environment, interfaces status, mlag.
+#
+# Separators (M1-14, for the PR #152 security review). Nothing splits a
+# command string on commas or newlines. `pyeapi.connect` without return_node
+# returns an EapiConnection (pyeapi 1.0.4 client.py:394-461), whose execute()
+# puts each list element into the JSON-RPC `cmds` array unchanged
+# (eapilib.py:306-359, 596-634); a string command is one element
+# (make_iterable). The `MULTILINE:` split in pyeapi Node.run_commands
+# (client.py:884-891) is not on this path. So "show version,reload" reaches
+# EOS as one command, which the EOS parser rejects as one command. How eAPI
+# treats an embedded newline inside one `cmds` element is not recoverable
+# from source (uncertain); fathomgate must refuse it before it gets there,
+# as the M1-16 classifier does.
+#
+# Hazards [src] (for the security reviewer; M1-14 handoff):
+# 1. hostname is free-form, not an inventory name. get_creds uses
+#    cfg.get(host, ..., fallback=...), and configparser's fallback also
+#    covers a missing section (config.py:62-70), so any hostname connects,
+#    with the [DEFAULT] username and password (server.py:26-30). The eAPI
+#    credentials therefore go to whatever host the agent names, over HTTPS
+#    with verify=False by default (config.py:69) and a process-wide TLS
+#    context patched to SECLEVEL=0 and TLS 1.0 (eapi.py:17-27). Fathomgate's
+#    unknown-target default is the only thing between the agent and that.
+#    Brief 02 said the hostname "must exist in config.ini"; it does not.
+# 2. config_path is a local file read (critical once policy is enforced).
+#    Every tool takes an agent-supplied file path (server.py:22-23,
+#    config.py:20-43) and hands configparser's error text back to the agent:
+#    health_check as `detail` (server.py:100-107), get_router_list as an MCP
+#    tool error because it catches only FileNotFoundError (115-118), and the
+#    rest as "Error (<host>): <e>". configparser quotes the offending lines
+#    (reproduced; security review of PR #158, P1):
+#    - a file with no [section] header gets its first line quoted, so every
+#      single-line secret file is returned whole: ~/.git-credentials,
+#      .pgpass, .env, ~/.netrc, the --listen-token-file file;
+#    - a file that starts with a [section] line gets every malformed line
+#      after it quoted;
+#    - /proc/<pid>/environ is one NUL-separated line, so /proc/self/stat
+#      (parent pid) then /proc/<ppid>/environ returns fathomgate's whole
+#      environment: FATHOMGATE_LISTEN_TOKEN and every --upstream-env-pass
+#      credential.
+#    It also swaps the inventory: credentials, transport and verify for that
+#    call come from a file the agent chose. The profile schema cannot refuse
+#    a parameter yet (M1-35, new: refuse parameters the profile does not
+#    name, ADR).
+#    Interim operator control until M1-35 lands: put a `deny` rule with
+#    `servers: [eos-mcp]` first in the policy, or run eos-mcp sandboxed so it
+#    can read only its own config.ini and not fathomgate's /proc entries or
+#    files. In config.ini set `verify = true` for every host (hazard 1).
+# 3. push_config's dry_run is not a sandbox. config_lines go into the eAPI
+#    call unfiltered after "configure session <name>", so a line such as
+#    "end" followed by "configure" or an exec command would run outside the
+#    session before the final "abort" (eapi.py:133-135; EOS behaviour not
+#    tried on a device, uncertain). session_name and commit_timer are
+#    interpolated unchecked (eapi.py:112-115, 133-134). The class is
+#    WRITE_CONFIG whatever dry_run says. A future M3 dry_run driver must never
+#    use the upstream's push_config dry_run=True: it sends the payload to the
+#    device, before any approval. Classifying config_params is M1-36 (new;
+#    cEOS tier 2).
+# 4. daily_brief with neither hostnames nor tags runs on every device in
+#    config.ini (server.py:476-478), and fathomgate sees zero targets. The
+#    other batch tools do not: with an empty selection they return "No hosts
+#    resolved" (296-298, 341-343, 176-178).
+# 5. Connections are cached per hostname for the life of the process
+#    (eapi.py:29-31, 65-82), so a config_path given later for a cached host
+#    is ignored until a call to it fails.
 server: eos-mcp
 source: https://github.com/shigechika/eos-mcp
 description: Arista EOS server over eAPI with config sessions
 tools:
   health_check:
     class: LOCAL_ADMIN
-    notes: Checks the server's own config file, not a device.
+    notes: Parses the server's own config.ini (or the agent's config_path), no device connection; its error detail echoes file content (header, hazard 2).
   get_router_list:
     class: INVENTORY_READ
     group_params: [tags]
@@ -34,17 +141,19 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [hostname]
     command_params: [commands]
+    notes: The list is sent as one eAPI runCmds call, so ["configure", "hostname x"] is a config write.
   run_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [hostnames]
     group_params: [tags]
     command_params: [command]
-    notes: Fleet-wide; an empty selection means every device in the server's inventory.
+    notes: Fleet-wide over hostnames plus every device with a matching tag; an empty selection runs nothing upstream (server.py:296-298).
   run_commands_batch:
     class: EXEC_ARBITRARY
     targets_params: [hostnames]
     group_params: [tags]
     command_params: [commands]
+    notes: As run_command_batch, with a list of commands per device.
   get_config:
     class: READ_CONFIG
     target_params: [hostname]
@@ -58,7 +167,7 @@ tools:
     class: WRITE_CONFIG
     target_params: [hostname]
     config_params: [config_lines]
-    notes: dry_run defaults to true; commit_timer (default 300s) requires confirm_config_session.
+    notes: dry_run defaults to true; commit_timer (default 300s) requires confirm_config_session. dry_run is not a sandbox (header, hazard 3).
   confirm_config_session:
     class: WRITE_CONFIG
     target_params: [hostname]
@@ -68,10 +177,11 @@ tools:
     target_params: [hostname]
     notes: Rollback of a pending session; still a state change on the device.
   collect_tech_support:
-    class: READ_OPERATIONAL
+    class: READ_CONFIG
     target_params: [hostname]
-    notes: Heavy; output includes running-config and is redacted.
+    notes: Sends "show tech-support" (eapi.py:158-160), whose output includes the running-config, so it is READ_CONFIG like the same command through run_command (M1-14; was READ_OPERATIONAL). Heavy, 30 seconds or more.
   daily_brief:
     class: READ_OPERATIONAL
     targets_params: [hostnames]
     group_params: [tags]
+    notes: With neither hostnames nor tags it runs on every configured device and fathomgate sees zero targets (server.py:476-478).
