@@ -37,3 +37,11 @@ go build ./... && go vet ./... && go test -race ./... && make policy-test && mak
 ## Questions for the receiver
 
 - Should `render.py --check` also fail on a note name that neither pattern reads? Today such a note is skipped without a warning, and that has not changed.
+
+## Round 2 (Go review approved, fixes)
+
+Commit `6d8e8a3`.
+
+- `test_no_note_before_m1_31_is_read_as_hyphen_form` replaces the vacuous on-disk comparison. It checks that every name matching `HANDOFF_HYPHEN_RE` is dated 2026-09-25 or later.
+- `handoff_order` is the new sort key for `latest_handoffs`: (date, name without `-round<n>`, round), with the base note counting as round 1. It gives the same order for the notes on disk today. `test_latest_handoffs_lists_rounds_in_order` covers both forms and round10 after round2; the plain name sort fails it.
+- Board: owner is mcp-protocol-engineer, reviewers are [go-reviewer], and the note date is 2026-09-25. The follow-up to have `--check` warn on unreadable names is recorded in the M1-31 notes.
