@@ -3,7 +3,7 @@
 - **Task:** M1-35 — Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR)
 - **From → To:** policy-engineer → security-reviewer (then go-reviewer)
 - **State now:** in review
-- **Branch / PR:** `feat/closed-argument-list` · https://github.com/fathomgate/fathomgate/pull/161 (branched from `feat/profile-coverage`, PR #158, still open; base retargets to `main` when #158 merges)
+- **Branch / PR:** `feat/closed-argument-list` · https://github.com/fathomgate/fathomgate/pull/161 (branched from `feat/profile-coverage`, PR #158, still open; origin/main merged in and the PR base set to `main` in the fix round, so the diff is #158 plus this; merge #158 first)
 - **Date:** 2026-09-25
 
 ## Done
