@@ -82,7 +82,7 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 ## Repo map
 
 ```
-cmd/fathomgate/      CLI (version, serve --policy | --no-policy, policy test|eval, audit verify|keygen, redact, inventory import)
+cmd/fathomgate/      CLI (version, serve --policy | --no-policy, policy test|eval, audit verify|keygen, redact, inventory import|lint|resolve)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
@@ -102,7 +102,7 @@ tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview
 docs/                PLAN, PRD, adr/, specs/, testing/, agents/, milestones/ (board), handoffs/ (notes), research/, glossary
 tools/licences/      third_party.py (THIRD_PARTY_LICENSES/, `make licences`), spdx.py (SPDX lines); CI `licences-check`
-tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`)
+tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`); issues.py: issue labels and closures follow the boards (CI `issue-hygiene`)
 .claude/             agents/ (11 specialists) and commands/ (8 slash commands)
 ```
 

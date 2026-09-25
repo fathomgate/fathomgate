@@ -5,12 +5,11 @@
 # reads are denied even in the lab, because "reload" on a lab node still
 # costs an afternoon.
 #
-# List lab devices by name in the inventory. Do not tag them with a hostname
-# pattern: the target name comes from the agent, and a pattern that adds the
-# lab tag lets any matching string the agent sends be written to
-# ("lab-x@core-rtr-01" matches ^lab-). Any pattern match also makes the name
-# known, so reads reach it. inventory.example.yaml lists every device by name
-# and ships no active pattern.
+# List lab devices by name in the inventory. A hostname pattern such as ^lab-
+# with tags: [lab] only tags devices the inventory lists; a name the agent
+# makes up stays unknown and is denied (ADR 0031). A pattern's tag counts
+# here like a listed one, so anchor it tightly: ^lab- would also make a
+# listed "lab-core-01" writable.
 #
 # M1–M2: a write fathomgate allows here is sent to the device as the agent
 # wrote it — no dry run, no diff, no rollback; until M4 no audit event, only
