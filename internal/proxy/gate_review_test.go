@@ -111,7 +111,6 @@ func TestGateRetryVerifiedFirst(t *testing.T) {
 	// A retry with the state fathomgate issued is decided and forwarded.
 	res, err := h.agent.CallTool(ctx, &mcp.CallToolParams{Name: "netdev-ssh-mcp.ask", Arguments: args,
 		RequestState: first.RequestState, InputResponses: mcp.InputResponseMap{"pw": &mcp.ElicitResult{Action: "accept", Content: map[string]any{"password": agentPassword}}}})
-	// (The gate runs twice for it: core-rtr-01 is already touched.)
 	if err != nil || res.IsError || len(buf.lines("msg=decision")) != 2 || len(h.rec.all()) != 2 {
 		t.Errorf("valid retry: %v %q, decision lines %d, upstream calls %d", err, text(res), len(buf.lines("msg=decision")), len(h.rec.all()))
 	}

@@ -95,6 +95,16 @@ func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
 		return d.refuse(reasonNotObject)
 	}
 
+	// The per-call caps (profile-schema 2.4), before anything costs more
+	// than a count.
+	if inProfile {
+		if code, reason := overCaps(spec, args); code != "" {
+			d.classify(profile, spec, inProfile, nil)
+			d.parseError = code
+			return d.refuse(reason)
+		}
+	}
+
 	// 2 and 3. Classify, then the closed argument list, then the targets.
 	d.classify(profile, spec, inProfile, args)
 	if profile != nil && !inProfile && len(args) > 0 {
@@ -137,7 +147,7 @@ func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
 		Class:   d.class,
 		Targets: make([]policy.Target, 0, len(d.targets)),
 		// 5. Session counters, as the proxy counted them.
-		Session: policy.Session{DevicesTouched: in.DevicesTouched, PendingHolds: in.PendingHolds},
+		Session: policy.Session{DevicesTouched: devicesTouched(in, d.targets), PendingHolds: in.PendingHolds},
 	}
 	for _, name := range d.targets {
 		req.Targets = append(req.Targets, g.resolve(name))
@@ -170,6 +180,22 @@ func (g *Gate) Arguments(server, tool string) (named []string, closed bool) {
 	}
 	sort.Strings(named)
 	return slices.Compact(named), true
+}
+
+// devicesTouched is the key's count before the call without the call's
+// targets it has already counted (targets holds no repeats), so Evaluate's
+// devices_touched plus the call's targets counts each device once. It is
+// never below 0.
+func devicesTouched(in seam.CallInfo, targets []string) int {
+	n := in.DevicesTouched
+	if in.Counted != nil {
+		for _, t := range targets {
+			if in.Counted(t) {
+				n--
+			}
+		}
+	}
+	return max(n, 0)
 }
 
 // resolve looks one name up in the inventory. The name is known only when

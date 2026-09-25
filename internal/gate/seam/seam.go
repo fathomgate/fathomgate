@@ -39,6 +39,14 @@ type CallInfo struct {
 	// DevicesTouched and PendingHolds are the counters of this call's
 	// counter key (ADR 0026, Session counters), read before the call.
 	DevicesTouched, PendingHolds int
+	// Counted reports whether the counter key has already counted a target
+	// name, exactly as the upstream receives it. The gate takes each of the
+	// call's targets it reports true for off DevicesTouched, so a device is
+	// counted once toward max_devices (policy-schema 2: distinct devices)
+	// and one Decide is enough (M1-39). nil counts none. The proxy holds
+	// the counter key's lock across Decide; Counted is valid only during
+	// that call, must not be kept, and only reads.
+	Counted func(target string) bool
 }
 
 // Verdict is the gate's answer for one call. The proxy acts on Forward

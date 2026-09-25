@@ -31,7 +31,19 @@ type fakeGate struct {
 	calls []seam.CallInfo
 }
 
+// Decide records the call with the count internal/gate would pass to
+// Evaluate: a target the key has already counted comes off DevicesTouched
+// (seam.CallInfo.Counted), and Counted, valid only during Decide, is
+// cleared from the record.
 func (g *fakeGate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
+	if in.Counted != nil {
+		for _, t := range hostOf(in) {
+			if in.Counted(t) {
+				in.DevicesTouched--
+			}
+		}
+		in.Counted = nil
+	}
 	g.mu.Lock()
 	g.calls = append(g.calls, in)
 	g.mu.Unlock()
@@ -489,6 +501,61 @@ func TestGateCountersStdio(t *testing.T) {
 	}
 }
 
+// TestGateDecidesOnce (M1-39): a call whose target the key has already
+// touched is decided once, with the key's count and a Counted that knows
+// the target, which the gate takes off the count.
+func TestGateDecidesOnce(t *testing.T) {
+	// The spy runs on the proxy's handler goroutines; the test reads what
+	// it recorded under the same lock.
+	var mu sync.Mutex
+	var raw []int
+	var known []bool
+	g := &fakeGate{decide: allowAll}
+	spy := &spyGate{fakeGate: g, before: func(in seam.CallInfo) {
+		c := in.Counted != nil && in.Counted("a-01")
+		mu.Lock()
+		defer mu.Unlock()
+		raw = append(raw, in.DevicesTouched)
+		known = append(known, c)
+	}}
+	h := newEraHarness(t, eraSetup{agent: v2026, upstream: v2026, policy: spy})
+	for _, host := range []string{"a-01", "b-01", "a-01"} {
+		if res := showOn(t, h.agent, host); res.IsError {
+			t.Fatalf("%s: %q", host, text(res))
+		}
+	}
+	if n := len(g.all()); n != 3 {
+		t.Errorf("Decide ran %d times for 3 calls, want 3", n)
+	}
+	mu.Lock()
+	gotRaw, gotKnown := slices.Clone(raw), slices.Clone(known)
+	mu.Unlock()
+	if !slices.Equal(gotRaw, []int{0, 1, 2}) || !slices.Equal(gotKnown, []bool{false, true, true}) {
+		t.Errorf("raw devices_touched %v, a-01 counted %v; want [0 1 2], [false true true]", gotRaw, gotKnown)
+	}
+	if got := g.all()[2].DevicesTouched; got != 1 {
+		t.Errorf("third call: devices_touched after Counted %d, want 1", got)
+	}
+	h.proxy.counters.mu.Lock()
+	sc := h.proxy.counters.keys["process"]
+	h.proxy.counters.mu.Unlock()
+	if sc == nil || sc.touchedCount() != 2 {
+		t.Errorf("process key: %+v", sc)
+	}
+}
+
+// spyGate runs before on the CallInfo the proxy passes, before fakeGate
+// adjusts it.
+type spyGate struct {
+	*fakeGate
+	before func(seam.CallInfo)
+}
+
+func (s *spyGate) Decide(ctx context.Context, in seam.CallInfo) seam.Verdict {
+	s.before(in)
+	return s.fakeGate.Decide(ctx, in)
+}
+
 // TestGateCountersSerialised (Go review of PR #167, item 3): two concurrent
 // calls on one key under max_devices 1, the first held inside Decide until
 // the second is waiting for the key's lock: exactly one is forwarded. No
@@ -580,7 +647,7 @@ func TestTouchedCap(t *testing.T) {
 	before := sc.touchedCount()
 	sc.touch([]string{"over-01"})
 	sc.touch([]string{"over-01"})
-	if got := sc.touchedCount(); got != before+2 || sc.alreadyTouched([]string{"over-01"}) != 0 {
+	if got := sc.touchedCount(); got != before+2 || sc.counted("over-01") {
 		t.Errorf("past the cap: %d, want %d", got, before+2)
 	}
 }

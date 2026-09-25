@@ -21,10 +21,11 @@
 // the budget ([StaleFactor]) fails too, so its entry is removed. A p99
 // over the budget is logged as OVER BUDGET AT p99. A worst case's p99 is
 // not a pass condition because garbage collection sets it, not the call:
-// each worst case
-// allocates 0.4 to 3.4 MB, so a collection starts every call or two and its
-// pause lands on a random call (on Windows 10 to 18 ms, against 2 to 4 ms
-// with GOGC=off). The threshold never moves; the numbers are in
+// each worst case allocates 0.4 to 1.0 MB (0.4 to 3.4 MB before M1-39), so
+// a collection starts every few calls and, on Windows with GOMAXPROCS 8 or
+// more, stalls a random call for 10 to 13 ms (p99 1.5 to 2 ms with
+// GOGC=off, or with GOMAXPROCS 4). The threshold never moves; the numbers
+// are in
 // docs/testing/test-strategy.md.
 package gatetest
 
@@ -81,23 +82,14 @@ const (
 	WhatProxy = "proxy decision stage"
 )
 
-// The findings behind KnownOverBudget.
-const (
-	findingRegexp = "M1-23 finding: classify matches each command against the read allow-list with backtracking regexps, about 3 us a command, so the 1,900 commands that fit in 64 KiB take 5 to 10 ms. Owner: policy-engineer (internal/classify)."
-	findingTwice  = "M1-23 finding: when a target of the call is already counted, decideLocked runs Decide a second time with the lower count, so the proxy pays the whole classify and resolve cost twice. Owner: mcp-protocol-engineer (internal/proxy)."
-)
-
 // knownOverBudget holds the worst cases whose p50 is over Budget, keyed
-// "<what>: <case>", with the finding. Remove an entry when its finding is
-// fixed: the strict steps fail on a known case that is well under the
-// budget (StaleFactor), and on an unknown case over it.
-var knownOverBudget = map[string]string{
-	WhatGate + ": " + WorstShowCommands:  findingRegexp,
-	WhatGate + ": " + WorstBatch:         findingRegexp,
-	WhatProxy + ": " + WorstShowCommands: findingRegexp + " " + findingTwice,
-	WhatProxy + ": " + WorstBatch:        findingRegexp + " " + findingTwice,
-	WhatProxy + ": " + WorstManyTargets:  findingTwice,
-}
+// "<what>: <case>", with the finding and its owner. Remove an entry when its
+// finding is fixed: the strict steps fail on a known case that is well
+// under the budget (StaleFactor), and on an unknown case over it. It is
+// empty: M1-39 fixed both M1-23 findings (commands are classified without
+// unanchored regexps and capped at 64 a call, targets at 256, and the proxy
+// runs Decide once).
+var knownOverBudget = map[string]string{}
 
 // KnownOverBudget returns the finding for worst case name under
 // measurement what (WhatGate or WhatProxy), and whether its p50 is known to
@@ -110,12 +102,28 @@ func KnownOverBudget(what, name string) (finding string, ok bool) {
 // WorstShowCommands and the other Worst names are the worst cases' names,
 // for KnownOverBudget and the logs.
 const (
-	WorstShowCommands = "eos run_commands, 64 KiB of show commands"
+	WorstShowCommands = "eos run_commands, 64 show commands of 1 KiB"
 	WorstOneCommand   = "upa send_command, one 64 KiB multi-line command"
 	WorstConfigString = "upa core write, 64 KiB multi-line config string"
 	WorstConfigLines  = "eos lab push_config, 64 KiB of config lines"
-	WorstManyTargets  = "eos daily_brief, 64 KiB of distinct targets"
-	WorstBatch        = "eos run_commands_batch, every known target, 64 KiB of commands"
+	WorstManyTargets  = "eos daily_brief, 256 distinct targets of 250 bytes"
+	WorstBatch        = "eos run_commands_batch, every known target, 64 commands of 1 KiB"
+	// The same 64 KiB as short commands or names, over the per-call caps.
+	WorstTooManyCommands = "eos run_commands, 1,900 short show commands (over the command cap)"
+	WorstTooManyTargets  = "eos daily_brief, 3,300 short targets (over the target cap)"
+)
+
+// CommandCap and TargetCap are the gate's per-call caps (internal/gate
+// maxCommandsPerCall and maxTargetsPerCall, profile-schema 2.4), and
+// CommandWidth and TargetWidth the longest command and name the gate reads
+// in full (classify's maxCommandLen; a hostname's 253 bytes). The worst
+// cases sit exactly at the caps. TestPerCallCapConstants (internal/gate) and
+// TestCommandWidthIsCommandCap (internal/classify) hold these to the code.
+const (
+	CommandCap   = 64
+	CommandWidth = 1024
+	TargetCap    = 256
+	TargetWidth  = 253
 )
 
 // Case is one call of the corpus and the verdict it must get under
@@ -174,15 +182,26 @@ func Typical() []Case {
 // 64 KiB cap whose every command, config line or target the gate must
 // check (no input fails early, except the one multi-line command, which the
 // downgrade refuses at its first line break after reading the whole
-// payload), a long multi-line config payload and thousands of targets,
-// each resolved. known are the device names of the inventory under test
-// (inventory.example.yaml, as the tests load it): the target list starts
-// with them, and the batch names all of them.
+// payload). Commands and targets are at the gate's per-call caps (M1-39):
+// 64 commands of about 1 KiB each (the classifier's cap per command) and
+// 256 targets of about 250 bytes, each resolved. Two more cases fill the
+// same 64 KiB with short commands or names, far over the caps, and must be
+// the cheap default:bad_arguments refusal. known are the device names of
+// the inventory under test (inventory.example.yaml, as the tests load it):
+// the short target list starts with them, and the batch names all of them.
 func Worst(known []string) ([]Case, error) {
 	if len(known) == 0 {
 		return nil, fmt.Errorf("no inventory device names")
 	}
 	show := func(i int) string { return fmt.Sprintf("show interfaces Ethernet%d/%d status", i/48+1, i%48+1) }
+	longShow := func(i, n int) string {
+		var b strings.Builder
+		b.WriteString("show interfaces")
+		for k := 0; b.Len() < n; k++ {
+			fmt.Fprintf(&b, " Ethernet%d/%d", i+1, k%48+1)
+		}
+		return strings.TrimRight(b.String()[:n], " ")
+	}
 	cfg := func(i int) string {
 		if i%2 == 0 {
 			return fmt.Sprintf("interface Ethernet%d/%d", i/96+1, (i/2)%48+1)
@@ -195,6 +214,16 @@ func Worst(known []string) ([]Case, error) {
 		}
 		return fmt.Sprintf("lab-dev-%05d", i)
 	}
+	// longTarget is an unknown hostname of about n bytes, in labels of at
+	// most 63 bytes, the last one not numeric. None is in the inventory:
+	// its names are too short to fill the argument cap at 256 targets.
+	longTarget := func(i, n int) string {
+		s := fmt.Sprintf("lab-dev-%05d", i)
+		for n-len(s) >= 2 {
+			s += "." + strings.Repeat("x", min(63, n-len(s)-1))
+		}
+		return s
+	}
 	all := make([]any, len(known))
 	for i, n := range known {
 		all[i] = n
@@ -205,21 +234,28 @@ func Worst(known []string) ([]Case, error) {
 		key                string
 		lines              bool // one newline-joined string, not a list
 		item               func(int) string
+		count, width       int                   // a list of exactly count items of up to width bytes
+		long               func(i, n int) string // item i of about n bytes, when count is set
 		effect, rule       string
 	}{
-		{WorstShowCommands, eos, "run_commands", map[string]any{"hostname": "lab-sw-01"}, "commands", false, show, "allow", "reads-anywhere"},
-		{WorstOneCommand, upa, "send_command_and_get_output", map[string]any{"name": "lab-sw-01"}, "command", true, show, "deny", "no-exec"},
-		{WorstConfigString, upa, "set_config_commands_and_commit_or_save", map[string]any{"name": "core-rtr-01"}, "commands", true, cfg, "hold", "prod-core-needs-approval"},
-		{WorstConfigLines, eos, "push_config", map[string]any{"hostname": "lab-sw-01"}, "config_lines", false, cfg, "allow", "lab-writes-free"},
-		{WorstManyTargets, eos, "daily_brief", map[string]any{}, "hostnames", false, target, "deny", "default:unknown_target"},
-		{WorstBatch, eos, "run_commands_batch", map[string]any{"hostnames": all}, "commands", false, show, "deny", "default:session.max_devices"},
+		{WorstShowCommands, eos, "run_commands", map[string]any{"hostname": "lab-sw-01"}, "commands", false, nil, CommandCap, CommandWidth, longShow, "allow", "reads-anywhere"},
+		{WorstOneCommand, upa, "send_command_and_get_output", map[string]any{"name": "lab-sw-01"}, "command", true, show, 0, 0, nil, "deny", "no-exec"},
+		{WorstConfigString, upa, "set_config_commands_and_commit_or_save", map[string]any{"name": "core-rtr-01"}, "commands", true, cfg, 0, 0, nil, "hold", "prod-core-needs-approval"},
+		{WorstConfigLines, eos, "push_config", map[string]any{"hostname": "lab-sw-01"}, "config_lines", false, cfg, 0, 0, nil, "allow", "lab-writes-free"},
+		{WorstManyTargets, eos, "daily_brief", map[string]any{}, "hostnames", false, nil, TargetCap, TargetWidth, longTarget, "deny", "default:unknown_target"},
+		{WorstBatch, eos, "run_commands_batch", map[string]any{"hostnames": all}, "commands", false, nil, CommandCap, CommandWidth, longShow, "deny", "default:session.max_devices"},
+		{WorstTooManyCommands, eos, "run_commands", map[string]any{"hostname": "lab-sw-01"}, "commands", false, show, 0, 0, nil, "deny", "default:bad_arguments"},
+		{WorstTooManyTargets, eos, "daily_brief", map[string]any{}, "hostnames", false, target, 0, 0, nil, "deny", "default:bad_arguments"},
 	}
 	out := make([]Case, 0, len(specs))
 	for _, s := range specs {
 		var v any
-		if s.lines {
+		switch {
+		case s.count > 0:
+			v = fillN(s.base, s.key, s.count, s.width, s.long)
+		case s.lines:
 			v = fillString(s.base, s.key, s.item)
-		} else {
+		default:
 			v = fillList(s.base, s.key, s.item)
 		}
 		args := mustJSON(withKey(s.base, s.key, v))
@@ -229,6 +265,19 @@ func Worst(known []string) ([]Case, error) {
 		out = append(out, Case{Name: s.name, Server: s.server, Tool: s.tool, Args: args, Effect: s.effect, Rule: s.rule, Worst: true})
 	}
 	return out, nil
+}
+
+// fillN returns count items long(i, n), with n as large as keeps the JSON
+// of the arguments at or under MaxArgs, and at most width.
+func fillN(base map[string]any, key string, count, width int, long func(i, n int) string) []any {
+	size := len(mustJSON(withKey(base, key, []any{})))
+	// Each item adds its quotes and a comma (one fewer comma in all).
+	n := min(width, (MaxArgs-size+1)/count-3)
+	out := make([]any, count)
+	for i := range out {
+		out[i] = long(i, n)
+	}
+	return out
 }
 
 // fillList returns the longest list item(0), item(1), ... that keeps the
