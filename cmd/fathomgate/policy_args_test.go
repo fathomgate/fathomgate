@@ -28,7 +28,7 @@ func TestArgumentDecision(t *testing.T) {
 		t.Errorf("trace: %+v", d.Trace)
 	}
 	d = argumentDecision(classify.Result{MalformedArgs: []string{"hostname"}})
-	if d == nil || !strings.Contains(d.Reason, "not a string") {
+	if d == nil || !strings.Contains(d.Reason, "does not parse as JSON") {
 		t.Fatalf("malformed: %+v", d)
 	}
 }

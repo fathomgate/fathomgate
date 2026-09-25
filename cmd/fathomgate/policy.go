@@ -243,7 +243,7 @@ func argumentDecision(res classify.Result) *policy.Decision {
 	}
 	if len(res.MalformedArgs) > 0 {
 		if len(res.UnnamedArgs) == 0 {
-			reason = "a target, command or config argument is not a string or a list of strings"
+			reason = "a target, command or config argument must be a string that does not parse as JSON, or a list of such strings"
 		}
 		notes = append(notes, "not a string or list of strings: "+strings.Join(quoteAll(res.MalformedArgs), ", "))
 	}

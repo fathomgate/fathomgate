@@ -67,7 +67,7 @@ The agent-facing reason is fixed text that names no argument:
 fathomgate denied eos-mcp.get_version: rule default:bad_arguments (class READ_OPERATIONAL): an argument is not named in the server profile for this tool
 ```
 
-Argument names are agent-chosen text, so they stay out of the tool error, as ADR 0026 requires for argument values. The decision log line carries them as `unnamed_args` and `malformed_args`, escaped by `slog`. M1-18 fixes a cap on how many names and how many bytes are logged. For a malformed argument alone, the reason reads `a target, command or config argument is not a string or a list of strings`.
+Argument names are agent-chosen text, so they stay out of the tool error, as ADR 0026 requires for argument values. The decision log line carries them as `unnamed_args` and `malformed_args`, escaped by `slog`. M1-18 fixes a cap on how many names and how many bytes are logged. For a malformed argument alone, the reason reads `a target, command or config argument must be a string that does not parse as JSON, or a list of such strings`.
 
 `fathomgate policy eval --profile` shows the same deny. The trace names the arguments, because the operator typed them. It exits 1 without calling `Evaluate`.
 
