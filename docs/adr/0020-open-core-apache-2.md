@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; chose open core, Apache-2.0 and DCO on 2026-09-24); proposed by docs-writer. The boundary table and the contested rows below are recommendations for the maintainer to accept or change. Reviewers: security-reviewer (boundary rule, extension invariants), release-engineer (LICENSE, NOTICE, artefacts), policy-engineer and network-safety-engineer (the core/commercial split of their packages), mcp-protocol-engineer (MRTR approval, `Proxy.dispatch`)
+- Amended: 2026-09-25, the approval console row is settled as commercial (see *Amendments*)
 
 ## Context
 
@@ -177,6 +178,14 @@ The commercial repository stays private and keeps self-hosted CI. The security r
 | MIT core | Permissive like Apache-2.0, but with no explicit patent grant and no trademark clause. Apache-2.0 costs nothing more for users and protects contributors and users against patent claims |
 | AGPL core | Many enterprise legal teams ban AGPL outright. That hurts adoption among exactly the platform and security teams the commercial features are for, and it complicates the commercial repository's own linking to the core |
 | A CLA | Friction at the first contribution, and many contributors refuse to sign one for an open-core project because it permits the relicensing this record gives up. DCO is enough for inbound=outbound Apache-2.0 |
+
+## Amendments
+
+This section records the maintainer's settlement of contested rows this record left open, and factual corrections (GOVERNANCE.md). The decision, the boundary rule and the rows already marked Core do not change.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | **Approval console settled: commercial.** The M5 row "Approval console and audit viewer (R29)" is **Commercial** (the paid edition, enterprise or hosted), no longer a candidate or contested. It is settled on the condition in the *Approval console* contested row, which now binds the core: the core CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind because the console is absent (added to M3 as R35 in PRD.md; the command that shows it is specified in [approval-protocol 6.1](../specs/approval-protocol.md) by the M3 approval record). Everything that decides or proves stays in the core, unchanged: `fathomgate approve` and `fathomgate deny`, the generic HMAC-signed webhook, the audit chain and `fathomgate audit verify`, every `ChangeSafety` driver and the proxy-owned rollback watchdog (R30), and the optional OPA backend (R31). The console is built in the commercial repository on the open tokens and components in `design/`, sees redacted output only (extension invariant 4) and reads the audit chain without writing it (invariant 5). M5 in ROADMAP.md, PLAN.md and PRD.md is rescoped to the drivers, the watchdog and the OPA backend; PLAN.md's `console/` directory is removed from the repo layout | Maintainer decision, Josh Scott, 2026-09-25. It adopts this record's own recommendation for the row, so the boundary rule and the decision are unchanged; *Negative* ("M5's console ... If accepted, `ROADMAP.md`, `PRD.md` and `PLAN.md` are updated") is carried out in the same pull request |
 
 ## References
 
