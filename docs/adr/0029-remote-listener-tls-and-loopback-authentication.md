@@ -27,13 +27,15 @@ We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 
 4. **Windows exclusive bind.** Every listener socket on Windows is bound with `SO_EXCLUSIVEADDRUSE`, so another user's wildcard bind cannot take fathomgate's loopback connections while it runs. This needs `golang.org/x/sys/windows`, already a dependency (ADR 0011, 0021).
 5. **Residual.** Plain-HTTP loopback while fathomgate is down stays open, and the threat-model row says so, with the mitigations: TLS on loopback (3, from M2), a supervisor that restarts at once, one token per agent. The Unix-socket and named-pipe listener is not built in M1 (decision 2).
 
+**Correction, 2026-09-25 (M1-27; security review of PR #156).** Decision 4 said `SO_EXCLUSIVEADDRUSE` stops another user's wildcard bind from taking fathomgate's loopback connections while it runs. It does not: the option protects only the exact addresses bound (`127.0.0.1:P`, `[::1]:P`). Measured on Windows 11 build 26200 and the Windows Server CI runner with a socket of the same user: while fathomgate holds both loopbacks with the option, another socket can still bind `0.0.0.0:P`, `[::]:P` IPv6-only or `[::]:P` dual-stack, with or without `SO_REUSEADDR`; agents reach fathomgate while it runs and the wildcard socket once it stops, and fathomgate restarts on the port without noticing. Decision 4 stands as defence in depth for the exact addresses. The fix, measured in the same review and implemented in M1-27: after its loopback binds, fathomgate also binds one socket on each of `0.0.0.0:P`, `[::]:P` IPv6-only and `[::]:P` dual-stack, without `SO_EXCLUSIVEADDRUSE` and never listening, and holds them while it serves. Every same-user bind of port P on a wildcard or loopback address then fails, and a squatter already holding one of them stops fathomgate starting. Another user's socket is still to be measured. The squat while fathomgate is down stays open until TLS (the deferred part of this record).
+
 ## Consequences
 
 ### Positive
 
 - The remote mode ADR 0016 promised lands with the policy in front of it and cannot be switched on without TLS, a host list and a policy.
 - An operator who needs the squatting row closed can close it today with a client that trusts a custom CA.
-- The Windows no-race case is closed while fathomgate runs.
+- ~~The Windows no-race case is closed while fathomgate runs.~~ Withdrawn by the correction under *Decision*: the exclusive bind alone does not close it; the wildcard sockets of M1-27 do.
 
 ### Negative
 
