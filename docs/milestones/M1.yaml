@@ -109,9 +109,9 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     matrix: [2]
-    notes: 'Carried from T0.35. From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline. Kickoff 2026-09-25: Not an M1 exit criterion. make conformance required (internal/proxy).'
+    notes: 'Carried from T0.35. From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline. Kickoff 2026-09-25: Not an M1 exit criterion. make conformance required (internal/proxy). Moved to M2 by the maintainer 2026-09-25: the allow-list keeps refusing titled multi-select and enumNames (deny by default); revisit with the M2 upstream-content and redaction work, with a security review of how upstream titles are labelled, escaped and capped. Under a policy, upstream prompts to profiled servers are refused anyway (ADR 0026 note). The conformance baseline stays as is.'
   - id: M1-11
     title: Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects
     package: docs
@@ -125,11 +125,11 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     blocked_by: [M1-19]
     adr: "0016"
     matrix: [23]
-    notes: 'Carried from T0.58. M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass. Kickoff 2026-09-25: WRITE_CONFIG enforcement arrives with M1-19. No board task yet adds per-call deadlines, so the revisit starts from M1-19 and records whether deadlines are still needed.'
+    notes: 'Carried from T0.58. M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass. Kickoff 2026-09-25: WRITE_CONFIG enforcement arrives with M1-19. No board task yet adds per-call deadlines, so the revisit starts from M1-19 and records whether deadlines are still needed. Moved to M3 by the maintainer 2026-09-25, to be fixed with approvals and per-call deadlines, when a call admitted after a DELETE could be an approved write. Until then the residual stays accepted and bounded by the idle expiry (threat model row, TestDeleteWindowBoundedByIdleExpiry).'
   - id: M1-13
     title: Profile for upa/mcp-netmiko-server, every surveyed tool mapped
     package: profiles
@@ -181,7 +181,7 @@ relo
     adr: "0010"
     matrix: [18]
     spec: docs/specs/profile-schema.md
-    notes: 'PRD R13 (P1, M1); matrix row 18 (M1, tier 1, Meraki official execute_api fixture). Parse the planned profile fields capability_param, capability_table and top-level capabilities as profile-schema section 3 specifies; ADR 0010 decided capability tables. If the field shape has to differ from the spec, stop and open a record first. class_source capability_table. An unknown capability_id is EXEC_ARBITRARY.'
+    notes: 'PRD R13 (P1, M1); matrix row 18 (M1, tier 1, Meraki official execute_api fixture). Parse the planned profile fields capability_param, capability_table and top-level capabilities as profile-schema section 3 specifies; ADR 0010 decided capability tables. If the field shape has to differ from the spec, stop and open a record first. class_source capability_table. An unknown capability_id is EXEC_ARBITRARY. Kept in M1 by the maintainer 2026-09-25 (ADR 0010 and profile-schema section 3 already decide the design).'
   - id: M1-18
     title: internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026
     package: internal/gate
@@ -403,4 +403,3 @@ relo
     state: open
     matrix: []
     notes: 'From the Go re-review of PR #186 (nits, not blocking). serveListenOtherFamilyTaken (listen_bind_test.go) and serveListenWildcardHeld (listen_windows_test.go) retry on any first-bind failure matched by stderr text, not only on address in use, because run() exposes no typed error; a real failure still fails after 50 attempts with every attempt logged. Have run() (or a test seam) return the bind error so the tests can use addrTaken. Also: the deferred rec.checkReleased(t) runs after a t.Fatalf in the same attempt and may add extra still-bound lines after a failure; consider skipping it when t.Failed().'
-
