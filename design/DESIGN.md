@@ -55,7 +55,7 @@ A call has exactly one decision. The word is always shown; colour is reinforceme
 
 Redaction is not a decision. A masked secret renders as the `fg-redacted` token in `--redacted` (Fathom `accent`): dashed edge, `hmac:` prefix, first 12 hex characters. It reads as "something comparable was here", not as an error.
 
-Command classes are chips with an outline only: `READ_OPERATIONAL`, `READ_CONFIG` and `INVENTORY_READ` in muted text; `WRITE_CONFIG` in warning; `EXEC_ARBITRARY` in danger. The chip never has a filled ground, so it never competes with the decision badge next to it.
+Command classes are chips with an outline only: `READ_OPERATIONAL`, `READ_CONFIG`, `INVENTORY_READ`, `LAB_LIFECYCLE` and `LOCAL_ADMIN` in muted text (`--class-read`); `WRITE_CONFIG` in warning (`--class-write`); `EXEC_ARBITRARY` in danger (`--class-exec`). There is no other class colour: info belongs to the blast meter and diff hunks. The chip never has a filled ground, so it never competes with the decision badge next to it.
 
 ## Components
 

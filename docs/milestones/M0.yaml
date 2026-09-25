@@ -502,9 +502,9 @@ tasks:
     package: design
     owner: design-guardian
     reviewers: [docs-writer]
-    state: open
+    state: in review
     matrix: []
-    notes: 'From the design review of PR #113. design/DESIGN.md (the class chip section, about line 54) says INVENTORY_READ chips use muted text, but design/tokens.css:119 sets --class-inventory: var(--info). Decide which is right and make the spec and the tokens agree.'
+    notes: 'From the design review of PR #113. design/DESIGN.md (the class chip section, about line 54) says INVENTORY_READ chips use muted text, but design/tokens.css:119 sets --class-inventory: var(--info). Decide which is right and make the spec and the tokens agree. Decided muted: --class-inventory and its selector removed, so every class but WRITE_CONFIG and EXEC_ARBITRARY takes --class-read; DESIGN.md lists all seven classes.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
