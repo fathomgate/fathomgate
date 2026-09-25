@@ -64,7 +64,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`, `eos-mcp run_comm
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
 | 2026-09-25 | test-engineer | docs-writer | T0.33 | [T0.33: matrix row 23 runs the HTTP listener against the real netdev-ssh-mcp; Claude Code `"type": "http"` tested and documented](docs/handoffs/2026-09-25-test-engineer-to-docs-writer-T0.33.md) |
-| 2026-09-25 | orchestrator | joshscott13 | M1 | [M1 is open: five records to accept, then the pipeline goes in](docs/handoffs/2026-09-25-orchestrator-to-joshscott13-M1.md) |
+| 2026-09-25 | policy-engineer | security-reviewer | M1.16 | [M1-16: classifier downgrade and config-read cases, class_source, and the PR #150 multi-line injection fix; review the downgrade rule](docs/handoffs/2026-09-25-policy-engineer-to-security-reviewer-M1.16.md) |
 
 ## How to update
 
