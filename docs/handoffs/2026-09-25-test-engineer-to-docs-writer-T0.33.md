@@ -3,7 +3,7 @@
 - **Task:** T0.33 — Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets
 - **From → To:** test-engineer → docs-writer (security-reviewer also reviews)
 - **State now:** in review. `docs/milestones/M0.yaml` is not edited here; the orchestrator syncs the board.
-- **Branch / PR:** `test/tier2-over-http` · see the PR that carries this note
+- **Branch / PR:** `test/tier2-over-http` · [PR #115](https://github.com/fathomgate/fathomgate/pull/115)
 - **Date:** 2026-09-25
 
 ## Done
@@ -14,7 +14,7 @@
   - `test_http_both_listening_urls`: the same in both eras on `127.0.0.1` and `[::1]` (same port, ADR 0023). In CI (`FATHOMGATE_TIER2_REQUIRED=1`) a missing `[::1]` fails; locally it skips.
   - `test_http_refusals`, both URLs, 2025 and 2026 request shapes: 200 with the token first, as a control. Then 401 plus `WWW-Authenticate: Bearer` for no token, a wrong token and `Basic`; 403 for `Origin` with and without the token, and for `Host: evil.example`. Each refusal has `Connection: close` and no CORS header, and no token in the body or headers. Nothing reaches the device, and an `authentication failed` log line is written.
   - Every test stops fathomgate with SIGINT, or `CTRL_BREAK_EVENT` on Windows, and checks exit 0, `shutting down`, an empty stdout, and no token (nor the wrong one) anywhere in stderr.
-- **Real-server evidence:** Windows 11, v1.7.1 release binary, all 7 pass; the whole `netdev_ssh_mcp` set is 21 passed, 11 skipped, 1 xfailed. A mutant with `crossOrigin` disabled fails `test_http_refusals` (`200 == 403`). CI evidence goes into row 23's run note when the job is green on this PR.
+- **Real-server evidence:** Windows 11, v1.7.1 release binary, all 7 pass; the whole `netdev_ssh_mcp` set is 21 passed, 11 skipped, 1 xfailed. A mutant with `crossOrigin` disabled fails `test_http_refusals` (`200 == 403`). CI: [run 36099468294](https://github.com/fathomgate/fathomgate/actions/runs/36099468294) on PR #115, job `tier2 client smoke (netdev-ssh-mcp)`: all 7 passed on Linux, both URLs, 30 passed / 2 skipped / 1 xfailed overall. Row 23 is `passing`.
 - **Claude Code 2.1.281, by hand:** `claude -p --mcp-config` with `{"type": "http", "url": ..., "headers": {"Authorization": "Bearer ${FATHOMGATE_TOKEN}"}}` connected on both URLs, listed the five tools and ran `show version` (one device line each). A wrong token gave `failed`/401. `claude mcp add --transport http ... --header` in an isolated `CLAUDE_CONFIG_DIR` gave `✔ Connected` with the token and with the `${FATHOMGATE_TOKEN}` reference; without the variable it failed with a `Missing environment variables` warning. `claude mcp get` prints a literal token in clear. Details are in the row 23 run note.
 - **Docs:**
   - `docs/install.md` "Remote agents over HTTP": the `listening` sample now matches the real line (`time=`, `upstream_env_pass`). Step 3 has the tested Claude Code commands (sh and PowerShell), the `.mcp.json` / `--mcp-config` JSON, the 401 troubleshooting and the variable-name caveat, and says what was and was not tested.

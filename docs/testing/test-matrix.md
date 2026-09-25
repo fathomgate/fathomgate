@@ -26,7 +26,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix), plus row 23 from [ADR 0016]
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
 | 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.7.1 behind fathomgate | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI, netdev-ssh-mcp v1.7.1 since T0.51; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand with v1.6.6, 2026-09-23; see [run notes](#run-notes)) |
-| 23 | Streamable HTTP listener toward the agent | 2 | netdev-ssh-mcp v1.7.1 behind `fathomgate serve --listen` | A python-sdk client over Streamable HTTP with a bearer token, in each era (2025-11-25 stateful, 2026-07-28 stateless) and on both `listening` URLs (`127.0.0.1` and `[::1]`), lists `netdev-ssh-mcp.*` and runs a read-only `tools/call` on the fake device; the same requests get 401 with no token or a wrong one, and 403 with `Origin: http://evil.example`; the token never appears in fathomgate's stderr. Claude Code with `"type": "http"` and an `Authorization` header lists the tools | M0 (not an exit criterion, ADR 0016) | planned: tier 2 written (T0.33), green by hand on Windows against v1.7.1 on 2026-09-25; waits for CI. See [run notes](#run-notes) |
+| 23 | Streamable HTTP listener toward the agent | 2 | netdev-ssh-mcp v1.7.1 behind `fathomgate serve --listen` | A python-sdk client over Streamable HTTP with a bearer token, in each era (2025-11-25 stateful, 2026-07-28 stateless) and on both `listening` URLs (`127.0.0.1` and `[::1]`), lists `netdev-ssh-mcp.*` and runs a read-only `tools/call` on the fake device; the same requests get 401 with no token or a wrong one, and 403 with `Origin: http://evil.example`; the token never appears in fathomgate's stderr. Claude Code with `"type": "http"` and an `Authorization` header lists the tools | M0 (not an exit criterion, ADR 0016) | passing (client-smoke CI, netdev-ssh-mcp v1.7.1, [run 36099468294](https://github.com/fathomgate/fathomgate/actions/runs/36099468294), 2026-09-25, T0.33; Claude Code 2.1.281 by hand on Windows the same day; see [run notes](#run-notes)) |
 
 ## Run notes
 
@@ -117,7 +117,8 @@ One entry per run that changed a row's status or added evidence for it. A row be
   - `--scope project` wrote the same JSON to `.mcp.json`.
   - Not run: a session from a project `.mcp.json`, which needs the interactive approval.
   - fathomgate's stderr for the whole session: 0 occurrences of the token, and two `authentication failed ... reason="unknown token"` lines.
-- Status: `planned` until the CI job runs the file green on this pull request.
+- CI, on [PR #115](https://github.com/fathomgate/fathomgate/pull/115) at `573c1d5` (ubuntu-latest, linux/amd64): job `tier2 client smoke (netdev-ssh-mcp)` ([job 107958688053](https://github.com/fathomgate/fathomgate/actions/runs/36099468294/job/107958688053)). The linux_amd64 release binary passed `sha256sum -c` against the pinned sha256. All 7 `test_http_listener.py` cases passed, both `listening` URLs included, with `FATHOMGATE_TIER2_REQUIRED=1`, so neither `[::1]` nor anything else could skip. The whole marker set: 30 passed, 2 skipped (M1), 1 xfailed (row 15). Every other job in [run 36099468294](https://github.com/fathomgate/fathomgate/actions/runs/36099468294) is green.
+- Status: `passing`, on run 36099468294 against netdev-ssh-mcp v1.7.1. Row 23 is not an M0 exit criterion (ADR 0016).
 
 ## Coverage by component
 
