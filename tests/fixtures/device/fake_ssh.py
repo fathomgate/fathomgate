@@ -6,8 +6,8 @@ real device.
 Two ways in:
 
 - The SSH *exec* channel (T0.5), which is what krisiasty/netdev-ssh-mcp
-  v1.6.6 uses: one non-PTY `session.Output(cmd)` per call, see
-  internal/sshclient/client.go at that tag.
+  v1.6.6 and v1.7.1 use: one non-PTY `session.Output(cmd)` per call, see
+  internal/sshclient/client.go (unchanged between those tags).
 - An interactive shell (T0.34), which is what netmiko uses (upa/
   mcp-netmiko-server, `device_type = "arista_eos"`): a PTY, the prompt
   `<hostname>#`, input echoed, one command per line, the prompt again after

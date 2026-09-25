@@ -83,11 +83,11 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.31 | [T0.31 ready for review: `fathomgate serve --listen` is live, loopback-only and token-authenticated](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.31.md) |
 | 2026-09-24 | test-engineer | docs-writer | T0.41 | [T0.41: row 2 reads `passing` in the cell, its run notes and the CHANGELOG; test-engineer sign-off on the rewritten text](docs/handoffs/2026-09-24-test-engineer-to-docs-writer-T0.41.md) |
 | 2026-09-24 | orchestrator | security-reviewer | T0.49 | [T0.49 ready for review: NetGuard renamed to Fathomgate per ADR 0019](docs/handoffs/2026-09-24-orchestrator-to-security-reviewer-T0.49.md) |
 | 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.48 | [T0.48 ready for review: tampered requestState retries logged, unused progress owner fields removed, T0.30 review nits](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.48.md) |
-| 2026-09-24 | mcp-protocol-engineer | security-reviewer | T0.44 | [T0.44 code part ready for review: a key per stateless request, a per-principal orphan quota, and the principals behind each refusal in the log](docs/handoffs/2026-09-24-mcp-protocol-engineer-to-security-reviewer-T0.44.md) |
 
 ## How to update
 

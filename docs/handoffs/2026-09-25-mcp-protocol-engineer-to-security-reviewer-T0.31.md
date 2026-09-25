@@ -29,7 +29,7 @@ ADR 0016 decides this (CLI table: "with `--listen`, fathomgate neither reads std
 
 - **T0.32:** conformance against the listener (auth-and-prefix shim, control leg on `everything-server -http`, deleting `relay.py`, the four baselines). The legs still go through `relay.py` to stdio, and all pass with no baseline change.
 - **T0.33:** matrix row 23 (tier 2 over HTTP against netdev-ssh-mcp; Claude Code with `"type": "http"`), tested client snippets for README and install.md (the new install.md section says snippets will follow), and SECURITY.md gap rows beyond the one added here. `fathomgate serve --listen 127.0.0.1:0 --listen-token-file ci=<file>` prints `msg=listening url=...` for the harness to read.
-- The upstream tag for T0.33 is whatever tier 2 pins today for netdev-ssh-mcp (v1.6.6).
+- The upstream tag for T0.33 is the one tier 2 pins for netdev-ssh-mcp: v1.7.1 since T0.51 (`NETDEV_SSH_MCP_VERSION` in `tests/integration/conftest.py`).
 - No `SO_EXCLUSIVEADDRUSE` on Windows. Only the same user could take over the port, and that user can already read the token file.
 
 ## Reproduce green
