@@ -20,13 +20,13 @@ We want a future where connecting an AI assistant to a production network is as 
 
 Each stage ships something you can use, and each is tested against real network MCP servers before the next one starts. Most of the building blocks for later stages (the policy language, command classification, secret masking, the audit chain, device inventory) already exist in the tree and are waiting to be wired in.
 
-### 1. Pass-through (M0) — *nearly there*
+### 1. Pass-through (M0) — *released as [v0.1.0](https://github.com/fathomgate/fathomgate/releases/tag/v0.1.0)*
 
 Fathomgate sits between Claude Code, Cursor or any other MCP client and a network MCP server, and forwards everything faithfully. It speaks both generations of the MCP protocol, the older one where connections keep state and the 2026 one where they don't, and passes the official MCP conformance suite, with every known gap written down and tracked. Tested against [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) and [mcp-netmiko-server](https://github.com/upa/mcp-netmiko-server).
 
-Left to do: an HTTP listener so remote agents can connect, and the first tagged release with binaries for Linux, macOS and Windows.
+It also listens over HTTP on your own machine, for agents that connect that way, with a token for each agent. Binaries for Linux, macOS and Windows come with a signed checksum file you can verify.
 
-### 2. Say no (M1) — *next*
+### 2. Say no (M1) — *in progress next*
 
 Your rules start to count. Fathomgate works out what each request really does (a read, a config change, an arbitrary command), which device it touches and what role that device plays, then allows or denies it. A denial tells the assistant which rule refused it, so the assistant can try something safer.
 

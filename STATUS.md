@@ -2,7 +2,7 @@
 
 <!-- GENERATED from docs/milestones/M0.yaml by tools/status/render.py. Edit the YAML, then `make status`. -->
 
-**Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
+**Current milestone:** M0 — Pass-through proxy · **state:** exit criteria met (v0.1.0); open tasks carry to M1 · opened 2026-09-23
 
 Tasks: open 7 · merged 48 · validated 2 · dropped 1
 
@@ -77,7 +77,7 @@ Tasks: open 7 · merged 48 · validated 2 · dropped 1
 - [x] Official MCP conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task — met 2026-09-23 (T0.4 PR
 - [x] Claude Code and one other client list and call tools through the proxy against netdev-ssh-mcp — met 2026-09-23 (Claude Code 2.1.236 and Claude Desktop 2.7032.0 called show version through netguard in front of netdev-ssh-mcp v1.6.6, by the maintainer; client-smoke CI green; matrix rows 1 and 22 passing)
 - [x] Both protocol eras negotiate (2025-11-25 stateful, 2026-07-28 stateless MRTR) — met 2026-09-23 (maintainer decision; netdev-ssh-mcp v1.6.6 at 2026-07-28 and upa/mcp-netmiko-server 96e8ff3 at 2025-11-25 behind netguard in tier 2 CI with both agent eras, T0.34 PR
-- [ ] GoReleaser produces linux/darwin/windows binaries on a tag
+- [x] GoReleaser produces linux/darwin/windows binaries on a tag — met 2026-09-25 (v0.1.0, signed tag at 38d7d6a; release run 36143112965: 6 archives, 6 SPDX SBOMs, checksums.txt signed with cosign keyless and verified against release.yaml@refs/tags/v0.1.0; fathomgate version prints 0.1.0)
 
 Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
