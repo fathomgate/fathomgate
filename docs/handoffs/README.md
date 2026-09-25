@@ -47,6 +47,8 @@ The board is mirrored to GitHub Issues so notifications and the Projects view wo
 
 If the YAML and the issue disagree, the YAML wins and the issue is corrected.
 
+Issue state follows the board automatically: `.github/workflows/issue-hygiene.yaml` runs `tools/status/issues.py --apply` on every push to `main` that changes `docs/milestones/`, and weekly, so the `state:`, `milestone:` and `agent:` labels match the YAML and the issue of a merged, validated or dropped task is closed; `python tools/status/issues.py` alone is the dry run and prints the drift report.
+
 ## Why files and not a tracker
 
 Agents run in different tools (Claude Code, Codex, Cursor, a Kanban bot) and across sessions. A file in the repo is the one place all of them can read and write with the same tool, it is versioned with the code it describes, and it survives every context window. The render step exists so a human gets one page without reading YAML, and the CI check exists so that page cannot silently drift.

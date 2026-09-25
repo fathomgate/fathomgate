@@ -1,0 +1,59 @@
+# Issue hygiene (M1-38): the GitHub issues follow the board. tools/status/issues.py
+# sets each task issue's state:, milestone: and agent: labels from
+# docs/milestones/*.yaml, closes the issues of merged, validated and dropped
+# tasks with a one-line comment, and writes the drift report (issues for task
+# ids on no board, active tasks with no issue, 30 days without activity) to the
+# job summary.
+#
+# This job holds an issues: write token, so it never runs on pull_request or
+# pull_request_target (the repository is public; docs/ci-runners.md): only on
+# a push to main that changes the board, weekly, and by hand. It runs on a
+# hosted runner, checks out without persisting credentials, and gives the
+# token to the one step that needs it. Issue titles are untrusted input: the
+# script only reads them, strips control characters before printing, escapes
+# them in the summary, never touches a task-id issue opened by someone who is
+# not an owner, member or collaborator, and its output runs between
+# stop-commands markers so a title cannot issue a workflow command.
+name: issue-hygiene
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/milestones/**
+  schedule:
+    - cron: "41 6 * * 1" # Mondays 06:41 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: issue-hygiene
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: issues follow the board
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # uv, not setup-python, as in ci.yaml's status job. PyYAML is pinned to
+      # one release because this job holds a write token.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: labels, closures and drift report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          stop="$(openssl rand -hex 16)"
+          echo "::stop-commands::$stop"
+          status=0
+          uv run --no-project --python 3.12 --with 'pyyaml==6.0.3' \
+            python tools/status/issues.py --apply --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" || status=$?
+          echo "::$stop::"
+          exit "$status"
