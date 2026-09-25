@@ -292,9 +292,10 @@ func declaresTargets(spec classify.ToolSpec) bool {
 // argumentFindings is the hook for the closed argument list (board task
 // M1-35, ADR 0033, PR #161): the argument names classify reports as not
 // named by the profile, and the named target, command or config arguments
-// whose value is not a plain string or a list of strings. Either one is
-// default:bad_arguments; the argument is never stripped and never named to
-// the agent (the decision log line carries the names, capped).
+// whose value is not a string that does not parse as JSON, or a list of
+// such strings. Either one is default:bad_arguments; the argument is never
+// stripped and never named to the agent (the decision log line carries the
+// names, capped).
 //
 // TODO(M1-35): once PR #161 is on main, read res.UnnamedArgs and
 // res.MalformedArgs directly and drop the reflection. Until then

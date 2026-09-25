@@ -15,7 +15,7 @@ const (
 	reasonNotObject = "the arguments must be one JSON object, in UTF-8, with no key given twice"
 	// reasonUnnamed and reasonMalformed are ADR 0033 section 3's texts.
 	reasonUnnamed   = "an argument is not named in the server profile for this tool"
-	reasonMalformed = "a target, command or config argument is not a plain string (it parses as JSON) or a list of strings"
+	reasonMalformed = "a target, command or config argument must be a string that does not parse as JSON, or a list of such strings"
 	reasonBadTarget = "a target is not a hostname or IP address"
 	reasonNoTarget  = "this tool needs at least one target named explicitly"
 	reasonGroup     = "selecting devices by tag or group is not supported yet; name each target"

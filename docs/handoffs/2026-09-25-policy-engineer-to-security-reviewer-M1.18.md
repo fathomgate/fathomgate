@@ -2,7 +2,7 @@
 
 - **Task:** M1-18 — internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026
 - **From → To:** policy-engineer → security-reviewer (then go-reviewer; design-guardian for `internal/gate/text.go` and `record.go`)
-- **State now:** in review, round 2. Round 1: security H1, M1, M2, L1 to L3; Go 1 to 14; design items. This PR does not edit `docs/milestones/` or `internal/proxy`; `serve` still forwards everything (wiring is M1-19).
+- **State now:** in review, round 3: security approves; design's two doc items are in (the malformed-argument sentence now matches PR #161 word for word, and ADR 0026 lists every decision log field and which are log-only until M4). Round 1: security H1, M1, M2, L1 to L3; Go 1 to 14; design items. This PR does not edit `docs/milestones/` or `internal/proxy`; `serve` still forwards everything (wiring is M1-19).
 - **Branch / PR:** `feat/gate` · [PR #162](https://github.com/fathomgate/fathomgate/pull/162)
 - **Date:** 2026-09-25
 
