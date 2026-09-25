@@ -3,6 +3,8 @@
 package classify
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -209,5 +211,123 @@ func TestMonitorTrafficNeedsCount(t *testing.T) {
 	// so it is not on the allow-list at all.
 	if c, check := classifyCommand("monitor interface ge-0/0/0"); c != ExecArbitrary || check != checkAllowPrefix {
 		t.Errorf("monitor interface: %s (%s), want EXEC_ARBITRARY (allow-prefix)", c, check)
+	}
+}
+
+// Security review of PR #161 (M1-35). Python FastMCP (mcp >= 1.x,
+// func_metadata.pre_parse_json) json.loads any string sent for a parameter
+// whose annotation is not plain str, so eos-mcp's hostnames/tags/commands
+// (list[str] | None) receive a list, or None, from a JSON string. fathomgate
+// reads the same value as one opaque target or command string.
+func TestSecurityJSONStringInListParam(t *testing.T) {
+	profiles, err := LoadProfileDir(filepath.Join("..", "..", "profiles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eos := profiles["eos-mcp"]
+	cases := []struct {
+		tool string
+		raw  string
+	}{
+		// upstream runs "show running-config" on core-rtr-01; fathomgate sees target `["core-rtr-01"]`.
+		{"run_command_batch", `{"command":"show running-config","hostnames":"[\"core-rtr-01\"]"}`},
+		// JSON escape: the literal never matches an inventory name or pattern.
+		{"run_command_batch", `{"command":"show version","hostnames":"[\"\\u0063ore-rtr-01\"]"}`},
+		// upstream: hostnames=None, tags=None -> every configured device (server.py:476-478).
+		{"daily_brief", `{"hostnames":"null"}`},
+		// group through tags.
+		{"get_device_facts_batch", `{"tags":" [\"prod\"]"}`},
+		// config payload read as one line.
+		{"push_config", `{"hostname":"lab-leaf-01","config_lines":"[\"hostname x\"]"}`},
+	}
+	for _, c := range cases {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(c.raw), &args); err != nil {
+			t.Fatal(err)
+		}
+		res := Classify(eos, c.tool, args)
+		if res.ArgumentsOK() {
+			t.Errorf("%s %s: ArgumentsOK, class %s, targets %q, commands %q; want MalformedArgs (upstream pre-parses the JSON string)",
+				c.tool, c.raw, res.Class, res.Targets, res.Commands)
+		}
+	}
+}
+
+// Name tricks that must be reported as unnamed (these pass today; recorded
+// so a later change to Named cannot loosen them).
+func TestSecurityArgumentNameTricks(t *testing.T) {
+	profiles, err := LoadProfileDir(filepath.Join("..", "..", "profiles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eos := profiles["eos-mcp"]
+	for _, k := range []string{
+		"Config_Path", "CONFIG_PATH", "config_path ", " config_path", "config\u200bpath",
+		"conf\u0456g_path",  // Cyrillic i
+		"\u017Fession_name", // long s, folds to "s" under Unicode simple folding
+		"_meta", "hostname\u0000", "Hostname",
+	} {
+		unnamed, _ := CheckArguments(eos, "get_version", map[string]any{"hostname": "lab-leaf-01", k: ""})
+		if len(unnamed) != 1 || unnamed[0] != k {
+			t.Errorf("%q: unnamed %q", k, unnamed)
+		}
+	}
+	// unknown tool, and a prefixed name of a tool the profile does not list
+	for _, tool := range []string{"reload_devices", "eos-mcp.reload_devices", "junos-mcp-server.get_version"} {
+		unnamed, _ := CheckArguments(eos, tool, map[string]any{"file_name": "/etc/passwd"})
+		if len(unnamed) != 1 {
+			t.Errorf("%s: unnamed %q", tool, unnamed)
+		}
+	}
+	// non-string command values
+	for _, v := range []any{float64(1), true, map[string]any{"cmd": "reload"}, []any{"show version", []any{"reload"}}, []any{nil}} {
+		_, malformed := CheckArguments(eos, "run_command", map[string]any{"hostname": "lab-leaf-01", "command": v})
+		if len(malformed) != 1 {
+			t.Errorf("command %#v: malformed %q", v, malformed)
+		}
+	}
+}
+
+// TestJSONStringCheckBoundaries: what upstreamMayParseJSON refuses and
+// what it must leave alone (PR #161 H1). Config payloads keep Junos
+// "[edit ...]" text and JSON objects; targets and commands never start
+// with [ or {.
+func TestJSONStringCheckBoundaries(t *testing.T) {
+	profiles, err := LoadProfileDir(filepath.Join("..", "..", "profiles"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	junos, eos, ntunes := profiles["junos-mcp-server"], profiles["eos-mcp"], profiles["ntunes-netmiko-mcp-server"]
+	cases := []struct {
+		name      string
+		p         *Profile
+		tool      string
+		args      map[string]any
+		malformed bool
+	}{
+		{"junos edit text", junos, "load_and_commit_config", map[string]any{"router_name": "r1", "config_text": "[edit system]\nhost-name x;"}, false},
+		{"junos json object payload", junos, "load_and_commit_config", map[string]any{"router_name": "r1", "config_text": `{"configuration": {"system": {"host-name": "x"}}}`}, false},
+		{"junos set text", junos, "load_and_commit_config", map[string]any{"router_name": "r1", "config_text": "set system host-name x"}, false},
+		{"config payload true", junos, "load_and_commit_config", map[string]any{"router_name": "r1", "config_text": " true "}, true},
+		{"config payload json array", ntunes, "send_config", map[string]any{"device": "d", "config_commands": `["hostname x", "end"]`}, true},
+		{"config payload invalid bracket text", eos, "push_config", map[string]any{"hostname": "h", "config_lines": "[not json"}, false},
+		{"target starting with brace", eos, "get_version", map[string]any{"hostname": `{"a":1}`}, true},
+		{"target bracket not valid json", eos, "run_command_batch", map[string]any{"command": "show version", "hostnames": `["a", NaN]`}, true},
+		{"target false", eos, "get_device_facts_batch", map[string]any{"hostnames": "false"}, true},
+		{"plain hostname", eos, "get_version", map[string]any{"hostname": "lab-leaf-01"}, false},
+		{"hostname starting with n", eos, "get_version", map[string]any{"hostname": "nyc-leaf-01"}, false},
+		{"hostname true-ish but not json", eos, "get_version", map[string]any{"hostname": "trueleaf"}, false},
+		{"hostnames list of strings", eos, "run_command_batch", map[string]any{"command": "show version", "hostnames": []any{"[a]"}}, false},
+		{"command starting with bracket", eos, "run_command", map[string]any{"hostname": "h", "command": `["show version","reload"]`}, true},
+		{"command null string", eos, "run_command", map[string]any{"hostname": "h", "command": "null"}, true},
+		{"normal command", eos, "run_command", map[string]any{"hostname": "h", "command": "show interfaces status"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, malformed := CheckArguments(c.p, c.tool, c.args)
+			if got := len(malformed) > 0; got != c.malformed {
+				t.Fatalf("malformed %q, want malformed=%v", malformed, c.malformed)
+			}
+		})
 	}
 }

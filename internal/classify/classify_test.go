@@ -22,6 +22,7 @@ server: upa-mcp-netmiko-server
 tools:
   send_command_and_get_output:
     class: EXEC_ARBITRARY
+    args: []
     target_params: [name]
     command_params: [command]
 `
@@ -30,6 +31,7 @@ server: mcfortigate
 tools:
   search_config:
     class: READ_CONFIG
+    args: []
     target_params: [target]
 `
 	clabFixture = `
@@ -37,6 +39,7 @@ server: clab-mcp-server
 tools:
   destroyLab:
     class: LAB_LIFECYCLE
+    args: []
 `
 )
 
@@ -100,10 +103,11 @@ func TestWorkedExamples(t *testing.T) {
 			map[string]any{"router_name": "core-rtr-01", "command": "request system reboot"}, ExecArbitrary, SourceProfile},
 		{"junos execute_junos_pfe_command never downgraded", "junos-mcp-server", "execute_junos_pfe_command",
 			map[string]any{"router_name": "core-rtr-01", "command": "show jnh 0 exceptions"}, ExecArbitrary, SourceProfile},
-		// Spec: READ_CONFIG through dry-run reclassification (section 7,
-		// planned for M3). Code: the profile class.
+		// EXEC_ARBITRARY since M1-35: the upstream renders the agent's
+		// Jinja2 unsandboxed whatever apply_config says (PR #161 H2), so
+		// the M3 dry-run reclassification must not apply to this tool.
 		{"junos render_and_apply_j2_template apply_config false", "junos-mcp-server", "render_and_apply_j2_template",
-			map[string]any{"router_name": "core-rtr-01", "template_content": "x", "apply_config": false}, WriteConfig, SourceProfile},
+			map[string]any{"router_name": "core-rtr-01", "template_content": "x", "apply_config": false}, ExecArbitrary, SourceProfile},
 		{"junos load_and_commit_config", "junos-mcp-server", "load_and_commit_config",
 			map[string]any{"router_name": "core-rtr-01", "config_text": "set system host-name x"}, WriteConfig, SourceProfile},
 		// Spec: READ_CONFIG (dry_run defaults to true, section 7, M3).
@@ -307,18 +311,22 @@ server: fake
 tools:
   pfe:
     class: EXEC_ARBITRARY
+    args: []
     command_params: [command]
     notes: never-downgrade. PFE shell.
   cli:
     class: EXEC_ARBITRARY
+    args: []
     command_params: [command]
     notes: Plain CLI; never downgraded in practice (no token).
   shell:
     class: EXEC_ARBITRARY
+    args: []
     command_params: [command]
     notes: Never-Downgrade. shell
   upper:
     class: EXEC_ARBITRARY
+    args: []
     command_params: [command]
     notes: Lab-node exec, NEVER-DOWNGRADE.
 `))

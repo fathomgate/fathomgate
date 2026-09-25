@@ -13,29 +13,36 @@ tools:
   get_config:
     class: READ_CONFIG
     target_params: [host]
+    args: []
   run_show_command:
     class: READ_OPERATIONAL
     target_params: [host]
     command_params: [command]
+    args: []
   send_command_parallel:
     class: EXEC_ARBITRARY
     targets_params: [devices]
     command_params: [command]
+    args: []
   run_commands_batch:
     class: EXEC_ARBITRARY
     targets_params: [hostnames]
     group_params: [tags]
     command_params: [commands]
+    args: []
   send_config:
     class: WRITE_CONFIG
     target_params: [device]
     config_params: [config_commands]
+    args: []
   load_and_commit_config:
     class: WRITE_CONFIG
     target_params: [router_name]
     config_params: [config_text]
+    args: []
   list_devices:
     class: INVENTORY_READ
+    args: []
 `
 
 func mustProfile(t *testing.T) *Profile {

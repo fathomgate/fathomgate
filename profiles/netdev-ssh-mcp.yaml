@@ -24,6 +24,19 @@
 #                     confirm=true writes known_hosts (sshclient/client.go:397-429).
 # No tool, class or target/command parameter name differs from this profile.
 #
+# Argument list (M1-35, ADR 0033), read from the same struct tags. Every
+# parameter above is named in target_params, command_params or args, except
+# username, which is in refused_args and denied when sent. username picks
+# the device account the server's SSH credentials log in as (show.go:26-31,
+# config.go:27-32), so an agent could move from the operator's read account
+# to another account the same key or password opens. Set DEVICE_USERNAME
+# in the upstream's environment instead; the server falls back to it. port
+# is named: go-sdk marks it required (no omitempty), and the host it
+# connects to is still the one policy checked. On a console server or jump
+# host, though, one port can reach a different device than the host name
+# says (open, M2 value constraints; threat model). Keep console servers out
+# of the inventory under device roles.
+#
 # Separators (M1-14, for the PR #152 security review). No code path splits a
 # command on commas: run_show_command passes the checked string whole to
 # sshclient.RunCommand, one session.Output(cmd) (sshclient/client.go:102-107,
@@ -43,8 +56,9 @@
 # Decision: both tools stay READ_OPERATIONAL. The worst outcome is a ping or
 # traceroute that runs with a vendor option (more packets, a longer run),
 # not a state change; the command verb is fixed by the server. Fathomgate
-# does not rely on the upstream check for this: the profile maps none of
-# these arguments, so today nothing in fathomgate reads them either. Refusing
+# does not rely on the upstream check for this: the profile names these
+# arguments in args (ADR 0033), which lets them through without reading
+# their values, so today nothing in fathomgate checks them either. Refusing
 # a leading '-' in fathomgate needs a per-argument pattern in the profile
 # schema, which it does not have (proposed to policy-engineer in the M1-14
 # handoff). Which vendor CLIs accept a dash option here is not recoverable
@@ -141,21 +155,30 @@ tools:
   get_config:
     class: READ_CONFIG
     target_params: [host]
+    args: [port, config_type, device_type]
+    refused_args: [username]
     notes: config_type running|startup; output is obfuscated server-side, redacted again by the proxy.
   run_show_command:
     class: READ_OPERATIONAL
     target_params: [host]
     command_params: [command]
+    args: [port, device_type]
+    refused_args: [username]
     notes: Server (v1.7.1) accepts one show/get command with allow-listed pipes; the proxy re-checks and escalates config dumps to READ_CONFIG.
   run_ping:
     class: READ_OPERATIONAL
     target_params: [host]
+    args: [destination, port, count, timeout, source, vrf, size, outgoing_interface, device_type]
+    refused_args: [username]
     notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands (string args character-checked upstream since v1.7.1). A leading '-' passes the upstream check; class kept, see the header (M1-14).
   run_traceroute:
     class: READ_OPERATIONAL
     target_params: [host]
+    args: [destination, port, max_hops, timeout, probe, source, vrf, outgoing_interface, device_type]
+    refused_args: [username]
     notes: Same argument check and leading '-' note as run_ping.
   trust_host_key:
     class: LOCAL_ADMIN
     target_params: [host]
+    args: [port, confirm, replace_existing]
     notes: Writes known_hosts on the MCP server host, not on the device. Two-step confirm flow.
