@@ -1,30 +1,20 @@
-# Expected failures: fathomgate leg (relay -> fathomgate serve -> go-sdk
-# everything-server), --requirements 2026-07-28 (stateless agent). Format and
-# exit rules: tests/conformance/README.md. An entry that starts passing fails
-# the run, so a fix must delete its entry in the same PR.
+# Expected failures: fathomgate leg (shim -> fathomgate serve --listen ->
+# go-sdk everything-server over stdio), --requirements 2026-07-28 (stateless
+# agent). Format and exit rules: tests/conformance/README.md. An entry that
+# starts passing fails the run, so a fix must delete its entry in the same PR.
 #
-# The first block is identical to control-2026-07-28.yml (HTTP transport,
-# the relay's behaviour). Everything after it is a difference fathomgate makes.
-# Every group names the ADR or board task that decided it or owns the gap
-# (M0 exit criterion 1).
+# control-2026-07-28.yml is empty, so every entry here is a difference
+# fathomgate makes. Every group names the ADR or board task that decided it
+# or owns the gap (M0 exit criterion 1).
+#
+# Until T0.32 this file opened with 12 HTTP-transport entries that measured
+# relay.py. On fathomgate's own listener 11 of them pass and are gone (the
+# sep-2575-http-server-* 400 and 404 mappings, unsupported-version-400,
+# request-meta-invalid-missing-meta and
+# request-meta-invalid-missing-protocol-version), as ADR 0016 predicted;
+# sep-2575-missing-capability-http-400 stays, moved to "Pairing and prefix"
+# below.
 server:
-  # --- Same as the control leg: HTTP transport, not fathomgate -------------
-  # ADR 0012 (M0 serves the agent over stdio only) and T0.4 (the relay): see
-  # control-2026-07-28.yml.
-  - server-stateless:sep-2575-http-server-header-mismatch-400
-  - server-stateless:sep-2575-http-server-meta-invalid-400
-  - server-stateless:sep-2575-http-server-method-not-found-404
-  - server-stateless:sep-2575-http-server-method-not-found-404-initialize
-  - server-stateless:sep-2575-http-server-method-not-found-404-logging-setlevel
-  - server-stateless:sep-2575-http-server-method-not-found-404-ping
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-subscribe
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-unsubscribe
-  - server-stateless:sep-2575-http-server-unsupported-version-400
-  - server-stateless:sep-2575-missing-capability-http-400
-  - server-stateless:sep-2575-request-meta-invalid-missing-meta
-  - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
-
-  # --- fathomgate ------------------------------------------------------------
   # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # and answers -32601 for prompts/*, resources/* and completion/complete
   # (profile-schema section 8.2). The caching checks call prompts/list,
@@ -69,10 +59,22 @@ server:
   - input-required-result-basic-list-roots:sep-2322-list-roots-incomplete
   - input-required-result-multiple-input-requests:sep-2322-multiple-inputs-incomplete
   - input-required-result-capability-check:sep-2322-respect-client-capabilities
-  # ADR 0012 (the <server>.<tool> prefix, profile-schema section 8.1) and
-  # T0.4 (the relay renames only tools/call). This check looks for
-  # `test_missing_capability` in tools/list, which fathomgate lists as
-  # `conf.test_missing_capability`. The check reports "Not testable", so the
-  # undeclared-capability rejection (-32021) is not exercised through
-  # fathomgate.
+  # Pairing and prefix. ADR 0012 (the <server>.<tool> prefix, profile-schema
+  # section 8.1) and T0.32 (the shim renames only tools/call, as ADR 0016
+  # decides). Both checks look for `test_missing_capability` in tools/list,
+  # which fathomgate lists as `conf.test_missing_capability`, and report "Not
+  # testable", so the undeclared-capability rejection (-32021) and its HTTP
+  # 400 are not exercised through fathomgate. missing-capability-http-400 was
+  # in the HTTP-transport block until T0.32; ADR 0016 moved it here. Removed
+  # when the suite takes a tool-name map (upstream request drafted in the
+  # T0.32 handoff).
   - server-stateless:sep-2575-server-rejects-undeclared-capability
+  - server-stateless:sep-2575-missing-capability-http-400
+  # ADR 0016 (Request handling, step 3; profile-schema 8.5 limit 3), new with
+  # T0.32: the relay never passed headers to fathomgate's own HTTP checks.
+  # The check sends `Origin: http://127.0.0.1:<port>` with a matching Host
+  # and wants 2xx; fathomgate answers 403 to any request that carries an
+  # Origin, a same-host one included, because a DNS-rebinding page sends
+  # exactly that and MCP agents are not browsers. The other check in the
+  # scenario (localhost-host-rebinding-rejected) passes.
+  - dns-rebinding-protection:localhost-host-valid-accepted

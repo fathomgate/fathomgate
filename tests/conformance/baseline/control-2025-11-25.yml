@@ -1,7 +1,9 @@
-# Expected failures: control leg (relay -> go-sdk everything-server, no
-# fathomgate), --requirements 2025-11-25. Format and exit rules:
-# tests/conformance/README.md. An entry that starts passing fails the run.
+# Expected failures: control leg (shim -> go-sdk everything-server -http
+# -stateless=false, no fathomgate), --requirements 2025-11-25. Format and exit
+# rules: tests/conformance/README.md. An entry that starts passing fails the
+# run.
 #
-# Empty: through the relay, the fixture passes every scored 2025-11-25
-# scenario, so the relay is transparent for this revision.
+# Empty: go-sdk's own HTTP handler passes every scored 2025-11-25 scenario
+# through the shim (no token, no prefix), so the shim is transparent for this
+# revision.
 server: []

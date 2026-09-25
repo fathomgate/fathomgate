@@ -1,6 +1,6 @@
-# Expected failures: fathomgate-up2025 leg (relay -> fathomgate serve -> go-sdk
-# v1.6.1 everything-server, a 2025-11-25-only upstream), --requirements
-# 2026-07-28. Agent 2026-07-28 (stateless) x upstream 2025-11-25 (stateful):
+# Expected failures: fathomgate-up2025 leg (shim -> fathomgate serve --listen
+# -> go-sdk v1.6.1 everything-server over stdio, a 2025-11-25-only upstream),
+# --requirements 2026-07-28. Agent 2026-07-28 (stateless) x upstream 2025-11-25 (stateful):
 # fathomgate answers the agent statelessly and keeps an initialize session
 # with the upstream (ADR 0008). Format and exit rules:
 # tests/conformance/README.md. An entry that starts passing fails the run,
@@ -8,33 +8,22 @@
 #
 # There is no control leg for this pair: a 2025-only server cannot answer a
 # stateless agent with nothing in between. The groups below say which
-# failures are the relay's (same as control-2026-07-28.yml), which are
-# fathomgate's decisions (same as fathomgate-2026-07-28.yml), and which exist
-# only because this upstream predates 2026-07-28. Every group names the ADR
-# or board task that decided it (M0 exit criterion 1).
+# failures are fathomgate's decisions (same as fathomgate-2026-07-28.yml) and
+# which exist only because this upstream predates 2026-07-28. Every group
+# names the ADR or board task that decided it (M0 exit criterion 1).
+#
+# Until T0.32 this file opened with the 12 HTTP-transport entries that
+# measured relay.py. On fathomgate's own listener 11 of them pass and are
+# gone, as on the fathomgate leg (ADR 0016);
+# sep-2575-missing-capability-http-400 stays, beside
+# server-rejects-undeclared-capability below.
 #
 # ADR 0014 (a stateful upstream's elicitation/create is refused for a
 # stateless agent) is not scored here: no 2026-07-28 scenario calls a
 # stateful elicitation tool. tests/conformance/era_pairs.py drives that cell
-# against the same upstream and checks the refusal text word for word.
+# against the same upstream, over the listener and over stdio, and checks the
+# refusal text word for word.
 server:
-  # --- Same as control-2026-07-28.yml: HTTP transport, not fathomgate ------
-  # ADR 0012 (M0 serves the agent over stdio only) and T0.4 (the relay).
-  # missing-capability-http-400 would also be "not testable" here: this
-  # upstream has no test_missing_capability tool (see the last group).
-  - server-stateless:sep-2575-http-server-header-mismatch-400
-  - server-stateless:sep-2575-http-server-meta-invalid-400
-  - server-stateless:sep-2575-http-server-method-not-found-404
-  - server-stateless:sep-2575-http-server-method-not-found-404-initialize
-  - server-stateless:sep-2575-http-server-method-not-found-404-logging-setlevel
-  - server-stateless:sep-2575-http-server-method-not-found-404-ping
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-subscribe
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-unsubscribe
-  - server-stateless:sep-2575-http-server-unsupported-version-400
-  - server-stateless:sep-2575-missing-capability-http-400
-  - server-stateless:sep-2575-request-meta-invalid-missing-meta
-  - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
-
   # --- Same as fathomgate-2026-07-28.yml: fathomgate's decisions ---------------
   # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # and answers -32601 for prompts/*, resources/* and completion/complete
@@ -58,10 +47,18 @@ server:
   - sep-2164-resource-not-found:sep-2164-error-code
   - sep-2164-resource-not-found:sep-2164-data-uri
   # ADR 0012 (the <server>.<tool> prefix, profile-schema section 8.1) and
-  # T0.4 (the relay renames only tools/call): the check looks for
+  # T0.32 (the shim renames only tools/call): both checks look for
   # `test_missing_capability` in tools/list. This upstream does not have
-  # that tool either.
+  # that tool either, so they would stay "not testable" even with a
+  # tool-name map in the suite. missing-capability-http-400 was in the
+  # HTTP-transport block until T0.32.
   - server-stateless:sep-2575-server-rejects-undeclared-capability
+  - server-stateless:sep-2575-missing-capability-http-400
+  # ADR 0016 (Request handling, step 3; profile-schema 8.5 limit 3), new with
+  # T0.32: fathomgate answers 403 to any request with an Origin, a same-host
+  # one included (a DNS-rebinding page sends exactly that). See
+  # fathomgate-2026-07-28.yml.
+  - dns-rebinding-protection:localhost-host-valid-accepted
 
   # --- This upstream predates 2026-07-28 (T0.19) ---------------------------
   # go-sdk v1.6.1's everything-server has none of the 2026-era diagnostic

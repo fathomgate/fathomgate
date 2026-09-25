@@ -75,10 +75,13 @@ jobs:
   # second upstream, the same server at go-sdk v1.6.1 (2025-11-25 only,
   # T0.19), is built from the test-only module tests/conformance/upstream-2025
   # and never moves with a bump. The suite version is pinned in
-  # tests/conformance/package-lock.json; the legs, the relay and the
-  # baselines are explained in tests/conformance/README.md. python3 on
-  # ubuntu-latest runs relay.py and era_pairs.py, which use the standard
-  # library only.
+  # tests/conformance/package-lock.json; the legs, the shim and the
+  # baselines are explained in tests/conformance/README.md. Since T0.32 the
+  # suite drives the real `fathomgate serve --listen` over Streamable HTTP,
+  # through shim.py (adds a FAKE bearer token and the conf. tool prefix);
+  # the control legs run the everything-server's own -http handler through
+  # the same shim. python3 on ubuntu-latest runs shim.py and era_pairs.py,
+  # which use the standard library only.
   conformance:
     name: mcp-conformance
     runs-on: ubuntu-latest
@@ -101,7 +104,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: conformance suite, 2025-11-25 and 2026-07-28 (control and fathomgate legs, current and 2025 upstreams), era pairs
+      - name: conformance suite over the HTTP listener, 2025-11-25 and 2026-07-28 (control and fathomgate legs, current and 2025 upstreams), era pairs
         run: make conformance PYTHON=python3
       - name: keep results on failure
         if: failure()

@@ -42,9 +42,12 @@ GOLANGCI_LINT_SHA256              := $(GOLANGCI_LINT_SHA256_$(subst -,_,$(GOLANG
 GOLANGCI_LINT_DIR                 := $(BIN_DIR)/tools/golangci-lint-$(GOLANGCI_LINT_VERSION)-$(GOLANGCI_LINT_PLATFORM)
 GOLANGCI_LINT                     := $(GOLANGCI_LINT_DIR)/golangci-lint
 
-# MCP conformance (T0.4, T0.19). The suite version is pinned in
-# tests/conformance/package.json and package-lock.json (npm ci). Two fixture
-# upstreams, both go-sdk's own conformance everything-server:
+# MCP conformance (T0.4, T0.19, T0.32). The suite version is pinned in
+# tests/conformance/package.json and package-lock.json (npm ci). It drives
+# each leg over Streamable HTTP through tests/conformance/shim.py: the real
+# `fathomgate serve --listen` (a FAKE token, the conf. prefix) or, on a
+# control leg, the upstream's own -http handler. Two fixture upstreams, both
+# go-sdk's own conformance everything-server:
 #   CONFORMANCE_SERVER       at the go-sdk version in go.mod, so a go-sdk bump
 #                            rebuilds it in lockstep (legs control, fathomgate)
 #   CONFORMANCE_SERVER_2025  at go-sdk v1.6.1, the last release without
@@ -156,7 +159,8 @@ fixtures-check: build ## Every redaction fixture must have an expect file and re
 
 # Every leg and revision runs even if an earlier one fails; the target fails
 # at the end if any did. era_pairs.py then drives the two upstream-prompt
-# cells the suite cannot reach for a 2025 upstream (ADR 0014 among them).
+# cells the suite cannot reach for a 2025 upstream (ADR 0014 among them),
+# over stdio and over the listener.
 # tests/conformance/README.md explains the legs and the baselines.
 conformance: build conformance-deps ## Official MCP conformance suite against fathomgate serve, both eras (needs Node.js)
 	@failed=""; \

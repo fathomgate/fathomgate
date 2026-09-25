@@ -1,30 +1,10 @@
-# Expected failures: control leg (relay -> go-sdk everything-server, no
-# fathomgate), --requirements 2026-07-28. Format and exit rules:
-# tests/conformance/README.md. An entry that starts passing fails the run.
+# Expected failures: control leg (shim -> go-sdk everything-server -http
+# -stateless=true, no fathomgate), --requirements 2026-07-28. Format and exit
+# rules: tests/conformance/README.md. An entry that starts passing fails the
+# run.
 #
-# Every entry is an HTTP-transport check. go-sdk's own HTTP handler passes
-# them (go-sdk v1.8.0 conformance/baseline.yml has no server entries); the
-# relay does not implement them, because fathomgate has no HTTP listener in M0
-# and imitating go-sdk's HTTP status mapping in the relay would prove
-# nothing about fathomgate. The same block opens fathomgate-2026-07-28.yml.
-# References (M0 exit criterion 1): ADR 0012 (M0 serves the agent over stdio
-# only; ADR 0008's header rules land with Streamable HTTP) and T0.4 (the
-# relay). Revisit when fathomgate serves Streamable HTTP itself.
-server:
-  # HTTP status for 2026-era errors (400, 404): the relay answers 200 with
-  # the JSON-RPC error in an SSE event.
-  - server-stateless:sep-2575-http-server-header-mismatch-400
-  - server-stateless:sep-2575-http-server-meta-invalid-400
-  - server-stateless:sep-2575-http-server-method-not-found-404
-  - server-stateless:sep-2575-http-server-method-not-found-404-initialize
-  - server-stateless:sep-2575-http-server-method-not-found-404-logging-setlevel
-  - server-stateless:sep-2575-http-server-method-not-found-404-ping
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-subscribe
-  - server-stateless:sep-2575-http-server-method-not-found-404-resources-unsubscribe
-  - server-stateless:sep-2575-http-server-unsupported-version-400
-  - server-stateless:sep-2575-missing-capability-http-400
-  # These send the MCP-Protocol-Version: 2026-07-28 header and a request with
-  # no (or partial) _meta, expecting -32602. Stdio has no header, so the
-  # child sees an unversioned request before initialize and answers -32601.
-  - server-stateless:sep-2575-request-meta-invalid-missing-meta
-  - server-stateless:sep-2575-request-meta-invalid-missing-protocol-version
+# Empty since T0.32. The 12 HTTP-transport entries this file held measured
+# relay.py's HTTP behaviour, not go-sdk's; with go-sdk serving HTTP itself
+# they all pass (go-sdk v1.8.0 conformance/baseline.yml has no server
+# entries either), which also shows the shim transparent for this revision.
+server: []

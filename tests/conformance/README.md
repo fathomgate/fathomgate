@@ -1,30 +1,33 @@
-# MCP conformance suite against `fathomgate serve` (T0.4, T0.19)
+# MCP conformance suite against `fathomgate serve --listen` (T0.4, T0.19, T0.32)
 
 `make conformance` runs the official MCP conformance suite against the
 client-facing side of `fathomgate serve`, the MCP server Fathomgate shows the
 agent, for both protocol eras, in front of two upstreams: one that speaks
-both eras and one that speaks only 2025-11-25. CI runs it as the
-`mcp-conformance` job on every push to `main` and every pull request. It backs M0 exit criterion 1 and
-the "conformance suite green on the client-facing side" half of test-matrix
-row 2. It does **not** validate row 1 or row 2: those name real upstream
-servers (netdev-ssh-mcp, upa/mcp-netmiko-server), and both upstreams here
-are fixtures.
+both eras and one that speaks only 2025-11-25. Since T0.32 the suite drives
+fathomgate's own Streamable HTTP listener (`--listen`, ADR 0016 and ADR
+0023), with a bearer token, through a two-rule shim. CI runs it as the
+`mcp-conformance` job on every push to `main` and every pull request. It
+backs M0 exit criterion 1 and the "conformance suite green on the
+client-facing side" half of test-matrix row 2. It does **not** validate row
+1 or row 2: those name real upstream servers (netdev-ssh-mcp,
+upa/mcp-netmiko-server), and both upstreams here are fixtures.
 
 ```sh
 make conformance                       # all legs, both revisions (needs Go, Node.js and npm (CI uses Node 22), python3)
 make conformance CONFORMANCE_REVS=2026-07-28 CONFORMANCE_LEGS=fathomgate
 tests/conformance/run.sh fathomgate-up2025 2025-11-25   # one leg, after `make conformance-deps build`
 python3 tests/conformance/era_pairs.py --fathomgate bin/fathomgate \
-  --upstream bin/conformance/everything-server-2025  # the two upstream-prompt cells
+  --upstream bin/conformance/everything-server-2025  # the two upstream-prompt cells, stdio and HTTP
 ```
 
 `make conformance` runs every leg for every revision, then `era_pairs.py`,
 and fails at the end if any of them failed.
 
-Results (one `checks.json` per scenario, plus `relay.log` with the relay's,
-fathomgate's and the fixture's stderr) are written to
-`tests/conformance/results/<leg>-<revision>/`; CI uploads them when the job
-fails.
+Results are written to `tests/conformance/results/<leg>-<revision>/`: one
+`checks.json` per scenario, `chain.log` (fathomgate's stderr with the
+upstream's relayed into it, or on a control leg the upstream's own) and
+`shim.log` (one line per request: request line and status, never a header).
+CI uploads them when the job fails.
 
 ## What runs
 
@@ -32,10 +35,10 @@ fails.
 | --- | --- | --- |
 | Suite | [`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance) `0.2.0-alpha.11` (npm, git `c321dd32035556e6769d3724a8ee97d87c3faaac`), run as `conformance server --requirements <revision>` | `package.json` and `package-lock.json` (integrity hash); installed with `npm ci --ignore-scripts` |
 | Revisions | `2025-11-25` (stateful, `initialize` handshake) and `2026-07-28` (stateless, `_meta` on every request). Each revision's frozen requirement set decides what is scored. | `CONFORMANCE_REVS` in the `Makefile` |
-| Upstream fixture (current) | go-sdk's own conformance server, `github.com/modelcontextprotocol/go-sdk/conformance/everything-server`, over stdio. Speaks both eras and negotiates 2026-07-28 with fathomgate. | Built from the go-sdk version in `go.mod`: no new dependency, and a go-sdk bump rebuilds it |
-| Upstream fixture (2025) | The same server at go-sdk **v1.6.1**, the last go-sdk release before 2026-07-28 support (v1.7.0 added it). Speaks 2025-11-25 and older only: it answers `server/discover` with `-32601`, so fathomgate falls back to `initialize` and keeps a stateful session, as it would with FastMCP 1.x. Built to `bin/conformance/everything-server-2025`. | `upstream-2025/go.mod` and `go.sum`: a separate, test-only module whose only content is a `tool` line for the everything-server. See "The 2025 upstream" below. |
-| Era pairs | `era_pairs.py`: drives the two upstream-prompt cells the suite cannot reach for a 2025 upstream, over stdio, standard library only | This directory |
-| Relay | `relay.py`: Streamable HTTP in front of a stdio server, standard library only | This directory |
+| Upstream fixture (current) | go-sdk's own conformance server, `github.com/modelcontextprotocol/go-sdk/conformance/everything-server`. Behind fathomgate it runs over stdio, speaks both eras and negotiates 2026-07-28 with fathomgate. On the control leg it serves HTTP itself (`-http`). | Built from the go-sdk version in `go.mod`: no new dependency, and a go-sdk bump rebuilds it |
+| Upstream fixture (2025) | The same server at go-sdk **v1.6.1**, the last go-sdk release before 2026-07-28 support (v1.7.0 added it). Speaks 2025-11-25 and older only: it answers `server/discover` with `-32601`, so fathomgate falls back to `initialize` and keeps a stateful session, as it would with FastMCP 1.x. Its `-http` handler is always stateful (v1.6.1 has no `-stateless` flag). Built to `bin/conformance/everything-server-2025`. | `upstream-2025/go.mod` and `go.sum`: a separate, test-only module whose only content is a `tool` line for the everything-server. See "The 2025 upstream" below. |
+| Shim | `shim.py`: a reverse proxy that adds the bearer token and the `conf.` tool prefix, standard library only. See "The shim" below. | This directory; unit tests in `tests/unit/test_conformance_shim.py` |
+| Era pairs | `era_pairs.py`: drives the two upstream-prompt cells the suite cannot reach for a 2025 upstream, over stdio and over the listener, standard library only | This directory |
 | Baselines | `baseline/<leg>-<revision>.yml`, one entry per expected failing check with the reason | This directory |
 
 0.2.0-alpha.11 is a pre-release. It is the only published version that
@@ -47,35 +50,59 @@ a separate PR if it changed.
 
 ## Legs
 
-The suite tests servers only over Streamable HTTP, and `fathomgate serve` only
-speaks stdio in M0. `relay.py` bridges the two. A leg is a chain (with or
-without fathomgate) and an upstream; `run.sh` picks the two separately, so
-the transport (the relay today, fathomgate's HTTP listener in T0.32) and the
-upstream can each change without touching the other:
+A leg is a chain (with or without fathomgate) and an upstream; `run.sh`
+picks the two separately. The suite always reaches the chain through the
+shim.
 
 | Leg | Chain | Upstream | Proves |
 | --- | --- | --- | --- |
-| `control` | suite → relay → upstream | current | The relay is transparent. For 2025-11-25 the control passes every scored scenario with an empty baseline. For 2026-07-28 it fails only HTTP-transport checks, listed in `baseline/control-2026-07-28.yml`. |
-| `fathomgate` | suite → relay → `fathomgate serve --server conf` → upstream | current | The client-facing side of the real binary, stdio transport included. A failure here that the control leg does not have is fathomgate's. |
-| `control-up2025` | suite → relay → upstream | 2025 | The 2025 fixture passes every scored 2025-11-25 scenario on its own (empty baseline). No 2026-07-28 run: a 2025-only server cannot answer a stateless agent with nothing in between, so `run.sh` prints `skipped` and exits 0. |
-| `fathomgate-up2025` | suite → relay → `fathomgate serve --server conf` → upstream | 2025 | Both agent eras through fathomgate to a stateful upstream. |
+| `control` | suite → shim → `everything-server -http` | current | The upstream's own HTTP result, and that the shim is transparent: `-stateless=false` for 2025-11-25 and `-stateless=true` for 2026-07-28, as go-sdk's own conformance workflow runs it. Both revisions pass every scored scenario with an empty baseline. |
+| `fathomgate` | suite → shim → `fathomgate serve --listen 127.0.0.1:0 --server conf` → upstream over stdio | current | The client-facing side of the real binary, its HTTP listener included: Host and Origin checks, bearer token, era dispatch, go-sdk's sessions, GET stream and DELETE, and the 2026 status mapping. A failure here that the control leg does not have is fathomgate's. |
+| `control-up2025` | suite → shim → `everything-server -http` | 2025 | The 2025 fixture passes every scored 2025-11-25 scenario on its own (empty baseline). No 2026-07-28 run: a 2025-only server cannot answer a stateless agent with nothing in between, so `run.sh` prints `skipped` and exits 0. |
+| `fathomgate-up2025` | suite → shim → `fathomgate serve --listen …` → upstream over stdio | 2025 | Both agent eras through fathomgate to a stateful upstream. |
 
-The relay changes messages in exactly two ways (module docstring in
-`relay.py`, pinned by `tests/unit/test_conformance_relay.py`):
+On a fathomgate leg `run.sh` generates a fresh token
+(`FAKE-conformance-` and 32 random hex digits), passes it to fathomgate in
+`FATHOMGATE_LISTEN_TOKEN` (principal `env`) and to the shim in
+`CONFORMANCE_SHIM_TOKEN`, and unsets both first so a token from the caller's
+shell never enters the harness. The token is never on a command line and
+never printed; a run whose results or logs contain it fails. fathomgate
+binds both loopback families (ADR 0023) and prints one `listening url=` line
+per address, the address asked for first; the shim targets that one
+(`127.0.0.1`). One fathomgate process serves the whole leg, every scenario's
+session included (see "One process" under Baselines).
 
-1. It renumbers request ids, because several HTTP requests share one child,
-   and puts the client's id back on the response and on a notification's
-   `io.modelcontextprotocol/subscriptionId`.
-2. With `--tool-prefix conf` (fathomgate leg only), a `tools/call` whose name
-   has no `.` gets `conf.` in front. The suite calls fixed names
-   (`test_simple_text`); fathomgate exposes `conf.test_simple_text`
-   (profile-schema section 8.1). `tools/list` is not rewritten, so the suite
-   sees fathomgate's prefixed names.
+## The shim
 
-A 2025 `initialize` starts one child per session (`Mcp-Session-Id`). 2026
-requests without a session share one child, because fathomgate seals
-`requestState` under a per-process key and an MRTR retry must reach the
-process that issued it.
+The suite has no option to send an `Authorization` header or to map tool
+names, and it calls fixed names (`test_simple_text`) where fathomgate
+exposes `conf.test_simple_text` (profile-schema section 8.1). ADR 0016
+therefore keeps one shim in the path, much smaller than the `relay.py` it
+replaces. It changes requests in exactly two ways (module docstring in
+`shim.py`, pinned by `tests/unit/test_conformance_shim.py`):
+
+1. **Token.** With `CONFORMANCE_SHIM_TOKEN` set, every request gets
+   `Authorization: Bearer <token>`, replacing any the suite sent.
+2. **`--tool-prefix conf`.** A request whose `Mcp-Method` header is
+   `tools/call` gets `conf.` in front of an `Mcp-Name` with no `.`, and a
+   JSON-RPC body whose `method` is `tools/call` gets `conf.` in front of a
+   `params.name` with no `.`. The two are rewritten separately by the same
+   rule, so a deliberate header and body mismatch stays a mismatch. A body
+   is re-serialised only when its name changes; every other body crosses as
+   the bytes that arrived. `tools/list` and every response are untouched,
+   so the suite sees fathomgate's prefixed names.
+
+Everything else passes through: method, path and query, `Host` as the suite
+sent it (so the DNS-rebinding probe reaches fathomgate), `Origin`, session
+ids, status, reason, response headers, and the response body, streamed as
+it arrives. When the suite closes a streamed response (a GET stream, an
+aborted POST), the shim closes its upstream connection too, so the server
+sees the stream end. Hop-by-hop headers are dropped as by any HTTP/1.1
+proxy. The shim keeps no sessions and does not renumber ids. The control
+legs run it with neither token nor prefix, where it changes nothing.
+
+It goes when the suite can send a header and map tool names. The requests
+for both are drafted in `docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md`.
 
 ## Upstream era
 
@@ -89,24 +116,29 @@ pairs:
 | --- | --- | --- | --- |
 | 2025-11-25 | 2026-07-28 | `fathomgate` | The stateful agent over a stateless upstream |
 | 2026-07-28 | 2026-07-28 | `fathomgate` | MRTR `input_required` through fathomgate |
-| 2025-11-25 | 2025-11-25 | `fathomgate-up2025` | An upstream `elicitation/create` relabelled and relayed to the agent: `tools-call-elicitation` and `elicitation-sep1034-defaults` pass here, and are baselined on the `fathomgate` leg |
+| 2025-11-25 | 2025-11-25 | `fathomgate-up2025` | A stateful agent over a stateful upstream. The suite's elicitation checks are baselined here since T0.32 (the orphan rule, below); `era_pairs.py` checks the relayed prompt |
 | 2026-07-28 | 2025-11-25 | `fathomgate-up2025` | A stateless agent over a stateful upstream: listing, calls, content types, errors and progress cross the era boundary |
 
-The suite cannot reach two cells, because no 2026-07-28 scenario calls a
-stateful elicitation tool and no 2025-11-25 check looks at the prompt's
-label. `era_pairs.py` drives them against the 2025 fixture:
+`era_pairs.py` drives two cells the suite does not score, against the 2025
+fixture, each twice: over stdio, and over the listener as its own minimal
+HTTP client (token, prefixed name and 2026 routing headers set by itself,
+no shim), each cell in a fathomgate of its own:
 
 - **agent 2025-11-25 x upstream 2025-11-25**: the prompt reaches the agent
   as `[from conf] <message>`, its field title labelled too; the agent's
-  `accept` goes back and the tool completes with it.
+  `accept` goes back and the tool completes with it. Over the listener this
+  is the only check of the relayed prompt: the suite's own
+  `tools-call-elicitation` runs after other scenarios' calls have ended in
+  the same fathomgate and is refused by the orphan rule.
 - **agent 2026-07-28 x upstream 2025-11-25**: no server-initiated request
   reaches the agent; the call ends with `isError` and fathomgate's refusal,
   checked word for word: `fathomgate refused an input request (elicitation)
   from upstream conf during test_elicitation: this client speaks the
   stateless era (2026-07-28) and cannot receive a server-initiated prompt;
   see ADR 0014`. The upstream's prompt text appears nowhere in the result.
+  No 2026-07-28 scenario calls a stateful elicitation tool.
 
-Run against the current fixture, both cells fail: the check does not pass
+Run against the current fixture, all four fail: the check does not pass
 without a 2025 upstream.
 
 ### The 2025 upstream
@@ -145,8 +177,9 @@ gaps are listed too. Scenarios the requirement set marks `not_scored` (the
 tasks extension, `pending` scenarios, `added-after-release`) run and are
 reported but cannot fail the run, so they are not listed.
 
-Every entry says why it fails, in one of eight groups, and names the ADR or
-board task that decided it or owns the gap:
+Both control baselines are empty, so every entry on a fathomgate leg is a
+difference fathomgate makes. Every entry says why it fails, in one of these
+groups, and names the ADR or board task that decided it or owns the gap:
 
 | Group | Scenarios (leg) | Why | ADR or task |
 | --- | --- | --- | --- |
@@ -154,15 +187,43 @@ board task that decided it or owns the gap:
 | Refused input requests | `tools-call-sampling` (2025, both fathomgate legs); `input-required-result-basic-sampling`, `basic-list-roots`, `multiple-input-requests`, `capability-check` (2026, `fathomgate`) | Sampling and roots from an upstream are refused; only form elicitation is relayed (profile-schema section 8.4) | ADR 0008, T0.3 |
 | Not relayed | `tools-call-with-logging` (2025, both fathomgate legs) | No logging capability, so no log messages are relayed | T0.3 |
 | Unsolicited answers (SHOULD) | `ignore-extra-params` (2026, `fathomgate`) | `inputResponses` sent without fathomgate's `requestState` are ignored and never forwarded, so the upstream asks again instead of completing (profile-schema section 8.2) | T0.18, ADR 0014 |
-| Pairing and prefix | `tools-call-elicitation`, `elicitation-sep1034-defaults`, `elicitation-sep1330-enums` (2025, `fathomgate` leg only); `server-stateless:sep-2575-server-rejects-undeclared-capability` (2026, both fathomgate legs) | The current fixture's legacy elicitation tools refuse on the 2026 session it has with fathomgate; that path is scored on `fathomgate-up2025`. The suite looks up an unprefixed tool name in `tools/list` (profile-schema section 8.1) | ADR 0008 (pairing, scored on `fathomgate-up2025` since T0.19); ADR 0012, T0.4 (prefix) |
-| Elicitation schema | `elicitation-sep1330-enums` (2025, `fathomgate-up2025`) | The fixture's `titledMulti` field has `items.type: "string"` and `items.anyOf` but no `items.enum`. go-sdk v1.8.0's client (fathomgate's upstream side) refuses the request with `-32602` before fathomgate sees it; behind that, fathomgate's allow-list needs `items.enum` on an array and drops the deprecated `enumNames` (profile-schema section 8.4) | T0.3 |
+| Pairing and prefix | `tools-call-elicitation`, `elicitation-sep1034-defaults`, `elicitation-sep1330-enums` (2025, `fathomgate`); `server-stateless:sep-2575-server-rejects-undeclared-capability` and `sep-2575-missing-capability-http-400` (2026, both fathomgate legs) | The current fixture's legacy elicitation tools refuse on the 2026 session it has with fathomgate. The suite looks up the unprefixed `test_missing_capability` in `tools/list` (profile-schema section 8.1) and reports both checks untestable; the shim renames only `tools/call`, as ADR 0016 decides | ADR 0008 (pairing); ADR 0012, ADR 0016, T0.32 (prefix) |
+| Orphan rule | `tools-call-elicitation`, `elicitation-sep1034-defaults` (2025, `fathomgate-up2025`) | A stateful upstream's prompt names no call, so fathomgate refuses it while another agent session's call on that upstream ended less than `OrphanTTL` (5 minutes) ago. Every scenario is a new session of the same fathomgate, and earlier scenarios' calls have just ended. `era_pairs.py` checks the relayed prompt over the listener in a fathomgate of its own (profile-schema section 8.4) | ADR 0016 amendments (T0.40, T0.44) |
+| Origin refused | `dns-rebinding-protection:localhost-host-valid-accepted` (every fathomgate leg and revision) | The check sends `Origin: http://127.0.0.1:<port>` with a matching `Host` and wants 2xx; fathomgate answers 403 to any request with an `Origin`, a same-host one included, since a DNS-rebinding page sends exactly that and MCP agents are not browsers (profile-schema 8.5 limit 3). The scenario's other check, a foreign `Host`, passes | ADR 0016 (request handling, step 3) |
+| Elicitation schema | `elicitation-sep1330-enums` (2025, `fathomgate-up2025`) | The fixture's `titledMulti` field has `items.type: "string"` and `items.anyOf` but no `items.enum`. go-sdk v1.8.0's client (fathomgate's upstream side) refuses the request with `-32602` before fathomgate sees it; behind that, fathomgate's allow-list needs `items.enum` on an array and drops the deprecated `enumNames` (profile-schema section 8.4) | T0.3, T0.35 |
 | Upstream predates 2026-07-28 | 13 checks on `fathomgate-up2025` 2026-07-28: the `input-required-result-*` scenarios and two `server-stateless` checks | go-sdk v1.6.1's server has none of the 2026-era diagnostic tools (`test_input_required_result_*`, `test_streaming_elicitation`, `test_logging_tool`, `test_missing_capability`); a 2025 server cannot return `input_required` at all. MRTR is scored on the `fathomgate` leg | T0.19 |
-| HTTP transport (every 2026 leg) | 12 `server-stateless` checks: HTTP 400/404 status mapping and the `MCP-Protocol-Version` header | The relay's HTTP behaviour, not fathomgate's; fathomgate has no HTTP listener in M0 | ADR 0012, T0.4 |
 
-Progress (`tools-call-with-progress`) passes in both eras since T0.17:
-fathomgate gives the upstream its own progress token and relays the
-upstream's notifications under the agent's token (profile-schema section
-8.4). `missing-input-response` passes since T0.18.
+The HTTP-transport group is gone. Until T0.32 every 2026-07-28 baseline
+opened with 12 `server-stateless` checks (HTTP 400 and 404 mapping, the
+`MCP-Protocol-Version` header) that measured `relay.py`, not fathomgate. On
+fathomgate's own listener 11 of them pass, as ADR 0016 predicted, and on the
+control leg all 12 pass on go-sdk's handler. The twelfth,
+`sep-2575-missing-capability-http-400`, moved to "Pairing and prefix".
+
+### One process
+
+A fathomgate leg is one `fathomgate serve --listen` for every scenario of a
+revision, as an operator would run it. Two per-process rules then show in
+the 2025-11-25 runs, both deliberate:
+
+- **Session cap.** At most 4 stateful sessions per principal and 16 in all;
+  an idle session closes after 30 minutes (ADR 0016 limit 7, profile-schema
+  8.5 limit 8). The suite DELETEs the session of a scenario that passes but
+  not of one that throws, so the first four scenarios that fail on an
+  undeclared method (`logging-set-level`, `completion-complete`,
+  `tools-call-with-logging`, `resources-list`) leave four sessions open,
+  and every later `initialize` gets 503. The resources and prompts
+  scenarios after that point fail with 503 before the `-32601` they would
+  get anyway, so their baseline entries hold for both reasons (the files
+  say so). No other scored scenario runs after that point today. A suite
+  bump that reorders scenarios shows any casualty as an unexpected
+  failure. The unscored `server-session-lifecycle`, `json-schema-2020-12`
+  and `server-sse-polling` are among the 503s, so they report nothing
+  useful on these legs; they pass on the control legs.
+- **Orphan rule.** See the group above.
+
+The relay started one fathomgate per 2025 session, so neither rule could
+show before T0.32.
 
 A baseline entry is not a pass. "The conformance suite passes on the
 client-facing side" (M0 exit criterion 1) means: every scored check passes
@@ -178,10 +239,13 @@ board task. A reason that is only a gap, not a design choice, needs a task.
   with its reason and reference.
 - **go-sdk bump:** the current fixture and fathomgate both move; the 2025
   fixture stays at v1.6.1. The job must pass before the bump merges
-  (docs/maintainers.md). A changed control leg means the fixture or the relay
-  changed, not fathomgate. A changed `fathomgate-up2025` leg with an unchanged
-  `control-up2025` is fathomgate's upstream client (the new go-sdk) meeting a
-  2025 server: read it before re-baselining.
+  (docs/maintainers.md). A changed control leg means the fixture's own HTTP
+  handler or the shim changed, not fathomgate. A changed `fathomgate-up2025`
+  leg with an unchanged `control-up2025` is fathomgate's upstream client
+  (the new go-sdk) meeting a 2025 server: read it before re-baselining.
 - **Suite bump:** edit the version in `package.json`, run `npm install
   --ignore-scripts --save-exact` here, then `make conformance`, and
-  reconcile every leg's baseline in the same PR.
+  reconcile every leg's baseline in the same PR. Check whether the suite can
+  now send a header and map tool names; if so, drop the shim (ADR 0016).
+- **Listener limits change** (session caps, `OrphanTTL`, the Origin rule):
+  re-read the "One process" section and the groups that cite them.
