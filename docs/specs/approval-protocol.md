@@ -157,7 +157,7 @@ The proxy exposes a `fathomgate.check_approval(id)` tool returning `{state, expi
 
 - `approver_must_differ: true` compares the approver identity string with `requester`. Identities are namespaced by channel (`cli:josh`, `webhook:slack:U024BE7LH`, `mrtr:<session principal>`), so the comparison is on the canonical principal behind the namespace when the proxy can resolve it, otherwise on the full string. An unresolved comparison is treated as "same" (fail closed).
 - The CLI and the local console show "Approver must differ from requester" on such records.
-- An approval from the local console (M5) is no stronger than one from the CLI and never satisfies `approver_must_differ` on its own, because the agent may run as the same OS user ([ADR 0025](../adr/0025-split-the-console.md)). Its identity namespace is set by the local console ADR (ADR 0024, proposed).
+- An approval from the local console (M5) is no stronger than one from the CLI and never satisfies `approver_must_differ` on its own, because the agent may run as the same OS user ([ADR 0025](../adr/0025-split-the-console.md)). Its identity namespace is set by the local console ADR ([ADR 0024](../adr/0024-local-console-embedded-loopback-only.md), accepted).
 
 ## 9. Audit hooks
 
