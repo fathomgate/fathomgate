@@ -342,6 +342,9 @@ type httpHandler struct {
 	// principal (capLogAllowLocked). Principals are configured, so the map is
 	// bounded by the tokens.
 	capLog map[string]*capLogState
+	// evictClosed, set by tests under mu, runs after an evicted session's
+	// go-sdk Close has returned and before its tombstone leaves live.
+	evictClosed func(sid string)
 }
 
 // capLogState is one principal's session-cap refusal log state.
@@ -871,18 +874,53 @@ func (h *httpHandler) evictLocked(ls *liveSession) {
 // Close waits for nothing. If the proxy is already closing, Proxy.Close
 // closes the session itself.
 //
+// The evicted session stays in live, as a tombstone that answers its own
+// principal 404 (beginPOST, beginGET), until ss.Close has returned, and only
+// then is it forgotten (forgetEvicted). go-sdk's Close closes the connection,
+// which ends Wait and so wakes the session's watcher (settleSession), before
+// it runs the onClose that takes the id out of go-sdk's handler. In between,
+// go-sdk still finds the session and answers a call on it 200 with an empty
+// body instead of 404, so the watcher must not be the one to drop the entry:
+// a client told 200 would not start a new session.
+//
 // The eviction's Info line is not rate-limited: each one needs an
 // initialise, and the POST caps (64 overall, 32 per principal) bound those.
+//
+// If the principal's own DELETE runs go-sdk's Close at the same moment and
+// wins it, this Close can return while that DELETE is still removing the
+// id, leaving a tiny window of an empty 200; it affects only the principal
+// that sent the DELETE, which already asked for the session to end.
 func (h *httpHandler) closeEvicted(ls *liveSession) {
 	_, since, _ := ls.idleState()
 	h.logger.Info("agent session evicted: its principal reached a session cap and this was its least recently used idle session",
 		"session", shortHash(ls.sid), "principal", ls.principal, "idle", time.Since(since).Round(time.Second).String())
 	limits := h.p.limits.Load()
-	limits.track(func() {
+	started := limits.track(func() {
 		if err := ls.ss.Close(); err != nil {
 			h.logger.Debug("closing an evicted agent session", "session", shortHash(ls.sid), "error", err)
 		}
+		h.mu.Lock()
+		hook := h.evictClosed
+		h.mu.Unlock()
+		if hook != nil {
+			hook(ls.sid)
+		}
+		h.forgetEvicted(ls)
 	})
+	if !started {
+		// The proxy is closing and Proxy.Close closes the session; nothing
+		// is served any more, so the tombstone has no one to answer.
+		h.forgetEvicted(ls)
+	}
+}
+
+// forgetEvicted takes an evicted session's tombstone out of live.
+func (h *httpHandler) forgetEvicted(ls *liveSession) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.live[ls.sid] == ls {
+		delete(h.live, ls.sid)
+	}
 }
 
 // settleSession runs after the stateful handler served a session-less POST.
@@ -927,12 +965,18 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, slo
 		// finished doing so (it retires under ls.mu).
 		ls.stop()
 		h.mu.Lock()
-		if h.live[sid] == ls {
+		// An evicted session's entry is closeEvicted's to remove, once
+		// go-sdk has forgotten the id too (forgetEvicted); evicted is set
+		// under h.mu, so this read cannot miss an eviction.
+		if h.live[sid] == ls && !ls.evicted {
 			delete(h.live, sid)
 		}
-		// The session is closed and no longer in live. Eviction claims only
-		// sessions in live, under h.mu, so no claimIdle can retire it after
-		// this forget, and the retired set cannot keep a closed session.
+		// The session is closed. Nothing can retire it after this forget:
+		// if it was not evicted it has left live, and eviction claims only
+		// sessions in live, under h.mu; if it was evicted its entry stays in
+		// live until forgetEvicted, but claimEvictableLocked skips evicted
+		// entries and expire returns once stop has run. So the retired set
+		// cannot keep a closed session (the #121 leak).
 		limits.forget(kept)
 		h.mu.Unlock()
 		release()

@@ -219,10 +219,11 @@ func (l *callLimits) retire(ss *mcp.ServerSession) int {
 
 // forget drops ss from the retired set once the session has ended
 // (settleSession's watcher), so the set holds only sessions go-sdk has not
-// finished closing. The watcher calls it under httpHandler.mu, after the
-// session has left httpHandler.live and after liveSession.stop, so neither
-// a claimIdle (which runs under httpHandler.mu on live sessions only) nor
-// an expire's retire (which runs under liveSession.mu) can land after it.
+// finished closing. The watcher calls it under httpHandler.mu, after
+// liveSession.stop. No claimIdle can land after it: an unevicted session
+// has left httpHandler.live, and an evicted one (whose entry stays until
+// forgetEvicted) is skipped by claimEvictableLocked. No expire's retire can
+// either, because expire returns once stop has run.
 func (l *callLimits) forget(ss *mcp.ServerSession) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
