@@ -111,8 +111,12 @@
 #    "mcp-push". The class is
 #    WRITE_CONFIG whatever dry_run says. A future M3 dry_run driver must never
 #    use the upstream's push_config dry_run=True: it sends the payload to the
-#    device, before any approval. Classifying config_params is M1-36 (new;
-#    cEOS tier 2).
+#    device, before any approval. Since M1-36 fathomgate checks every line
+#    of config_lines (classification.md section 11, CLI union list): a
+#    control or non-ASCII byte, or a first word such as end, exit,
+#    configure, commit, abort, do, reload, bash or show, makes the call
+#    EXEC_ARBITRARY. Tier 2 on cEOS (M1-28) is to prove the device
+#    behaviour.
 # 4. daily_brief with neither hostnames nor tags runs on every device in
 #    config.ini (server.py:476-478), and fathomgate sees zero targets. The
 #    other batch tools do not: with an empty selection they return "No hosts

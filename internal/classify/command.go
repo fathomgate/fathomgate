@@ -190,15 +190,8 @@ func classifyCommand(cmd string) (Class, string) {
 		return ExecArbitrary, checkTooLong
 	}
 	raw := strings.Trim(cmd, " \t")
-	for i := 0; i < len(raw); i++ {
-		b := raw[i]
-		switch {
-		case b == '\t':
-		case b < 0x20 || b == 0x7f:
-			return ExecArbitrary, checkControl
-		case b >= 0x80:
-			return ExecArbitrary, checkNonASCII
-		}
+	if check := checkBytes(raw); check != "" {
+		return ExecArbitrary, check
 	}
 	fields := strings.Fields(strings.ToLower(raw))
 	if len(fields) == 0 {

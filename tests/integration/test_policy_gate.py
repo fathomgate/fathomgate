@@ -26,6 +26,9 @@ from .conftest import REPO, SERVER, FakeDevice, client_env, serve_args
 
 pytestmark = [pytest.mark.tier2, pytest.mark.netdev_ssh_mcp]
 
+# The no-exec reason of the example policies (PR #170).
+NO_EXEC = "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+
 
 def _config_file(path: Path, content: str) -> Path:
     """Write a configuration file only its owner can change, as `serve`
@@ -70,7 +73,7 @@ async def test_policy_read_only_over_stdio(fathomgate_binary: Path, upstream_bin
             reload = await session.call_tool(tool, {"host": "127.0.0.1", "command": "reload", **common})
             assert reload.is_error
             assert _text(reload) == (
-                f"fathomgate denied {tool}: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list"
+                f"fathomgate denied {tool}: rule no-exec (class EXEC_ARBITRARY): {NO_EXEC}"
             ), _text(reload)
 
             for host in ("localhost", "10.99.99.99"):

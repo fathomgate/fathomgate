@@ -765,8 +765,9 @@ and ask for `show version` on host `127.0.0.1`, port `22022`, device type
 `eos`. The answer includes `Serial number: FAKE0000SN01`, and
 `/tmp/fakedev/commands.log` records the command. Then ask for `reload` on the
 same host: with `read-only.yaml` the agent gets `fathomgate denied
-netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command
-did not pass the read allow-list`, and `commands.log` has no new line.
+netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY):
+EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list
+or outside configuration mode`, and `commands.log` has no new line.
 
 Here the password goes in the arguments with `--upstream-env` only because
 `FAKE-device-pass` is a published fake. Do not copy this for a real

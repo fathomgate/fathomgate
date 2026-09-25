@@ -102,7 +102,7 @@ func bufferLogger(level slog.Level) (*slog.Logger, *lockedBuffer) {
 // exactly, and the upstream sees nothing.
 func TestGateVerdictsOnTheWire(t *testing.T) {
 	const (
-		denied = "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list"
+		denied = "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
 		held   = "fathomgate held netdev-ssh-mcp.run_show_command: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run."
 		cannot = "fathomgate cannot run netdev-ssh-mcp.run_show_command: rule lab-writes-free (class WRITE_CONFIG): obligation dry_run cannot be met until change-safety drivers exist"
 	)

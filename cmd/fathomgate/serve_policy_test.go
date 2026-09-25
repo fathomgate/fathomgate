@@ -559,7 +559,7 @@ var e2eCases = []struct {
 	isError bool
 }{
 	{map[string]any{"host": "core-rtr-01", "command": "show version"}, `call 1 {"command":"show version","host":"core-rtr-01"}`, false},
-	{map[string]any{"host": "core-rtr-01", "command": "reload"}, "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list", true},
+	{map[string]any{"host": "core-rtr-01", "command": "reload"}, "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode", true},
 	{map[string]any{"host": "core-x.attacker.example", "command": "show version"}, "fathomgate denied netdev-ssh-mcp.run_show_command: rule default:unknown_target (class READ_OPERATIONAL): target not in inventory", true},
 	{map[string]any{"host": "core-rtr-01", "command": "show version", "username": "FAKE-admin"}, "fathomgate denied netdev-ssh-mcp.run_show_command: rule default:bad_arguments", true},
 	{map[string]any{"host": "core-rtr-02", "command": "show ip bgp summary"}, `call 2 {"command":"show ip bgp summary","host":"core-rtr-02"}`, false},

@@ -199,7 +199,7 @@ func TestRealGateThroughProxy(t *testing.T) {
 	}{
 		{"allow", "netdev-ssh-mcp.run_show_command", map[string]any{"host": "core-rtr-01", "command": "show version"}, ""},
 		{"deny exec", "netdev-ssh-mcp.run_show_command", map[string]any{"host": "core-rtr-01", "command": "reload"},
-			"fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list"},
+			"fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"},
 		{"deny unknown target", "eos-mcp.get_version", map[string]any{"hostname": "core-x.attacker.example"},
 			"fathomgate denied eos-mcp.get_version: rule default:unknown_target (class READ_OPERATIONAL): target not in inventory"},
 		{"deny unnamed argument", "eos-mcp.get_version", map[string]any{"hostname": "core-rtr-01", "config_path": "/proc/self/environ"},
