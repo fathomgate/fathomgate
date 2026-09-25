@@ -17,7 +17,7 @@ permissions:
 # Go toolchain (ADR 0013): every setup-go step reads `go-version-file: go.mod`.
 # setup-go v6 installs the `toolchain` line, not the `go` floor, and exports
 # GOTOOLCHAIN=local so no step switches toolchains. The toolchain version
-# lives in go.mod only; bump it there (CONTRIBUTING.md). Jobs that build run
+# lives in go.mod only; bump it there (docs/maintainers.md). Jobs that build run
 # `make toolchain-check` right after setup-go.
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
   # it must run on every pull request, with no `paths:` filter, including
   # Dependabot's (it needs no secrets). A go-sdk bump rebuilds the fixture
   # upstream (go-sdk's own conformance everything-server at the go.mod
-  # version) and must pass here before it merges (CONTRIBUTING.md). A
+  # version) and must pass here before it merges (docs/maintainers.md). A
   # second upstream, the same server at go-sdk v1.6.1 (2025-11-25 only,
   # T0.19), is built from the test-only module tests/conformance/upstream-2025
   # and never moves with a bump. The suite version is pinned in

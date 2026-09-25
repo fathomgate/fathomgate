@@ -493,7 +493,7 @@ type trackedTransport struct {
 // An unexported method is never promoted through the embedded interface,
 // which is why every other transport stays unwrapped. On a go-sdk bump,
 // re-run the grep and re-check each assertion against ioConn
-// (CONTRIBUTING.md, "Bumping go-sdk").
+// (docs/maintainers.md, "Bumping go-sdk").
 func tracksConn(t mcp.Transport) bool {
 	switch t.(type) {
 	case *mcp.CommandTransport, *mcp.InMemoryTransport, *mcp.IOTransport, *mcp.StdioTransport:

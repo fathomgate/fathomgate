@@ -21,7 +21,7 @@ updates:
       interval: monthly
     # The Dockerfile builder's Go minor must equal the go.mod `toolchain`
     # minor (ADR 0013). A Go minor bump is the manual toolchain bump in
-    # CONTRIBUTING.md, never a Dependabot PR; distroless updates still flow.
+    # docs/maintainers.md, never a Dependabot PR; distroless updates still flow.
     # Covers Dockerfile and Dockerfile.goreleaser (both in /). Their FROM
     # lines are pinned tag@sha256 to the multi-arch index digest, so for the
     # same tag Dependabot proposes a new digest when upstream rebuilds.
