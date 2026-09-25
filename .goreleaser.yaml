@@ -70,8 +70,12 @@ release:
   footer: |
     Verify a download with `sha256sum -c checksums.txt`.
 
-# Homebrew tap placeholder: create fathomgate/homebrew-tap and set
-# HOMEBREW_TAP_GITHUB_TOKEN before the first tagged release.
+# Homebrew tap: fathomgate/homebrew-tap does not exist yet, so the formula is
+# generated into dist/homebrew/ and never uploaded. Uploading with no tap (or
+# with GITHUB_TOKEN, which cannot write to another repository) fails the
+# release job after the GitHub release is already public. To turn it on:
+# create the tap, add a fine-grained HOMEBREW_TAP_GITHUB_TOKEN (contents: write
+# on the tap only) as a repository secret, and set skip_upload back to auto.
 brews:
   - name: fathomgate
     repository:
@@ -84,7 +88,7 @@ brews:
     license: Apache-2.0
     test: |
       system "#{bin}/fathomgate", "version"
-    skip_upload: auto
+    skip_upload: true
 
 dockers:
   - image_templates:
