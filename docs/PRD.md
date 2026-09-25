@@ -16,7 +16,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | --- | --- | --- |
 | Network engineer running agents in a lab | Runs Claude Code or Cursor against a containerlab or home lab through eos-mcp, netdev-ssh-mcp or a netmiko server. Wants to let the agent do real work without a `reload` surprise. | One binary, one `mcp.json` entry, a read-only policy on day one, lab writes with dry-run and diff on day two. |
 | MSP engineer fronting client devices | Runs one proxy per client. Has a spreadsheet, not NetBox. Must show the client what the agent did. | Static inventory from CSV, per-client policy, an audit log a client can verify, approval by a second engineer for production writes. |
-| Platform or security team governing agent access | Owns NetBox or Nautobot. Runs agentgateway or ContextForge for auth. Needs evidence for audit and a hard stop on unknown devices. | Role resolution from the source of truth with stale marking, OCSF or CEF export, HMAC webhook approval from the ticketing system, an optional OPA backend. |
+| Platform or security team governing agent access | Owns NetBox or Nautobot. Runs agentgateway or ContextForge for auth. Needs evidence for audit and a hard stop on unknown devices. | Role resolution from the source of truth with stale marking, an audit log any log shipper can forward to their SIEM (ready-made OCSF or CEF export in the paid edition), HMAC webhook approval from the ticketing system, an optional OPA backend. |
 
 ## 3. Jobs to be done
 
@@ -31,7 +31,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 ## 4. Non-goals
 
 - Authentication federation, OAuth, token exchange. A generic gateway or the MCP host does this.
-- OpenTelemetry pipelines. Fathomgate emits audit JSONL and exports OCSF and CEF.
+- OpenTelemetry pipelines. Fathomgate emits audit JSONL, which any log shipper can forward; ready-made OCSF and CEF exporters are in the paid edition ([ADR 0025](adr/0025-split-the-console.md)).
 - Being an MCP server for devices. Fathomgate never opens SSH; the upstream does.
 - Catalogues, virtual servers, REST-to-MCP conversion.
 - Intent verification or reachability analysis. Batfish is a possible later obligation, not a requirement.
@@ -95,7 +95,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R24 | `approver_must_differ` enforced on server-side identities | P0 | M3 | [approval-protocol](specs/approval-protocol.md) |
 | R25 | Re-label upstream elicitation prompts with origin | P1 | M3 | [ADR 0008](adr/0008-dual-era-mcp-support.md) |
 | R26 | Hash-chained JSONL with Ed25519 checkpoints and `audit verify` | P0 | M4 | [audit-event-schema](specs/audit-event-schema.md) |
-| R27 | OCSF `API Activity` and CEF exporters | P1 | M4 | [audit-event-schema](specs/audit-event-schema.md) |
+| R27 | OCSF `API Activity` and CEF exporters. Paid edition, not core: until 2026-09-25 R27 was P1 in M4; [ADR 0025](adr/0025-split-the-console.md) moved it. They read the JSONL and never write the chain; the JSONL itself stays open (R26) | Was P1 | Paid edition (was M4) | [audit-event-schema](specs/audit-event-schema.md), [ADR 0025](adr/0025-split-the-console.md) |
 | R28 | Session counters, fan-out caps, canary-first rule, maintenance windows | P0 | M4 | [policy-schema](specs/policy-schema.md) |
 | R29 | Local console for one operator on one machine, using the Fathom policy layer: served by the binary, loopback only, off by default, no accounts; live activity (decision, class, target, rule), held requests with diff, rule trace and rule, approve and deny as the local OS user (never enough alone for `approver_must_differ`), audit timeline for the local log with its verify status. Until 2026-09-25 R29 was the whole approval console and audit viewer; [ADR 0025](adr/0025-split-the-console.md) split it | P0 | M5 | [ADR 0009](adr/0009-fathom-design-system-policy-layer.md), [ADR 0025](adr/0025-split-the-console.md); the local console ADR (ADR 0024, proposed) |
 | R30 | IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy watchdog | P0 | M5 | [change-safety-drivers](specs/change-safety-drivers.md) |
@@ -104,7 +104,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R33 | Policy reload on SIGHUP without dropping connections; failed reload keeps the old policy | P1 | M1 | [policy-schema](specs/policy-schema.md) |
 | R34 | Python `tools/policy-lint` sharing the YAML schema and classifier tables | P1 | M1 | [CONTRIBUTING](../CONTRIBUTING.md) |
 | R35 | The CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind without a console | P0 | M3 | [approval-protocol](specs/approval-protocol.md), [ADR 0025](adr/0025-split-the-console.md) |
-| R36 | Team console: SSO, roles and RBAC, multi-approver and N-of-M approvals, fleet view across many instances, central policy management, long-term retention and search, SIEM export | n/a | Paid edition, not core | [ADR 0025](adr/0025-split-the-console.md) |
+| R36 | Team console: SSO, roles and RBAC, multi-approver and N-of-M approvals, fleet view across many instances, central policy management, long-term retention and search, SIEM export (R27) | n/a | Paid edition, not core | [ADR 0025](adr/0025-split-the-console.md) |
 
 ## 7. Open questions
 

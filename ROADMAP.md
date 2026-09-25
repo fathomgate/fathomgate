@@ -42,7 +42,7 @@ The heart of it. A config change on a production device is held. For every held 
 
 ### 5. Prove it (M4)
 
-Every decision lands in a tamper-evident audit log that you can verify and hand to an auditor. Limits on how much an assistant can touch at once: no more than N devices per session, a canary device first, changes only in maintenance windows.
+Every decision lands in a tamper-evident audit log that you can verify and hand to an auditor. The log is standard JSON, one line per event, so any log shipper can forward it to your SIEM. Limits on how much an assistant can touch at once: no more than N devices per session, a canary device first, changes only in maintenance windows.
 
 ### 6. See it (M5)
 
@@ -50,7 +50,7 @@ A console in your browser, served by Fathomgate itself on your own machine. Watc
 
 Safe-change drivers with automatic rollback for Cisco IOS-XE and NX-OS, Palo Alto PAN-OS and Fortinet FortiOS. Where a platform can't roll a change back on its own timer, Fathomgate keeps the timer: if nobody confirms the change in time, it rolls it back. And if your team already writes policy in OPA, you can use it as the policy engine, with the same allow, hold and deny.
 
-For teams, the paid edition will add a team console: single sign-on, roles, approvals that need more than one person, one view across many Fathomgate instances, central policy, long-term search of the audit log, and export to your SIEM.
+For teams, the paid edition will add a team console: single sign-on, roles, approvals that need more than one person, one view across many Fathomgate instances, central policy, long-term search of the audit log, and ready-made OCSF and CEF exporters for your SIEM.
 
 ## Beyond
 
@@ -73,7 +73,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are under Apache-2.
 
 ## Open source, and how it's funded
 
-The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log) is open source under Apache-2.0. The paid edition that funds the work is for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and SIEM export. The team console shows nothing about a request that you can't get from the open command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
+The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log) is open source under Apache-2.0. The paid edition that funds the work is for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. The team console shows nothing about a request that you can't get from the open command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
 
 ## For the details
 

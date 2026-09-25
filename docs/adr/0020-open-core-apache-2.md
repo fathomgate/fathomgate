@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; chose open core, Apache-2.0 and DCO on 2026-09-24); proposed by docs-writer. The boundary table and the contested rows below are recommendations for the maintainer to accept or change. Reviewers: security-reviewer (boundary rule, extension invariants), release-engineer (LICENSE, NOTICE, artefacts), policy-engineer and network-safety-engineer (the core/commercial split of their packages), mcp-protocol-engineer (MRTR approval, `Proxy.dispatch`)
-- Console row superseded by: [ADR 0025](0025-split-the-console.md) (see *Amendments*)
+- Console row superseded, and the OCSF and CEF exporter row settled, by: [ADR 0025](0025-split-the-console.md) (see *Amendments*)
 
 ## Context
 
@@ -186,6 +186,7 @@ This section records factual corrections and pointers (GOVERNANCE.md). It does n
 | Date | What changed | Why |
 | --- | --- | --- |
 | 2026-09-25 | Pointer: the *Approval console* contested row and the M5 row "Approval console and audit viewer (R29)" are superseded by [ADR 0025](0025-split-the-console.md) (accepted 2026-09-25). A local console for one operator on one machine is core, in M5 (R29); the team console (SSO, RBAC, multi-approver, fleet view, central policy, retention and search, SIEM export) is in the paid edition. The row's condition is kept: the core CLI shows the diff, the rule trace and the rule for every pending record (PRD R35). *Negative*'s "M5's console" item is carried out in ROADMAP.md, PLAN.md and PRD.md by the same pull request. The boundary rule and every other row are unchanged | Maintainer decision, Josh Scott, 2026-09-25. It departs from the row's recommendation (whole console commercial), so it is its own record rather than an amendment here |
+| 2026-09-25 | Pointer: the M4 row "OCSF and CEF exporters (R27)", a commercial candidate, is settled as **Commercial** by [ADR 0025](0025-split-the-console.md) decision 2. The audit chain, the Ed25519 checkpoints and `fathomgate audit verify` stay core, as the row above them already says; the exporters read the chain and never write it. The *Audit exporters* seam in section 3 is unchanged | Maintainer decision, Josh Scott, 2026-09-25 |
 
 ## References
 
