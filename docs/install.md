@@ -407,20 +407,39 @@ launchers that start the server as a child of their own: `uvx`, `npx`,
   still downloading or resolving packages on its first run, as `uvx` and
   `npx` do, can take longer than 5 seconds. If you must use one, run it once
   by hand first so its cache is warm.
-- **A stopped launcher can leave the server running.** fathomgate stops only
-  the process it started. If that process is a launcher, the real server
-  underneath can keep running, holding the same credentials you passed with
-  `--upstream-env-pass`, next to the copy fathomgate starts for the restart.
-  This is an open issue in [the threat model](security/threat-model.md).
-  Pointing `--upstream` at the server itself avoids it.
+- **A stopped launcher can leave the server running.** fathomgate starts the
+  upstream in a process group of its own (Linux, macOS) or a Job Object of
+  its own (Windows), and stops that whole tree on a restart, a failed start
+  and shutdown ([ADR 0021](adr/0021-kill-the-upstream-process-tree.md)). A
+  server that stays in the tree is stopped with its launcher. That has not
+  yet been checked for `uvx`, `npx` and `uv run` on each system, and it
+  never covers `docker run -i` (the container belongs to Docker, not to the
+  `docker` command) or a launcher that detaches its server (`setsid`, a
+  daemon). A server that escapes can keep running, holding the same
+  credentials you passed with `--upstream-env-pass`, next to the copy
+  fathomgate starts for the restart. On Linux and macOS, if fathomgate
+  itself is killed, the tree is left running; run fathomgate under systemd,
+  which stops everything the service started. Pointing `--upstream` at the
+  server itself avoids all of this.
 
 On Windows a virtual environment's `Scripts\python.exe` is itself a small
 redirector: it starts the base interpreter as a child process. That child
 does not outlive it. Checked on 2026-09-24 with Python 3.13.15, for a venv
 made by `python -m venv` and one made by `uv venv`: when the redirector was
-terminated the way fathomgate kills an upstream (`TerminateProcess` on the
-parent only), the child ended with it. So on Windows the venv's
+terminated with `TerminateProcess` on the parent only (how fathomgate
+killed an upstream before ADR 0021), the child ended with it. Since ADR
+0021 the child is also in the upstream's job. So on Windows the venv's
 `Scripts\python.exe` is safe to use as `--upstream`.
+
+## Running fathomgate in a container
+
+If you run fathomgate itself in a container (the distroless image), start
+it with an init process: `docker run --init`, or `init: true` in Compose.
+Without one, fathomgate is PID 1 and nothing reaps the processes its
+upstream's tree leaves behind when they exit. They stay as zombies, and
+while they are there fathomgate cannot tell that the tree has emptied, so
+stopping an upstream takes up to 2 seconds longer
+([ADR 0021](adr/0021-kill-the-upstream-process-tree.md)).
 
 ## Check it works
 

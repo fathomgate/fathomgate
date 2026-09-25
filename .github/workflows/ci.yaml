@@ -180,7 +180,8 @@ jobs:
   # ever runs this image unelevated or without the symlink privilege, this
   # job must fail loudly. Do not drop the variable or accept skips to make it
   # green; fix the runner or move to one that is elevated. No -race: the
-  # Linux `go` job covers the race detector.
+  # Linux `go` job covers the race detector. The same `go test` also runs the
+  # upstream's Job Object code in internal/proxy (ADR 0021, T0.46).
   windows:
     name: go vet / test (windows, elevated)
     runs-on: windows-latest
@@ -247,6 +248,33 @@ jobs:
             fi
           done
           exit "$missing"
+
+  # macOS (ADR 0021, T0.46): the upstream's process group (Setpgid, the
+  # group kill, the post-reap sweep) runs on Darwin's syscall code, which the
+  # Linux job does not exercise; lint's darwin cross-analysis only compiles
+  # it. The internal/proxy tests start a launcher fixture whose child must be
+  # gone after the restart, a failed start, Close and a mid-session exit.
+  # Not a required check yet: the maintainer adds it to the main ruleset once
+  # it has proven stable. `make toolchain-check` works with macOS's make.
+  macos:
+    name: go test (macos)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./internal/proxy/
 
   lint:
     name: golangci-lint

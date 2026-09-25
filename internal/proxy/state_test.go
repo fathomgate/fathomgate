@@ -39,7 +39,11 @@ func mustSeal(t *testing.T, s *sealer, st sealedState) string {
 func TestSealer(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	s := testSealer(t, now)
-	st := sealedState{Server: "s", Tool: "t", Args: argsDigest(json.RawMessage(`{"a":1}`)), IDs: []string{"otp", "pw"}, Up: "FAKE-up-state-secret", Round: 2}
+	// Every value searched for below is long enough (at least 20 bytes)
+	// that random ciphertext or its base64 text cannot contain it by
+	// chance; a 3-byte id could (about once in a thousand runs).
+	const idMarker = "FAKE-outstanding-id-otp"
+	st := sealedState{Server: "s", Tool: "t", Args: argsDigest(json.RawMessage(`{"a":1}`)), IDs: []string{idMarker, "pw"}, Up: "FAKE-up-state-secret", Round: 2}
 	token := mustSeal(t, s, st)
 	if !strings.HasPrefix(token, statePrefix) {
 		t.Fatalf("token %q lacks prefix", token)
@@ -58,7 +62,15 @@ func TestSealer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"FAKE-up-state-secret", `"s":"s"`, "otp"} {
+	plain, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := `"s":"s","t":"t","a":"` // the binding, as the plaintext spells it
+	if !bytes.Contains(plain, []byte(binding)) || !bytes.Contains(plain, []byte(idMarker)) {
+		t.Fatalf("the markers are not in the plaintext %s", plain)
+	}
+	for _, secret := range []string{"FAKE-up-state-secret", binding, idMarker} {
 		if bytes.Contains(raw, []byte(secret)) || strings.Contains(token, secret) {
 			t.Errorf("sealed state reveals %q", secret)
 		}
