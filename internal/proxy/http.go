@@ -885,6 +885,11 @@ func (h *httpHandler) evictLocked(ls *liveSession) {
 //
 // The eviction's Info line is not rate-limited: each one needs an
 // initialise, and the POST caps (64 overall, 32 per principal) bound those.
+//
+// If the principal's own DELETE runs go-sdk's Close at the same moment and
+// wins it, this Close can return while that DELETE is still removing the
+// id, leaving a tiny window of an empty 200; it affects only the principal
+// that sent the DELETE, which already asked for the session to end.
 func (h *httpHandler) closeEvicted(ls *liveSession) {
 	_, since, _ := ls.idleState()
 	h.logger.Info("agent session evicted: its principal reached a session cap and this was its least recently used idle session",
@@ -966,9 +971,12 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, slo
 		if h.live[sid] == ls && !ls.evicted {
 			delete(h.live, sid)
 		}
-		// The session is closed and no longer in live. Eviction claims only
-		// sessions in live, under h.mu, so no claimIdle can retire it after
-		// this forget, and the retired set cannot keep a closed session.
+		// The session is closed. Nothing can retire it after this forget:
+		// if it was not evicted it has left live, and eviction claims only
+		// sessions in live, under h.mu; if it was evicted its entry stays in
+		// live until forgetEvicted, but claimEvictableLocked skips evicted
+		// entries and expire returns once stop has run. So the retired set
+		// cannot keep a closed session (the #121 leak).
 		limits.forget(kept)
 		h.mu.Unlock()
 		release()
