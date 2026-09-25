@@ -7,70 +7,68 @@
 # The PRD M1 success metrics (docs/PRD.md section 5) and ROADMAP stage 2 ("a denial names its rule";
 # "we'll announce it here") are carried as tasks, not as extra criteria.
 # Tasks M1-01 to M1-05 are decision records: each is accepted by the maintainer, and the code tasks
-# that depend on it are blocked_by it until then.
+# that depend on it are blocked_by it until then. Decided 2026-09-25: 0026 to 0028 accepted, 0029 accepted
+# in part (Windows exclusive bind), 0030 deferred to M2.
 milestone: M1
 title: Classify + allow/deny
-status: 'open; ADRs 0026 to 0030 proposed, awaiting acceptance'
+status: 'open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2'
 opened: 2026-09-25
 exit_criteria:
   - 100 percent of surveyed tools mapped
   - policy test suite green
   - '`EXEC_ARBITRARY` downgrade works on show commands'
 validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp run_command]
-blockers:
-  - id: B1
-    owner: joshscott13
-    text: 'ADR 0026 (pipeline) and ADR 0027 (serve flags) are proposed; the gate, the dispatch wiring and the serve flags (M1-18, M1-19, M1-20) wait on their acceptance. Open questions are listed in each record.'
+blockers: []
 tasks:
   - id: M1-01
     title: Accept ADR 0026, the M1 policy pipeline at Proxy.dispatch
     package: docs/adr
     owner: joshscott13
     reviewers: [mcp-protocol-engineer, policy-engineer, security-reviewer, go-reviewer, design-guardian]
-    state: in review
+    state: merged
     adr: "0026"
     matrix: [3, 4, 6]
     spec: docs/specs/policy-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR (chore/m1-kickoff). Decides the stage order (parse, normalise, classify, resolve, session counters, Evaluate, enforce, record, redact in M2), the deny tool error text, fail-closed handling of hold and of the dry_run, diff and timed_rollback obligations before M3, the decision log line that M4 turns into the audit event, the new internal/gate package, and the internal/proxy exports Options.Gate, Gate, CallInfo, Verdict (supersedes the ADR 0022 table). Five open questions for the maintainer in the record.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR (chore/m1-kickoff). Decides the stage order (parse, normalise, classify, resolve, session counters, Evaluate, enforce, record, redact in M2), the deny tool error text, fail-closed handling of hold and of the dry_run, diff and timed_rollback obligations before M3, the decision log line that M4 turns into the audit event, the new internal/gate package, and the internal/proxy exports Options.Gate, Gate, CallInfo, Verdict (supersedes the ADR 0022 table). Five open questions for the maintainer in the record. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
   - id: M1-02
     title: Accept ADR 0027, serve --policy, --inventory and --profiles; --audit refused until M4
     package: docs/adr
     owner: joshscott13
     reviewers: [mcp-protocol-engineer, security-reviewer, design-guardian, release-engineer]
-    state: in review
+    state: merged
     adr: "0027"
     matrix: [3, 4, 6]
     spec: docs/specs/profile-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR. CLI surface change (amends ADR 0012). Embeds profiles/ with go:embed; serve without --policy stays a pass-through with a Warn (open question 1: require --policy instead). --audit stays refused because the audit chain is M4 (PLAN, PRD R26, and the reservedServeFlags comment in serve.go already say so); the M0 board notes that assumed M1 wires --audit (T0.47, T0.55) are superseded by this. Four open questions.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. CLI surface change (amends ADR 0012). Embeds profiles/ with go:embed; serve without --policy stays a pass-through with a Warn (open question 1: require --policy instead). --audit stays refused because the audit chain is M4 (PLAN, PRD R26, and the reservedServeFlags comment in serve.go already say so); the M0 board notes that assumed M1 wires --audit (T0.47, T0.55) are superseded by this. Four open questions. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
   - id: M1-03
     title: Accept ADR 0028, audit signing key custody
     package: docs/adr
     owner: joshscott13
     reviewers: [policy-engineer, security-reviewer]
-    state: in review
+    state: merged
     adr: "0028"
     matrix: []
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR, as T0.55 asked (a short key-custody ADR). Owner-only file checks on every key open; verify accepts a public key only; keyring and KMS deferred behind a crypto.Signer seam; the redaction key is left to M2. Three open questions.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR, as T0.55 asked (a short key-custody ADR). Owner-only file checks on every key open; verify accepts a public key only; keyring and KMS deferred behind a crypto.Signer seam; the redaction key is left to M2. Three open questions. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
   - id: M1-04
     title: Accept ADR 0029, remote listening with built-in TLS and loopback authentication
     package: docs/adr
     owner: joshscott13
     reviewers: [mcp-protocol-engineer, security-reviewer, release-engineer]
-    state: in review
+    state: merged
     adr: "0029"
     matrix: [23]
     spec: docs/specs/profile-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR. ADR 0016 put --listen-remote and --listen-host in M1 and already decided built-in TLS required off loopback; this record fixes the flags, allows TLS on loopback against port squatting (threat-model row, open for M1), and binds with SO_EXCLUSIVEADDRUSE on Windows. Not an M1 exit criterion; open question 1 asks whether to park it to M2.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. ADR 0016 put --listen-remote and --listen-host in M1 and already decided built-in TLS required off loopback; this record fixes the flags, allows TLS on loopback against port squatting (threat-model row, open for M1), and binds with SO_EXCLUSIVEADDRUSE on Windows. Not an M1 exit criterion; open question 1 asks whether to park it to M2. Accepted in part by the maintainer 2026-09-25 in PR #125: the Windows exclusive bind (point 4) is M1, task M1-27; remote listening, TLS on remote and loopback, Unix socket and mTLS are deferred to M2 and re-decided there (not rejected). Status line: accepted in part (M1: Windows exclusive bind); remainder deferred to M2.'
   - id: M1-05
     title: Accept ADR 0030, reloading the policy and inventory without a restart
     package: docs/adr
     owner: joshscott13
     reviewers: [mcp-protocol-engineer, policy-engineer, security-reviewer, go-reviewer]
-    state: in review
+    state: dropped
     adr: "0030"
     matrix: []
     spec: docs/specs/policy-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR for PRD R33 (P1, M1). SIGHUP on Unix, content polling on Windows, atomic swap only when both files load, profiles never reloaded, policy_version on every decision line. Not an exit criterion; open question 2 asks whether to park it to M2.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR for PRD R33 (P1, M1). SIGHUP on Unix, content polling on Windows, atomic swap only when both files load, profiles never reloaded, policy_version on every decision line. Not an exit criterion; open question 2 asks whether to park it to M2. Deferred to M2 by the maintainer 2026-09-25: ADR 0030 stays proposed, deferred to M2.'
   - id: M1-06
     title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6)
     package: internal/proxy
@@ -102,7 +100,6 @@ tasks:
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: open
-    blocked_by: [M1-03]
     adr: "0028"
     matrix: []
     spec: docs/specs/audit-event-schema.md
@@ -191,7 +188,7 @@ relo
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: open
-    blocked_by: [M1-01, M1-16]
+    blocked_by: [M1-16]
     adr: "0026"
     matrix: [3, 4, 6]
     spec: docs/specs/policy-schema.md
@@ -202,7 +199,7 @@ relo
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, design-guardian]
     state: open
-    blocked_by: [M1-01, M1-06, M1-18]
+    blocked_by: [M1-06, M1-18]
     adr: "0026"
     matrix: [3, 4, 6]
     spec: docs/specs/profile-schema.md
@@ -213,21 +210,20 @@ relo
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, design-guardian, release-engineer]
     state: open
-    blocked_by: [M1-02, M1-19]
+    blocked_by: [M1-19]
     adr: "0027"
     matrix: [3, 4, 6]
     spec: docs/specs/profile-schema.md
-    notes: 'CLI surface per ADR 0027: load and validate before spawning; start-up line names policy, inventory and profile source; one Warn per unenforced obligation; Warn without --policy. go:embed profiles/*.yaml; fathomgate version lists the embedded set. Docs in the same PR: profile-schema 8.3, docs/install.md, README snippets, the Things-that-look-wrong entry about serve in CLAUDE.md (maintainer edits CLAUDE.md). make conformance required.'
+    notes: 'CLI surface per ADR 0027: load and validate before spawning; start-up line names policy, inventory and profile source; one Warn per unenforced obligation. Decided 2026-09-25 (ADR 0027): --policy is required; --no-policy keeps the M0 pass-through (with a Warn, and --inventory and --profiles refused); neither flag exits 2 naming both; the --audit refusal says it arrives in M4; a missing profile for --server starts with the fallback classifier and a Warn; one --policy file. go:embed profiles/*.yaml; fathomgate version lists the embedded set. Docs in the same PR: profile-schema 8.3, docs/install.md, README snippets, the Things-that-look-wrong entry about serve in CLAUDE.md (maintainer edits CLAUDE.md). make conformance required.'
   - id: M1-21
     title: Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval
     package: policies
     owner: policy-engineer
     reviewers: [security-reviewer]
     state: open
-    blocked_by: [M1-01]
     matrix: [3, 4, 6]
     spec: docs/specs/policy-schema.md
-    notes: 'Exit criterion 2 (policy test suite green; PRD: at least three cases per example policy, met today with 25 cases). Add cases mirroring rows 3 (show ip bgp summary, READ_OPERATIONAL, reads-anywhere), 4 (reload, EXEC_ARBITRARY, no-exec) and 6 (unknown host, default:unknown_target). After ADR 0026 open question 1 is answered, say in lab-open.yaml and prod-approval.yaml comments what M1 does with their obligations and hold rule, or add an M1 variant.'
+    notes: 'Exit criterion 2 (policy test suite green; PRD: at least three cases per example policy, met today with 25 cases). Add cases mirroring rows 3 (show ip bgp summary, READ_OPERATIONAL, reads-anywhere), 4 (reload, EXEC_ARBITRARY, no-exec) and 6 (unknown host, default:unknown_target). Decided 2026-09-25 (ADR 0026 decision 1): an allow carrying dry_run, diff or timed_rollback is not forwarded in M1, so change lab-open.yaml so lab writes do not require those obligations until M3, with a comment saying they return in M3; update its test cases to match. Say in prod-approval.yaml comments that its hold rule is not forwarded in M1 (the agent sees the ADR 0026 hold text).'
   - id: M1-22
     title: Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device
     package: tests/integration
@@ -258,29 +254,28 @@ relo
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [policy-engineer, security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     blocked_by: [M1-05, M1-20]
     adr: "0030"
     matrix: []
-    notes: 'PRD R33 (P1, M1). Not an exit criterion; ADR 0030 open question 2 asks whether to park it to M2. Atomic swap, old policy kept on error, policy_version on every decision line.'
+    notes: 'PRD R33 (P1, M1). Not an exit criterion; ADR 0030 open question 2 asks whether to park it to M2. Atomic swap, old policy kept on error, policy_version on every decision line. Moved to M2 (ADR 0030 / ADR 0029 deferred part), 2026-09-25.'
   - id: M1-26
     title: serve --listen-remote, --listen-host, --listen-tls-cert and --listen-tls-key (remote and loopback TLS)
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
-    state: open
+    state: dropped
     blocked_by: [M1-04, M1-20]
     adr: "0029"
     matrix: [23]
     spec: docs/specs/profile-schema.md
-    notes: 'ADR 0016 reserved the remote flags for M1 and decided built-in TLS required off loopback; ADR 0029 fixes the details and adds TLS on loopback. --listen-remote requires --policy, TLS and at least one --listen-host. Not an exit criterion. Docs: profile-schema 8.3 and 8.5, install.md, threat model.'
+    notes: 'ADR 0016 reserved the remote flags for M1 and decided built-in TLS required off loopback; ADR 0029 fixes the details and adds TLS on loopback. --listen-remote requires --policy, TLS and at least one --listen-host. Not an exit criterion. Docs: profile-schema 8.3 and 8.5, install.md, threat model. Moved to M2 (ADR 0030 / ADR 0029 deferred part), 2026-09-25.'
   - id: M1-27
     title: Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
     state: open
-    blocked_by: [M1-04]
     adr: "0029"
     matrix: [23]
     notes: 'Threat-model row "Port squatting while fathomgate is down or restarting" is open and owned for M1 by mcp-protocol-engineer. On Windows another user can bind a wildcard address while fathomgate runs and receive its loopback connections (security review of PR #112). golang.org/x/sys/windows is already a dependency. The row stays partly open for plain-HTTP loopback while fathomgate is down (ADR 0029, residual).'
@@ -301,7 +296,7 @@ relo
     state: open
     blocked_by: [M1-28]
     matrix: []
-    notes: 'After every exit criterion is ticked. Ship profiles/ in the archives as well as embedded (ADR 0027). The release notes lead with what M1 denies and how the denial reads to the agent.'
+    notes: 'After every exit criterion is ticked. Ship profiles/ in the archives as well as embedded (ADR 0027). The CHANGELOG entry and upgrade note must say that serve now requires --policy, and that existing configs add --no-policy to keep the v0.1.0 pass-through. The release notes lead with what M1 denies and how the denial reads to the agent.'
   - id: M1-30
     title: Announce M1 - a proxy that lets an assistant read everything and stops reload
     package: docs

@@ -1,8 +1,8 @@
 # ADR 0029: Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback
 
-- Status: proposed
+- Status: accepted in part (M1: Windows exclusive bind); remainder deferred to M2
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer; to accept); proposed by the orchestrator for M1 (board task M1-04); owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer, release-engineer
+- Deciders: Josh Scott (maintainer), accepted in part by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by the orchestrator for M1 (board task M1-04); owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer, release-engineer
 - Builds on: [ADR 0016](0016-streamable-http-listener.md) (its open question 1, already answered: built-in TLS, standard library only, required off loopback) and [ADR 0023](0023-listener-binds-both-loopback-families.md)
 
 ## Context
@@ -17,13 +17,15 @@ This record is not an M1 exit criterion. The criteria are met on stdio. It is on
 
 ## Decision
 
+**Accepted in part, 2026-09-25.** Point 4 (the Windows exclusive bind) is accepted for M1, board task M1-27. Points 1, 2 and 3, and the TLS mitigation in point 5, are deferred to M2 and will be re-decided there; they are not rejected. Until then remote listening stays reserved, as ADR 0016 left it.
+
 We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 decided, allow the same TLS on loopback so an agent that can verify a certificate authenticates fathomgate, bind with `SO_EXCLUSIVEADDRUSE` on Windows, and keep plain-HTTP loopback as the default with the residual recorded.
 
 1. **Flags.** `--listen-tls-cert <file>` and `--listen-tls-key <file>` (PEM; both or neither; the key file opened with the owner-only checks of the listen token file and of [ADR 0028](0028-audit-key-custody.md)). TLS 1.3 only, standard library defaults otherwise. The `listening` line's URL becomes `https://`. Certificates are read once at start; rotation is a restart.
 2. **Remote.** `--listen-remote` allows a non-loopback `--listen` address, and requires `--policy` ([ADR 0027](0027-serve-policy-inventory-profiles-flags.md)), `--listen-tls-cert` and `--listen-tls-key`, and at least one `--listen-host <name>`; otherwise exit 2. Requests whose `Host` is not a listed name or the literal bound address get 403, as ADR 0016 said. Everything else in ADR 0016's request handling, including the bearer token on every request, stands.
 3. **Loopback with TLS.** The two TLS flags are also accepted with a loopback `--listen`. An agent configured with that certificate's CA (or the certificate itself, where the client allows it) then refuses a squatter that cannot present it. Documented in `docs/install.md` with the clients known to support a custom CA.
 4. **Windows exclusive bind.** Every listener socket on Windows is bound with `SO_EXCLUSIVEADDRUSE`, so another user's wildcard bind cannot take fathomgate's loopback connections while it runs. This needs `golang.org/x/sys/windows`, already a dependency (ADR 0011, 0021).
-5. **Residual.** Plain-HTTP loopback while fathomgate is down stays open, and the threat-model row says so, with the mitigations: TLS on loopback (3), a supervisor that restarts at once, one token per agent. The Unix-socket and named-pipe listener is not built in M1 (open question 2).
+5. **Residual.** Plain-HTTP loopback while fathomgate is down stays open, and the threat-model row says so, with the mitigations: TLS on loopback (3, from M2), a supervisor that restarts at once, one token per agent. The Unix-socket and named-pipe listener is not built in M1 (decision 2).
 
 ## Consequences
 
@@ -51,11 +53,15 @@ We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 
 | Unix socket or Windows named pipe listener in M1 | Owner-only file permissions would close the row fully, but almost no MCP host speaks Streamable HTTP over either today; it is effort for no user. Kept as open question 2. |
 | Require TLS on loopback as well | Breaks every v0.1.0 `--listen` config and every client without custom-CA support, for a local-user attack. |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **Is remote listening M1 at all?** It is not an exit criterion. Keep the tasks on the M1 board (as proposed) or park them to M2 so M1 closes on the pipeline alone?
-2. **Unix socket / named pipe.** Park until a mainstream MCP host supports one, or build it now for scripted agents that can use it?
-3. **mTLS.** A client certificate instead of (or as well as) the bearer token for remote agents: out of scope here; confirm.
+Accepted in part by the maintainer, Josh Scott, on 2026-09-25, with these answers:
+
+1. **Remote listening is not M1.** The Windows exclusive bind (point 4) is accepted for M1 (M1-27): on Windows, another user's wildcard bind can no longer take fathomgate's loopback connections while it runs. TLS, remote listening and TLS on loopback (points 1 to 3) move to M2 and are re-decided there. They are deferred, not rejected.
+2. **Unix socket or named pipe:** deferred to M2 with the rest of the listener work.
+3. **mTLS:** deferred to M2 with the rest of the listener work.
+
+In M1 the port-squatting row stays open for plain-HTTP loopback while fathomgate is down, with the mitigations a supervisor that restarts at once and one token per agent.
 
 ## References
 
