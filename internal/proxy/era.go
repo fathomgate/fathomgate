@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -34,17 +35,19 @@ func eraOf(version string) string {
 // version it negotiated and from how go-sdk opened it (T0.47, N6). handshake
 // reports that the session's initialise request was answered, rather than
 // server/discover. A session opened with the initialise handshake is labelled
-// stateful whatever version the upstream named in its answer. That happens
-// when an upstream answers the 2025-11-25 initialise request, after the ADR
-// 0018 restart or go-sdk's own fallback, with 2026-07-28, which go-sdk
-// accepts. Only a session opened with server/discover at a stateless version
-// is labelled stateless.
+// stateful whatever version it negotiated. Since M1-32 an upstream that
+// answers the initialise request with a later version than was asked for (a
+// hybrid, such as 2026-07-28 to a 2025-11-25 request) is refused at connect
+// (handshakes.middleware), so a session opened with the handshake never
+// carries a stateless version; the rule stays as the conservative direction.
+// Only a session opened with server/discover at a stateless version is
+// labelled stateless.
 //
 // The era is a label of the handshake, for logs and the audit, and nothing
-// more. It says nothing about what the upstream can send: go-sdk accepts a
-// server-initiated elicitation/create from an upstream in either era, so one
-// labelled stateless can still send it, and fathomgate relays it (profile-schema
-// 8.4). No control may treat up.era as a capability.
+// more. It says nothing about what the upstream can send, and no control may
+// treat up.era as a capability. The control that refuses a server-initiated
+// elicitation/create from an upstream connected with server/discover reads
+// upstream.handshake, how the session was opened, not up.era (M1-32).
 func upstreamEra(version string, handshake bool) string {
 	if handshake {
 		return eraStateful
@@ -68,23 +71,85 @@ type handshakes struct {
 }
 
 // middleware marks a session once its initialise request has been answered
-// without a JSON-RPC error. The mark is set before go-sdk checks the answered
-// version (client.go:395 in v1.8.0) and before it sends its initialised
-// notification; go-sdk may still reject the answered version, in which case
-// Connect fails and the mark is never read. A request that got an error
+// without a JSON-RPC error, and refuses a hybrid answer (M1-32, ADR 0008).
+//
+// The requested version is read from the initialise request go-sdk sent on
+// the session: 2025-11-25 on go-sdk's own fallback after server/discover
+// and on the ADR 0018 restart. An answer naming a later version than that
+// is a hybrid: go-sdk would accept it and then attach the stateless era's
+// _meta self-description to requests on a session that exists. The
+// middleware returns a hybridError in place of the answer, so go-sdk never
+// sends its initialised notification and closes the session inside
+// Connect; it first aborts the connect attempt (abortAttempt), which kills
+// the upstream process at once rather than after go-sdk's close grace.
+// There is no flag to accept a hybrid.
+//
+// The mark is set before go-sdk checks the answered version (client.go:395
+// in v1.8.0) and before it sends its initialised notification; go-sdk may
+// still reject the answered version, in which case Connect fails and the
+// mark is never read. A request that got an error, or a hybrid answer,
 // leaves no mark.
 func (h *handshakes) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		res, err := next(ctx, method, req)
-		if err == nil && method == methodInitialize {
-			h.mu.Lock()
-			if h.byHandshake == nil {
-				h.byHandshake = make(map[mcp.Session]bool, 1)
-			}
-			h.byHandshake[req.GetSession()] = true
-			h.mu.Unlock()
+		if err != nil || method != methodInitialize {
+			return res, err
 		}
-		return res, err
+		var requested, answered string
+		if ir, ok := req.(*mcp.InitializeRequest); ok && ir.Params != nil {
+			requested = ir.Params.ProtocolVersion
+		}
+		if r, ok := res.(*mcp.InitializeResult); ok && r != nil {
+			answered = r.ProtocolVersion
+		}
+		// Versions compare as strings (YYYY-MM-DD). go-sdk always names a
+		// version in its request; were it ever empty, any answer would count
+		// as later and be refused: the safe direction.
+		if answered > requested {
+			herr := &hybridError{requested: requested, answered: answered}
+			abortAttempt(ctx, herr)
+			return nil, herr
+		}
+		h.mu.Lock()
+		if h.byHandshake == nil {
+			h.byHandshake = make(map[mcp.Session]bool, 1)
+		}
+		h.byHandshake[req.GetSession()] = true
+		h.mu.Unlock()
+		return res, nil
+	}
+}
+
+// hybridError is the refusal of an upstream that answered the initialise
+// request with a later protocol version than fathomgate asked for (M1-32).
+// answered is upstream text: it is quoted and clipped here, and connect
+// escapes the whole error (escapedError) before it reaches the operator.
+type hybridError struct{ requested, answered string }
+
+func (e *hybridError) Error() string {
+	return fmt.Sprintf("the upstream answered the %s request for protocol %s with the later version %q; "+
+		"fathomgate refuses a hybrid upstream, which opens a stateful session and then speaks a later version on it, "+
+		"so the session was closed and the upstream stopped (ADR 0008)",
+		methodInitialize, e.requested, clip(e.answered))
+}
+
+// abortKey is the context key under which connectAttempt stores its
+// attempt's cancel function, for abortAttempt.
+type abortKey struct{}
+
+// withAbort returns ctx carrying cancel, the connect attempt's own cancel
+// function.
+func withAbort(ctx context.Context, cancel context.CancelCauseFunc) context.Context {
+	return context.WithValue(ctx, abortKey{}, cancel)
+}
+
+// abortAttempt cancels the connect attempt ctx belongs to, with cause,
+// which kills its upstream process at once (connectAttempt). A context
+// from outside a connect attempt carries no cancel function, and nothing
+// happens.
+func abortAttempt(ctx context.Context, cause error) {
+	if cancel, ok := ctx.Value(abortKey{}).(context.CancelCauseFunc); ok {
+		cancel(cause)
 	}
 }
 
