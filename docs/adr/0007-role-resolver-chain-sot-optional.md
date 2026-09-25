@@ -60,3 +60,11 @@ The normative schema is [inventory-schema.md](../specs/inventory-schema.md).
 - [netbox-mcp-server](https://github.com/netboxlabs/netbox-mcp-server)
 - [go-netbox](https://github.com/netbox-community/go-netbox/releases)
 - [Nautobot](https://networktocode.com/nautobot/)
+
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: provider row 2 (hostname patterns) is superseded by [ADR 0031](0031-hostname-patterns-never-make-a-target-known.md) (accepted 2026-09-25). A hostname pattern no longer makes a target known on its own; it only fills in role and site where they are empty, and adds tags, on a device a name authority lists (the static file or CSV import in M1; the M2 providers as ADR 0031 sets out). The chain order, first hit wins among name authorities, the unknown-target rule and the `sot: stale` marking are unchanged here. The default for an unset `unknown_target` is decided separately, in board task M1-37 | Security review of PR #154 (H1, H2): a pattern made any agent-chosen name that matched it a known device. Maintainer decision, Josh Scott, 2026-09-25 |

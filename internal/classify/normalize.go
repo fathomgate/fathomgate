@@ -55,10 +55,12 @@ func Normalize(profile *Profile, tool string, args map[string]any) (targets []st
 		}
 	}
 	for _, p := range spec.CommandParams {
+		// Commands are trimmed of spaces and tabs only, and empty or
+		// whitespace-only elements are kept: a line break at either end is
+		// still a second line to the device, and an empty element must fail
+		// the downgrade (check empty) rather than vanish from the batch.
 		for _, v := range rawValues(args[p]) {
-			if v = strings.TrimSpace(v); v != "" {
-				commands = append(commands, v)
-			}
+			commands = append(commands, strings.Trim(v, " \t"))
 		}
 	}
 	var payload []string
@@ -73,10 +75,72 @@ func Normalize(profile *Profile, tool string, args map[string]any) (targets []st
 	return targets, commands, configPayload
 }
 
+// Source records which step of docs/specs/classification.md section 2 set
+// Result.Class. The string values are the audit event's class_source
+// spellings (docs/specs/audit-event-schema.md).
+type Source string
+
+// The class sources. Classify emits SourceProfile, SourceFallback,
+// SourceDowngrade and SourceReclassify today; SourceCapabilityTable (meta-tool
+// capability tables) and SourceAnnotationRaise (tool annotations raising a
+// read class) are reserved for the tasks that add those inputs.
+const (
+	// SourceProfile means the profile's class for the tool stands.
+	SourceProfile Source = "profile"
+	// SourceCapabilityTable means the class came from a meta-tool's
+	// capability table. Reserved for M1-17.
+	SourceCapabilityTable Source = "capability_table"
+	// SourceFallback means there is no profile, or the tool is not in it,
+	// and the class is EXEC_ARBITRARY.
+	SourceFallback Source = "fallback"
+	// SourceAnnotationRaise means a tool annotation raised a read class to
+	// EXEC_ARBITRARY. Reserved for M1-18.
+	SourceAnnotationRaise Source = "annotation_raise"
+	// SourceDowngrade means an EXEC_ARBITRARY call whose every command
+	// passed the read allow-list is now READ_OPERATIONAL.
+	SourceDowngrade Source = "downgrade"
+	// SourceReclassify means the commands moved the class anywhere else:
+	// an EXEC_ARBITRARY or READ_OPERATIONAL call that reads configuration
+	// is READ_CONFIG, and a READ_OPERATIONAL call whose command fails the
+	// allow-list is EXEC_ARBITRARY.
+	SourceReclassify Source = "reclassify"
+)
+
+// Sources returns every class source in a stable order.
+func Sources() []Source {
+	return []Source{
+		SourceProfile, SourceCapabilityTable, SourceFallback,
+		SourceAnnotationRaise, SourceDowngrade, SourceReclassify,
+	}
+}
+
+// ParseSource converts a string to a Source. Matching is exact: the values
+// are audit spellings, not user input. It returns an error for unknown
+// names.
+func ParseSource(s string) (Source, error) {
+	for _, src := range Sources() {
+		if string(src) == s {
+			return src, nil
+		}
+	}
+	return "", fmt.Errorf("classify: unknown class source %q", s)
+}
+
+// String returns the audit spelling of the source.
+func (s Source) String() string { return string(s) }
+
+// neverDowngrade is the token that, in a tool's profile notes, keeps an
+// EXEC_ARBITRARY tool EXEC_ARBITRARY whatever its commands say, because the
+// execution context (a PFE shell, a lab-node shell) is itself the risk
+// (classification.md section 8).
+const neverDowngrade = "never-downgrade"
+
 // Result is the full classification of one tool call.
 type Result struct {
 	// Class is the final class after the downgrade or escalation rules.
 	Class Class
+	// ClassSource is the step that set Class.
+	ClassSource Source
 	// ProfileClass is the class the profile assigned before inspection.
 	ProfileClass Class
 	// Known reports whether the profile knew the tool at all.
@@ -85,14 +149,17 @@ type Result struct {
 	Targets       []string
 	Commands      []string
 	ConfigPayload string
-	// Reason explains any change from ProfileClass.
+	// Reason explains any change from ProfileClass, or why an
+	// EXEC_ARBITRARY call was not downgraded. It names the first failing
+	// command by index and the check, never by its text.
 	Reason string
 }
 
 // Classify normalises the arguments and applies the command rules:
 //
 //   - EXEC_ARBITRARY tools are downgraded to READ_OPERATIONAL or
-//     READ_CONFIG only when every command passes ClassifyCommand.
+//     READ_CONFIG only when every command passes ClassifyCommand, unless
+//     the profile notes carry "never-downgrade".
 //   - READ_OPERATIONAL tools that carry commands are escalated to
 //     READ_CONFIG when a command dumps configuration, and to
 //     EXEC_ARBITRARY when a command fails the allow-list. This is
@@ -103,39 +170,69 @@ func Classify(profile *Profile, tool string, args map[string]any) Result {
 	var res Result
 	if profile == nil {
 		res.Class = ExecArbitrary
+		res.ClassSource = SourceFallback
 		res.Reason = "no profile for server"
 		return res
 	}
 	spec, ok := profile.Lookup(tool)
 	if !ok {
 		res.Class = ExecArbitrary
-		res.Reason = fmt.Sprintf("tool %q not in profile %s", tool, profile.Server)
+		res.ClassSource = SourceFallback
+		res.Reason = "tool not in profile"
 		return res
 	}
 	res.Known = true
 	res.ProfileClass = spec.Class
 	res.Class = spec.Class
+	res.ClassSource = SourceProfile
 	res.Targets, res.Commands, res.ConfigPayload = Normalize(profile, tool, args)
 
 	if len(spec.CommandParams) == 0 {
 		return res
 	}
-	cmdClass := ClassifyCommands(res.Commands)
 	switch spec.Class {
 	case ExecArbitrary:
-		if cmdClass != ExecArbitrary {
-			res.Class = cmdClass
+		if strings.Contains(strings.ToLower(spec.Notes), neverDowngrade) {
+			res.Reason = "tool is never downgraded (profile notes: never-downgrade)"
+			return res
+		}
+		cmdClass, idx, check := classifyCommands(res.Commands)
+		switch cmdClass {
+		case ExecArbitrary:
+			res.Reason = failReason(idx, check)
+		case ReadOperational:
+			res.Class = ReadOperational
+			res.ClassSource = SourceDowngrade
 			res.Reason = "every command passed the read allow-list"
-		} else {
-			res.Reason = "command failed the read allow-list"
+		case ReadConfig:
+			res.Class = ReadConfig
+			res.ClassSource = SourceReclassify
+			res.Reason = "every command passed the read allow-list; a command reads configuration"
 		}
 	case ReadOperational:
-		if cmdClass != ReadOperational {
-			res.Class = cmdClass
-			res.Reason = "command escalated by fallback classifier"
+		cmdClass, idx, check := classifyCommands(res.Commands)
+		switch cmdClass {
+		case ExecArbitrary:
+			res.Class = ExecArbitrary
+			res.ClassSource = SourceReclassify
+			res.Reason = failReason(idx, check)
+		case ReadConfig:
+			res.Class = ReadConfig
+			res.ClassSource = SourceReclassify
+			res.Reason = "a command reads configuration"
 		}
 	}
 	return res
+}
+
+// failReason names the first command that failed, by its 1-based index,
+// and the check it failed. It never quotes the command: the command is
+// agent-supplied text and the reason may reach the agent and the audit line.
+func failReason(idx int, check string) string {
+	if idx < 0 {
+		return "no command to check"
+	}
+	return fmt.Sprintf("command %d failed the read allow-list (%s)", idx+1, check)
 }
 
 // stringValues flattens an argument into target strings: a string is split

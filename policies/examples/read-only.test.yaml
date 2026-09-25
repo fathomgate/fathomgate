@@ -27,3 +27,64 @@ cases:
       class: READ_OPERATIONAL
       targets: [{name: 192.0.2.99, known: false}]
     expect: {effect: deny, rule: default:unknown_target}
+
+  # M1 test-matrix rows 3, 4 and 6 (docs/testing/test-matrix.md). The runner
+  # takes the class as given: server and tool name the call the class came
+  # from but do not classify it. The classification half (profile class,
+  # downgrade, reload failing the allow-list) is pinned by the tier 1 tests
+  # in internal/classify and shown by `fathomgate policy eval --profile`.
+  - name: "row 3: show ip bgp summary through netdev-ssh-mcp run_show_command on a lab device is allowed"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: READ_OPERATIONAL
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: allow, rule: reads-anywhere, obligations: [redact]}
+
+  - name: "row 3: show ip bgp summary through eos-mcp run_command, downgraded, is allowed"
+    request:
+      server: eos-mcp
+      tool: run_command
+      class: READ_OPERATIONAL
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: allow, rule: reads-anywhere, obligations: [redact]}
+
+  - name: "row 4: reload through netdev-ssh-mcp run_show_command is denied by no-exec"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 4: reload through upa send_command_and_get_output is denied by no-exec"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 4: reload through eos-mcp run_command is denied by no-exec"
+    request:
+      server: eos-mcp
+      tool: run_command
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 6: exec on an unknown host through netdev-ssh-mcp is denied by the unknown-target default"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: EXEC_ARBITRARY
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
+
+  - name: "row 6: write to an unknown host is denied by the unknown-target default"
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
