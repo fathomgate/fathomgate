@@ -36,6 +36,23 @@ tests/conformance/run.sh <leg> <rev>   # all 8 pairs, then era_pairs.py
 uv run --with pyyaml python tools/status/render.py --check
 ```
 
+## Fix round (security and Go reviews of PR #111)
+
+Both reviews approved with fixes; one round, same branch, `main` had not moved.
+
+- **L1:** wording only, no code. `tree_windows.go` `procTree` godoc, the threat-model residual, SECURITY.md, profile-schema 8.3 and CHANGELOG now say that any descendant can start a process outside the job by naming a same-user process outside the job, fathomgate included, as its parent, or through a service, and that `PROCESS_DUP_HANDLE` on fathomgate defeats kill-on-close. ADR 0021 gains an Amendments section (row 1) and an `Amended:` header line.
+- **L2:** `attachFault` (an `atomic.Pointer[error]` in `tree.go`, set only by tests), checked in `attachTree` on Windows after the assignment and before the resume. `TestTreeAttachFailsClosed` (serial) checks four things: the error wraps the fault as `proxy: upstream process tree (ADR 0021): …`, there is one process and no restart, the process was reaped, and on Windows the marker file is absent. `TestResumeProcessExited` holds a handle across the exit, so the PID cannot be reused. Note: with `CREATE_SUSPENDED` removed, `TestTreeAttachFailsClosed` still passes, because the kill lands before the Go runtime reaches the marker write. The suspended start is proven by S2's test, not this one.
+- **L3 + Go S5:** `procTree.killed` is set on a successful group SIGKILL. `sweep` then sends SIGKILL once more and returns with no grace. The sweep and the test `waitGone` use a timer and ticker. `TestProcTreeSweepAfterKill` sweeps an unreaped (zombie) group after `kill` and needs under 1 s against a 3 s grace. install.md "Running fathomgate in a container" documents `docker run --init`. The threat-model row names the PID-1 case and says what still waits: a sweep after the leader exited on its own.
+- **N1:** the PID-reuse residual now names the sweep's poll window (up to 2 s, every 20 ms).
+- **N2:** the setuid residual is recorded in the threat model, SECURITY.md, profile-schema 8.3 and CHANGELOG. `procTree.signal` logs the first EPERM once at Warn with `server` (the logger is `p.logger.With("server", …)`, now carried on `trackedTransport`) and `pgid`. `attachTree` takes that logger on every platform.
+- **N5:** not touched; it is routed to T0.53 and the row points there.
+- **Go S1:** `tree_test.go` is tagged `unix || windows`. The Getpgid test moved to `tree_pgid_test.go` (`linux || darwin || freebsd || netbsd || openbsd || dragonfly`). `stdio_test.go` no longer imports `os/signal` and `syscall`; it calls `ignoreSIGTERM` (`fixture_signal_test.go`, or the no-op in `fixture_signal_other_test.go`). `go vet ./internal/proxy/` with `CGO_ENABLED=0` passes on 42 of 47 `go tool dist list` ports, including plan9, js, wasip1, solaris, illumos and aix. The five others (android/386, android/amd64, android/arm, ios/amd64, ios/arm64) stop at "requires external (cgo) linking", before any code is checked. That predates this PR.
+- **Go S2:** `TestTreeWindowsStartsSuspended` covers three stages. After `Start`, the main thread's suspend count is at least 1 (read with `SuspendThread` from kernel32 and undone with `ResumeThread`). After 500 ms there is still no marker. After `attachTree`, the marker appears and the process exits 0. Negative control (flag removed): it fails with "suspend count 0" and "the process ran before attachTree".
+- **Go S3:** the ADR 0011 row, a new amendment row and CLAUDE.md name all three importers of x/sys/windows: `internal/audit`, `cmd/fathomgate` (`token_windows.go`, since T0.31, `b37a17f`) and `internal/proxy`. PR #112's `internal/fileacl` uses plain `syscall`, so it is not listed.
+- **Go S4:** Unix `procWatch` is now a pointer holding an `os.Process` from `os.FindProcess`, which is pidfd-backed on Linux, and a sticky `gone` flag. Cleanup kills only if the watch never saw the process gone and it is still alive. Windows `procWatch` is a pointer too.
+- **Nits:** the `treeSignalLag` godoc says best effort and names the failure mode ("os: process already finished", no wait, the last stderr lines lost). `waitGone` uses a ticker.
+- **TestSealer:** the id is `FAKE-outstanding-id-otp` and the binding check is `"s":"s","t":"t","a":"` (20 bytes, asserted to be in the plaintext first). `-count=200` is clean.
+
 ## Decisions made without an ADR
 
 - `treeSignalLag` (250 ms) after each go-sdk shutdown signal, where the ADR says "at the same points" (reason above).

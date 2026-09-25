@@ -431,6 +431,16 @@ killed an upstream before ADR 0021), the child ended with it. Since ADR
 0021 the child is also in the upstream's job. So on Windows the venv's
 `Scripts\python.exe` is safe to use as `--upstream`.
 
+## Running fathomgate in a container
+
+If you run fathomgate itself in a container (the distroless image), start
+it with an init process: `docker run --init`, or `init: true` in Compose.
+Without one, fathomgate is PID 1 and nothing reaps the processes its
+upstream's tree leaves behind when they exit. They stay as zombies, and
+while they are there fathomgate cannot tell that the tree has emptied, so
+stopping an upstream takes up to 2 seconds longer
+([ADR 0021](adr/0021-kill-the-upstream-process-tree.md)).
+
 ## Check it works
 
 Ask the client, in plain words: "Using the netdev tools, run `show version`
