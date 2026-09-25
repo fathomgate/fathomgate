@@ -24,6 +24,10 @@ jobs:
   go:
     name: go build / vet / test
     runs-on: ubuntu-latest
+    # The H1 regression tests (both loopback families bound) fail instead of
+    # skipping when the runner lacks one (security review of PR #112).
+    env:
+      FATHOMGATE_REQUIRE_BOTH_LOOPBACKS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -37,6 +41,21 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go test -race -count=1 ./...
+      # Proof in the log that the H1 regression tests ran and passed.
+      - name: H1 loopback tests ran
+        run: |
+          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' ./cmd/fathomgate/ | tee h1.log
+          missing=0
+          for t in \
+            TestBindLoopbackHoldsBothFamilies \
+            TestBindLoopbackRefusesTakenOtherFamily \
+            TestServeListenOtherFamilyTaken; do
+            if ! grep -qF -- "--- PASS: $t (" h1.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - name: policy suites
         run: make policy-test
       - name: redaction fixtures
@@ -191,6 +210,7 @@ jobs:
         shell: bash
     env:
       FATHOMGATE_REQUIRE_PRIVILEGED_TESTS: "1"
+      FATHOMGATE_REQUIRE_BOTH_LOOPBACKS: "1"
     steps:
       # Check out LF as on Linux, so go.mod, the fixtures and the golden files
       # are the same bytes the other jobs test.
@@ -219,6 +239,20 @@ jobs:
           echo "Go in use is $got, the go.mod toolchain"
       - run: go vet ./...
       - run: go test -count=1 ./...
+      - name: H1 loopback tests ran
+        run: |
+          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' ./cmd/fathomgate/ | tee h1.log
+          missing=0
+          for t in \
+            TestBindLoopbackHoldsBothFamilies \
+            TestBindLoopbackRefusesTakenOtherFamily \
+            TestServeListenOtherFamilyTaken; do
+            if ! grep -qF -- "--- PASS: $t (" h1.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       # Proof in the log that every Windows DACL test ran and passed: each
       # must print `--- PASS`, and no test may print `--- SKIP`.
       - name: Windows audit tests ran elevated
@@ -252,12 +286,15 @@ jobs:
   # file check and the audit key and log; L2 in the security review of PR
   # #109) call fgetattrlist(2) directly and are only compiled on darwin, so
   # only a macOS runner proves them. The tests set real ACLs with chmod +a;
-  # the step fails unless each prints `--- PASS`.
+  # the step fails unless each prints `--- PASS`. macos-latest is arm64:
+  # darwin/amd64 is linted but not run.
   macos:
     name: go test (macos, extended ACLs)
     runs-on: macos-latest
     permissions:
       contents: read
+    env:
+      FATHOMGATE_REQUIRE_BOTH_LOOPBACKS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -269,12 +306,18 @@ jobs:
       - name: Go in use is the go.mod toolchain
         run: make toolchain-check
       - run: go vet ./...
-      - name: ACL, token file and audit file tests ran on macOS
+      # The whole cmd/fathomgate package (the listener, serve, token files)
+      # on macOS, then the named tests again with -v as proof.
+      - run: go test -count=1 ./cmd/fathomgate/
+      - name: ACL, token file, audit file and H1 tests ran on macOS
         run: |
-          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|NewWriter|Writer' \
+          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|NewWriter|Writer|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
             ./internal/fileacl/ ./cmd/fathomgate/ ./internal/audit/ | tee macos.log
           missing=0
           for t in \
+            TestBindLoopbackHoldsBothFamilies \
+            TestBindLoopbackRefusesTakenOtherFamily \
+            TestServeListenOtherFamilyTaken \
             TestExtendedDarwin \
             TestParseAttrBuf \
             TestReadTokenFileUnix \
