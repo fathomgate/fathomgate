@@ -29,6 +29,15 @@
 - `shellMeta` also refuses `*`, `?`, `[`, `]` and `~`. A `$` is now allowed at the end of a word (the optional item), so `show ip bgp regexp _65000$` is `READ_OPERATIONAL`, while `$HOME`, `${IFS}`, `$'...'` and `$(...)` are still refused.
 - The over-match of the `system` keywords (for example `get system hardware` via `ha`) is commented in the code and pinned by `TestSystemKeywordOverMatch`.
 
+## Fix round 3 (security approved) and a note for the test engineer
+
+- `monitor traffic` needs at least one `count`, and every `count` must be followed by a value from 1 to 1000. So `count 5 count 999999` and `count 999999 count 5` both fail, and so does `count count 5`. `read-file` is on the anywhere blocklist next to `write-file`.
+- **For test-engineer (tier 2 on vJunos, through junos-mcp-server's `<command>` RPC):** record what Junos actually does in these cases.
+  - A repeated `count` (`monitor traffic interface ge-0/0/0 count 5 count 10`): does the first or the last value win, or is it an error? The classifier accepts this form because both values are in range.
+  - `monitor traffic interface count count 5`: this is refused here. Check whether Junos reads the first `count` as the interface name.
+  - `monitor traffic matching count 5`: this is accepted here as bounded. Check whether Junos consumes `count 5` as the `matching` expression, leaving the capture unbounded. If it does, the classifier must refuse `matching` or require `count` before it.
+  - Also check that `show sys rol 1` is accepted (from round 1).
+
 ## Look at this first
 
 - `classifyCommand` in `internal/classify/command.go`, then `TestDowngradeNeverAccepts` and `security_test.go`.

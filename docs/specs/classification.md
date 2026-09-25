@@ -95,7 +95,7 @@ Checks run in this order; the first failure names the check.
 | `shell-meta` | The command contains `\|`, `<`, `>`, `;`, `&`, a backtick, `"`, `'`, a backslash, `{`, `}`, `*`, `?`, `[`, `]`, `~`, or a `$` followed by anything but a space or the end of the line (section 5.4). |
 | `leading-dash` | Any word after the first starts with `-`: an option to whatever parses the line (`ping -f`, `traceroute --help`). Network CLIs take none on read commands; on a server that runs ping or traceroute on its own host it is option injection. |
 | `blocklist` | Section 5.3 matches. |
-| `monitor-no-count` | Junos `monitor traffic` without a `count <n>` pair with `n` from 1 to 1000; without it the capture runs until interrupted (section 5.6). |
+| `monitor-no-count` | Junos `monitor traffic` without a `count`, or with any `count` not followed by `n` from 1 to 1000 (every `count` is checked, so `count 5 count 999999` fails in either order); without it the capture runs until interrupted (section 5.6). |
 | `allow-prefix` | Section 5.2 does not match. |
 
 A command that passes every check and reads configuration (section 6) is `READ_CONFIG`; otherwise it is `READ_OPERATIONAL`.
@@ -131,10 +131,10 @@ The start-anchored list is `bl-config-mode` and the vendor rows of section 5.6 a
 The anywhere list matches a verb in any position, bounded by whitespace or the ends of the line, so `show system reset-reason` and `show interfaces no-shutdown` pass while `show reload` fails. It carries the abbreviations device CLIs accept (`conf t`, `wr`, `rel`, `relo`) so that the payload of a multi-line injection fails here too, even flattened onto one line. Words that are also common show arguments (`boot`, `install`, `enable`, `no`) are only in the start-anchored list, so `show boot` and `show install summary` stay reads:
 
 ```
-(?:^|\s)(?:configure|conf(?:i(?:g(?:u(?:re?)?)?)?)?\s+t(?:e(?:r(?:m(?:i(?:n(?:al?)?)?)?)?)?)?|edit|set|delete|rollback|commit|wr(?:i(?:te?)?)?|write-file|copy|rel(?:o(?:ad?)?)?|reboot|shutdown|clear|reset|format|erase|debug|undebug|request\s+system|zeroize|admin\s+(?:save|reboot)|tclsh|bash|python|guestshell|start\s+shell)(?:\s|$)
+(?:^|\s)(?:configure|conf(?:i(?:g(?:u(?:re?)?)?)?)?\s+t(?:e(?:r(?:m(?:i(?:n(?:al?)?)?)?)?)?)?|edit|set|delete|rollback|commit|wr(?:i(?:te?)?)?|write-file|read-file|copy|rel(?:o(?:ad?)?)?|reboot|shutdown|clear|reset|format|erase|debug|undebug|request\s+system|zeroize|admin\s+(?:save|reboot)|tclsh|bash|python|guestshell|start\s+shell)(?:\s|$)
 ```
 
-`write-file` is the Junos `monitor traffic` option that writes a capture to disk.
+`write-file` and `read-file` are the Junos `monitor traffic` options that write a capture to disk and read one back from a file on the device.
 
 The lists fail closed, and some reads fail with them. Known and accepted (security review of PR #152): `show debug`, Junos `show system commit`, `show system rollback` spelled in full, `show configuration commit list` and any show argument that is a blocklisted word stay `EXEC_ARBITRARY`.
 

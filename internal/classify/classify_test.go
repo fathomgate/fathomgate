@@ -391,6 +391,7 @@ func TestBlocklist(t *testing.T) {
 		{"write memory", "show interfaces write memory", "show interfaces write-memory"},
 		{"write erase", "show interfaces write erase", "show interfaces write-erase"},
 		{"write-file", "monitor traffic interface ge-0/0/0 write-file /var/tmp/x", "monitor traffic interface ge-0/0/0 write-files count 10"},
+		{"read-file", "monitor traffic interface ge-0/0/0 read-file /var/tmp/x count 10", "monitor traffic interface ge-0/0/0 read-files count 10"},
 		{"copy running", "show copy running", "show interfaces copy-running"},
 		{"reload", "show reload", "show interfaces reload-state"},
 		{"reboot", "show reboot", "show interfaces reboot-state"},

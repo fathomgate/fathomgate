@@ -187,6 +187,9 @@ func TestMonitorTrafficNeedsCount(t *testing.T) {
 		"monitor traffic interface ge-0/0/0 count 999999999",
 		"monitor traffic interface ge-0/0/0 count 0010x",
 		"monitor traffic interface ge-0/0/0 count +5",
+		"monitor traffic interface ge-0/0/0 count 5 count 999999",
+		"monitor traffic interface ge-0/0/0 count 999999 count 5",
+		"monitor traffic interface count count 5",
 	} {
 		if c, check := classifyCommand(in); c != ExecArbitrary || check != checkNoCount {
 			t.Errorf("%q: %s (%s), want EXEC_ARBITRARY (monitor-no-count)", in, c, check)
@@ -196,6 +199,7 @@ func TestMonitorTrafficNeedsCount(t *testing.T) {
 		"monitor traffic interface ge-0/0/0 count 1",
 		"monitor traffic interface ge-0/0/0 count 10",
 		"monitor traffic interface ge-0/0/0 count 1000",
+		"monitor traffic interface ge-0/0/0 count 5 count 10",
 	} {
 		if c := ClassifyCommand(in); c != ReadOperational {
 			t.Errorf("%q: %s, want READ_OPERATIONAL", in, c)

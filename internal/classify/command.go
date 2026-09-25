@@ -26,11 +26,12 @@ var (
 	// blocklist matches state-changing verbs anywhere in the command,
 	// bounded by whitespace so "reset-reason" or "no-shutdown" inside a
 	// hyphenated keyword does not trip it. It includes the abbreviations
-	// vendor CLIs accept (conf t, wr, rel, relo). write-file is the Junos
-	// "monitor traffic" option that writes a capture to disk. Words that
+	// vendor CLIs accept (conf t, wr, rel, relo). write-file and read-file
+	// are the Junos "monitor traffic" options that write a capture to disk
+	// and read one back from a file on the device. Words that
 	// are also common show arguments (boot, install, enable, no) are only
 	// in blocklistStart.
-	blocklist = regexp.MustCompile(`(?:^|\s)(?:configure|conf(?:i(?:g(?:u(?:re?)?)?)?)?\s+t(?:e(?:r(?:m(?:i(?:n(?:al?)?)?)?)?)?)?|edit|set|delete|rollback|commit|wr(?:i(?:te?)?)?|write-file|copy|rel(?:o(?:ad?)?)?|reboot|shutdown|clear|reset|format|erase|debug|undebug|request\s+system|zeroize|admin\s+(?:save|reboot)|tclsh|bash|python|guestshell|start\s+shell)(?:\s|$)`)
+	blocklist = regexp.MustCompile(`(?:^|\s)(?:configure|conf(?:i(?:g(?:u(?:re?)?)?)?)?\s+t(?:e(?:r(?:m(?:i(?:n(?:al?)?)?)?)?)?)?|edit|set|delete|rollback|commit|wr(?:i(?:te?)?)?|write-file|read-file|copy|rel(?:o(?:ad?)?)?|reboot|shutdown|clear|reset|format|erase|debug|undebug|request\s+system|zeroize|admin\s+(?:save|reboot)|tclsh|bash|python|guestshell|start\s+shell)(?:\s|$)`)
 
 	// blocklistStart is classification.md section 5.3: the verbs that
 	// change state when they start a line (bl-config-mode and the vendor
@@ -122,23 +123,31 @@ func isAbbrevOf(w, k string) bool {
 // maxMonitorCount bounds the packets a "monitor traffic" may capture.
 const maxMonitorCount = 1000
 
-// monitorCountOK reports whether the words carry a "count <n>" pair with
-// 1 <= n <= maxMonitorCount. n must be plain decimal digits.
+// monitorCountOK reports whether the words carry at least one "count"
+// and every "count" is followed by n with 1 <= n <= maxMonitorCount, n
+// plain decimal digits. Requiring every value to be in range means neither
+// "count 5 count 999999" nor "count 999999 count 5" passes, whichever one
+// the device honours.
 func monitorCountOK(fields []string) bool {
+	seen := false
 	for i, f := range fields {
-		if f != "count" || i+1 >= len(fields) {
+		if f != "count" {
 			continue
+		}
+		seen = true
+		if i+1 >= len(fields) {
+			return false
 		}
 		n := fields[i+1]
 		if n == "" || len(n) > 4 || strings.Trim(n, "0123456789") != "" {
-			continue
+			return false
 		}
 		v, err := strconv.Atoi(n)
-		if err == nil && v >= 1 && v <= maxMonitorCount {
-			return true
+		if err != nil || v < 1 || v > maxMonitorCount {
+			return false
 		}
 	}
-	return false
+	return seen
 }
 
 // maxCommandLen caps the command the downgrade will inspect. Longer
