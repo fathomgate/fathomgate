@@ -41,7 +41,7 @@ rules:
   - id: no-exec
     match: { class: [EXEC_ARBITRARY] }
     effect: deny
-    reason: "command did not pass the read allow-list"
+    reason: "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
   - id: not-lab
     effect: deny
     reason: "only devices tagged lab may be changed through this proxy"

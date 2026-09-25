@@ -295,44 +295,51 @@ There is no `classify/rules.yaml`. `tools/policy-lint` validates the policy sche
 
 ## 11. Config payload checks
 
-A config payload reaches the device in configuration mode, and nothing in most upstreams keeps it there. eos-mcp `push_config` puts every `config_lines` element into the same eAPI call as `configure session <name>` (`eapi.py:118-143` at `bffb893`); netmiko `send_config_set` (upa `set_config_commands_and_commit_or_save`, ntunes `send_config` and `send_config_parallel`) writes each line to the CLI. A line such as `end`, followed by `reload now`, or by `configure` and `hostname x`, runs outside the configuration session: the call is an exec command, or a write with no commit timer, not the `WRITE_CONFIG` its tool says (security review of PR #158, M1-36). EOS also runs exec commands from configuration mode without any exit.
+A config payload reaches the device in configuration mode, and nothing in most upstreams keeps it there. eos-mcp `push_config` puts every `config_lines` element into the same eAPI call as `configure session <name>` (`eapi.py:118-143` at `bffb893`); netmiko `send_config_set` (upa `set_config_commands_and_commit_or_save`, ntunes `send_config` and `send_config_parallel`) writes each line to the CLI. A line such as `end`, followed by `reload now`, or by `configure` and `hostname x`, runs outside the configuration session: the call is an exec command, or a write with no commit timer, not the `WRITE_CONFIG` its tool says (security review of PR #158, M1-36). EOS also runs exec commands from configuration mode without any exit, and some configuration schedules execution itself.
 
 So every call to a tool with `config_params` whose class is not already `EXEC_ARBITRARY` is checked, element by element and line by line, before any command rule (section 2, step 1). A failure makes the call `EXEC_ARBITRARY` with `class_source: reclassify`; `Result.Reason` names the element, the line and the check, never the text. A tool that is already `EXEC_ARBITRARY` (junos `render_and_apply_j2_template`) has nothing to raise and is not checked.
 
 ### 11.1 Lines
 
-Every element of every config argument, in profile order, is split into lines on CRLF, CR and LF, and each line is checked. Every other line separator stays in the line and fails the byte check. Per line:
+The whole payload, every element of every config argument together, may be at most 64 KiB (65536 bytes), the gate's cap on a call's arguments (check `too-long`, reason `config payload failed the config payload check (too-long)`). Then every element, in profile order, is split into lines on CRLF, CR and LF, and each line is checked. Every other line separator stays in the line and fails the byte check. Per line, in this order:
 
 | Check id | Fails when |
 | --- | --- |
+| `too-long` | CLI and Junos set dialects: the line is longer than 1024 bytes, the command cap of section 5. No configuration statement needs more. Junos text and xml lines have no line cap, as an xml document can be one line. |
 | `control-character` | The line holds a byte below `0x20` other than tab, or `0x7f`: vertical tab, form feed, NUL, Ctrl-C, Ctrl-Z (which ends configuration mode on IOS), escape, the file, group and record separators. |
 | `non-ascii` | The line holds a byte of `0x80` or above: NEL, U+2028, U+2029, no-break space, fullwidth look-alikes. A description in UTF-8 fails too; accepted. |
+| `separator` | CLI dialect: the line holds `;`. NX-OS runs `hostname x ; end ; reload` as three commands (security review of PR #170, H1). A `;` in a description or banner fails too; accepted. |
 | `leading-symbol` | CLI dialect: after trimming spaces and tabs, the line starts with anything but a letter, a digit or `!`. Blank lines and `!` comments pass. |
 | `escape-word` | CLI dialect: the first word (letters, digits, `-` and `_`, case-insensitive) is a non-empty prefix of an escape word (11.2). |
-| `set-verb` | Junos set dialect: the first word (up to a space or tab, case-insensitive) is not exactly one of the set statements (11.3). Blank lines and `#` comments pass. |
+| `set-verb` | Junos set dialect: the first word (up to a space or tab, case-insensitive) is not exactly one of the set statements, or `top` or `up` carries anything but an optional count after `up` (11.3). Blank lines and `#` comments pass. |
+| `exec-config` | Junos: configuration that runs something (11.3). |
+| `dtd` | Junos xml: the line holds `<!`, a DOCTYPE or entity declaration. |
 
-The prefix test is one-way, as vendor CLIs accept abbreviations: `e`, `en`, `conf`, `wr`, `rel` and `sh` fail, while a longer word such as `exit-address-family`, `load-interval`, `exec-timeout` or `shutdown` is not a prefix of any escape word and passes. Punctuation ends the word, so `end!` is `end`.
+The prefix test is one-way, as vendor CLIs accept abbreviations: `e`, `en`, `conf`, `wr`, `rel` and `sh` fail, while a longer word such as `exit-address-family`, `load-interval`, `exec-timeout`, `event-monitor` or `shutdown` is not a prefix of any escape word and passes. Punctuation ends the word, so `end!` is `end`.
 
 ### 11.2 CLI dialect: the union list
 
-The CLI dialect applies to every tool that 11.4 does not name, and so to any profile the classifier cannot tie to a vendor. It is the union of what leaves configuration mode on EOS, IOS, IOS-XE, NX-OS, IOS-XR, Junos and PAN-OS through netmiko, and of the exec commands EOS runs from configuration mode:
+The CLI dialect applies to every tool that 11.4 does not name, and so to any profile the classifier cannot tie to a vendor. It is the union of what leaves configuration mode on EOS, IOS, IOS-XE, NX-OS, IOS-XR, Junos, PAN-OS and Huawei VRP through netmiko, of the exec commands EOS runs from configuration mode, and of configuration that defines an exec word or schedules execution. NX-OS is reached through netmiko `cisco_nxos` by upa and ntunes, which is why `;` fails (11.1).
 
 | Group | Words |
 | --- | --- |
-| Leave or re-enter configuration mode, end the session | `end`, `exit`, `quit`, `abort`, `configure` (so `conf`, `config`, `configure session other`, `configure terminal`, `configure replace`), `commit` (commits an EOS session at once, with no timer), `rollback` |
+| Leave or re-enter configuration mode, end the session | `end`, `exit`, `quit`, `abort`, `configure` (so `conf`, `config`, `configure session other`, `configure terminal`, `configure replace`), `commit` (commits an EOS session at once, with no timer), `rollback`, `return` and `system-view` (Huawei VRP), `admin` (IOS-XR) |
 | Exec from configuration mode, shells and interpreters | `do`, `run`, `exec`, `execute`, `enable`, `disable`, `bash`, `shell`, `start`, `tclsh`, `python`, `python3`, `guestshell`, `op` |
 | Device state, files, reboots | `reload`, `reboot`, `halt`, `reset`, `restart`, `zeroize`, `zerotouch`, `copy`, `write`, `delete`, `erase`, `format`, `rename`, `mkdir`, `rmdir`, `clear`, `request`, `load`, `save`, `install`, `diagnose`, `debug`, `undebug`, `test`, `tcpdump` |
+| Other exec verbs EOS runs from configuration mode | `ping`, `traceroute`, `clock` (`clock set`), `send`, `watch`, `logout`, `terminal`, `agent` |
 | Reads | `show`, `more`. A write needs no read. EOS runs `show` inside a session, so its output (with any secrets in it) would ride on a write's result, and `show ... \| redirect` writes a file; on the other platforms `show` is not valid in configuration mode. Decided the same for every vendor. |
 | Sessions to other hosts | `ssh`, `telnet`, `connect`: the lines after one go to the other host. |
+| Aliases | `alias`, `cli`: IOS `alias configure hn do reload`, EOS `alias hn reload now` and NX-OS `cli alias name hn reload` define an exec word that a later call (`["hn", ""]`, the blank line confirming) uses as an ordinary line (security review of PR #170, H2). |
+| Scheduled execution | `event` (IOS EEM `event manager`), `event-handler`, `schedule`, `scheduler`, `kron`, `daemon`, `command`: configuration that runs a command or a process later, or at once (H3). |
 
-Accepted costs, all in the stricter direction: `exit` from a sub-mode (write flat configuration; the parser returns to global mode by itself), `enable secret` and `enable password`, NX-OS `install feature-set`, through netmiko the Junos and PAN-OS `delete`, `copy` and `rename` statements, and all FortiOS configuration (`config ...` and `end`) are `EXEC_ARBITRARY`. A policy that must allow one allows `EXEC_ARBITRARY` for that tool and target explicitly, or the agent uses a typed tool.
+Accepted costs, all in the stricter direction: `exit` from a sub-mode (write flat configuration; the parser returns to global mode by itself), `enable secret` and `enable password`, `clock timezone`, `system mtu` (`system` abbreviates `system-view`), NX-OS `install feature-set`, through netmiko the Junos and PAN-OS `delete`, `copy` and `rename` statements, all FortiOS configuration (`config ...` and `end`), and any line holding `;` are `EXEC_ARBITRARY`. A policy that must allow one allows `EXEC_ARBITRARY` for that tool and target explicitly, or the agent uses a typed tool.
 
 Which list applies, per profile:
 
 | Profile | Tool (argument) | Dialect | Why |
 | --- | --- | --- | --- |
 | `eos-mcp` | `push_config` (`config_lines`) | CLI, the union | eAPI switches mode on `end`, `exit`, `abort` and `configure`, and EOS runs exec commands from configuration mode, so every exec word matters even without an exit. |
-| `upa` | `set_config_commands_and_commit_or_save` (`commands`) | CLI, the union | netmiko on whatever platform the upstream's inventory names; the vendor is not known at classification. |
+| `upa` | `set_config_commands_and_commit_or_save` (`commands`) | CLI, the union | netmiko on whatever platform the upstream's inventory names, NX-OS included; the vendor is not known at classification. |
 | `ntunes-netmiko-mcp-server` | `send_config`, `send_config_parallel` (`config_commands`) | CLI, the union | As upa. `enter_config_mode` is refused (ADR 0033), so the lines are always sent in configuration mode. |
 | `junos-mcp-server` | `load_and_commit_config` (`config_text`) | Junos load (11.3) | PyEZ `Config.load` over NETCONF, not a CLI. |
 | `junos-mcp-server` | `render_and_apply_j2_template` | not checked | Already `EXEC_ARBITRARY` and never downgraded. |
@@ -341,10 +348,12 @@ Which list applies, per profile:
 
 ### 11.3 Junos load
 
-junos-mcp-server `load_and_commit_config` reads `config_format` (default `set`), lower-cases it and calls PyEZ `Config.load(config_text, format=...)` for `set`, `text` or `xml` (`jmcp.py:1658` and `1683-1685` at `75fe90a`), then commits itself.
+junos-mcp-server `load_and_commit_config` reads `config_format` (default `set`), lower-cases it and calls PyEZ `Config.load(config_text, format=...)` for `set`, `text` or `xml` (`jmcp.py:1658` and `1683-1685` at `75fe90a`), then commits itself. The format counts as `text` or `xml` only when `config_format` is an ASCII string that lower-cases to one of them, so no Unicode case folding can make Go and Python disagree; anything else, including an absent `config_format`, gets the set rules.
 
-- `text` and `xml`: the payload is configuration data. The `load-configuration` RPC parses a hierarchy (`<configuration-text>`) or an XML tree, and PyEZ builds the RPC from elements, not by joining strings, so no statement in the payload runs a command, and a hierarchy named `commit`, `file` or `disable` is just configuration. Only `control-character` and `non-ascii` apply. The format counts as `text` or `xml` only when `config_format` is an ASCII string that lower-cases to one of them, so no Unicode case folding can make Go and Python disagree; anything else, including an absent `config_format`, gets the set rules.
-- `set`, the default: the payload is configuration-mode statements (`<configuration-set>`). Whether the RPC acts on `run`, `commit`, `rollback`, `load`, `save`, `exit` or `quit` in a set payload is not established from source, so the default is conservative, an allow-list: every line starts with exactly one of `set`, `delete`, `activate`, `deactivate`, `annotate`, `insert`, `rename`, `copy`, `protect`, `unprotect`, `edit`, `top`, `up`. Abbreviations (`se`) fail, and so does a text-format payload sent without `config_format: text`.
+Configuration that runs something is `EXEC_ARBITRARY` in every format (security review of PR #170, H3): event policies (`event-options`, `execute-commands`), commit, op and event scripts (`scripts`) and on-box extensions (`extensions`).
+
+- `set`, the default: the payload is configuration-mode statements (`<configuration-set>`). Whether the RPC acts on `run`, `commit`, `rollback`, `load`, `save`, `exit` or `quit` in a set payload is not established from source, so the default is conservative, an allow-list: every line starts with exactly one of `set`, `delete`, `activate`, `deactivate`, `annotate`, `insert`, `rename`, `copy`, `protect`, `unprotect`, `edit`, `top`, `up`. Abbreviations (`se`) fail, and so does a text-format payload sent without `config_format: text`. `top` must stand alone and `up` may carry only a count: Junos runs `top <command>` and `up <n> <command>` as `<command>` at that level, so `top run request system reboot` fails `set-verb` (M2). A line fails `exec-config` when any word after the first, quotes stripped, is a non-empty prefix of one of the four hierarchy names: Junos accepts unique abbreviations (`set event-o ...`), and `edit system` then `set scripts ...` names the hierarchy relative to the current level, so a token test catches what a full-path test would miss.
+- `text` and `xml`: the payload is configuration data. The `load-configuration` RPC parses a hierarchy (`<configuration-text>`) or an XML tree, and PyEZ builds the RPC from elements, not by joining strings, so no statement runs a command, and a hierarchy named `commit`, `file` or `disable` is just configuration. The byte checks apply, a line fails `exec-config` when it holds one of the four hierarchy names as a case-insensitive substring (otherwise `config_format: text` would be the bypass), and an xml line fails `dtd` on `<!`.
 
 ### 11.4 Dialect table
 
@@ -352,6 +361,9 @@ junos-mcp-server `load_and_commit_config` reads `config_format` (default `set`),
 
 ### 11.5 Not covered
 
-- Configuration that itself schedules execution stays `WRITE_CONFIG`: EOS `schedule`, `event-handler` and `daemon`, IOS EEM applets and `kron`, Junos `event-options`. The approver sees it in the diff (M3); a later check may raise it.
+- The CLI list is a denylist, and EOS configuration mode accepts every exec command, so for eos-mcp `push_config` it cannot be complete: an EOS exec verb missing from 11.2 still passes. The long-term fix is an allow-list of top-level configuration words for `push_config` (open; threat model). Tier 2 on cEOS (M1-28) checks the verbs added in the PR #170 review, `clock set` and `watch` among them.
+- Configuration that persists access or locks operators out stays `WRITE_CONFIG`: `username ... privilege 15 ... nopassword`, `aaa authorization exec default none`, `management api http-commands`, Junos `set system login user ... class super-user`, `boot system`. It is a write, held on production and allowed on lab devices by design; the threat model records it.
+- An alias an operator configured on the device before fathomgate saw it turns an ordinary-looking line into an exec command. Accepted (threat model).
+- netmiko `linux` and generic device types run every line as a shell command. Do not put shell hosts in the inventory behind upa or ntunes.
 - JSON strings: FastMCP runs `json.loads` on a string sent for a `list[str]` parameter (`config_lines`, `commands`, `config_commands`). `CheckArguments` reports a valid JSON array as malformed (M1-35), and the CLI dialect also fails it on `leading-symbol`. A JSON object decodes to a dict, which the upstream's `list[str]` validation refuses. junos `config_text` goes as a plain string to a low-level server that does not pre-parse.
 - Whether EOS runs a line after `end` inside one eAPI call is not proved on a device yet; tier 2 on cEOS (M1-28) shows it. The check does not depend on the answer.

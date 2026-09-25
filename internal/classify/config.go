@@ -17,7 +17,8 @@ import (
 // "hostname x", runs outside the configuration session, so the call is no
 // longer the write the class says: it is an exec command, or a write with no
 // commit timer. EOS also runs exec commands from configuration mode without
-// any exit. Such a payload makes the call EXEC_ARBITRARY.
+// any exit, and some configuration schedules execution itself. Such a
+// payload makes the call EXEC_ARBITRARY.
 
 // configDialect selects which line rules apply to a tool's config payload.
 type configDialect int
@@ -42,13 +43,19 @@ var configDialects = map[[2]string]configDialect{
 }
 
 // cliEscapeWords are the first words that leave configuration mode, re-enter
-// it outside the session, commit or abort the session, or run an exec
-// command (EOS runs exec commands from configuration mode, and netmiko and
-// eAPI run anything once the mode is left). A line's first word matches when
-// it is a non-empty prefix of one of these, since vendor CLIs accept
-// abbreviations ("conf", "wr", "rel", "e"). The match is one-way: a longer
-// word such as "exit-address-family" or "load-interval" is not a prefix of
-// any of them and passes.
+// it outside the session, commit or abort the session, run an exec command
+// (EOS runs exec commands from configuration mode, and netmiko and eAPI run
+// anything once the mode is left), define an alias for one, or schedule
+// execution. A line's first word matches when it is a non-empty prefix of one
+// of these, since vendor CLIs accept abbreviations ("conf", "wr", "rel",
+// "e"). The match is one-way: a longer word such as "exit-address-family",
+// "load-interval" or "event-monitor" is not a prefix of any of them and
+// passes.
+//
+// The list is a denylist, and EOS configuration mode accepts every exec
+// command, so it cannot be complete for eos-mcp; an allow-list of top-level
+// configuration words for push_config is the long-term fix
+// (classification.md section 11.5).
 var cliEscapeWords = []string{
 	// leave or re-enter configuration mode, or end the session
 	"end", "exit", "quit", "abort", "configure", "commit", "rollback",
@@ -65,6 +72,18 @@ var cliEscapeWords = []string{
 	"show", "more",
 	// sessions to other hosts: the lines after it go to that host
 	"ssh", "telnet", "connect",
+	// aliases define a new exec word for a later call (IOS "alias
+	// configure hn do reload", EOS "alias hn reload now", NX-OS "cli alias
+	// name hn reload")
+	"alias", "cli",
+	// configuration that schedules execution: IOS EEM ("event manager") and
+	// kron, EOS event-handler, schedule and daemon, NX-OS scheduler, and the
+	// "command" lines inside them
+	"event", "event-handler", "schedule", "scheduler", "kron", "daemon", "command",
+	// other exec verbs EOS runs from configuration mode, and mode changes on
+	// IOS-XR (admin) and Huawei VRP (return, system-view)
+	"ping", "traceroute", "clock", "send", "watch", "logout", "terminal",
+	"agent", "return", "system-view", "admin",
 }
 
 // junosSetVerbs are the configuration statements a Junos "load set" payload
@@ -76,23 +95,50 @@ var junosSetVerbs = []string{
 	"copy", "protect", "unprotect", "edit", "top", "up",
 }
 
+// junosExecConfigWords are the Junos hierarchies that make configuration
+// run something: event policies (event-options, execute-commands), commit,
+// op and event scripts (scripts), and on-box extensions (extensions). In a
+// set payload a line fails when any word after the first abbreviates one of
+// them (Junos accepts unique abbreviations, and "edit system" then "set
+// scripts ..." names the hierarchy relative to the current level); in text
+// and xml payloads when one appears anywhere, case-insensitively.
+var junosExecConfigWords = []string{"event-options", "scripts", "extensions", "execute-commands"}
+
+// Size caps for config payloads. A line in the CLI and Junos set dialects
+// may be at most maxConfigLineLen bytes, the command cap: no configuration
+// statement needs more. The whole payload, every element of every config
+// argument together, may be at most maxConfigPayloadLen bytes, the gate's
+// cap on a call's arguments. Junos text and xml lines have no line cap, as
+// an xml document can be one line.
+const (
+	maxConfigLineLen    = maxCommandLen
+	maxConfigPayloadLen = 64 << 10
+)
+
 // Check identifiers for config payload lines, in Result.Reason. The
-// control-character and non-ascii identifiers are shared with the command
-// checks.
+// control-character, non-ascii and too-long identifiers are shared with the
+// command checks.
 const (
 	checkEscapeWord    = "escape-word"
 	checkLeadingSymbol = "leading-symbol"
 	checkSetVerb       = "set-verb"
+	checkSeparator     = "separator"
+	checkExecConfig    = "exec-config"
+	checkDTD           = "dtd"
 )
 
 // configFailure names the first config payload line that failed, by its
-// 1-based element and line number, and the check.
+// 1-based element and line number, and the check. Element 0 means the
+// payload as a whole (too-long).
 type configFailure struct {
 	element, line int
 	check         string
 }
 
 func (f configFailure) reason() string {
+	if f.element == 0 {
+		return fmt.Sprintf("config payload failed the config payload check (%s)", f.check)
+	}
 	return fmt.Sprintf("config element %d line %d failed the config payload check (%s)", f.element, f.line, f.check)
 }
 
@@ -102,27 +148,34 @@ func (f configFailure) reason() string {
 // line passes.
 func checkConfigPayload(profile *Profile, tool string, spec ToolSpec, args map[string]any) *configFailure {
 	dialect := configDialects[[2]string{profile.Server, bareToolName(profile, tool)}]
-	junosData := false
+	format := ""
 	if dialect == dialectJunosLoad {
-		junosData = junosLoadIsData(args["config_format"])
+		format = junosLoadFormat(args["config_format"])
 	}
-	element := 0
+	var values []string
+	total := 0
 	for _, p := range spec.ConfigParams {
 		for _, v := range rawValues(args[p]) {
-			element++
-			for i, line := range splitLines(v) {
-				var check string
-				switch {
-				case dialect == dialectCLI:
-					check = checkCLIConfigLine(line)
-				case junosData:
-					check = checkBytes(line)
-				default:
-					check = checkJunosSetLine(line)
-				}
-				if check != "" {
-					return &configFailure{element: element, line: i + 1, check: check}
-				}
+			values = append(values, v)
+			total += len(v)
+		}
+	}
+	if total > maxConfigPayloadLen {
+		return &configFailure{check: checkTooLong}
+	}
+	for e, v := range values {
+		for i, line := range splitLines(v) {
+			var check string
+			switch {
+			case dialect == dialectCLI:
+				check = checkCLIConfigLine(line)
+			case format == "set":
+				check = checkJunosSetLine(line)
+			default:
+				check = checkJunosDataLine(line, format)
+			}
+			if check != "" {
+				return &configFailure{element: e + 1, line: i + 1, check: check}
 			}
 		}
 	}
@@ -162,16 +215,23 @@ func checkBytes(line string) string {
 }
 
 // checkCLIConfigLine applies dialectCLI to one line. Blank lines and "!"
-// comments pass. Any other line must start with a letter or digit, and its
-// first word (letters, digits, "-" and "_") must not abbreviate an escape
-// word.
+// comments pass. Any other line must be at most maxConfigLineLen bytes, hold
+// no ";" (NX-OS runs "hostname x ; end ; reload" as three commands), start
+// with a letter or digit, and its first word (letters, digits, "-" and "_")
+// must not abbreviate an escape word.
 func checkCLIConfigLine(line string) string {
+	if len(line) > maxConfigLineLen {
+		return checkTooLong
+	}
 	if c := checkBytes(line); c != "" {
 		return c
 	}
 	t := strings.ToLower(strings.Trim(line, " \t"))
 	if t == "" || t[0] == '!' {
 		return ""
+	}
+	if strings.Contains(t, ";") {
+		return checkSeparator
 	}
 	if !isLowerAlnum(t[0]) {
 		return checkLeadingSymbol
@@ -190,9 +250,16 @@ func checkCLIConfigLine(line string) string {
 }
 
 // checkJunosSetLine applies the Junos "load set" rules to one line. Blank
-// lines and "#" comments pass; any other line's first word, up to a space
-// or tab, must be one of junosSetVerbs exactly.
+// lines and "#" comments pass. Any other line must be at most
+// maxConfigLineLen bytes; its first word, up to a space or tab, must be one
+// of junosSetVerbs exactly; "top" and "up" take nothing but an optional
+// count after "up" (Junos runs "top <command>" and "up <n> <command>" as
+// <command> at that level); and no later word may abbreviate one of
+// junosExecConfigWords.
 func checkJunosSetLine(line string) string {
+	if len(line) > maxConfigLineLen {
+		return checkTooLong
+	}
 	if c := checkBytes(line); c != "" {
 		return c
 	}
@@ -200,41 +267,95 @@ func checkJunosSetLine(line string) string {
 	if t == "" || t[0] == '#' {
 		return ""
 	}
-	word := t
-	if i := strings.IndexAny(t, " \t"); i >= 0 {
-		word = t[:i]
-	}
+	words := strings.Fields(t) // only spaces and tabs are left after checkBytes
+	known := false
 	for _, v := range junosSetVerbs {
-		if word == v {
-			return ""
+		if words[0] == v {
+			known = true
+			break
 		}
 	}
-	return checkSetVerb
+	if !known {
+		return checkSetVerb
+	}
+	switch words[0] {
+	case "top":
+		if len(words) != 1 {
+			return checkSetVerb
+		}
+	case "up":
+		if len(words) > 2 || (len(words) == 2 && !allDigits(words[1])) {
+			return checkSetVerb
+		}
+	}
+	for _, w := range words[1:] {
+		w = strings.Trim(w, `"'`)
+		if w == "" {
+			continue
+		}
+		for _, x := range junosExecConfigWords {
+			if strings.HasPrefix(x, w) {
+				return checkExecConfig
+			}
+		}
+	}
+	return ""
 }
 
-// junosLoadIsData reports whether junos-mcp-server loads config_text as
-// configuration data rather than as "load set" statements. The handler
-// lower-cases config_format and loads "text" and "xml" as data (the
-// load-configuration RPC parses a hierarchy or an XML tree, and no statement
-// in either runs a command); "set" and the default are statements. Only an
-// ASCII string that lower-cases to "text" or "xml" counts, so no Unicode
-// case folding can disagree with Python's str.lower(); anything else gets
-// the stricter set rules.
-func junosLoadIsData(v any) bool {
-	s, ok := v.(string)
-	if !ok {
+// checkJunosDataLine applies the Junos text and xml rules to one line: the
+// byte checks, no hierarchy from junosExecConfigWords anywhere in the line
+// (case-insensitive), and for xml no "<!" (a DOCTYPE or entity declaration).
+func checkJunosDataLine(line, format string) string {
+	if c := checkBytes(line); c != "" {
+		return c
+	}
+	t := strings.ToLower(line)
+	for _, x := range junosExecConfigWords {
+		if strings.Contains(t, x) {
+			return checkExecConfig
+		}
+	}
+	if format == "xml" && strings.Contains(t, "<!") {
+		return checkDTD
+	}
+	return ""
+}
+
+func allDigits(s string) bool {
+	if s == "" {
 		return false
 	}
 	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
+		if s[i] < '0' || s[i] > '9' {
 			return false
 		}
 	}
-	switch strings.ToLower(s) {
-	case "text", "xml":
-		return true
+	return true
+}
+
+// junosLoadFormat returns "text" or "xml" when junos-mcp-server loads
+// config_text as configuration data, and "set" when it loads it as "load
+// set" statements. The handler lower-cases config_format and loads "text"
+// and "xml" as data (the load-configuration RPC parses a hierarchy or an
+// XML tree, and no statement in either runs a command); "set" and the
+// default are statements. Only an ASCII string that lower-cases to "text"
+// or "xml" counts, so no Unicode case folding can disagree with Python's
+// str.lower(); anything else gets the stricter set rules.
+func junosLoadFormat(v any) string {
+	s, ok := v.(string)
+	if !ok {
+		return "set"
 	}
-	return false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return "set"
+		}
+	}
+	switch f := strings.ToLower(s); f {
+	case "text", "xml":
+		return f
+	}
+	return "set"
 }
 
 func isLowerAlnum(b byte) bool {

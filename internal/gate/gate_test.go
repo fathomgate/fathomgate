@@ -145,7 +145,7 @@ var freeForm = []struct {
 func TestMatrixRows(t *testing.T) {
 	t.Parallel()
 	// Both example policies give no-exec the same reason.
-	const noExec = "command did not pass the read allow-list"
+	const noExec = "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
 	for _, pol := range []string{"read-only", "prod-approval"} {
 		g := newGate(t, examplePolicy(t, pol), false)
 		for _, ff := range freeForm {
@@ -244,6 +244,15 @@ func TestConfigSessionEscape(t *testing.T) {
 			{"end", "configure", "hostname x"},
 			{"hostname x\nend\nreload now"},
 			{"do reload"},
+			// Security review of PR #170: NX-OS ";" separator (H1) and
+			// scheduled execution (H3).
+			{"hostname x ; end ; reload", "y"},
+			{"event manager applet X", " event timer countdown time 5", " action 1 cli command \"reload\""},
+			{"kron policy-list P", " cli reload"},
+			{"event-handler H", " action bash reboot"},
+			{"schedule s interval 1 max-log-files 1 command bash reboot"},
+			{"daemon d", " exec /mnt/flash/x"},
+			{"scheduler job name j"},
 		} {
 			label := tl.server + "." + tl.tool + " payload " + string(rune('a'+i))
 			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: lines}))
@@ -256,7 +265,36 @@ func TestConfigSessionEscape(t *testing.T) {
 		}
 		v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{"interface Ethernet1", " description uplink"}}))
 		check(t, tl.server+"."+tl.tool+" ordinary write", v, want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
+
+		// H2, the alias two-call sequence: the first call defines an exec
+		// word (IOS, EOS, NX-OS spellings), the second uses it, with a blank
+		// line to answer reload's confirmation. The definition is denied, so
+		// the word never exists. The second call on its own is an ordinary
+		// line and stays WRITE_CONFIG: an alias an operator configured on
+		// the device is the accepted residual in the threat model.
+		for i, def := range []string{"alias configure hn do reload", "alias hn reload now", "cli alias name hn reload"} {
+			label := tl.server + "." + tl.tool + " alias definition " + string(rune('a'+i))
+			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{def}}))
+			check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+		}
+		v = g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{"hn", ""}}))
+		check(t, tl.server+"."+tl.tool+" alias use", v, want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
 	}
+
+	// Junos configuration that runs something (H3) and top/up with a
+	// command (M2), through load_and_commit_config.
+	for i, text := range []string{
+		"set event-options policy P events ui_commit then execute-commands commands \"request system reboot\"",
+		"edit system\nset scripts commit file x.slax",
+		"top run request system reboot",
+		"up 1 run request system reboot",
+	} {
+		label := "junos load_and_commit_config payload " + string(rune('a'+i))
+		v := g.Decide(context.Background(), call("junos-mcp-server", "load_and_commit_config", map[string]any{"router_name": "lab-sw-01", "config_text": text}))
+		check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+	}
+	v := g.Decide(context.Background(), call("junos-mcp-server", "load_and_commit_config", map[string]any{"router_name": "lab-sw-01", "config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}))
+	check(t, "junos text event-options", v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
 }
 
 // TestAttackerHostNames: the names of the PR #154 review and ADR 0031, with
@@ -528,12 +566,12 @@ func TestHoldIsNotForwarded(t *testing.T) {
 func TestDenyTextShape(t *testing.T) {
 	t.Parallel()
 	golden := map[string]struct{ verb, rule string }{
-		"fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list":                                                {"denied", "no-exec"},
-		"fathomgate cannot run eos-mcp.push_config: rule lab-writes (class WRITE_CONFIG): obligation dry_run cannot be met until change-safety drivers exist":                             {"cannot run", "lab-writes"},
-		"fathomgate held junos.load_and_commit_config: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run.": {"held", "prod-core-needs-approval"},
-		"fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): this tool needs at least one target named explicitly":                                {"denied", "default:bad_arguments"},
-		"fathomgate denied eos-mcp.get_version: rule default:unknown_target (class READ_OPERATIONAL): target not in inventory":                                                            {"denied", "default:unknown_target"},
-		"fathomgate denied netdev-ssh-mcp.get_config: rule not-lab (class READ_CONFIG): only devices tagged lab may be changed through this proxy; target not in inventory":               {"denied", "not-lab"},
+		"fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode": {"denied", "no-exec"},
+		"fathomgate cannot run eos-mcp.push_config: rule lab-writes (class WRITE_CONFIG): obligation dry_run cannot be met until change-safety drivers exist":                                                {"cannot run", "lab-writes"},
+		"fathomgate held junos.load_and_commit_config: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run.":                    {"held", "prod-core-needs-approval"},
+		"fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): this tool needs at least one target named explicitly":                                                   {"denied", "default:bad_arguments"},
+		"fathomgate denied eos-mcp.get_version: rule default:unknown_target (class READ_OPERATIONAL): target not in inventory":                                                                               {"denied", "default:unknown_target"},
+		"fathomgate denied netdev-ssh-mcp.get_config: rule not-lab (class READ_CONFIG): only devices tagged lab may be changed through this proxy; target not in inventory":                                  {"denied", "not-lab"},
 	}
 	for text, w := range golden {
 		verb, rule, ok := parseErrorText(text)
@@ -542,8 +580,8 @@ func TestDenyTextShape(t *testing.T) {
 		}
 	}
 	// The same text from errorText, for the fixed rows.
-	dec := policy.Decision{Effect: policy.Deny, RuleID: "no-exec", Reason: "command did not pass the read allow-list"}
-	if got := errorText(netdev, "run_show_command", dec, "EXEC_ARBITRARY", "", false); got != "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list" {
+	dec := policy.Decision{Effect: policy.Deny, RuleID: "no-exec", Reason: "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"}
+	if got := errorText(netdev, "run_show_command", dec, "EXEC_ARBITRARY", "", false); got != "fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode" {
 		t.Errorf("ADR 0026 example: %q", got)
 	}
 	dec = policy.Decision{Effect: policy.Hold, RuleID: "prod-core-needs-approval"}

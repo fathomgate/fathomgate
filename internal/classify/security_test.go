@@ -388,6 +388,36 @@ func TestSecurityConfigSessionEscape(t *testing.T) {
 		{"quoted verb", []any{`"end"`}, "(leading-symbol)"},
 		{"json-looking element", []any{`["end"]`}, "(leading-symbol)"},
 		{"string, not a list", "end", "(escape-word)"},
+		// Security review of PR #170, H1: NX-OS runs ";"-separated commands.
+		{"NX-OS separator", []any{"hostname x ; end ; reload", "y"}, "config element 1 line 1 failed the config payload check (separator)"},
+		{"NX-OS separator, no spaces", "hostname x;end", "(separator)"},
+		// H2: an alias defines an exec word for a later call.
+		{"IOS alias", []any{"alias configure hn do reload"}, "(escape-word)"},
+		{"EOS alias", []any{"alias hn reload now"}, "(escape-word)"},
+		{"NX-OS cli alias", []any{"cli alias name hn reload"}, "(escape-word)"},
+		// H3: configuration that schedules execution.
+		{"IOS EEM applet", []any{"event manager applet X", " event timer countdown time 5", " action 1 cli command \"reload\""}, "element 1 line 1"},
+		{"IOS kron", []any{"kron policy-list P", " cli write memory"}, "element 1 line 1"},
+		{"EOS event-handler", []any{"event-handler H", " action bash reboot"}, "element 1 line 1"},
+		{"EOS schedule", []any{"schedule s interval 1 max-log-files 1 command bash reboot"}, "(escape-word)"},
+		{"EOS daemon", []any{"daemon d", " command /mnt/flash/x"}, "element 1 line 1"},
+		{"NX-OS scheduler", []any{"scheduler job name j"}, "(escape-word)"},
+		{"command line", []any{"command reload"}, "(escape-word)"},
+		// M1: more exec verbs and mode changes.
+		{"ping", []any{"ping 192.0.2.1"}, "(escape-word)"},
+		{"traceroute", []any{"traceroute 192.0.2.1"}, "(escape-word)"},
+		{"clock set", []any{"clock set 10:00:00 1 Jan 2020"}, "(escape-word)"},
+		{"send", []any{"send * hello"}, "(escape-word)"},
+		{"watch", []any{"watch show clock"}, "(escape-word)"},
+		{"logout", []any{"logout"}, "(escape-word)"},
+		{"terminal", []any{"terminal length 0"}, "(escape-word)"},
+		{"agent", []any{"agent Bgp terminate"}, "(escape-word)"},
+		{"Huawei return", []any{"return"}, "(escape-word)"},
+		{"Huawei system-view", []any{"system-view"}, "(escape-word)"},
+		{"IOS-XR admin", []any{"admin"}, "(escape-word)"},
+		// Note 1: size caps.
+		{"line too long", []any{"description " + strings.Repeat("x", maxConfigLineLen)}, "(too-long)"},
+		{"payload too long", []any{strings.Repeat("hostname x\n", maxConfigPayloadLen/11+1)}, "config payload failed the config payload check (too-long)"},
 	}
 	for _, tt := range configWriteTools {
 		p := profiles[tt.server]
@@ -430,6 +460,9 @@ func TestSecurityConfigEscapeWords(t *testing.T) {
 		"request system reboot", "tclsh", "guestshell run bash", "python3 -c x", "zerotouch cancel",
 		"ssh 192.0.2.1", "delete flash:startup-config", "load override /var/tmp/x", "save /var/tmp/x",
 		"rollback 1", "quit", "clear ip bgp *", "enable secret FAKEsecret",
+		"alias hn reload", "cli alias name hn reload", "event manager applet X", "event-handler H",
+		"sched", "scheduler job name j", "kron occurrence o in 1 recurring", "daemon d", "command x",
+		"clock set 10:00:00 1 Jan 2020", "ping 192.0.2.1", "sys", "adm", "ret",
 	} {
 		if c := checkCLIConfigLine(line); c != checkEscapeWord {
 			t.Errorf("%q: check %q, want escape-word", line, c)
@@ -449,7 +482,10 @@ func TestConfigLinesThatStayWrites(t *testing.T) {
 		"ntp server 192.0.2.1", "logging host 192.0.2.5", " load-interval 30", "spanning-tree mode mstp",
 		"vlan 10", " name users", " 10 permit ip any any", "ip as-path access-list A permit _65000$",
 		"route-map RM permit 10", " set community 65000:1", " match ip address prefix-list P",
-		"switchport mode trunk", "clock timezone UTC", "boot system flash:EOS.swi", "default interface Ethernet2",
+		"switchport mode trunk", "boot system flash:EOS.swi", "default interface Ethernet2",
+		// Persistence and lock-out by configuration stays WRITE_CONFIG (held
+		// on prod, allowed on lab by design; threat model).
+		"username backdoor privilege 15 nopassword", "aaa authorization exec default none",
 		"management api http-commands", "monitor session 1 source Ethernet1", "exec-timeout 5 0",
 		"control-plane", "errdisable recovery cause bpduguard", "event-monitor", "crypto key generate rsa",
 		"! a comment", "!", "  ! reload in a comment is a comment", "", "   ", "\t",
@@ -508,6 +544,30 @@ func TestSecurityJunosLoadConfig(t *testing.T) {
 		{"format with a space is not text", map[string]any{"config_format": " text", "config_text": curly}, ExecArbitrary, "(set-verb)"},
 		{"non-ascii format is not text", map[string]any{"config_format": "tеxt", "config_text": curly}, ExecArbitrary, "(set-verb)"},
 		{"non-string format is not text", map[string]any{"config_format": []any{"text"}, "config_text": curly}, ExecArbitrary, "(set-verb)"},
+		// Security review of PR #170, M2: top and up run the rest as a command.
+		{"top with a command", map[string]any{"config_text": "top run request system reboot"}, ExecArbitrary, "(set-verb)"},
+		{"up with a command", map[string]any{"config_text": "up 1 run request system reboot"}, ExecArbitrary, "(set-verb)"},
+		{"up with a word", map[string]any{"config_text": "up run"}, ExecArbitrary, "(set-verb)"},
+		{"bare top and up", map[string]any{"config_text": "edit interfaces ge-0/0/0\nset description x\nup\nup 2\ntop\nset system host-name x"}, WriteConfig, ""},
+		// H3: Junos configuration that runs something.
+		{"set event-options", map[string]any{"config_text": "set event-options policy P events ui_commit then execute-commands commands \"request system reboot\""}, ExecArbitrary, "(exec-config)"},
+		{"set system scripts", map[string]any{"config_text": "set system scripts op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		{"relative scripts after edit", map[string]any{"config_text": "edit system\nset scripts commit file x.slax"}, ExecArbitrary, "config element 1 line 2 failed the config payload check (exec-config)"},
+		{"edit event-options", map[string]any{"config_text": "edit event-options"}, ExecArbitrary, "(exec-config)"},
+		{"abbreviated event-options", map[string]any{"config_text": "set event-o policy P then execute-commands commands x"}, ExecArbitrary, "(exec-config)"},
+		{"set system extensions", map[string]any{"config_text": "set system extensions providers p"}, ExecArbitrary, "(exec-config)"},
+		{"quoted hierarchy", map[string]any{"config_text": "set system \"scripts\" op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		{"text event-options", map[string]any{"config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}, ExecArbitrary, "(exec-config)"},
+		{"text scripts, mixed case", map[string]any{"config_format": "text", "config_text": "system {\n Scripts { op { file x.slax; } }\n}"}, ExecArbitrary, "(exec-config)"},
+		{"xml extensions", map[string]any{"config_format": "xml", "config_text": "<configuration><system><extensions/></system></configuration>"}, ExecArbitrary, "(exec-config)"},
+		// L2: no DTD or entity declarations in xml.
+		{"xml doctype", map[string]any{"config_format": "xml", "config_text": "<!DOCTYPE c [<!ENTITY x SYSTEM \"file:///etc/passwd\">]>\n<configuration><system><host-name>&x;</host-name></system></configuration>"}, ExecArbitrary, "config element 1 line 1 failed the config payload check (dtd)"},
+		// Persistence stays WRITE_CONFIG (threat model).
+		{"super-user login", map[string]any{"config_text": "set system login user backdoor class super-user authentication plain-text-password-value FAKEpw"}, WriteConfig, ""},
+		// Note 1: line cap in set.
+		{"set line too long", map[string]any{"config_text": "set system host-name " + strings.Repeat("x", maxConfigLineLen)}, ExecArbitrary, "(too-long)"},
+		{"text line has no line cap", map[string]any{"config_format": "text", "config_text": "system { host-name " + strings.Repeat("x", maxConfigLineLen) + "; }"}, WriteConfig, ""},
+		{"text payload cap", map[string]any{"config_format": "text", "config_text": strings.Repeat("x", maxConfigPayloadLen+1)}, ExecArbitrary, "config payload failed the config payload check (too-long)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
