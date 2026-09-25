@@ -335,8 +335,8 @@ fathomgate serve --listen 127.0.0.1:8931 \
 It prints one `listening` line for each address it listens on:
 
 ```text
-level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
-level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
+time=... level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=me upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
+time=... level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=me upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
 ```
 
 Port `0` picks a free port, and the lines then show which one. If another
@@ -359,9 +359,71 @@ line into the client config, for example `http://127.0.0.1:8931/mcp`,
 rather than typing `localhost`: an address written out means the client
 connects where Fathomgate listens and nowhere else. The client connects to
 it as a Streamable HTTP (sometimes just "HTTP") MCP server, and sends the
-header `Authorization: Bearer <token>` with every request. Browser-based clients cannot connect: fathomgate refuses every
-request that comes from a web page. Tested client settings for Claude Code
-and others will be added here.
+header `Authorization: Bearer <token>` with every request. Browser-based
+clients cannot connect: fathomgate refuses every request that comes from a
+web page.
+
+For Claude Code, put the token in an environment variable, then add the
+server with the URL from your `listening` line:
+
+```sh
+export FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/agent.token)"
+claude mcp add --transport http netdev http://127.0.0.1:8931/mcp \
+  --header 'Authorization: Bearer ${FATHOMGATE_TOKEN}'
+```
+
+In PowerShell:
+
+```powershell
+$env:FATHOMGATE_TOKEN = Get-Content "$HOME\fathomgate-agent.token"
+claude mcp add --transport http netdev http://127.0.0.1:8931/mcp --header 'Authorization: Bearer ${FATHOMGATE_TOKEN}'
+```
+
+Keep the single quotes. They stop your shell from filling in the variable,
+so Claude Code saves `${FATHOMGATE_TOKEN}` rather than the token itself and
+reads the value from its own environment each time it connects. Start
+Claude Code from a shell where `FATHOMGATE_TOKEN` is set. If you paste the
+token into the command instead, it works too, but the token lands in your
+shell history and in `~/.claude.json`, and `claude mcp get netdev` prints
+it.
+
+The same entry as JSON, for a project's `.mcp.json` (`--scope project`) or
+a file you pass with `claude --mcp-config`. It holds only the variable's
+name, so it is safe to commit:
+
+```json
+{
+  "mcpServers": {
+    "netdev": {
+      "type": "http",
+      "url": "http://127.0.0.1:8931/mcp",
+      "headers": {
+        "Authorization": "Bearer ${FATHOMGATE_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Run `claude mcp list`. `netdev` should show `✔ Connected`. If it shows
+`Failed to connect — Server rejected the configured Authorization header
+(HTTP 401)`, the token did not arrive: check that `FATHOMGATE_TOKEN` is set
+where Claude Code runs (`claude mcp list` also warns
+`Missing environment variables: FATHOMGATE_TOKEN` when it is not) and that
+it matches the token file. Any name of your own works in place of
+`FATHOMGATE_TOKEN`, but not one of the credential variables Claude Code
+refuses to send to a remote server, such as `ANTHROPIC_API_KEY`
+([Claude Code's MCP docs](https://code.claude.com/docs/en/mcp#credential-variables-that-read-as-empty)).
+The tools show up as `mcp__netdev__netdev-ssh-mcp_run_show_command` and so
+on, as over stdio.
+
+We tested this with Claude Code 2.1.281 on Windows 11: `claude mcp add` and
+`claude mcp list` as above, and a headless session with the JSON file
+through `claude --mcp-config` on both `listening` URLs, which listed the
+five tools and ran `show version` on the test device. We have not yet
+tried a project's `.mcp.json`, which Claude Code asks you to approve the
+first time, or other clients over HTTP. Any client that can send a header
+with each request should work the same way.
 
 **4. Stop it** with Ctrl+C (or SIGTERM). fathomgate gives calls in progress
 up to 5 seconds to finish, then stops. Press Ctrl+C a second time to stop
