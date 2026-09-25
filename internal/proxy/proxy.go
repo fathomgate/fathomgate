@@ -179,18 +179,29 @@ type upstream struct {
 	// tries server/discover first and falls back to the initialise
 	// handshake, or connect restarts the upstream and connects with the
 	// initialise handshake only (ADR 0018). It is the version the upstream
-	// answered, which after an initialise handshake can be 2026-07-28.
+	// answered. After an initialise handshake it is never later than the
+	// version requested and never a stateless one: such an answer is a
+	// hybrid, refused at connect (handshakes.middleware, M1-32).
 	version string
 	// era is the upstream session's era label (upstreamEra): from version
 	// and from the handshake request go-sdk had answered on the session,
 	// never from which connect attempt fathomgate made. A session opened
-	// with the initialise handshake is labelled stateful even at 2026-07-28
-	// (T0.47, N6). It is a label for logs and the audit, not a capability:
-	// no control may read it as what the upstream can or cannot send.
-	era     string
-	done    chan struct{}
-	err     error
-	closing atomic.Bool
+	// with the initialise handshake is labelled stateful, and since M1-32
+	// its version is always a stateful one, so the label and the version
+	// agree. It is a label for logs and the audit, not a capability: no
+	// control may read it as what the upstream can or cannot send
+	// (handshake is how the session was opened).
+	era string
+	// handshake reports that go-sdk opened the session with the initialise
+	// handshake, not with server/discover (handshakes.take). It is how the
+	// session was opened, a fact of the connect, and the only thing the
+	// elicitation/create refusal for an upstream connected with
+	// server/discover reads (M1-32, ADR 0008). False until connect sets it,
+	// so a prompt that arrived first would be refused.
+	handshake atomic.Bool
+	done      chan struct{}
+	err       error
+	closing   atomic.Bool
 
 	mu       sync.Mutex
 	calls    map[*inflight]struct{}    // calls in flight, for elicitation/create
@@ -347,7 +358,9 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 	if ir := cs.InitializeResult(); ir != nil {
 		up.version = ir.ProtocolVersion
 	}
-	up.era = upstreamEra(up.version, hs.take(cs))
+	handshake := hs.take(cs)
+	up.handshake.Store(handshake)
+	up.era = upstreamEra(up.version, handshake)
 	p.upstreams[u.Server] = up
 	go func() {
 		defer close(up.done)
@@ -428,6 +441,9 @@ func (p *Proxy) connect(ctx context.Context, client *mcp.Client, u Upstream, fir
 func connectAttempt(ctx context.Context, client *mcp.Client, tt *trackedTransport, opts *mcp.ClientSessionOptions, expired <-chan struct{}) (cs *mcp.ClientSession, timedOut bool, err error) {
 	actx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	// The handshake middleware aborts the attempt through actx when it
+	// refuses a hybrid answer (M1-32), which kills the process below.
+	actx = withAbort(actx, cancel)
 	// Written by the watcher, read after it is joined.
 	var didExpire, closedFirst bool
 	connected := make(chan struct{})
@@ -456,7 +472,11 @@ func connectAttempt(ctx context.Context, client *mcp.Client, tt *trackedTranspor
 		_ = cs.Close()
 		cs, err = nil, context.Cause(actx)
 	}
-	if err != nil && ctx.Err() == nil && didExpire {
+	// An attempt the middleware aborted for a hybrid answer was answered,
+	// even if the bound ran out before go-sdk began closing: the first
+	// cause wins, so the cause is then the hybridError, and there is no
+	// restart.
+	if err != nil && ctx.Err() == nil && didExpire && errors.Is(context.Cause(actx), errProbeExpired) {
 		timedOut = !closedFirst
 	}
 	return cs, timedOut, err

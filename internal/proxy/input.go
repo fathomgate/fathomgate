@@ -868,6 +868,16 @@ func withRefusals(res *mcp.CallToolResult, own, note *refusal) *mcp.CallToolResu
 // call, and refused otherwise. go-sdk runs incoming requests concurrently,
 // so the per-call slot is what stops a burst. The agent's cancellation of
 // the call cancels the prompt.
+//
+// An upstream fathomgate connected with server/discover (u.handshake unset)
+// is in the stateless era, where an input request comes back as an MRTR
+// input_required result and never as a server-initiated request. go-sdk's
+// client accepts elicitation/create in either era, so fathomgate refuses it
+// here, whether or not a policy is enforced and whether or not the server
+// has a profile (M1-32, ADR 0008; M1-19 already refuses every upstream
+// prompt for a profiled server under a policy). Sampling needs no such
+// check: fathomgate declares no sampling capability, so go-sdk refuses
+// sampling/createMessage from every upstream.
 func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 	return func(upCtx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 		now := p.now()
@@ -910,6 +920,10 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 			return nil, p.refuseUnattributed(u, at, newRefusal(u.name, "", "elicitation", at.err))
 		}
 		f := at.sole
+		if !u.handshake.Load() {
+			// First: the reason is the upstream's, whatever the agent.
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errDiscoveredUpstream))
+		}
 		if err := promptable(f); err != nil {
 			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", err))
 		}
@@ -957,6 +971,9 @@ var (
 	// both the upstream and the agent.
 	errStatelessClient = errors.New("this client speaks the stateless era (2026-07-28) and cannot receive a server-initiated prompt; see ADR 0014")
 	errTooManyPrompts  = fmt.Errorf("more than %d prompts in one call", maxPromptsPerCall)
+	// errDiscoveredUpstream names no upstream-supplied value: the text
+	// reaches both the upstream and the agent (M1-32).
+	errDiscoveredUpstream = errors.New("this upstream was connected with server/discover (the stateless era), where input requests come as input_required results, so a server-initiated prompt from it is not relayed; see ADR 0008")
 	// errEndedElsewhere names no session or principal: the text reaches
 	// the upstream and every agent with a call in flight on it.
 	errEndedElsewhere = errors.New("it cannot be attributed to one call: another agent session's call on this upstream has ended recently and the upstream may still be working on it")
