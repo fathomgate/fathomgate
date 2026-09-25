@@ -156,20 +156,15 @@ func (p *Proxy) decide(ctx context.Context, c call) (decision, error) {
 
 // decideLocked is decide with the counter key's lock held.
 func (p *Proxy) decideLocked(ctx context.Context, c call, in seam.CallInfo, sc *sessionCounter) decision {
-	in.DevicesTouched = sc.touchedCount()
+	// max_devices counts distinct devices, with the call's own targets
+	// (policy-schema 2). The gate takes a target this key has already
+	// touched off the count (CallInfo.Counted), so one Decide suffices
+	// (M1-39); before, the proxy decided a second time with the lower count.
+	in.DevicesTouched, in.Counted = sc.touchedCount(), sc.counted
 	v, ok := p.safeDecide(ctx, in)
+	in.Counted = nil // valid only under the lock, during Decide
 	if !ok {
 		return decision{v: p.refusalVerdict(in, ruleInternalError, reasonInternalError, "")}
-	}
-	// max_devices counts distinct devices, with the call's own targets
-	// (policy-schema 2). A target this key has already touched is counted
-	// once: decide again without it in the touched count. Decide is pure,
-	// so the second verdict differs from the first only by that count.
-	if again := sc.alreadyTouched(v.Targets); again > 0 {
-		in.DevicesTouched -= again
-		if v, ok = p.safeDecide(ctx, in); !ok {
-			return decision{v: p.refusalVerdict(in, ruleInternalError, reasonInternalError, "")}
-		}
 	}
 	if !v.Forward {
 		if v.Error == "" {
@@ -408,7 +403,7 @@ func (cs *counters) get(key string) *sessionCounter {
 }
 
 // sessionCounter is one counter key's devices touched. Its lock (sem, one
-// slot) is held across a decision, up to two Decide calls (decide), and
+// slot) is held across a decision, one Decide call (decide), and
 // is taken with the call's context, so a call whose agent gives up does
 // not wait behind another call's decision.
 type sessionCounter struct {
@@ -440,15 +435,12 @@ func (s *sessionCounter) unlock() { <-s.sem }
 
 func (s *sessionCounter) touchedCount() int { return len(s.touched) + s.extra }
 
-// alreadyTouched is how many of targets are remembered as touched.
-func (s *sessionCounter) alreadyTouched(targets []string) int {
-	n := 0
-	for _, t := range dedupe(targets) {
-		if _, ok := s.touched[t]; ok {
-			n++
-		}
-	}
-	return n
+// counted reports whether target is remembered as touched. A target counted
+// past maxTouchedNames is not remembered, so it is counted again: the count
+// errs high. The caller holds the key's lock.
+func (s *sessionCounter) counted(target string) bool {
+	_, ok := s.touched[target]
+	return ok
 }
 
 // touch counts the targets of a forwarded call.

@@ -156,7 +156,7 @@ func overCap(t *testing.T, worst []gatetest.Case) gatetest.Case {
 //
 // The added latency is decideAndRespond, what gated runs before it
 // forwards or refuses a call: the argument cap, the counter key's lock and
-// counters, Decide (twice when a target is already counted), the
+// counters, Decide (once, since M1-39), the
 // re-encoding of the arguments, the decision line and, for a refusal, the
 // tool error. The p99 over the typical corpus must stay under the budget in
 // every run; each worst case's p50 is enforced only with
