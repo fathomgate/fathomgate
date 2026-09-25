@@ -401,6 +401,9 @@ func TestEraMatrix(t *testing.T) {
 			if up.version != e.upstream {
 				t.Fatalf("upstream negotiated %s, want %s", up.version, e.upstream)
 			}
+			if want := eraOf(e.upstream); up.era != want {
+				t.Fatalf("upstream era %s, want %s", up.era, want)
+			}
 			if got := h.agent.InitializeResult().ServerInfo; got == nil || got.Name != Name {
 				t.Fatalf("agent sees server %+v, want %s", got, Name)
 			}
@@ -864,5 +867,28 @@ func TestAgentCancelDuringPrompt(t *testing.T) {
 				t.Fatalf("follow-up: %v %q", err, text(res))
 			}
 		})
+	}
+}
+
+// TestUpstreamEra (T0.47, N6): an upstream's era follows the handshake
+// go-sdk completed as well as the version it negotiated, so a session
+// opened with the initialise handshake is stateful even at 2026-07-28.
+func TestUpstreamEra(t *testing.T) {
+	cases := []struct {
+		version   string
+		handshake bool
+		want      string
+	}{
+		{v2026, false, eraStateless}, // server/discover
+		{v2026, true, eraStateful},   // initialise answered with 2026-07-28
+		{v2025, true, eraStateful},
+		{"2024-11-05", true, eraStateful},
+		{"2026-12-01", false, eraStateless}, // a later stateless version
+		{"2026-12-01", true, eraStateful},
+	}
+	for _, tc := range cases {
+		if got := upstreamEra(tc.version, tc.handshake); got != tc.want {
+			t.Errorf("upstreamEra(%s, handshake %t) = %s, want %s", tc.version, tc.handshake, got, tc.want)
+		}
 	}
 }
