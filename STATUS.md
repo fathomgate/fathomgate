@@ -62,8 +62,8 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`, `eos-mcp run_comm
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
 | 2026-09-25 | test-engineer | docs-writer | T0.33 | [T0.33: matrix row 23 runs the HTTP listener against the real netdev-ssh-mcp; Claude Code `"type": "http"` tested and documented](docs/handoffs/2026-09-25-test-engineer-to-docs-writer-T0.33.md) |
+| 2026-09-25 | policy-engineer | security-reviewer | M1.21 | [M1-21: example policy cases for matrix rows 3, 4 and 6, and lab-open without dry_run and diff until M3; review what the examples now allow](docs/handoffs/2026-09-25-policy-engineer-to-security-reviewer-M1.21.md) |
 | 2026-09-25 | orchestrator | joshscott13 | M1 | [M1 is open: five records to accept, then the pipeline goes in](docs/handoffs/2026-09-25-orchestrator-to-joshscott13-M1.md) |
-| 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.57 | [T0.57 ready for review: evict a principal's idle session at the session cap; orphan rule kept](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.57.md) |
 
 ## How to update
 

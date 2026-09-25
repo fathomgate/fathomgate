@@ -1,10 +1,15 @@
 # lab-open: for a containerlab or EVE-NG environment where every device
 # carries the "lab" tag (statically or via a ^lab- hostname pattern).
-# Writes to lab devices are allowed but still dry-run and diffed so the audit
-# log shows what changed; anything not tagged lab is denied so a stray
-# production hostname in the same inventory stays safe. Arbitrary commands
-# that the classifier could not prove to be reads are denied even in the lab,
-# because "reload" on a lab node still costs an afternoon.
+# Writes to lab devices are allowed; anything not tagged lab is denied so a
+# stray production hostname in the same inventory stays safe. Arbitrary
+# commands that the classifier could not prove to be reads are denied even in
+# the lab, because "reload" on a lab node still costs an afternoon.
+#
+# M1 and M2: lab writes carry no dry_run or diff. fathomgate cannot run a dry
+# run or take a diff until the change-safety drivers land in M3, and an allow
+# that carries an obligation it cannot meet is not forwarded (ADR 0026), so
+# with those obligations every lab write would be refused. They return to
+# lab-writes-free in M3 as obligations: [dry_run, diff].
 version: 1
 defaults:
   unknown_target: deny
@@ -14,10 +19,10 @@ rules:
   - id: reads-anywhere
     match: { class: [READ_OPERATIONAL, READ_CONFIG, INVENTORY_READ] }
     effect: allow
+  # M3: obligations [dry_run, diff] return here (see the header).
   - id: lab-writes-free
     match: { class: [WRITE_CONFIG], device_tags: [lab] }
     effect: allow
-    obligations: [dry_run, diff]
   - id: lab-lifecycle
     match: { class: [LAB_LIFECYCLE], device_tags: [lab] }
     effect: allow

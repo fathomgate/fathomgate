@@ -9,6 +9,11 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 ### Added
 
 - M1 (classify plus allow and deny) is open: the board is `docs/milestones/M1.yaml` and `STATUS.md` now shows it. Seven open M0 tasks moved to it (T0.35, T0.36, T0.47, T0.53, T0.54, T0.55 and T0.58, now M1-06 to M1-12), and their M0 rows are marked `dropped` with a pointer to the new id. Five decision records are proposed and wait for the maintainer: `docs/adr/0026-m1-policy-pipeline-at-dispatch.md` (the order of stages at `Proxy.dispatch`, the tool error a `deny` returns, naming the rule, and M1 not running a `hold` or an `allow` that needs `dry_run`, `diff` or `timed_rollback`), `0027-serve-policy-inventory-profiles-flags.md` (`serve --policy`, `--inventory` and `--profiles`, profiles embedded in the binary, `--audit` still refused until M4), `0028-audit-key-custody.md` (owner-only checks on the audit signing key, and `audit verify` accepting only a public key), `0029-remote-listener-tls-and-loopback-authentication.md` (`--listen-remote` with built-in TLS, TLS on loopback, `SO_EXCLUSIVEADDRUSE` on Windows) and `0030-reload-policy-and-inventory.md` (reloading without a restart).
+- Example policy cases for M1 test-matrix rows 3, 4 and 6 (M1-21): `show ip bgp summary` allowed by `reads-anywhere` (directly and after the downgrade), `reload` denied by `no-exec` through netdev-ssh-mcp `run_show_command`, upa `send_command_and_get_output` and eos-mcp `run_command`, and an unknown host denied by `default:unknown_target` for writes and exec. The three suites now hold 43 cases (read-only 12, lab-open 11, prod-approval 20). A test case takes its class as given and cannot carry a command, so the classification half of each row stays with the tier 1 tests in `internal/classify`.
+
+### Changed
+
+- `policies/examples/lab-open.yaml`: `lab-writes-free` no longer carries `dry_run` and `diff` (M1-21, ADR 0026 decision 1). In M1 an `allow` with an obligation fathomgate cannot meet is not forwarded, so with them every lab write would be refused; they return in M3 with the change-safety drivers, and the file says so. `prod-approval.yaml` is unchanged apart from a comment on what M1 does with its holds and its lab writes (neither is forwarded until M3).
 
 ## [0.1.0] - 2026-09-25
 

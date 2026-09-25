@@ -6,6 +6,16 @@
 # Rules evaluate in order and the first match wins. device_roles and
 # device_tags must hold for every target, so a mixed lab-plus-core fan-out
 # falls through to the implicit deny rather than inheriting the lab rule.
+#
+# M1 and M2 (ADR 0026): this file is written for M3 and is safe to load
+# before it. A hold from prod-core-needs-approval is not forwarded and no
+# pending record is made; the agent is told "Held by rule
+# prod-core-needs-approval: needs approval, and approvals aren't available
+# yet, so this call was not run." A lab write allowed by lab-writes-free is
+# not forwarded either, because nothing can meet dry_run or diff before the
+# M3 change-safety drivers; the agent is told the call cannot run and why,
+# naming the rule. Reads, fleet-cap, no-exec and the defaults act as written.
+# For lab writes in M1, use lab-open.yaml.
 version: 1
 defaults:
   unknown_target: deny
