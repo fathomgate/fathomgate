@@ -52,6 +52,8 @@ Implemented in `Normalize(profile, tool, args)`:
 - **A tool the profile does not list** is looked up exactly (an upstream tool named `eos-mcp.get_version` is not `get_version`) and is refused with `default:bad_arguments` when it carries any argument: no argument of it is named ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 2). Otherwise a tool the upstream adds later would reach the rules with zero targets, past the unknown-target default and `max_devices`. With no arguments it is the fallback `EXEC_ARBITRARY`. The agent is told "an argument is not named in the server profile for this tool"; the log line carries the names (`unnamed_args`, at most 8, each cut at 64 bytes).
 - **A server with no profile** gets the fallback class and none of these checks: nothing names its parameters. `fathomgate serve` warns at start when a server has no profile (ADR 0027), and the warning must say the arguments are not checked (M1-20).
 
+At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily_brief` with neither `hostnames` nor `tags` runs on every device in the upstream's own `config.ini` (`eos_mcp/server.py:476-478`). There, zero targets means the whole fleet.
+
 ## 3. Planned fields (not yet parsed)
 
 These are in the plan and in the research but the strict loader rejects them today. Put the information in `notes` until the field lands.
@@ -172,9 +174,9 @@ The rows show the normalisation keys that differ. Full files are in `profiles/`.
 | `eos-mcp` | `run_command_batch` | `EXEC_ARBITRARY` | | `[hostnames]` | `[tags]` | `[command]` | |
 | `eos-mcp` | `run_commands_batch` | `EXEC_ARBITRARY` | | `[hostnames]` | `[tags]` | `[commands]` | |
 | `eos-mcp` | `get_router_list` | `INVENTORY_READ` | | | `[tags]` | | |
-| `eos-mcp` | `get_device_facts`, `get_version`, `collect_tech_support` | `READ_OPERATIONAL` | `[hostname]` | | | | |
+| `eos-mcp` | `get_device_facts`, `get_version` | `READ_OPERATIONAL` | `[hostname]` | | | | |
 | `eos-mcp` | `get_device_facts_batch`, `daily_brief` | `READ_OPERATIONAL` | | `[hostnames]` | `[tags]` | | |
-| `eos-mcp` | `get_config`, `get_config_diff`, `list_config_sessions` | `READ_CONFIG` | `[hostname]` | | | | |
+| `eos-mcp` | `get_config`, `get_config_diff`, `list_config_sessions`, `collect_tech_support` | `READ_CONFIG` | `[hostname]` | | | | |
 | `eos-mcp` | `push_config` | `WRITE_CONFIG` | `[hostname]` | | | | `[config_lines]` |
 | `eos-mcp` | `confirm_config_session`, `abort_config_session` | `WRITE_CONFIG` | `[hostname]` | | | | |
 | `eos-mcp` | `health_check` | `LOCAL_ADMIN` | | | | | |

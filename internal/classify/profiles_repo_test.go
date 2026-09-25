@@ -43,8 +43,13 @@ func TestRepoProfiles(t *testing.T) {
 			"run_commands_batch": ExecArbitrary, "get_config": ReadConfig,
 			"get_config_diff": ReadConfig, "list_config_sessions": ReadConfig,
 			"push_config": WriteConfig, "confirm_config_session": WriteConfig,
-			"abort_config_session": WriteConfig, "collect_tech_support": ReadOperational,
+			"abort_config_session": WriteConfig, "collect_tech_support": ReadConfig,
 			"daily_brief": ReadOperational,
+		},
+		"upa": {
+			"send_command_and_get_output":            ExecArbitrary,
+			"set_config_commands_and_commit_or_save": WriteConfig,
+			"get_network_device_list":                InventoryRead,
 		},
 	}
 	for server, tools := range want {

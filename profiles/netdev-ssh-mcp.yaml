@@ -1,5 +1,54 @@
 # Profile for krisiasty/netdev-ssh-mcp (Go, stdio, multi-vendor SSH).
-# Source of tool names and parameters: docs/research/02-network-mcp-servers.md §1.1.
+# Source of tool names and parameters: docs/research/02-network-mcp-servers.md §1.1,
+# each one re-checked against the handler at v1.7.1 (M1-14, below).
+#
+# Audit M1-14 (2026-09-25). Every row below re-read [src] at tag v1.7.1,
+# commit 6fc6ab0aed1e84b8dd71b1bf1ad39cd909146623, under
+# https://github.com/krisiasty/netdev-ssh-mcp/blob/6fc6ab0aed1e84b8dd71b1bf1ad39cd909146623/
+# The server registers exactly five tools (main.go:84-145), all with
+# go-sdk mcp.AddTool and typed input structs, so the JSON names are the
+# struct tags:
+#   get_config        config.go:14-20       host, username, port, config_type, device_type
+#                     sends only "show <running|startup>-config | no-more",
+#                     "show configuration | no-more" (junos) or
+#                     "show full-configuration" (fortios), device_type.go:63-78.
+#   run_show_command  show.go:13-19         host, command, username, port, device_type
+#                     one SSH exec request with the checked string,
+#                     device_type.go:80-120, command_safety.go:75-109.
+#   run_ping          ping.go:14-26         host, destination, username, port, count,
+#                     timeout, source, vrf, size, outgoing_interface, device_type
+#   run_traceroute    traceroute.go:14-26   host, destination, username, port, max_hops,
+#                     timeout, probe, source, vrf, outgoing_interface, device_type
+#   trust_host_key    hostkey.go:14-20      host, port, confirm, replace_existing;
+#                     confirm=false only reads the key (hostkey.go:35-51);
+#                     confirm=true writes known_hosts (sshclient/client.go:397-429).
+# No tool, class or target/command parameter name differs from this profile.
+#
+# Separators (M1-14, for the PR #152 security review). No code path splits a
+# command on commas: run_show_command passes the checked string whole to
+# sshclient.RunCommand, one session.Output(cmd) (sshclient/client.go:102-107,
+# 162). So "show version,reload" reaches the device as one command, which
+# the device parses as one (EOS, IOS, NX-OS and Junos have no comma
+# separator; not tried on a device). Newlines never reach the device from a
+# caller: checkOperationalCommand refuses any control character and U+2028,
+# U+2029 (command_safety.go:76-80), and ';' (81-84). The only multi-line exec
+# is RunCommands (client.go:110-127), used for FortiOS ping and traceroute
+# with server-built lines (device_type.go:126-151, 197-221).
+#
+# Leading '-' in run_ping / run_traceroute (T0.53, decided in M1-14). The
+# destination, source, vrf and outgoing_interface pattern
+# [A-Za-z0-9._:/@%-]{1,255} (command_safety.go:19-33) allows a leading '-',
+# so a value can land in the device command as an option word (for example
+# "ping -f"). Whitespace is refused, so it is at most one word per argument.
+# Decision: both tools stay READ_OPERATIONAL. The worst outcome is a ping or
+# traceroute that runs with a vendor option (more packets, a longer run),
+# not a state change; the command verb is fixed by the server. Fathomgate
+# does not rely on the upstream check for this: the profile maps none of
+# these arguments, so today nothing in fathomgate reads them either. Refusing
+# a leading '-' in fathomgate needs a per-argument pattern in the profile
+# schema, which it does not have (proposed to policy-engineer in the M1-14
+# handoff). Which vendor CLIs accept a dash option here is not recoverable
+# from the source (uncertain).
 #
 # The server is read-only by design. It redirects config dumps to get_config.
 # Since v1.7.0 it obfuscates secrets with a keyed hash, and since v1.7.1 it
@@ -101,10 +150,11 @@ tools:
   run_ping:
     class: READ_OPERATIONAL
     target_params: [host]
-    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands (string args character-checked upstream since v1.7.1).
+    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands (string args character-checked upstream since v1.7.1). A leading '-' passes the upstream check; class kept, see the header (M1-14).
   run_traceroute:
     class: READ_OPERATIONAL
     target_params: [host]
+    notes: Same argument check and leading '-' note as run_ping.
   trust_host_key:
     class: LOCAL_ADMIN
     target_params: [host]
