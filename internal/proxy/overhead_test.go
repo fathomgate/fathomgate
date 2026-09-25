@@ -275,7 +275,7 @@ func TestDispatchOverhead(t *testing.T) {
 		t.Errorf("%s: typical corpus: p50 %v over the budget %v", added, p50, gatetest.Limit())
 	}
 	for i := len(typical); i < len(all); i++ {
-		diffs := endToEnd(all[i].Name, []int{i}, max(worstRounds/5, 10))
+		diffs := endToEnd(all[i].Name, []int{i}, max(worstRounds/5, 5))
 		t.Logf("%s: %s: p50 %v p99 %v", added, all[i].Name, gatetest.Quantile(diffs, 0.50), gatetest.Quantile(diffs, 0.99))
 	}
 }

@@ -20,7 +20,52 @@ Three tiers. Tier 1 runs on every commit with no network and proves the policy, 
 - The proxy's own MCP surface, tested through go-sdk's in-memory transport with a fake upstream that records calls, returns tool errors with rule ids and `input_required` results with `requestState`.
 - Property tests: no policy in `policies/examples/` ever yields allow for `EXEC_ARBITRARY` on a target with role `core`; no `deny` decision ever carries obligations.
 
+- The gate's overhead stays inside the PRD budget (classify plus evaluate under 5 ms at p99). See [Overhead budget](#overhead-budget-m1-23).
+
 Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && pytest tests/unit`).
+
+## Overhead budget (M1-23)
+
+Two tier 1 tests hold the PRD's M1 metric, *under 5 ms at p99 for classify plus evaluate*. Both use the repo profiles, `prod-approval.yaml` and `inventory.example.yaml`, and time every call on its own after a warm-up. The corpus is in `internal/gate/gatetest`, and each case must first get its expected decision word and rule id, so a change that turns a costly path into a cheap early refusal fails instead of making the numbers look better.
+
+- `TestDecideOverhead` (`internal/gate`) times `Gate.Decide` alone.
+- `TestDispatchOverhead` (`internal/proxy`) times the decision stage the proxy runs before it forwards or refuses a call: the 64 KiB argument cap, the counter lock and counters, `Decide` (run twice when a target is already counted), re-encoding the arguments, the decision line and the tool error. The counters are those of one stdio agent in steady state. As a cross-check it sends every call end to end through an agent session to a gated proxy and to a pass-through proxy over the same no-op upstreams, and logs the paired difference.
+
+What fails the run:
+
+| Corpus | Check | Limit |
+| --- | --- | --- |
+| Typical: the 12 calls of `gatetest.Typical` (typed reads, downgraded exec, config dumps, `no-exec`, holds, unknown and malformed targets, fan-out, group selectors) | p99 of 24,000 calls | 5 ms |
+| Worst: arguments within 1 KiB of the 64 KiB cap (1,900 show commands, one multi-line command, a multi-line config string, config lines, 3,300 targets, a batch over every known target) and, in the proxy, one byte over the cap | p50 of each case, 200 calls | 5 ms, unless listed in `gatetest.KnownOverBudget` |
+| End to end, typical, gated minus pass-through | p50 | 5 ms |
+
+A worst case's p99 over the budget is logged as `OVER BUDGET AT p99`, not failed, because the garbage collector sets it rather than the call. Each worst case allocates 0.4 to 3.4 MB, so a collection starts every call or two. On Windows the pause lands on a random call and adds 10 to 18 ms. With `GOGC=off`, or on Linux, p99 sits close to p50. The end-to-end p99 is logged for the same kind of reason: it is set by the in-memory transport's scheduling jitter, which is as large on the pass-through proxy.
+
+Under `-race` the limit is 10 times higher (`gatetest.RaceFactor`), and the tests run 100 typical and 10 worst-case rounds. The race detector slows this map, regexp and JSON code by up to 20 times. The 1x budget is held by every run without `-race`: the Windows and macOS CI jobs, and the Linux job's `gate overhead budget (M1-23)` step, which runs both tests with `-p 1 -v` so the numbers below come from its log. The threshold never moves to make a run pass. A case over it goes into `KnownOverBudget` with its finding and owner, and comes out when the finding is fixed.
+
+Run: `go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/`. Per-case means and allocations: `go test -run '^$' -bench BenchmarkDecideOverhead ./internal/gate/`.
+
+### Measured, 2026-09-25
+
+GitHub-hosted `ubuntu-latest` (4 vCPU, go1.26.8, no `-race`, `-p 1`), [PR #183 run](https://github.com/fathomgate/fathomgate/actions/runs/36186989951/job/108242702823):
+
+| Case | `Decide` p50 / p99 | Proxy decision stage p50 / p99 | End-to-end added p50 |
+| --- | --- | --- | --- |
+| Typical corpus | 7.8 µs / 33 µs | 21 µs / 131 µs | under 0 (noise) |
+| 1,900 show commands (`eos-mcp.run_commands`) | **9.7 ms / 10.7 ms** (known) | **20.9 ms / 26.0 ms** (known) | 21.3 ms |
+| One 64 KiB multi-line command (`upa`) | 0.46 ms / 0.88 ms | 0.90 ms / 1.4 ms | under 0 |
+| 64 KiB config string, core (`upa`) | 0.98 ms / 1.4 ms | 2.4 ms / 4.0 ms | under 0 |
+| 64 KiB config lines, lab (`eos-mcp.push_config`) | 1.3 ms / 1.9 ms | 3.3 ms / 3.6 ms | 0.42 ms |
+| 3,300 targets (`eos-mcp.daily_brief`) | 3.5 ms / 3.9 ms | **9.4 ms / 10.1 ms** (known) | 5.9 ms |
+| Batch, every known target (`run_commands_batch`) | **9.8 ms / 11.5 ms** (known) | **20.1 ms / 21.5 ms** (known) | 17.3 ms |
+| One byte over the cap | not reached | 4.0 µs / 13 µs | under 0 |
+
+Maintainer's workstation (Windows 11, Ryzen 7 7700X, 16 threads, go1.26.8, no `-race`, other builds running). The clock here moves in steps of about 0.5 ms, so any time under that reads 0 s. Typical corpus: p99 under one clock step for `Decide` and 0.5 to 1.0 ms for the proxy stage. `BenchmarkDecide` gives a mean of 5.1 µs a call. Worst-case p50s are about half the Linux runner's: 5.5 ms for 1,900 show commands (known), 1.0 ms for config lines and 2.0 to 3.0 ms for 3,300 targets. In the proxy stage they are 12.5 ms, 2.0 ms and 5.6 to 6.0 ms (known). Worst-case p99s reach 8 to 18 ms because of the collector pauses described above.
+
+Findings, both in `KnownOverBudget` and neither loosened:
+
+1. **Command classification costs about 3 µs a command** (policy-engineer, `internal/classify`). `classifyCommand` checks each command against the read allow-list with backtracking regular expressions, which takes about 70% of the CPU. The 1,900 show commands that fit in 64 KiB take 5 to 10 ms. Nothing caps the number of commands in a call below the 64 KiB argument cap.
+2. **The proxy runs `Decide` twice when a target is already counted** (mcp-protocol-engineer, `internal/proxy`). `decideLocked` runs the gate again with a lower `devices_touched`, which repeats parsing, classification and resolution. Every worst case costs about twice as much in the proxy as in `Decide`, and 3,300 targets go over the budget only because of this.
 
 ## Tier 2: what it proves
 

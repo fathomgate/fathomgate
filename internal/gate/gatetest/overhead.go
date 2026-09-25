@@ -253,10 +253,12 @@ func withKey(base map[string]any, key string, v any) map[string]any {
 // Rounds are the measured and warm-up passes: over the typical corpus
 // (each pass is one call of every case), and per worst case. With 200
 // samples the nearest-rank p99 is the third-largest. -short and -race run
-// fewer, and a worst case's p99 of 30 samples is then its maximum.
+// far fewer, to keep the -race job's time (a worst case costs 100 to 200 ms
+// a call under -race): there a worst case's p99 of 10 samples is its
+// maximum, and the 1x budget is held by the runs without -race.
 func Rounds() (typicalRounds, worstRounds, warm int) {
 	if testing.Short() || RaceEnabled {
-		return 200, 30, 5
+		return 100, 10, 2
 	}
 	return 2000, 200, 50
 }
