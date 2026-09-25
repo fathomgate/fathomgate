@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0030 proposed, awaiting acceptance · opened 2026-09-25
 
-Tasks: open 12 · blocked 14 · in review 5
+Tasks: open 9 · blocked 15 · in progress 1 · in review 7
 
 ## Blockers
 
@@ -19,17 +19,17 @@ Tasks: open 12 · blocked 14 · in review 5
 | M1-03 | Accept ADR 0028, audit signing key custody | `docs/adr` | joshscott13 | policy-engineer, security-reviewer | in review | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-04 | Accept ADR 0029, remote listening with built-in TLS and loopback authentication | `docs/adr` | joshscott13 | mcp-protocol-engineer, security-reviewer, release-engineer | in review | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
 | M1-05 | Accept ADR 0030, reloading the policy and inventory without a restart | `docs/adr` | joshscott13 | mcp-protocol-engineer, policy-engineer, security-reviewer, go-reviewer | in review | — | — | [0030](docs/adr/0030-reload-policy-and-inventory.md) |
-| M1-06 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
+| M1-06 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in review | — | 2 | — |
 | M1-07 | Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2 | `docs/security` | security-reviewer | docs-writer | open | — | 15, 16 | — |
 | M1-08 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | M1-09 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | blocked | M1-03 | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-10 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | M1-12 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | M1-19 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | open | — | 4 | — |
+| M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | in review | — | 4 | — |
 | M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | blocked | M1-13 | 3, 4 | — |
 | M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | open | — | — | — |
-| M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | open | — | 3, 5 | — |
+| M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in progress | — | 3, 5 | — |
 | M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | open | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
 | M1-18 | internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026 | `internal/gate` | policy-engineer | security-reviewer, go-reviewer | blocked | M1-01, M1-16 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
 | M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | blocked | M1-01, M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
@@ -45,6 +45,7 @@ Tasks: open 12 · blocked 14 · in review 5
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | docs-writer | test-engineer | open | — | — | — |
+| M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 
 ## Exit criteria
 

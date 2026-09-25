@@ -76,10 +76,10 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in review
     matrix: [2]
     spec: docs/specs/profile-schema.md
-    notes: 'Carried from T0.47. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit. Kickoff 2026-09-25: The upstream era also goes into the M1 decision log line (ADR 0026), so this lands before M1-19. make conformance required (internal/proxy).'
+    notes: 'Carried from T0.47. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit. Kickoff 2026-09-25: The upstream era also goes into the M1 decision log line (ADR 0026), so this lands before M1-19. make conformance required (internal/proxy). PR #151 2026-09-25: the era follows the handshake (initialize ran -> stateful), new upstream.era set once at connect. Security and Go reviews approve; one docs round in progress (F1: era is a label, never a capability; threat-model rows). Security ruling on the author''s question: refuse a hybrid upstream at startup, in M1-32.'
   - id: M1-07
     title: "Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2"
     package: docs/security
@@ -138,10 +138,10 @@ tasks:
     package: profiles
     owner: upstream-server-scout
     reviewers: [policy-engineer, security-reviewer]
-    state: open
+    state: in review
     matrix: [4]
     spec: docs/specs/profile-schema.md
-    notes: 'Exit criterion 1. No profiles/upa-mcp-netmiko-server.yaml exists; research brief 02 section 1.3a lists three tools: send_command_and_get_output (EXEC_ARBITRARY, target name, command command), set_config_commands_and_commit_or_save (WRITE_CONFIG, auto-commit and save), get_network_device_list (INVENTORY_READ). Pin the commit tier 2 already runs (96e8ff3) and cite source lines as the other profiles do. Server key must match what tier 2 passes to --server. Public issue #100 (good first issue) asks for the same file: link it, and if an outside contributor claims it first, review their PR instead of writing a second one. ADR: none, uses only parsed profile fields.'
+    notes: 'Exit criterion 1. No profiles/upa-mcp-netmiko-server.yaml exists; research brief 02 section 1.3a lists three tools: send_command_and_get_output (EXEC_ARBITRARY, target name, command command), set_config_commands_and_commit_or_save (WRITE_CONFIG, auto-commit and save), get_network_device_list (INVENTORY_READ). Pin the commit tier 2 already runs (96e8ff3) and cite source lines as the other profiles do. Server key must match what tier 2 passes to --server. Public issue #100 (good first issue) asks for the same file: link it, and if an outside contributor claims it first, review their PR instead of writing a second one. ADR: none, uses only parsed profile fields. PR #150 2026-09-25 (closes #100): profiles/upa-mcp-netmiko-server.yaml, key upa, pinned 96e8ff3. Security review approves; its threat-model rows (log exposure, target alias drift, transport hazards, unmeetable obligation) and matrix row 6 rule-name fix are in the PR. The review also found two classifier bugs on main, fixed in M1-16.'
   - id: M1-14
     title: Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test
     package: profiles
@@ -166,10 +166,15 @@ tasks:
     package: internal/classify
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in progress
     matrix: [3, 5]
     spec: docs/specs/classification.md
-    notes: 'Exit criterion 3. classification.md section 2 step 7 says the classifier emits the class and its source (profile, capability_table, fallback, annotation_raise, downgrade, reclassify); classify.Result has Class, ProfileClass and Reason but no source. Add it, with tier 1 cases for every worked example in section 9 and section 10 (one positive and one negative per allow-list and blocklist entry), show ip bgp summary downgraded to READ_OPERATIONAL through run_command and send_command_and_get_output, reload staying EXEC_ARBITRARY, and whitespace variants (show  running-config, tabs) reclassified READ_CONFIG (T0.53). Annotation raise needs the upstream annotations, which reach Classify through the gate (ADR 0026); add the input here only if it is a new parameter, and keep annotations able only to raise. Section 10 also names a classify/rules.yaml export shared with tools/policy-lint that does not exist; report which is right (M1-24 reconciles the doc).'
+    notes: 'Exit criterion 3. classification.md section 2 step 7 says the classifier emits the class and its source (profile, capability_table, fallback, annotation_raise, downgrade, reclassify); classify.Result has Class, ProfileClass and Reason but no source. Add it, with tier 1 cases for every worked example in section 9 and section 10 (one positive and one negative per allow-list and blocklist entry), show ip bgp summary downgraded to READ_OPERATIONAL through run_command and send_command_and_get_output, reload staying EXEC_ARBITRARY, and whitespace variants (show  running-config, tabs) reclassified READ_CONFIG (T0.53). Annotation raise needs the upstream annotations, which reach Classify through the gate (ADR 0026); add the input here only if it is a new parameter, and keep annotations able only to raise. Section 10 also names a classify/rules.yaml export shared with tools/policy-lint that does not exist; report which is right (M1-24 reconciles the doc). Security review of PR #150 found on main: CRITICAL, the downgrade rule accepts multi-line commands (strings.Fields turns newlines into spaces; netmiko sends each line), so ''show clock
+conf t
+...'' and ''show clock
+relo
+
+'' were allowed as READ_OPERATIONAL; HIGH, show run / show conf / show tech-support classified READ_OPERATIONAL. Not live in v0.1.0 (serve enforces no policy). Both fixed in this task with regression tests; blocks M1-19 wiring.'
   - id: M1-17
     title: Meta-tool classification through capability tables (Meraki execute_api)
     package: internal/classify
@@ -314,3 +319,13 @@ tasks:
     state: open
     matrix: []
     notes: 'Found at kickoff. tools/status/render.py HANDOFF_RE takes the task id as the last hyphen-free part of the file name, so 2026-09-26-mcp-protocol-engineer-to-go-reviewer-M1-06.md renders with the receiver go-reviewer-M1 and the task 06. The /milestone procedure prescribes ids like M1-03. Fix the pattern (task id matches M<n>-<nn> or T<n>.<n>), add cases to tests/unit/test_status_render.py, and say it in docs/handoffs/README.md. Until it merges, name handoff files with the task id written M1.06; the note body uses M1-06. Do this first: every other M1 task ends with a handoff.'
+  - id: M1-32
+    title: Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-06]
+    adr: "0008"
+    matrix: [2]
+    notes: 'From the security review of PR #151 (M1-06). (1) If initialize is answered with a later version than requested (the hybrid: go-sdk then attaches 2026 _meta self-description while a session exists), close the session, kill the upstream and exit with an error naming both versions and ADR 0008; no flag. Record the requested version in the handshake middleware. Real servers are unaffected: go-sdk servers cap initialize answers at 2025-11-25, TS and Python SDKs echo the requested version. The M1-06 hybrid tests flip to expect refusal. Factual amendment row on ADR 0008 and profile-schema 8.4 (orchestrator judged no new ADR: no CLI or export change). (2) F1: go-sdk accepts elicitation/create from an upstream in either era; refuse it (sampling is already refused) from an upstream fathomgate connected via server/discover, with a refusal naming the reason, per ADR 0008. Close the two threat-model rows M1-06 opens.'
