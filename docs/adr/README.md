@@ -38,5 +38,6 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0028](0028-audit-key-custody.md) | Audit signing key custody: an owner-only file checked on every open, and a verifier that trusts only a public key | proposed | 2026-09-25 |
 | [0029](0029-remote-listener-tls-and-loopback-authentication.md) | Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback | proposed | 2026-09-25 |
 | [0030](0030-reload-policy-and-inventory.md) | Reloading the policy and inventory without a restart | proposed | 2026-09-25 |
+| [0031](0031-hostname-patterns-never-make-a-target-known.md) | A hostname pattern never makes a target known; it only adds attributes to a device listed elsewhere | proposed | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.
