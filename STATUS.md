@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 13 · blocked 3 · in review 2 · merged 17 · dropped 3
+Tasks: open 12 · blocked 3 · in review 3 · merged 17 · dropped 3
 
 ## In flight
 
