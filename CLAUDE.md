@@ -92,7 +92,7 @@ internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
 profiles/            one YAML per upstream server (tool → class, param mapping), pinned by tests
-policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (25 cases)
+policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (45 cases)
 tests/               Python: policy_lint, tiered pytest, fixtures/configs (annotated secrets)
 tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview
