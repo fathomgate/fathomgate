@@ -348,7 +348,6 @@ func TestAllowPrefix(t *testing.T) {
 		{"show", "show ip bgp summary", "shows ip bgp summary"},
 		{"get", "get system status", "getall system status"},
 		{"display", "display version", "displays version"},
-		{"monitor interface", "monitor interface ge-0/0/0", "monitor capture cap start"},
 		{"monitor traffic", "monitor traffic interface ge-0/0/0 count 10", "monitor session 1"},
 		{"ping", "ping 10.0.0.1 count 3", "pingall 10.0.0.1"},
 		{"traceroute", "traceroute 10.0.0.1", "traceroute6 2001:db8::1"},
@@ -364,7 +363,7 @@ func TestAllowPrefix(t *testing.T) {
 			}
 		})
 	}
-	for _, cmd := range []string{"terminal length 0", "sh run", "more flash:x", "dir", "info from state"} {
+	for _, cmd := range []string{"terminal length 0", "sh run", "more flash:x", "dir", "monitor interface ge-0/0/0", "monitor capture cap start", "info from state"} {
 		if c, check := classifyCommand(cmd); c != ExecArbitrary || check != checkAllowPrefix {
 			t.Errorf("%q: %s (%s), want EXEC_ARBITRARY (allow-prefix)", cmd, c, check)
 		}
@@ -465,6 +464,18 @@ func TestBlocklistStart(t *testing.T) {
 	for _, cmd := range []string{"show boot", "show install summary", "show license", "show crypto session", "show archive log config"} {
 		if c, _ := classifyCommand(cmd); c == ExecArbitrary {
 			t.Errorf("%q: EXEC_ARBITRARY, want a read", cmd)
+		}
+	}
+}
+
+// TestSystemKeywordOverMatch pins the intended over-match of the two-way
+// prefix test after "system": "ha" is a prefix of "hardware", so a
+// hardware listing is READ_CONFIG. This is the stricter read class and is
+// accepted rather than steered around.
+func TestSystemKeywordOverMatch(t *testing.T) {
+	for _, in := range []string{"get system hardware", "show system a", "show system i"} {
+		if c := ClassifyCommand(in); c != ReadConfig {
+			t.Errorf("%q: %s, want READ_CONFIG (documented over-match)", in, c)
 		}
 	}
 }

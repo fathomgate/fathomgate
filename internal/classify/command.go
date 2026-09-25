@@ -4,7 +4,7 @@ package classify
 
 import (
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -17,10 +17,11 @@ import (
 // docs/specs/classification.md section 5.
 var (
 	// allowPrefix lists the verbs a read-only command may start with.
-	// monitor is limited to Junos "monitor interface" and "monitor
-	// traffic"; IOS-XE "monitor capture" defines capture points and
-	// exports files, so it is not a read.
-	allowPrefix = regexp.MustCompile(`^(?:show|get|display|monitor\s+(?:interface|traffic)|ping|traceroute|tracepath)(?:\s|$)`)
+	// monitor is limited to Junos "monitor traffic", which must also carry
+	// a bounded count (monitorCountOK). Junos "monitor interface" takes no
+	// count and runs until interrupted, so it is not on the list; IOS-XE
+	// "monitor capture" defines capture points and exports files.
+	allowPrefix = regexp.MustCompile(`^(?:show|get|display|monitor\s+traffic|ping|traceroute|tracepath)(?:\s|$)`)
 
 	// blocklist matches state-changing verbs anywhere in the command,
 	// bounded by whitespace so "reset-reason" or "no-shutdown" inside a
@@ -41,10 +42,13 @@ var (
 	// and escapes. A pipe on a network CLI is usually harmless, but it is
 	// also how "show | ..." smuggles unexpected output filters, and on
 	// Linux-backed servers the line reaches a shell. Quotes, backslashes,
-	// braces and $ are refused because a shell turns them into something
-	// the checks below never saw ("-f" and a backslash-escaped -f become
-	// -f, {-f,1.1.1.1} expands, $'...' and ${IFS} are rewritten).
-	shellMeta = regexp.MustCompile(`[|<>;&"'{}$` + "`" + `\x5c]`)
+	// braces, globs, tilde and $ are refused because a shell turns them
+	// into something the checks below never saw ("-f" and a
+	// backslash-escaped -f become -f, {-f,1.1.1.1} and [-]f expand, * and ?
+	// glob, ~root is a home directory, $'...' and ${IFS} are rewritten).
+	// A $ is allowed only at the end of a word (a regex anchor, as in
+	// "show ip bgp regexp _65000$"), where no shell expands it.
+	shellMeta = regexp.MustCompile(`[|<>;&"'{}*?\[\]~` + "`" + `\x5c]|\$\S`)
 )
 
 // configKeywords are the second words of show, display and get that dump
@@ -58,11 +62,21 @@ var configKeywords = []string{
 	"tech-support", "derived-config", "archive", "full-configuration",
 	"current-configuration", "saved-configuration", "session-config",
 	"checkpoint", "candidate",
+	// NX-OS: "show file bootflash:backup.cfg" prints a file (saved configs
+	// live on bootflash) and "show diff rollback-patch ..." prints config
+	// diff lines with password hashes. Accepted cost: "show file systems"
+	// and "show d" are READ_CONFIG too.
+	"file", "diff",
 }
 
 // systemConfigKeywords are the third words after "system" (or any prefix of
 // it, "show sys rol 1") that dump configuration: Junos show system rollback
 // and show system configuration, FortiOS get system admin, interface, ha.
+//
+// The two-way prefix test over-matches here on purpose: "ha" is a prefix of
+// "hardware", so "get system hardware" is READ_CONFIG, and "a" or "i" alone
+// match too. Over-matching only makes a read READ_CONFIG, the stricter read
+// class.
 var systemConfigKeywords = []string{
 	"rollback", "configuration", "admin", "interface", "ha",
 }
@@ -103,6 +117,28 @@ func isConfigRead(fields []string) bool {
 // prefix of it, as a vendor CLI would accept.
 func isAbbrevOf(w, k string) bool {
 	return w != "" && strings.HasPrefix(k, w)
+}
+
+// maxMonitorCount bounds the packets a "monitor traffic" may capture.
+const maxMonitorCount = 1000
+
+// monitorCountOK reports whether the words carry a "count <n>" pair with
+// 1 <= n <= maxMonitorCount. n must be plain decimal digits.
+func monitorCountOK(fields []string) bool {
+	for i, f := range fields {
+		if f != "count" || i+1 >= len(fields) {
+			continue
+		}
+		n := fields[i+1]
+		if n == "" || len(n) > 4 || strings.Trim(n, "0123456789") != "" {
+			continue
+		}
+		v, err := strconv.Atoi(n)
+		if err == nil && v >= 1 && v <= maxMonitorCount {
+			return true
+		}
+	}
+	return false
 }
 
 // maxCommandLen caps the command the downgrade will inspect. Longer
@@ -177,8 +213,9 @@ func classifyCommand(cmd string) (Class, string) {
 	if isConfigRead(fields) {
 		return ReadConfig, ""
 	}
-	// Junos "monitor traffic" without "count" runs until interrupted.
-	if fields[0] == "monitor" && len(fields) > 1 && fields[1] == "traffic" && !slices.Contains(fields, "count") {
+	// Junos "monitor traffic" runs until interrupted unless it carries
+	// "count <n>"; n must be 1 to 1000.
+	if fields[0] == "monitor" && len(fields) > 1 && fields[1] == "traffic" && !monitorCountOK(fields) {
 		return ExecArbitrary, checkNoCount
 	}
 	if allowPrefix.MatchString(c) {

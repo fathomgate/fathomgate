@@ -22,6 +22,13 @@
 - `Reason` never quotes input: `command N failed the read allow-list (<check>)` and `tool not in profile`. This answers my earlier question.
 - `Source` gains `String`, `ParseSource` and `Sources`, with a round-trip test, and audit-event-schema lists `annotation_raise`. There are four threat-model rows. classification.md lists the accepted false positives (`show debug`, `show system commit`).
 
+## Fix round 2 (security re-review of PR #152; Go approved)
+
+- HIGH: `file` and `diff` are config keywords. NX-OS `show file bootflash:backup.cfg` and `show diff rollback-patch checkpoint cp1 running-config` are now `READ_CONFIG`. classification.md section 6 wrongly said `rollback-patch` hits the blocklist; that is corrected (it is one hyphenated word). `show file systems` and `show d` over-match, which is accepted.
+- `monitor traffic` needs `count <n>` with n from 1 to 1000. `monitor interface` is removed from the allow-list rather than bounded, because Junos `monitor interface` takes no count and always runs until interrupted.
+- `shellMeta` also refuses `*`, `?`, `[`, `]` and `~`. A `$` is now allowed at the end of a word (the optional item), so `show ip bgp regexp _65000$` is `READ_OPERATIONAL`, while `$HOME`, `${IFS}`, `$'...'` and `$(...)` are still refused.
+- The over-match of the `system` keywords (for example `get system hardware` via `ha`) is commented in the code and pinned by `TestSystemKeywordOverMatch`.
+
 ## Look at this first
 
 - `classifyCommand` in `internal/classify/command.go`, then `TestDowngradeNeverAccepts` and `security_test.go`.

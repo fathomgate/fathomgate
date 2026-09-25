@@ -92,10 +92,10 @@ Checks run in this order; the first failure names the check.
 | `control-character` | The command, after trimming leading and trailing spaces and tabs, contains any byte below `0x20` other than tab, or `0x7f`: newline, carriage return, vertical tab, form feed, NUL, Ctrl-C, Ctrl-Z, escape. A second line would otherwise vanish into a space while the device still runs it. |
 | `non-ascii` | Any byte is `0x80` or above: no-break space, line separator, zero-width space, fullwidth look-alikes. |
 | `empty` | Nothing is left after trimming; also an empty `commands[]`, and an empty or whitespace-only element of it. |
-| `shell-meta` | The command contains `\|`, `<`, `>`, `;`, `&`, a backtick, `"`, `'`, a backslash, `{`, `}` or `$` (section 5.4). |
+| `shell-meta` | The command contains `\|`, `<`, `>`, `;`, `&`, a backtick, `"`, `'`, a backslash, `{`, `}`, `*`, `?`, `[`, `]`, `~`, or a `$` followed by anything but a space or the end of the line (section 5.4). |
 | `leading-dash` | Any word after the first starts with `-`: an option to whatever parses the line (`ping -f`, `traceroute --help`). Network CLIs take none on read commands; on a server that runs ping or traceroute on its own host it is option injection. |
 | `blocklist` | Section 5.3 matches. |
-| `monitor-no-count` | Junos `monitor traffic` without `count`, which runs until interrupted (section 5.6). |
+| `monitor-no-count` | Junos `monitor traffic` without a `count <n>` pair with `n` from 1 to 1000; without it the capture runs until interrupted (section 5.6). |
 | `allow-prefix` | Section 5.2 does not match. |
 
 A command that passes every check and reads configuration (section 6) is `READ_CONFIG`; otherwise it is `READ_OPERATIONAL`.
@@ -113,10 +113,10 @@ A command that passes every check and reads configuration (section 6) is `READ_C
 The first word MUST be one of these (RE2, on the normalised command):
 
 ```
-^(?:show|get|display|monitor\s+(?:interface|traffic)|ping|traceroute|tracepath)(?:\s|$)
+^(?:show|get|display|monitor\s+traffic|ping|traceroute|tracepath)(?:\s|$)
 ```
 
-`monitor` is allowed only as Junos `monitor interface` and `monitor traffic`; IOS-XE `monitor capture` defines capture points and exports files, and Junos `monitor start` is not a read. `terminal length`, `dir`, `more`, `file list`, `test`, `enable`, `bash` and every abbreviation (`sh run`) fail.
+`monitor` is allowed only as Junos `monitor traffic`, and only with `count <n>` where `n` is 1 to 1000 (check `monitor-no-count`). Junos `monitor interface` takes no count and runs until interrupted, so it is not on the list; IOS-XE `monitor capture` defines capture points and exports files, and Junos `monitor start` is not a read. `terminal length`, `dir`, `more`, `file list`, `test`, `enable`, `bash` and every abbreviation (`sh run`) fail.
 
 ### 5.3 Blocklist
 
@@ -142,7 +142,7 @@ The lists fail closed, and some reads fail with them. Known and accepted (securi
 
 Every `|`, `<`, `>`, `;`, `&` and backtick fails, including the output filters section 5.6 would allow (`| json`, `| no-more`, `| section bgp`, `| display set`). This is stricter than the design; an agent that needs a filter uses a typed tool or asks for the unfiltered command.
 
-`"`, `'`, backslash, `{`, `}` and `$` fail too. On a server whose command reaches a shell on its own host, they rebuild what the leading-dash check looks for: `ping 1.1.1.1 "-f"`, `'-f'` and a backslash-escaped `-f` become `-f`, `ping {-f,1.1.1.1}` is brace-expanded, and `$'...'`, `$HOME` and `${IFS}` are rewritten. The cost is that an IOS `show ip bgp regexp _65000$` stays `EXEC_ARBITRARY`.
+`"`, `'`, backslash, `{`, `}`, `*`, `?`, `[`, `]`, `~` and `$` fail too. On a server whose command reaches a shell on its own host, they rebuild what the leading-dash check looks for: `ping 1.1.1.1 "-f"`, `'-f'` and a backslash-escaped `-f` become `-f`, `ping {-f,1.1.1.1}` is brace-expanded, `[-]f`, `*` and `?` are globbed, `~root` is a home directory, and `$'...'`, `$HOME`, `$(...)` and `${IFS}` are rewritten. A `$` at the end of a word (followed by a space or the end of the line) is allowed: no shell expands it, and it is the regex anchor in IOS `show ip bgp regexp _65000$`.
 
 ### 5.5 Result
 
@@ -158,7 +158,7 @@ The first word MUST be one of the vendor's allowed verbs. This is the union of n
 | --- | --- |
 | `ios`, `iosxe`, `nxos` | `show`, `ping`, `traceroute`, `dir`, `more` (only `more` of `flash:` or `bootflash:` paths not matching section 6), `terminal length`, `terminal width` |
 | `eos` | `show`, `ping`, `traceroute`, `dir`, `terminal length` (`bash` is never allowed) |
-| `junos` | `show`, `ping`, `traceroute`, `monitor` (only `monitor interface`, `monitor traffic` with `count`), `file list`, `test` |
+| `junos` | `show`, `ping`, `traceroute`, `monitor` (only `monitor interface`, `monitor traffic` with `count`; the code allows only `monitor traffic` with `count` 1 to 1000), `file list`, `test` |
 | `iosxr` | `show`, `ping`, `traceroute`, `dir`, `terminal length` |
 | `srlinux` | `show`, `info from state`, `ping`, `traceroute` (`tools` is never allowed) |
 | `panos` | `show`, `test`, `ping`, `traceroute` |
@@ -200,10 +200,10 @@ A free-form command that reads configuration is `READ_CONFIG`, so mandatory reda
 Implemented vendor-agnostically on the normalised words (`isConfigRead` in `internal/classify/command.go`). Vendor CLIs accept any unambiguous abbreviation (`show ru`, `show tec`, Junos `show sys rol 1`), so keywords are matched by prefix in both directions: a word matches a keyword when it is a prefix of the keyword or the keyword is a prefix of it. Matching too much only makes a read `READ_CONFIG`, the stricter read class. A command with first word `show`, `display` or `get` is `READ_CONFIG` when:
 
 1. it has no second word: a bare FortiOS `show` prints the whole configuration; or
-2. its second word matches one of `running-config`, `startup-config`, `configuration`, `config`, `tech-support`, `derived-config`, `archive`, `full-configuration`, `current-configuration`, `saved-configuration`, `session-config`, `checkpoint`, `candidate`; or
+2. its second word matches one of `running-config`, `startup-config`, `configuration`, `config`, `tech-support`, `derived-config`, `archive`, `full-configuration`, `current-configuration`, `saved-configuration`, `session-config`, `checkpoint`, `candidate`, `file`, `diff`; or
 3. its second word is a prefix of `system` (`sys`, `system`) and its third word matches one of `rollback`, `configuration`, `admin`, `interface`, `ha`.
 
-This covers the "all" rows below, `show tech-support`, Junos `show system rollback` in short form (`show sys rol 1`, the previous configuration with its `$9$` secrets; spelled in full, `rollback` hits the blocklist and the call stays `EXEC_ARBITRARY`), EOS `session-config` and `config-sessions`, NX-OS `checkpoint`, PAN-OS `show config running` and `candidate`, Huawei `display current-configuration` and `saved-configuration`, and FortiOS `get system admin|interface|ha` (and `show system interface`, whichever vendor). Short second words over-match on purpose: `show c`, `show a` and `show s` are `READ_CONFIG`. Not covered, and stricter as a result: NX-OS `show diff rollback-patch` hits the blocklist, and `file show /config/` and `more flash:` fail the allow-prefix list; all stay `EXEC_ARBITRARY`. FortiOS `show` with another second word is not `READ_CONFIG` until the vendor reaches `Classify` (section 2).
+This covers the "all" rows below, `show tech-support`, Junos `show system rollback` in short form (`show sys rol 1`, the previous configuration with its `$9$` secrets; spelled in full, `rollback` hits the blocklist and the call stays `EXEC_ARBITRARY`), EOS `session-config` and `config-sessions`, NX-OS `checkpoint`, `show file bootflash:backup.cfg` (saved configs live on bootflash) and `show diff rollback-patch checkpoint cp1 running-config` (config diff lines with password hashes; `rollback-patch` is one hyphenated word, so the blocklist does not catch it), PAN-OS `show config running` and `candidate`, Huawei `display current-configuration` and `saved-configuration`, and FortiOS `get system admin|interface|ha` (and `show system interface`, whichever vendor). Short second words over-match on purpose: `show c`, `show a`, `show s`, `show d`, `show f` and `show file systems` are `READ_CONFIG`, and after `system` the `ha` keyword makes `get system hardware` `READ_CONFIG`. Not covered, and stricter as a result: `file show /config/` and `more flash:` fail the allow-prefix list and stay `EXEC_ARBITRARY`. FortiOS `show` with another second word is not `READ_CONFIG` until the vendor reaches `Classify` (section 2).
 
 ### 6.1 Planned: per-vendor patterns
 

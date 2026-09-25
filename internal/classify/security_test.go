@@ -118,6 +118,10 @@ func TestConfigDumpAbbreviations(t *testing.T) {
 		// system rollback 1, the previous configuration with its $9$
 		// secrets.
 		"show sys rol 1", "show tec", "show ru", "show derived",
+		// Third round: NX-OS prints saved configs from bootflash and
+		// config diffs with password hashes.
+		"show file bootflash:backup.cfg",
+		"show diff rollback-patch checkpoint cp1 running-config",
 		// A bare show prints the whole configuration on FortiOS.
 		"show", "get", "display",
 	} {
@@ -139,10 +143,23 @@ func TestShellQuotedOptionInjection(t *testing.T) {
 		`ping 1.1.1.1 $'\x2df'`,
 		`ping $HOME`,
 		`ping${IFS}-f${IFS}1.1.1.1`,
-		`show ip bgp regexp _65000$`,
+		`ping 1.1.1.1 [-]f`,
+		`ping 1.1.1.1 *`,
+		`ping 1.1.1.1 -?`,
+		`ping ~root`,
+		`show ip bgp regexp _65000$x`,
+		`show ip bgp regexp $(reload)`,
+		`show ip bgp regexp ${IFS}`,
+		`show ip bgp regexp $'x'`,
 	} {
 		if c, check := classifyCommand(in); c != ExecArbitrary || check != checkShellMeta {
 			t.Errorf("%q: %s (%s), want EXEC_ARBITRARY (shell-meta)", in, c, check)
+		}
+	}
+	// A $ at the end of a word is a regex anchor no shell expands.
+	for _, in := range []string{`show ip bgp regexp _65000$`, `show ip bgp regexp ^65000_$ `, `show ip as-path-access-list _65000$ detail`} {
+		if c, check := classifyCommand(in); c != ReadOperational {
+			t.Errorf("%q: %s (%s), want READ_OPERATIONAL", in, c, check)
 		}
 	}
 }
@@ -161,10 +178,32 @@ func TestCommandLengthCap(t *testing.T) {
 // TestMonitorTrafficNeedsCount: Junos monitor traffic without count runs
 // until interrupted (classification.md 5.6).
 func TestMonitorTrafficNeedsCount(t *testing.T) {
-	if c, check := classifyCommand("monitor traffic interface ge-0/0/0"); c != ExecArbitrary || check != checkNoCount {
-		t.Errorf("no count: %s (%s), want EXEC_ARBITRARY (monitor-no-count)", c, check)
+	for _, in := range []string{
+		"monitor traffic interface ge-0/0/0",
+		"monitor traffic interface count",
+		"monitor traffic interface ge-0/0/0 count",
+		"monitor traffic interface ge-0/0/0 count 0",
+		"monitor traffic interface ge-0/0/0 count 1001",
+		"monitor traffic interface ge-0/0/0 count 999999999",
+		"monitor traffic interface ge-0/0/0 count 0010x",
+		"monitor traffic interface ge-0/0/0 count +5",
+	} {
+		if c, check := classifyCommand(in); c != ExecArbitrary || check != checkNoCount {
+			t.Errorf("%q: %s (%s), want EXEC_ARBITRARY (monitor-no-count)", in, c, check)
+		}
 	}
-	if c := ClassifyCommand("monitor traffic interface ge-0/0/0 count 10"); c != ReadOperational {
-		t.Errorf("with count: %s", c)
+	for _, in := range []string{
+		"monitor traffic interface ge-0/0/0 count 1",
+		"monitor traffic interface ge-0/0/0 count 10",
+		"monitor traffic interface ge-0/0/0 count 1000",
+	} {
+		if c := ClassifyCommand(in); c != ReadOperational {
+			t.Errorf("%q: %s, want READ_OPERATIONAL", in, c)
+		}
+	}
+	// Junos monitor interface takes no count and runs until interrupted,
+	// so it is not on the allow-list at all.
+	if c, check := classifyCommand("monitor interface ge-0/0/0"); c != ExecArbitrary || check != checkAllowPrefix {
+		t.Errorf("monitor interface: %s (%s), want EXEC_ARBITRARY (allow-prefix)", c, check)
 	}
 }
