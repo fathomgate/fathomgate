@@ -136,6 +136,8 @@ The anywhere list matches a verb in any position, bounded by whitespace or the e
 
 `write-file` and `read-file` are the Junos `monitor traffic` options that write a capture to disk and read one back from a file on the device.
 
+The expression above is the specification of the anywhere list. The code does not run it: since M1-39 it looks each word of the normalised command up in a set of the single-word verbs, and each two consecutive words up as the two-word verbs (`blocked` in `internal/classify/command.go`), because the unanchored expression cost about 60 µs per KiB of command. The tests keep the expression and check that both give the same answer on every normalised command (`TestBlocklistWordsMatchRegexp`, `FuzzBlocklistWords`). A change to the list changes both.
+
 The lists fail closed, and some reads fail with them. Known and accepted (security review of PR #152): `show debug`, Junos `show system commit`, `show system rollback` spelled in full, `show configuration commit list` and any show argument that is a blocklisted word stay `EXEC_ARBITRARY`.
 
 ### 5.4 Pipe and redirect ban
@@ -143,6 +145,8 @@ The lists fail closed, and some reads fail with them. Known and accepted (securi
 Every `|`, `<`, `>`, `;`, `&` and backtick fails, including the output filters section 5.6 would allow (`| json`, `| no-more`, `| section bgp`, `| display set`). This is stricter than the design; an agent that needs a filter uses a typed tool or asks for the unfiltered command.
 
 `"`, `'`, backslash, `{`, `}`, `*`, `?`, `[`, `]`, `~` and `$` fail too. On a server whose command reaches a shell on its own host, they rebuild what the leading-dash check looks for: `ping 1.1.1.1 "-f"`, `'-f'` and a backslash-escaped `-f` become `-f`, `ping {-f,1.1.1.1}` is brace-expanded, `[-]f`, `*` and `?` are globbed, `~root` is a home directory, and `$'...'`, `$HOME`, `$(...)` and `${IFS}` are rewritten. A `$` at the end of a word (followed by a space or the end of the line) is allowed: no shell expands it, and it is the regex anchor in IOS `show ip bgp regexp _65000$`.
+
+The check is the RE2 expression ``[|<>;&"'{}*?\[\]~`\x5c]|\$\S`` run as a byte loop (`hasShellMeta`, M1-39); `TestShellMetaMatchesRegexp` and `FuzzShellMeta` check the loop against the expression on any string.
 
 ### 5.5 Result
 
@@ -291,7 +295,7 @@ Design answers for the † rows:
 
 Tier 1 table tests in `internal/classify` cover every row in section 9 except the two Meraki rows, which arrive with capability tables (M1-17): `classify_test.go` (`TestWorkedExamples`, `TestExitCriterion3` for M1 exit criterion 3 and test-matrix rows 3 and 5, the allow-prefix, blocklist and config-read tables with one positive and one negative case per entry, and the chaining and injection forms the downgrade never accepts) and `security_test.go` (the multi-line injection regressions from the security review of PR #150, with every line-break variant, through every free-form tool; the short-form config dumps of the PR #152 review; shell-quoted option injection; the 1024-byte cap; `monitor traffic` without `count`; and for section 11, the PR #158 session-escape payloads through every CLI config tool of the shipped profiles in `TestSecurityConfigSessionEscape`, every escape word and each of its abbreviations in `TestSecurityConfigEscapeWords`, ordinary configuration that must stay `WRITE_CONFIG` in `TestConfigLinesThatStayWrites`, the Junos load formats in `TestSecurityJunosLoadConfig`, the union default in `TestConfigDialectDefaultsToUnion` and JSON-string payloads in `TestSecurityConfigEscapeAsJSONString`). `internal/gate` `TestConfigSessionEscape` carries the lab-open reproduction from arguments to decision. Each vendor allow-list and blocklist entry of sections 5.6 and 6.1 gets its cases when the vendor tables are implemented.
 
-There is no `classify/rules.yaml`. `tools/policy-lint` validates the policy schema only; it does not classify commands, so there is no second implementation to keep in step, and the Go regexes in `internal/classify/command.go` are the only copy. If a Python consumer of the command rules appears, `fathomgate` should export them from the Go source rather than load a hand-kept file (M1-24 reconciles this section).
+There is no `classify/rules.yaml`. `tools/policy-lint` validates the policy schema only; it does not classify commands, so there is no second implementation to keep in step, and the Go rules in `internal/classify/command.go` are the only copy. If a Python consumer of the command rules appears, `fathomgate` should export them from the Go source rather than load a hand-kept file (M1-24 reconciles this section).
 
 ## 11. Config payload checks
 

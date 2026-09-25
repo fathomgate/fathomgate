@@ -23,34 +23,92 @@ var (
 	// "monitor capture" defines capture points and exports files.
 	allowPrefix = regexp.MustCompile(`^(?:show|get|display|monitor\s+traffic|ping|traceroute|tracepath)(?:\s|$)`)
 
-	// blocklist matches state-changing verbs anywhere in the command,
-	// bounded by whitespace so "reset-reason" or "no-shutdown" inside a
-	// hyphenated keyword does not trip it. It includes the abbreviations
-	// vendor CLIs accept (conf t, wr, rel, relo). write-file and read-file
-	// are the Junos "monitor traffic" options that write a capture to disk
-	// and read one back from a file on the device. Words that
-	// are also common show arguments (boot, install, enable, no) are only
-	// in blocklistStart.
-	blocklist = regexp.MustCompile(`(?:^|\s)(?:configure|conf(?:i(?:g(?:u(?:re?)?)?)?)?\s+t(?:e(?:r(?:m(?:i(?:n(?:al?)?)?)?)?)?)?|edit|set|delete|rollback|commit|wr(?:i(?:te?)?)?|write-file|read-file|copy|rel(?:o(?:ad?)?)?|reboot|shutdown|clear|reset|format|erase|debug|undebug|request\s+system|zeroize|admin\s+(?:save|reboot)|tclsh|bash|python|guestshell|start\s+shell)(?:\s|$)`)
-
 	// blocklistStart is classification.md section 5.3: the verbs that
 	// change state when they start a line (bl-config-mode and the vendor
 	// rows). None of them is on the allow-prefix list, so today they fail
 	// there too; this keeps them failing if that list ever grows.
 	blocklistStart = regexp.MustCompile(`^(?:configure|config|conf|edit|set|delete|no|commit|rollback|load|save|write|wr|copy|erase|format|reload|rel|relo|request|restart|shutdown|clear|reset|debug|undebug|monitor\s+start|install|boot|zeroize|reboot|halt|power|activate|deactivate|license|crypto|archive|exec|start|bash|python|guestshell|tclsh|run|enable|feature|dockerd|scp|tftp|ssh|ftp|telnet|execute|diagnose|file|test)(?:\s|$)`)
-
-	// shellMeta rejects pipes, redirects, chaining, substitution, quoting
-	// and escapes. A pipe on a network CLI is usually harmless, but it is
-	// also how "show | ..." smuggles unexpected output filters, and on
-	// Linux-backed servers the line reaches a shell. Quotes, backslashes,
-	// braces, globs, tilde and $ are refused because a shell turns them
-	// into something the checks below never saw ("-f" and a
-	// backslash-escaped -f become -f, {-f,1.1.1.1} and [-]f expand, * and ?
-	// glob, ~root is a home directory, $'...' and ${IFS} are rewritten).
-	// A $ is allowed only at the end of a word (a regex anchor, as in
-	// "show ip bgp regexp _65000$"), where no shell expands it.
-	shellMeta = regexp.MustCompile(`[|<>;&"'{}*?\[\]~` + "`" + `\x5c]|\$\S`)
 )
+
+// blockedWords are the state-changing verbs refused as any word of a
+// command, so "reset-reason" or "no-shutdown" inside a hyphenated keyword
+// does not trip them. They include the abbreviations vendor CLIs accept
+// (wr, rel, relo). write-file and read-file are the Junos "monitor traffic"
+// options that write a capture to disk and read one back from a file on
+// the device. Words that are also common show arguments (boot, install,
+// enable, no) are only in blocklistStart.
+//
+// This and blockedPair replace one regular expression matched anywhere in
+// the command (M1-39: it cost about 60 us per KiB of command); the test
+// keeps that expression and checks the two agree (FuzzBlocklistWords).
+var blockedWords = map[string]struct{}{
+	"configure": {}, "edit": {}, "set": {}, "delete": {}, "rollback": {}, "commit": {},
+	"wr": {}, "wri": {}, "writ": {}, "write": {}, "write-file": {}, "read-file": {},
+	"copy": {}, "rel": {}, "relo": {}, "reloa": {}, "reload": {}, "reboot": {},
+	"shutdown": {}, "clear": {}, "reset": {}, "format": {}, "erase": {}, "debug": {},
+	"undebug": {}, "zeroize": {}, "tclsh": {}, "bash": {}, "python": {},
+	"guestshell": {},
+}
+
+// blockedPair reports whether two consecutive words are a refused two-word
+// verb: any abbreviation of "configure terminal" down to "conf t",
+// "request system", "admin save", "admin reboot" and "start shell".
+func blockedPair(a, b string) bool {
+	switch a {
+	case "request":
+		return b == "system"
+	case "admin":
+		return b == "save" || b == "reboot"
+	case "start":
+		return b == "shell"
+	}
+	return len(a) >= len("conf") && isAbbrevOf(a, "configure") && isAbbrevOf(b, "terminal")
+}
+
+// blocked reports whether any word, or any two consecutive words, of
+// fields is on the blocklist.
+func blocked(fields []string) bool {
+	for i, f := range fields {
+		if _, ok := blockedWords[f]; ok {
+			return true
+		}
+		if i+1 < len(fields) && blockedPair(f, fields[i+1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasShellMeta rejects pipes, redirects, chaining, substitution, quoting
+// and escapes. A pipe on a network CLI is usually harmless, but it is also
+// how "show | ..." smuggles unexpected output filters, and on Linux-backed
+// servers the line reaches a shell. Quotes, backslashes, braces, globs,
+// tilde and $ are refused because a shell turns them into something the
+// checks below never saw ("-f" and a backslash-escaped -f become -f,
+// {-f,1.1.1.1} and [-]f expand, * and ? glob, ~root is a home directory,
+// $'...' and ${IFS} are rewritten). A $ is allowed only at the end of a
+// word (a regex anchor, as in "show ip bgp regexp _65000$"), where no shell
+// expands it: before a space, tab, CR, LF or form feed, or at the end.
+//
+// It is the byte loop of the regular expression [|<>;&"'{}*?\[\]~`\\]|\$\S,
+// which the test keeps and checks it against (FuzzShellMeta).
+func hasShellMeta(c string) bool {
+	for i := 0; i < len(c); i++ {
+		switch c[i] {
+		case '|', '<', '>', ';', '&', '"', '\'', '{', '}', '*', '?', '[', ']', '~', '`', '\\':
+			return true
+		case '$':
+			if i+1 < len(c) {
+				switch c[i+1] {
+				case ' ', '\t', '\n', '\r', '\f':
+				default:
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // configKeywords are the second words of show, display and get that dump
 // configuration. A second word is a config read when it is a prefix of one
@@ -198,7 +256,7 @@ func classifyCommand(cmd string) (Class, string) {
 		return ExecArbitrary, checkEmpty
 	}
 	c := strings.Join(fields, " ")
-	if shellMeta.MatchString(c) {
+	if hasShellMeta(c) {
 		return ExecArbitrary, checkShellMeta
 	}
 	// A leading-dash argument is an option to whatever parses the line.
@@ -209,7 +267,7 @@ func classifyCommand(cmd string) (Class, string) {
 			return ExecArbitrary, checkLeadingDash
 		}
 	}
-	if blocklistStart.MatchString(c) || blocklist.MatchString(c) {
+	if blocklistStart.MatchString(c) || blocked(fields) {
 		return ExecArbitrary, checkBlocklist
 	}
 	if isConfigRead(fields) {

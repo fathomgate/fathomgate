@@ -297,3 +297,87 @@ func declaresTargets(spec classify.ToolSpec) bool {
 func argumentFindings(res classify.Result) (unnamed, malformed []string) {
 	return res.UnnamedArgs, res.MalformedArgs
 }
+
+// The per-call caps (M1-39, profile-schema 2.4). A call over either is
+// denied with default:bad_arguments before it is classified, so the work
+// Decide does for one call is bounded by these counts, not by how many
+// commands or names fit in the proxy's 64 KiB argument cap.
+//
+//   - maxCommandsPerCall: 64 commands, counted over every command_params
+//     value (a string is one command, an array one per element). With the
+//     classifier's 1 KiB cap per command, 64 commands fill the argument cap
+//     exactly. The surveyed tools take one command (eos-mcp run_command,
+//     upa send_command_and_get_output, junos execute_junos_command_batch)
+//     or a short list sent to every device (eos-mcp run_commands and
+//     run_commands_batch, ntunes send_command_parallel); a longer list is a
+//     script, not a read.
+//   - maxTargetsPerCall: 256 names, counted as sent over every
+//     target_params, targets_params and group_params value, a string one
+//     per comma-separated part (as classify.Normalize splits it), repeats
+//     included. 253-byte names fill the argument cap at about 256. It is
+//     five times the largest shipped max_devices (lab-open, 50), and the
+//     fan-out tools run 5 (eos-mcp max_workers) or 10 (ntunes
+//     max_concurrent) devices at a time, so 256 is already 26 rounds of
+//     device sessions in one call.
+const (
+	maxCommandsPerCall = 64
+	maxTargetsPerCall  = 256
+)
+
+// Parse error kinds for the per-call caps, for the decision log line only.
+const (
+	parseTooManyCommands = "too_many_commands"
+	parseTooManyTargets  = "too_many_targets"
+)
+
+// overCaps reports which per-call cap a call to a profiled tool is over, as
+// its log code and fixed reason, or "" for neither. It only counts, and
+// counts high: a value of the wrong type is one, left to the checks after
+// it, and a comma in a target_params value (a bad name) still splits.
+func overCaps(spec classify.ToolSpec, args map[string]any) (code, reason string) {
+	commands := 0
+	for _, p := range spec.CommandParams {
+		commands += countValues(args[p], false)
+	}
+	if commands > maxCommandsPerCall {
+		return parseTooManyCommands, reasonTooManyCommands
+	}
+	names := 0
+	for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams} {
+		for _, p := range l {
+			names += countValues(args[p], true)
+		}
+	}
+	if names > maxTargetsPerCall {
+		return parseTooManyTargets, reasonTooManyTargets
+	}
+	return "", ""
+}
+
+// countValues counts the strings classify flattens v into: none for null,
+// the count of each element for an array, at any depth (classify's
+// rawValues flattens nested arrays, and the closed argument list refuses
+// them only after classification), and one for anything else. With commas,
+// a string counts one per comma-separated part and "" counts none.
+func countValues(v any, commas bool) int {
+	switch t := v.(type) {
+	case nil:
+		return 0
+	case string:
+		if !commas {
+			return 1
+		}
+		if t == "" {
+			return 0
+		}
+		return strings.Count(t, ",") + 1
+	case []any:
+		n := 0
+		for _, e := range t {
+			n += countValues(e, commas)
+		}
+		return n
+	default:
+		return 1
+	}
+}

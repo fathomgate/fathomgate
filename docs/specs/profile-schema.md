@@ -67,6 +67,24 @@ Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A too
 
 Optional arguments need nothing extra: named means allowed whether present or absent. When an upstream adds a parameter, calls that send it are denied until the profile names it or lists it in `refused_args`; `TestRepoProfileArguments` holds each upstream's parameter set per tool, read from source, and fails until the profile covers it exactly.
 
+### 2.4 Per-call caps
+
+`internal/gate` (M1-39) counts two things in a call to a tool the profile lists, before it classifies anything, and denies a call over either with `default:bad_arguments`:
+
+| Cap | Counted | Reason the agent sees | `parse_error` in the log line |
+| --- | --- | --- | --- |
+| 64 commands (`maxCommandsPerCall`) | every `command_params` value: a string is one command, an array one per string in it, nested arrays included (the classifier flattens them; the closed argument list then refuses them) | `a call may carry at most 64 commands; split it into smaller calls` | `too_many_commands` |
+| 256 targets (`maxTargetsPerCall`) | every `target_params`, `targets_params` and `group_params` value: a string is one name per comma-separated part (`""` is none), an array one per string in it; repeats count | `a call may name at most 256 targets; split it into smaller calls` | `too_many_targets` |
+
+The text names the cap, which is fathomgate's constant, and no argument, command or name. The class in the tool error is the one the tool gets with no arguments, as for a parse failure (`EXEC_ARBITRARY` for a command tool).
+
+Why these numbers:
+
+- **64 commands.** The classifier reads at most 1,024 bytes of a command ([classification.md](classification.md) section 5), so 64 commands of full length fill the 64 KiB argument cap (section 8.2). Every surveyed command tool takes one command (netdev-ssh-mcp `run_show_command`, eos-mcp `run_command` and `run_command_batch`, upa `send_command_and_get_output`, junos `execute_junos_command` and `execute_junos_command_batch`, ntunes `send_command` and `send_command_parallel`) or a list run in order on each device (eos-mcp `run_commands` and `run_commands_batch`, ntunes `send_commands_sequence`); a read-only health check is 5 to 20 show commands. Before the cap, 1,900 short commands fit in 64 KiB and took 5 to 10 ms to classify (M1-23).
+- **256 targets.** 256 names of up to 253 bytes also about fill 64 KiB. The largest `max_devices` in the shipped policies is 50 (`lab-open.yaml`; `read-only.yaml` 20, `prod-approval.yaml` 5), so under any of them a call this large is denied by `default:session.max_devices` anyway; the cap bounds the work for a policy with `max_devices: 0` (unlimited). The fan-out tools run 5 (eos-mcp `max_workers`) or 10 (ntunes `max_concurrent`) devices at a time, so 256 devices are already 26 or more rounds of device sessions in one call. A fleet-wide read goes in several calls.
+
+Config payloads are not counted: a line is at most 1,024 bytes and the payload at most 64 KiB (classification.md section 11), and checking a payload at that size costs about 1 ms. With both caps, `Decide` on a call at the 64 KiB argument cap stays near 1 ms ([test-strategy.md, Overhead budget](../testing/test-strategy.md#overhead-budget-m1-23)).
+
 ## 3. Planned fields (not yet parsed)
 
 These are in the plan and in the research but the strict loader rejects them today. Put the information in `notes` until the field lands.

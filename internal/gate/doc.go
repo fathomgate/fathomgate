@@ -6,7 +6,11 @@
 // tool error an agent sees when a call is not forwarded:
 //
 //  1. Parse: the call's arguments must be one JSON object, valid UTF-8, with
-//     no key given twice. Otherwise deny, rule default:bad_arguments.
+//     no key given twice. Otherwise deny, rule default:bad_arguments. A call
+//     to a profiled tool with more than 64 commands or 256 target names and
+//     group selectors is denied the same way before anything else runs
+//     (profile-schema section 2.4), so the work of the steps below is
+//     bounded by those counts.
 //  2. Normalise: the profile's target_params, targets_params and
 //     group_params give the target names. Each name must be a hostname or an
 //     IP literal exactly as the upstream will receive it (no trimming, no
