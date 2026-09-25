@@ -61,7 +61,8 @@ checksum:
 # the certificate and the Rekor entry. Verify with:
 #   cosign verify-blob --bundle checksums.txt.sigstore.json \
 #     --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/vX.Y.Z \
-#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     --certificate-github-workflow-trigger push checksums.txt
 signs:
   - id: checksum-cosign
     cmd: cosign
@@ -89,20 +90,23 @@ release:
   draft: false
   prerelease: auto
   footer: |
-    Verify `checksums.txt` with `cosign verify-blob --bundle checksums.txt.sigstore.json --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/{{ .Tag }} --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`, then a download with `sha256sum -c checksums.txt --ignore-missing`.
+    Verify `checksums.txt` with `cosign verify-blob --bundle checksums.txt.sigstore.json --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/{{ .Tag }} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-trigger push checksums.txt`, then a download with `sha256sum -c checksums.txt --ignore-missing`.
 
 # Homebrew tap: fathomgate/homebrew-tap does not exist yet, so the formula is
 # generated into dist/homebrew/ and never uploaded. Uploading with no tap (or
 # with GITHUB_TOKEN, which cannot write to another repository) fails the
 # release job after the GitHub release is already public. To turn it on:
 # create the tap, add a fine-grained HOMEBREW_TAP_GITHUB_TOKEN (contents: write
-# on the tap only) as a repository secret, and set skip_upload back to auto.
+# on the tap only) as a repository secret, pass it in release.yaml's
+# goreleaser step env, and set skip_upload back to auto.
 brews:
   - name: fathomgate
     repository:
       owner: fathomgate
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      # `index` gives "" when the variable is unset (release.yaml does not
+      # pass it until the tap exists) instead of a template error.
+      token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
     directory: Formula
     homepage: https://github.com/fathomgate/fathomgate
     description: Policy-enforcing MCP proxy for network-device MCP servers
