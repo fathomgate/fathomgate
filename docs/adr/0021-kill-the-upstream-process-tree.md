@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-24
+- Amended: 2026-09-25 (T0.46 reviews), facts only; the decision is unchanged. See [Amendments](#amendments).
 - Deciders: Josh Scott (maintainer; to accept); proposed by docs-writer for T0.46; owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer
 
 ## Context
@@ -112,6 +113,15 @@ We will start every stdio upstream in a process group of its own on Unix and in 
 | Windows: put Fathomgate itself in a job, so every child inherits it from `CreateProcess` | No race, and it covers crashes, but a job cannot be left: terminating it for the ADR 0018 restart would kill Fathomgate too. It could back up the per-process job, but adds nothing the per-process job with `KILL_ON_JOB_CLOSE` lacks |
 | Let the operator opt in (`--upstream-kill-tree`) | A flag whose safe value is the only sensible one. Everything an upstream starts is part of the upstream; killing less is the defect |
 | Use `exec.CommandContext` and `Cmd.Cancel` to kill the group | `Cancel` runs only when the command's context ends before the process exits (`src/os/exec/exec.go:276`). It does not see go-sdk's `SIGTERM` and kill on `Close`, nor a leader that already exited, so the shutdown and sweep paths still need their own code. It may still be how `killProcess` is wired; that is the owning engineer's choice |
+
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Windows, "so no descendant can leave it" and Negative's "on Windows a descendant can start processes outside the job only through another service" are wrong. Corrected: any descendant can start a process outside the job by naming a same-user process outside the job, fathomgate included, as its parent (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`, Go's `SysProcAttr.ParentProcess`; one unprivileged call), or through a service (WMI, the Task Scheduler). A descendant that can open fathomgate with `PROCESS_DUP_HANDLE` can also duplicate the job handle, so kill-on-close does not fire when fathomgate dies. The job, like the Unix process group, contains launchers that do not try to escape; it is not a sandbox | L1 in the security review of PR #111 (T0.46), verified by the reviewer. The decision is unchanged: breakaway stays disallowed and the per-process job stays; the residual is recorded in the threat model |
+| 2026-09-25 | Unix sweep: when the group has already been sent `SIGKILL`, the post-reap sweep sends `SIGKILL` again and returns, with no `SIGTERM` or grace. A setuid launcher's `EPERM` on a group signal is logged once at Warn | L3 and N2 in the same review: with fathomgate as PID 1 and no init, zombies kept `kill(-pgid, 0)` succeeding, so every sweep waited its full 2 s; `EPERM` failed silently. install.md now tells container users to run with `docker run --init` |
 
 ## References
 

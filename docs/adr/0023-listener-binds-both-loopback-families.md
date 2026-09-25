@@ -42,7 +42,7 @@ We will narrow `--listen` to `localhost`, `127.0.0.1` and `[::1]`, bind both `12
 - A local user can still keep the 128 slots busy by opening connections faster than they time out: about 43 a second instead of about 13. That raises the cost; it does not remove it. The residual is recorded in the threat model.
 - A first-request timer that fires just as the request reaches the handler closes that connection mid-request; the client sees a reset and retries. At 3 seconds after accept, on loopback, only a client that waited that long before sending hits it.
 - `--listen 127.0.0.2:P` and other `127.0.0.0/8` addresses, accepted since T0.31, now exit 2. Nothing in the repo used them.
-- A second signal leaves the upstream running when it is a launcher's grandchild or ignores stdin EOF (the orphaned-grandchild threat-model row, [ADR 0021](0021-kill-the-upstream-process-tree.md)).
+- A second signal skips the shutdown. On Windows the upstream's Job Object still kills its tree when fathomgate's process ends ([ADR 0021](0021-kill-the-upstream-process-tree.md)); on Unix the upstream's process group is left running, as after a crash (the orphaned-grandchild threat-model row).
 
 ### Neutral
 

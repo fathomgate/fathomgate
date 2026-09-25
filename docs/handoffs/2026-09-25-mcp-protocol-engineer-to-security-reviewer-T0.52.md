@@ -21,7 +21,7 @@
 
 Security confirmed H1 closed on Windows and Linux by probing it. Both reviews asked for changes; none was high. Applied on the same branch:
 
-- **Security 1 (medium), CI proof of H1:** `FATHOMGATE_REQUIRE_BOTH_LOOPBACKS=1` turns the skip in `needBothLoopbacks` (and the one-family fallback in `loopbackFamilies`, used by `TestListenerEndToEnd` and `TestServeListenProcess`) into a failure. It follows the `FATHOMGATE_REQUIRE_PRIVILEGED_TESTS` pattern and is set in the Linux `go`, `windows` and `macos` jobs. Linux and Windows each get an "H1 loopback tests ran" step: `-v` for `TestBindLoopbackHoldsBothFamilies`, `TestBindLoopbackRefusesTakenOtherFamily` and `TestServeListenOtherFamilyTaken`, then a `--- PASS` grep for each. The `macos` job now runs `go test -count=1 ./cmd/fathomgate/` in full, and its `-v` step greps for the same three tests next to the ACL tests.
+- **Security 1 (medium), CI proof of H1:** `FATHOMGATE_REQUIRE_BOTH_LOOPBACKS=1` turns the skip in `needBothLoopbacks` (and the one-family fallback in `loopbackFamilies`, used by `TestListenerEndToEnd` and `TestServeListenProcess`) into a failure. It follows the `FATHOMGATE_REQUIRE_PRIVILEGED_TESTS` pattern and is set in the Linux `go`, `windows` and `macos` jobs. Linux and Windows each get an "H1 loopback tests ran" step: `-v` for `TestBindLoopbackHoldsBothFamilies`, `TestBindLoopbackRefusesTakenOtherFamily` and `TestServeListenOtherFamilyTaken`, then a `--- PASS` grep for each. The `macos` job (merged with the one #111 added, now named `go test (macos)`) runs `go test -count=1 ./...` in full, and its `-v` step greps for the same three tests next to the ACL tests.
 - **Security 2 (low), `--listen 127.0.0.x`:** I narrowed rather than binding a third address. `parseListenAddr` takes only `localhost`, `127.0.0.1` or `[::1]`; any other `127.0.0.0/8` address exits 2 with `--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>`. Narrowing is simpler to state and test, and a `listening` URL on `127.0.0.2` would be one no client reaches through `localhost`. ADR 0023 (point 1, *Negative*, alternatives), the flag help, the `parseListenAddr` comment, row 57, profile-schema 8.3 and 8.5, install.md, SECURITY.md and CHANGELOG say so. Tests: `TestParseListenAddr` (`127.10.20.30`, `127.0.0.2`, `127.0.1.1` refused) and a `TestServeListenRefusals` case.
 - **Security 3, threat-model notes:** row 58 records the Windows wildcard bind (`0.0.0.0:P` or `[::]:P` while fathomgate runs, then wait; `SO_EXCLUSIVEADDRUSE` noted for M1). Row 57 records the macOS `fe80::1%lo0 localhost` hosts entry and Debian's `127.0.1.1` host name as residuals. Row 38 records SMB and NFS mounts that report no ACL. The MCP08 line of the OWASP map now names what this PR touches.
 - **Security 4:** the audit `LoadKey` finding is left for its own board task.
@@ -46,6 +46,12 @@ Security confirmed H1 closed on Windows and Linux by probing it. Both reviews as
 
   I did not edit CLAUDE.md's repo map: an agent message cannot authorise changes to CLAUDE.md, so that line waits for the maintainer.
 - **ADRs 0022 and 0023:** marked accepted on the coordinator's word that the maintainer accepted them on 2026-09-25. That covers the index rows, the `Amended by` line and pointer rows in ADR 0016, and a pointer row in ADR 0012.
+
+- **Merge of `origin/main` (#111, T0.46, the process-tree kill):**
+  - `ci.yaml` and CHANGELOG also conflicted: both sides had added a `macos` job, now one job (main's name, timeout and `go test ./...` plus `-race` for `internal/proxy`, with this PR's env var and `--- PASS` proof step); both CHANGELOG entries are kept.
+  - Row 55 conflicted. I kept main's row (Mitigated) and added the listener's paths. The shutdown and the exit-1 restart loop go through the same tree kill.
+  - A second signal now leaves the group running on Unix, as a crash would. On Windows the Job Object still kills the tree.
+  - ADR 0023's *Negative* and profile-schema 8.5 say the same.
 
 Re-run after the round: `go build`, `go vet` and `go test ./...` pass. `go vet` passes on every GOOS/GOARCH (android and ios aside). golangci-lint v2.9.0 is clean on all six targets. Policy tests, fixtures, licences, SPDX and `render.py --check` pass. All 8 conformance legs pass. `FATHOMGATE_REQUIRE_BOTH_LOOPBACKS=1 go test -v` for the three H1 tests shows `--- PASS` on this Windows host.
 

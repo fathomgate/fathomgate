@@ -199,7 +199,8 @@ jobs:
   # ever runs this image unelevated or without the symlink privilege, this
   # job must fail loudly. Do not drop the variable or accept skips to make it
   # green; fix the runner or move to one that is elevated. No -race: the
-  # Linux `go` job covers the race detector.
+  # Linux `go` job covers the race detector. The same `go test` also runs the
+  # upstream's Job Object code in internal/proxy (ADR 0021, T0.46).
   windows:
     name: go vet / test (windows, elevated)
     runs-on: windows-latest
@@ -282,15 +283,24 @@ jobs:
           done
           exit "$missing"
 
-  # The macOS extended-ACL checks (internal/fileacl, used by the listen token
-  # file check and the audit key and log; L2 in the security review of PR
-  # #109) call fgetattrlist(2) directly and are only compiled on darwin, so
-  # only a macOS runner proves them. The tests set real ACLs with chmod +a;
-  # the step fails unless each prints `--- PASS`. macos-latest is arm64:
-  # darwin/amd64 is linted but not run.
+  # macOS runs two things the Linux job cannot.
+  # - ADR 0021, T0.46: the upstream's process group (Setpgid, the group
+  #   kill, the post-reap sweep) runs on Darwin's syscall code; lint's darwin
+  #   cross-analysis only compiles it. The internal/proxy tests start a
+  #   launcher fixture whose child must be gone after the restart, a failed
+  #   start, Close and a mid-session exit.
+  # - T0.52: the extended-ACL checks (internal/fileacl, used by the listen
+  #   token file check and the audit key and log; L2 in the security review
+  #   of PR #109) call fgetattrlist(2) directly and are only compiled on
+  #   darwin. The tests set real ACLs with chmod +a. The proof step fails
+  #   unless each of them, and the H1 loopback tests, prints `--- PASS`.
+  # macos-latest is arm64: darwin/amd64 is linted but not run. Not a required
+  # check yet: the maintainer adds it to the main ruleset once it has proven
+  # stable. `make toolchain-check` works with macOS's make.
   macos:
-    name: go test (macos, extended ACLs)
+    name: go test (macos)
     runs-on: macos-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     env:
@@ -306,9 +316,8 @@ jobs:
       - name: Go in use is the go.mod toolchain
         run: make toolchain-check
       - run: go vet ./...
-      # The whole cmd/fathomgate package (the listener, serve, token files)
-      # on macOS, then the named tests again with -v as proof.
-      - run: go test -count=1 ./cmd/fathomgate/
+      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./internal/proxy/
       - name: ACL, token file, audit file and H1 tests ran on macOS
         run: |
           go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|NewWriter|Writer|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
