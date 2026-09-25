@@ -1,13 +1,50 @@
 # Profile for krisiasty/netdev-ssh-mcp (Go, stdio, multi-vendor SSH).
 # Source of tool names and parameters: docs/research/02-network-mcp-servers.md §1.1.
 #
-# The server is read-only by design and already enforces a show/get prefix on
-# run_show_command, redirects config dumps to get_config, and obfuscates
-# some secrets with an unkeyed hash (see below). Its `host` parameter is free-form with no inventory, so the
+# The server is read-only by design. Since v1.7.1 it refuses run_show_command
+# input that is not a single show/get command with allow-listed pipes, and it
+# redirects config dumps to get_config and obfuscates secrets with a keyed
+# hash (see below). Its `host` parameter is free-form with no inventory, so the
 # proxy's contribution here is the host allow-list (unknown targets) and
 # defence-in-depth command checking.
 #
-# Upstream secret obfuscation is NOT a redaction control (T0.29, 2026-09-23).
+# Pinned upstream: v1.7.1 (tier 2, CI job client-smoke; T0.51, 2026-09-25).
+# Verified [src] at tag v1.7.1, commit 6fc6ab0aed1e84b8dd71b1bf1ad39cd909146623:
+#   https://github.com/krisiasty/netdev-ssh-mcp/blob/6fc6ab0aed1e84b8dd71b1bf1ad39cd909146623/internal/netdev/obfuscate.go
+#   (and obfuscation_key.go, command_safety.go, main.go)
+# - GHSA-8g43-jrf3-q9vq (fixed in v1.7.0, PR #22, commit 682e2e1; the T0.29
+#   report below, reporter credited):
+#   https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-8g43-jrf3-q9vq
+#   Tokens keep the [h:<12 hex>] shape but are HMAC-SHA256 truncated to 48
+#   bits, under k = HMAC-SHA256(raw, "netdev-ssh-mcp/obfuscation/v1"). raw is
+#   OBFUSCATION_KEY or the file named by --obfuscation-key-file /
+#   OBFUSCATION_KEY_FILE (only one; at least 16 bytes; otherwise exit 1). With
+#   neither, a random per-run key: the server sets MCP `instructions` (which
+#   fathomgate does not relay) and appends a second text content block, a
+#   notice, to each get_config / run_show_command result holding a token.
+#   Obfuscation fails closed if no key is set. Every pattern runs on every
+#   line and type words (7, md5 7, sha512) are skipped, so all T0.29 misses
+#   are fixed: run over tests/fixtures/configs/ with trailing rule annotations
+#   stripped, 0/71 secrets left in clear (v1.6.6 as control: 20/71, the T0.29
+#   totals). As committed, 3 ios-xe lines still show in clear because
+#   end-of-line-anchored patterns meet the annotation; a device prints none.
+# - GHSA-h47r-329w-6p9h (fixed in v1.7.1, PR #23, commit ce2206b; reported by
+#   the upstream maintainer):
+#   https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h
+#   run_show_command: one line, no control characters, no ';', no '<' '>',
+#   first word show (get on FortiOS), pipes from a per-platform allow-list.
+#   run_ping / run_traceroute: destination, source, vrf, outgoing_interface
+#   match [A-Za-z0-9._:/@%-]{1,255}. Refusals are tool errors; nothing is sent.
+# - Tool names, parameters and go-sdk (v1.8.0, 2026-07-28) are unchanged from
+#   v1.6.6.
+# - Still NOT a Fathomgate control. The tokens are keyed under the upstream's
+#   key, not Fathomgate's, and cover only line shapes the upstream knows. The
+#   proxy's redactor (M2, row 15) runs on every result and must not treat a
+#   line holding an [h:...] token as clean. The command checks are defence in
+#   depth under Fathomgate's own classification (M1), which must not rely on
+#   them. Install docs: keep obfuscation on, with a key file.
+#
+# History. Upstream secret obfuscation is NOT a redaction control (T0.29, 2026-09-23).
 # Verified [src] at tag v1.6.6, commit be3e36342b0c71007ce416a435dfdfecc966ea13:
 #   https://github.com/krisiasty/netdev-ssh-mcp/blob/be3e36342b0c71007ce416a435dfdfecc966ea13/internal/netdev/obfuscate.go
 #   (called from internal/netdev/show.go and config.go; --no-obfuscate in main.go)
@@ -35,6 +72,7 @@
 #   eos-4.16 0/4, fortios 0/6. No upstream unit tests cover obfuscation.
 # - Install docs recommend leaving obfuscation ON in M0 (defence in depth
 #   while Fathomgate does not redact). Revisit once M2 redaction ships.
+#   (Fixed upstream in v1.7.0 and v1.7.1; see the section above.)
 server: netdev-ssh-mcp
 source: https://github.com/krisiasty/netdev-ssh-mcp
 description: Read-only multi-vendor SSH server (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS)
@@ -47,11 +85,11 @@ tools:
     class: READ_OPERATIONAL
     target_params: [host]
     command_params: [command]
-    notes: Server enforces a show/get prefix; the proxy re-checks and escalates config dumps to READ_CONFIG.
+    notes: Server (v1.7.1) accepts one show/get command with allow-listed pipes; the proxy re-checks and escalates config dumps to READ_CONFIG.
   run_ping:
     class: READ_OPERATIONAL
     target_params: [host]
-    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands.
+    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands (string args character-checked upstream since v1.7.1).
   run_traceroute:
     class: READ_OPERATIONAL
     target_params: [host]

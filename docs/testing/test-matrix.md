@@ -18,14 +18,14 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | 12 | MRTR elicitation approval | 2 | junos-mcp-server, 2026-era client | `input_required` returned with `requestState`; retry with `accept` forwards once | M3 | planned |
 | 13 | Fan-out above cap | 1, 2 | ntunes `send_config_parallel`; junos `execute_junos_command_batch` | Denied by `fleet-cap`; `targets_count` reflects expanded targets | M4 | planned |
 | 14 | Canary-first ordering | 2 | ntunes `send_config_parallel` | Second device refused until the `canary`-tagged device is confirmed | M4 | planned |
-| 15 | Secret redaction on `get_config` | 1, 2 | netdev-ssh-mcp `get_config`; junos-mcp-server `get_junos_config` | Every fixture secret replaced with an HMAC token; `redactions` count and pattern ids logged | M2 | planned |
+| 15 | Secret redaction on `get_config` | 1, 2 | netdev-ssh-mcp `get_config`; junos-mcp-server `get_junos_config` | Every fixture secret replaced with a fathomgate `<redacted:hmac:…>` token, with the upstream's own obfuscation off (netdev-ssh-mcp `--no-obfuscate`; its `[h:…]` tokens, keyed since v1.7.0, do not count); `redactions` count and pattern ids logged | M2 | planned |
 | 16 | Tool description rug-pull | 2 | Any server with a modified description | Server quarantined; `quarantine` audit event with pinned and observed hashes | M2 | planned |
 | 17 | Upstream elicitation origin | 2 | junos-mcp-server (streamable-http) | Prompt re-labelled with the server name before reaching the client | M3 | planned |
 | 18 | Meta-tool classification | 1 | Meraki official `execute_api` fixture | Class from the `capability_id` table; `class_source: capability_table` | M1 | planned |
 | 19 | Audit tamper | 1 | none | `fathomgate audit verify` fails on an edited line and names it; exit status 1 | M4 | planned |
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
-| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.6.6 behind fathomgate | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
+| 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.7.1 behind fathomgate (v1.6.6 until T0.51) | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand, 2026-09-23; see [run notes](#run-notes)) |
 
 ## Run notes
 

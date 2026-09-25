@@ -6,7 +6,7 @@ real device. See the module docstring for its command line.
 
 What it does today (T0.5, T0.34):
 
-- The SSH exec channel, which is what netdev-ssh-mcp v1.6.6 uses.
+- The SSH exec channel, which is what netdev-ssh-mcp v1.6.6 and v1.7.1 use.
 - An interactive shell (a PTY and the prompt `fake-eos#`, set with
   `--hostname`), which is what netmiko uses for upa/mcp-netmiko-server with
   `device_type = "arista_eos"`. Input is echoed and each line is one

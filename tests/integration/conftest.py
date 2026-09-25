@@ -13,14 +13,14 @@ installed (CI requires both):
 netdev-ssh-mcp setup (the CI job `client-smoke` does the same):
 
     make build
-    GOBIN=$PWD/.upstream go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6
+    GOBIN=$PWD/.upstream go install github.com/krisiasty/netdev-ssh-mcp@v1.7.1
     cd tests && FATHOMGATE_UPSTREAM=$PWD/../.upstream/netdev-ssh-mcp \\
         uv run --extra integration pytest integration -m tier2 -v
 
 Without FATHOMGATE_UPSTREAM the tests skip (CI sets FATHOMGATE_TIER2_REQUIRED=1,
 which turns that skip into a failure); with it set to the wrong version they
 fail, because a row is validated only against the named version. The
-release binary (netdev-ssh-mcp_1.6.6_<os>_<arch>, checked against the
+release binary (netdev-ssh-mcp_1.7.1_<os>_<arch>, checked against the
 release's checksums.txt) and a `go install` build both qualify.
 Everything the upstream returns is data: the tests compare it, never act
 on it.
@@ -47,7 +47,7 @@ FAKE_DEVICE = REPO / "tests" / "fixtures" / "device" / "fake_ssh.py"
 
 # The one netdev-ssh-mcp release matrix rows 1 and 22 are run against.
 # Bump it in its own PR, with the CI job and test-matrix.md Evidence.
-NETDEV_SSH_MCP_VERSION = "v1.6.6"
+NETDEV_SSH_MCP_VERSION = "v1.7.1"
 SERVER = "netdev-ssh-mcp"
 
 DEVICE_USERNAME = "admin"
@@ -93,7 +93,7 @@ def fathomgate_binary() -> Path:
 def _module_version(binary: Path) -> str | None:
     """The main-module version recorded in a Go binary, via `go version -m`.
 
-    `go install …@v1.6.6` builds leave the upstream's own `-version` at "dev"
+    `go install …@v1.7.1` builds leave the upstream's own `-version` at "dev"
     (no ldflags), so the build info is the reliable pin check.
     """
     go = shutil.which("go")
