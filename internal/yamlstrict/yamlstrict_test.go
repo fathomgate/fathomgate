@@ -52,11 +52,36 @@ func TestNoFileContentInErrors(t *testing.T) {
 }
 
 func TestUnmarshal(t *testing.T) {
-	for _, in := range []string{"name: a\n", "---\nname: a\n", "name: a\n---\n", "# c\n---\nname: a\n"} {
+	for _, in := range []string{"name: a\n", "---\nname: a\n", "name: a\n---\n", "# c\n---\nname: a\n", "name: a\n...\n", "--- # start\nname: a\n"} {
 		var d doc
 		if err := Unmarshal([]byte(in), &d); err != nil || d.Name != "a" {
 			t.Errorf("%q: %v %+v", in, err, d)
 		}
+	}
+	// L4 (security review of PR #172): an empty document before the
+	// content made the parser read nothing, so the file loaded as zero
+	// values. It is refused, as are two documents however they are spelt.
+	for in, want := range map[string]string{
+		"---\n---\nname: a\n":                   "starts with an empty YAML document",
+		"---\n# only a comment\n---\nname: a\n": "starts with an empty YAML document",
+		"# c\n---\n\n---\nname: a\nnamex: b\n":  "starts with an empty YAML document",
+		"name: a\n---\nname: b\n":               "2 YAML documents",
+		"--- {name: a}\n--- {name: b}\n":        "2 YAML documents",
+		"name: a\n...\n---\nname: b\n":          "2 YAML documents",
+	} {
+		var late doc
+		if err := Unmarshal([]byte(in), &late); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", in, err, want)
+		}
+	}
+	// A `---` inside a block scalar is indented and is not a marker.
+	var block doc
+	if err := Unmarshal([]byte("name: |\n  ---\n  x\n"), &block); err != nil || block.Name != "---\nx\n" {
+		t.Errorf("block scalar: %v %q", err, block.Name)
+	}
+	var empty doc
+	if err := Unmarshal([]byte("# nothing\n---\n"), &empty); err != nil || empty.Name != "" {
+		t.Errorf("empty file: %v %+v", err, empty)
 	}
 	var d doc
 	err := Unmarshal([]byte("name: a\nnamex: b\n"), &d)

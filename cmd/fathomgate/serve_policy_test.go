@@ -359,6 +359,11 @@ func TestObligationsPartitioned(t *testing.T) {
 			t.Errorf("carried obligation %s is not in policy.KnownObligations", o)
 		}
 	}
+	for _, o := range cannotMeet {
+		if !slices.Contains(policy.KnownObligations, o) {
+			t.Errorf("cannot-be-met obligation %s is not in policy.KnownObligations", o)
+		}
+	}
 }
 
 func attr(attrs []any, key string) any {

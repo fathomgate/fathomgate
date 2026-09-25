@@ -130,10 +130,41 @@ start without `--policy` or `--no-policy`. See
 
    Fathomgate refuses to start if another user can change the policy, the
    inventory or a `--profiles` file: they decide what reaches your devices.
-   On macOS and Linux run `chmod go-w` on them (the `cp` above keeps your
-   umask, usually fine). On Windows no one but you, SYSTEM and
-   Administrators may have write access; if Fathomgate names another
-   account, remove it with `icacls <file> /inheritance:d /remove:g <name>`.
+   Keep them in a directory only you (and the administrators) can write,
+   because a user who can write the directory can replace a file in it
+   even when the file itself is protected.
+
+   On macOS and Linux:
+
+   ```sh
+   chmod 700 ~/.config/fathomgate
+   chmod go-w ~/.config/fathomgate/*.yaml
+   ```
+
+   Debian and Ubuntu give users a umask of 002, so files you create there
+   are group-writable and Fathomgate refuses them until you run the
+   `chmod go-w` above (or set `umask 022` first). A Linux ACL entry that
+   lets another user write the file shows as the group write bit and is
+   refused the same way.
+
+   On Windows, only you, SYSTEM and Administrators may be able to write
+   the files. Keep them in `%USERPROFILE%\.config\fathomgate`, or for a
+   service in `C:\ProgramData\fathomgate` writable only by Administrators
+   and SYSTEM. If other accounts can write a file, Fathomgate names every
+   one of them and prints the commands that fix it, one per line, for
+   example:
+
+   ```text
+   icacls "C:\Users\you\.config\fathomgate\policy.yaml" /inheritance:r /grant:r "*S-1-5-21-...-1001:F" "*S-1-5-18:F" "*S-1-5-32-544:F"
+   icacls "C:\Users\you\.config\fathomgate\policy.yaml" /remove:g "*S-1-5-11"
+   ```
+
+   The accounts are named by SID, so the lines work in Command Prompt and
+   in PowerShell; run them one at a time. The second line appears only
+   when an account was given access to the file itself rather than
+   through its folder. If the path holds `%`, `!` or another character a
+   shell would change, Fathomgate describes the fix instead of printing a
+   command.
 
 4. **Full paths to all of these.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example
