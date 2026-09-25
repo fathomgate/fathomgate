@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 13 · blocked 3 · in review 2 · merged 17 · dropped 3
+Tasks: open 13 · blocked 3 · in review 3 · merged 17 · dropped 3
 
 ## In flight
 
@@ -45,6 +45,7 @@ Tasks: open 13 · blocked 3 · in review 2 · merged 17 · dropped 3
 | M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 4 | — |
 | M1-37 | Make an unset unknown_target deny every class (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | merged | — | 6 | — |
 | M1-38 | Issue hygiene - GitHub issues follow the board automatically | `tools/status` | release-engineer | security-reviewer, docs-writer | in review | — | — | — |
+| M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | in review | — | — | — |
 
 ## Done this milestone
 
