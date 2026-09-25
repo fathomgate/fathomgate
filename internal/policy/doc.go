@@ -11,9 +11,10 @@
 // Semantics, in order:
 //
 //  1. If any target is unknown (absent from every inventory provider), the
-//     policy's defaults.unknown_target applies. "deny" denies every class;
-//     "allow" lets the rules decide; unset denies WRITE_CONFIG and
-//     EXEC_ARBITRARY and lets the rules decide for reads.
+//     policy's defaults.unknown_target applies. "allow" lets the rules
+//     decide; "deny", or the key left unset, denies every class with rule
+//     id default:unknown_target (ADR 0032). A request that names no target
+//     has no unknown target, so this step does not apply to it.
 //  2. defaults.session.max_devices caps the number of distinct devices a
 //     session may touch, counting the devices already touched plus the
 //     targets of this request.

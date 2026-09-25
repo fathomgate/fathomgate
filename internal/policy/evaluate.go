@@ -21,20 +21,20 @@ func Evaluate(p *Policy, r Request) Decision {
 		return d
 	}
 
-	// 1. Unknown targets.
+	// 1. Unknown targets. Only an explicit "allow" lets the rules decide;
+	// unset denies every class (ADR 0032), and so does any value Validate
+	// would have refused, so a Policy built without Parse fails closed.
+	// A request with no named targets has nothing unknown and skips this.
 	if unknown := unknownTargets(r.Targets); len(unknown) > 0 {
 		note := fmt.Sprintf("unknown targets: %s", strings.Join(unknown, ", "))
-		switch {
-		case p.Defaults.UnknownTarget == Deny,
-			p.Defaults.UnknownTarget == "" && r.Class.IsWrite():
+		if p.Defaults.UnknownTarget != Allow {
 			d.Effect, d.RuleID = Deny, RuleUnknownTarget
 			d.Reason = note + "; a device absent from inventory is not a device the agent may touch"
 			d.Trace = append(d.Trace, TraceEntry{RuleID: RuleUnknownTarget, Matched: true, Note: d.Reason})
 			return d
-		default:
-			d.Trace = append(d.Trace, TraceEntry{RuleID: RuleUnknownTarget, Matched: false,
-				Note: note + "; " + string(r.Class) + " continues to rules"})
 		}
+		d.Trace = append(d.Trace, TraceEntry{RuleID: RuleUnknownTarget, Matched: false,
+			Note: note + "; unknown_target: allow, " + string(r.Class) + " continues to rules"})
 	}
 
 	// 2. Session device cap.

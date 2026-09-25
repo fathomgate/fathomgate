@@ -71,7 +71,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | Capability table | Profile section mapping meta-tool capability ids to classes. |
 | Resolver chain | The ordered inventory providers: static file, hostname patterns, upstream inventory, source of truth. |
 | Source of truth (SoT) | NetBox or Nautobot. Optional. |
-| Unknown target | A target no provider resolved. Denied for writes and exec by default. |
+| Unknown target | A target no provider resolved. Denied for every class unless the policy sets `unknown_target: allow` (ADR 0032). |
 | Stale | A device record served from a snapshot because the source of truth was unreachable. Marked `sot: stale` in audit. |
 | Snapshot | The static-format file written by `fathomgate inventory sync`. |
 | Pending record | The SQLite row that is the source of truth for a held call. |

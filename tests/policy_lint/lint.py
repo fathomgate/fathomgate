@@ -181,6 +181,33 @@ def lint_policy(doc: Any) -> list[Finding]:
     return out
 
 
+UNKNOWN_TARGET_ALLOW_WARNING = (
+    "unknown_target: allow lets the rules decide for hosts no inventory resolves; "
+    "upstreams such as eos-mcp and netdev-ssh-mcp then send device credentials "
+    "to any host the agent names (ADR 0032)"
+)
+
+
+def warn_policy(doc: Any) -> list[Finding]:
+    """Return warnings for a valid policy: legal settings that widen exposure.
+
+    Warnings never change the exit status.
+    """
+    out: list[Finding] = []
+    if isinstance(doc, dict) and isinstance(doc.get("defaults"), dict):
+        if doc["defaults"].get("unknown_target") == "allow":
+            out.append(Finding("$.defaults.unknown_target", UNKNOWN_TARGET_ALLOW_WARNING))
+    return out
+
+
+def warn_file(path: str | Path) -> list[Finding]:
+    """Warnings for one YAML file; none when it does not parse."""
+    try:
+        return warn_policy(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
+    except yaml.YAMLError:  # pragma: no cover - lint_file reports it
+        return []
+
+
 def lint_file(path: str | Path) -> list[Finding]:
     """Lint one YAML file. A YAML syntax error is reported as a single finding."""
     text = Path(path).read_text(encoding="utf-8")
@@ -202,6 +229,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{f}: skipped (policy test file, run `fathomgate policy test` instead)")
             continue
         findings = lint_file(f)
+        for w in warn_file(f):
+            print(f"{f}:{w.path}: warning: {w.message}")
         if findings:
             bad += 1
             for fd in findings:
