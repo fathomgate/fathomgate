@@ -238,4 +238,15 @@ func TestRepoExampleInventory(t *testing.T) {
 			t.Errorf("%s: resolved with tag lab (%+v); lab devices must be listed statically", name, tg)
 		}
 	}
+	// The example ships no active hostname pattern (security review of PR
+	// #154, H2): a pattern makes any matching name the agent sends a known
+	// device, so a read reaches it. None of these may resolve at all.
+	for _, name := range []string{
+		"ghost-99", "lab-x.attacker.example", "core-x.attacker.example", "fw-evil.example",
+		"lab-ghost-99", "LAB-core-rtr-01", "lab-x@core-rtr-01", "lab-leaf-01.evil", "core-rtr-01.attacker.example",
+	} {
+		if tg, ok := chain.Resolve(name); ok {
+			t.Errorf("%s: resolved as %+v; only devices listed by name may be known", name, tg)
+		}
+	}
 }

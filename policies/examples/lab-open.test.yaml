@@ -91,9 +91,10 @@ cases:
   # Pattern hazard. This is what an inventory produces when a hostname pattern
   # adds the lab tag (^lab- with tags: [lab]): the agent made the name up, the
   # pattern made it a known lab device, and the write is allowed and forwarded
-  # with no dry run. The case pins the behaviour so the hazard stays visible;
-  # the fix is in the inventory, not the policy: list lab devices statically
-  # (see the header of lab-open.yaml and inventory.example.yaml).
+  # with no dry run. Any pattern match also makes a read of the name allowed.
+  # The case pins the behaviour so the hazard stays visible; the fix is in
+  # the inventory, not the policy: list devices by name, with no active
+  # pattern (see lab-open.yaml and inventory.example.yaml).
   - name: "pattern hazard: a made-up lab- name tagged lab by a pattern is allowed to write"
     request:
       server: eos-mcp
@@ -102,15 +103,15 @@ cases:
       targets: [{name: lab-ghost-99, site: lab, tags: [lab]}]
     expect: {effect: allow, rule: lab-writes-free, obligations: []}
 
-  # The same name through the shipped inventory.example.yaml, whose ^lab-
-  # pattern sets only site: known, but untagged, so not-lab denies the write.
-  - name: "the same name through the shipped inventory (site only, no tag) is denied by not-lab"
+  # A made-up name through the shipped inventory.example.yaml, which has no
+  # active pattern: unknown, so even a config read is denied before the rules.
+  - name: "a made-up name through the shipped inventory is unknown, and a config read is denied"
     request:
-      server: eos-mcp
-      tool: push_config
-      class: WRITE_CONFIG
-      targets: [{name: lab-ghost-99, site: lab}]
-    expect: {effect: deny, rule: not-lab}
+      server: netdev-ssh-mcp
+      tool: get_config
+      class: READ_CONFIG
+      targets: [{name: lab-x.attacker.example, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
 
   - name: "row 6: exec on an unknown host is denied by the unknown-target default"
     request:
