@@ -246,6 +246,58 @@ jobs:
           FATHOMGATE_TIER2_REQUIRED: "1"
         run: uv run --extra integration pytest integration -m "tier2 and upa_mcp_netmiko_server" -v
 
+  # Tier 2 against shigechika/eos-mcp v1.3.0 (M1-22, the eos-mcp half of
+  # matrix row 4): fathomgate serve over stdio in front of the real upstream,
+  # --no-policy for the pass-through smoke and --policy read-only.yaml with
+  # the embedded profile for the decisions, reaching the fake eAPI device
+  # (tests/fixtures/device/fake_eapi.py, FAKE data only). install.sh builds a
+  # Python 3.13 venv from requirements.txt with --require-hashes: every
+  # artifact is hash-checked, and all are wheels except pyeapi 1.0.4 (sdist
+  # only on PyPI), which uv builds with the setuptools pinned and hashed in
+  # build-constraints.txt. check-build-constraints.sh runs first and fails
+  # unless this uv rejects a build constraint with a wrong hash. The tests
+  # also check each installed eos_mcp module against its sha256 at commit
+  # bffb893. eos-mcp
+  # gives pyeapi no port, so the fake device listens on 127.0.0.1:443; the
+  # sysctl lets the runner user bind it instead of running Python as root.
+  # Runs on every pull request with no path filter; FATHOMGATE_TIER2_REQUIRED=1
+  # turns a missing install or a failed bind into a failure, so it cannot go
+  # green by skipping, and a marker that selects nothing makes pytest exit 5.
+  tier2-eos-mcp:
+    name: tier2 eos-mcp (eAPI, --policy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            tests/pyproject.toml
+            tests/integration/upstreams/eos-mcp/requirements.txt
+            tests/integration/upstreams/eos-mcp/build-constraints.txt
+      - name: build fathomgate
+        run: make build
+      - name: uv enforces the build-constraint hashes (negative control)
+        run: tests/integration/upstreams/eos-mcp/check-build-constraints.sh "$RUNNER_TEMP/eos-mcp-bc"
+      - name: install eos-mcp 1.3.0 (hash-checked artifacts, hashed build backend)
+        run: tests/integration/upstreams/eos-mcp/install.sh "$RUNNER_TEMP/eos-mcp" >> "$GITHUB_ENV"
+      - name: let the runner user bind 127.0.0.1:443 for the fake eAPI device
+        run: sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+      - name: tier 2 through fathomgate serve (--no-policy smoke, --policy read-only)
+        working-directory: tests
+        env:
+          FATHOMGATE_TIER2_REQUIRED: "1"
+        run: uv run --extra integration pytest integration -m "tier2 and eos_mcp" -v
+
   # The Windows key and log DACL code in internal/audit (T0.12) only compiles
   # and runs on Windows. Hosted windows-latest runners run elevated (the
   # runner account is an administrator with UAC off), so they hold
