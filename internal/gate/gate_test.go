@@ -266,17 +266,20 @@ func TestAttackerHostNames(t *testing.T) {
 		{"lab-open", eos, "push_config", "hostname", "WRITE_CONFIG"},
 		{"lab-open", upa, "set_config_commands_and_commit_or_save", "name", "WRITE_CONFIG"},
 	}
+	argsFor := func(tool, target, name string) map[string]any {
+		args := map[string]any{target: name}
+		switch tool {
+		case "push_config":
+			args["config_lines"] = []any{"hostname x"}
+		case "set_config_commands_and_commit_or_save":
+			args["commands"] = []any{"hostname x"}
+		}
+		return args
+	}
 	for _, tl := range tools {
 		g := newGate(t, examplePolicy(t, tl.pol), true)
 		for name, rule := range cases {
-			args := map[string]any{tl.target: name}
-			switch tl.tool {
-			case "push_config":
-				args["config_lines"] = []any{"hostname x"}
-			case "set_config_commands_and_commit_or_save":
-				args["commands"] = []any{"hostname x"}
-			}
-			v := g.Decide(context.Background(), call(tl.server, tl.tool, args))
+			v := g.Decide(context.Background(), call(tl.server, tl.tool, argsFor(tl.tool, tl.target, name)))
 			label := tl.pol + " " + tl.server + "." + tl.tool + " " + strings.ToValidUTF8(name, "?")
 			check(t, label, v, want{effect: "deny", rule: rule, class: tl.class})
 			if name != "" && strings.Contains(v.Error, strings.TrimSpace(name)) {
@@ -284,7 +287,7 @@ func TestAttackerHostNames(t *testing.T) {
 			}
 		}
 		// The listed names are known, exactly as listed.
-		v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", "config_lines": []any{"hostname x"}, "commands": []any{"hostname x"}}))
+		v := g.Decide(context.Background(), call(tl.server, tl.tool, argsFor(tl.tool, tl.target, "lab-sw-01")))
 		if v.RuleID == "default:unknown_target" || v.RuleID == policy.RuleBadArguments {
 			t.Errorf("%s %s.%s lab-sw-01: %s %s", tl.pol, tl.server, tl.tool, v.RuleID, v.Error)
 		}
@@ -344,8 +347,10 @@ func TestZeroTargets(t *testing.T) {
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY"}},
 		{"push_config no host", eos, "push_config", map[string]any{"config_lines": []any{"hostname x"}},
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "WRITE_CONFIG"}},
+		// The text depends on which check sees it first (the closed
+		// argument list of M1-35 also calls it malformed); the rule does not.
 		{"host not a string", netdev, "get_config", map[string]any{"host": 7},
-			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_CONFIG", text: "fathomgate denied netdev-ssh-mcp.get_config: rule default:bad_arguments (class READ_CONFIG): " + reasonBadTarget}},
+			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_CONFIG"}},
 		{"host an array", netdev, "get_config", map[string]any{"host": []any{"lab-sw-01"}},
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_CONFIG"}},
 		{"hostnames an object", eos, "daily_brief", map[string]any{"hostnames": map[string]any{"a": "lab-sw-01"}},
