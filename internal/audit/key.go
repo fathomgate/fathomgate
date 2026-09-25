@@ -17,13 +17,15 @@ import (
 //
 //	createExclusive(path, flag, ownerOnly) creates path, never following or
 //	    replacing an existing entry (fs.ErrExist). ownerOnly: mode 0600 on
-//	    Unix, a protected owner-only DACL applied by CreateFile on Windows;
+//	    Unix, and refused (and deleted) if it inherited an extended ACL on
+//	    macOS; a protected owner-only DACL applied by CreateFile on Windows;
 //	    otherwise mode 0644 / the folder's inherited ACL.
 //	removeCreated(f, path) deletes the file f was created as, without
 //	    deleting whatever else might now be at path.
 //	openExistingLog(path) opens an existing log for read and append without
 //	    following links, and refuses anything that is not a regular file
-//	    with one link owned by the current user (errUnsafeLog).
+//	    with one link owned by the current user, or (macOS) that has an
+//	    extended ACL (errUnsafeLog).
 //	restrictOpenFile(f) resets f to owner-only through the open handle.
 
 // errUnsafeLog is wrapped by every refusal of an existing log path.

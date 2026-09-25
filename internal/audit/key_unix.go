@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+
+	"github.com/fathomgate/fathomgate/internal/fileacl"
 )
 
 const (
@@ -22,6 +24,10 @@ const (
 // symlink (even a dangling one) fails with fs.ErrExist and is never
 // followed, then sets the mode on the open descriptor so the umask cannot
 // change it. flag carries the access mode (O_WRONLY, or O_RDWR|O_APPEND).
+// An owner-only file that came out with an extended ACL (on macOS, entries
+// inherited from the folder, which chmod does not remove) is deleted and
+// refused: the mode would not show the access it grants (L2 in the
+// security review of PR #109).
 func createExclusive(path string, flag int, ownerOnly bool) (*os.File, error) {
 	mode := publicMode
 	if ownerOnly {
@@ -35,7 +41,25 @@ func createExclusive(path string, flag int, ownerOnly bool) (*os.File, error) {
 		discard(f, path)
 		return nil, err
 	}
+	if ownerOnly {
+		if err := refuseExtendedACL(f, path); err != nil {
+			discard(f, path)
+			return nil, err
+		}
+	}
 	return f, nil
+}
+
+// refuseExtendedACL returns an error when f has an extended ACL or its ACL
+// cannot be read (fileacl; macOS only).
+func refuseExtendedACL(f *os.File, path string) error {
+	switch ext, err := fileacl.Extended(f); {
+	case err != nil:
+		return fmt.Errorf("%s: cannot check the access control list: %w", path, err)
+	case ext:
+		return fmt.Errorf("%s has an extended ACL (inherited from its folder, or set with chmod +a), which can give other users access the mode does not show; remove it with chmod -N, and the folder's inheritable entries with chmod -N on the folder", path)
+	}
+	return nil
 }
 
 // removeCreated unlinks path only if it is still the file f refers to (same
@@ -96,6 +120,10 @@ func checkLogFile(f *os.File, path string) error {
 	}
 	if euid := os.Geteuid(); uint64(st.Uid) != uint64(euid) { //nolint:gosec // euid is never negative on Unix
 		return fmt.Errorf("%w: %s is owned by uid %d, not the current user (uid %d)", errUnsafeLog, path, st.Uid, euid)
+	}
+	// restrictOpenFile resets the mode, but not an extended ACL.
+	if err := refuseExtendedACL(f, path); err != nil {
+		return fmt.Errorf("%w: %w", errUnsafeLog, err)
 	}
 	return nil
 }
