@@ -71,6 +71,22 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written.
 4. **`--audit` message: name the milestone.** The refusal says `--audit` arrives in M4.
 
+## Notes after acceptance
+
+M1-20 (2026-09-25) implemented this record. What the implementation fixed that the record left open, for design-guardian and release-engineer to review with the PR; none changes a decision above:
+
+| Point | As built |
+| --- | --- |
+| Message texts | Neither flag: `--policy <file> or --no-policy is required: --policy decides every call before it reaches the upstream; --no-policy forwards every call unchecked, as v0.1.0 did`. Both: `--policy and --no-policy cannot be used together: ...`. `--no-policy` with `--inventory` or `--profiles`: `--inventory and --profiles only configure a policy; --no-policy forwards every call unchecked, so leave them out or use --policy <file>`. `--inventory` or `--profiles` alone: `... only work with --policy <file>`. `--audit`: `--audit arrives in M4 with the signed audit chain; until then serve --policy logs every decision to stderr`. A reserved name among the upstream arguments: `--policy among the upstream arguments: fathomgate's own flags go before --, and a flag of that name is never passed to an upstream`. The start-up Warn lines are in [profile-schema 8.3](../specs/profile-schema.md#83-fathomgate-serve-flags) |
+| Order of checks | The combination of the policy flags is checked after every other usage error, so an existing error (a value typed as its own argument, a bad `--listen`) is reported as before. The files are loaded after parsing and before `--listen` binds or the upstream is spawned |
+| Where the embed lives | `profiles/embed.go`, package `profiles`, `//go:embed *.yaml`: `go:embed` cannot name a parent directory, so the embedding package sits beside the files and carries their Apache-2.0 SPDX line. The release archive and the `Dockerfile` copy `profiles/*.yaml` and `profiles/LICENSE` only. `TestEmbeddedProfilesAreTheRepo` pins the embedded set to `profiles/*.yaml` byte for byte and fails on a `.yml` or a subdirectory the pattern would miss |
+| `fathomgate version` | Lists each embedded profile's server key, tool count, the first 12 hex digits of its SHA-256 and its file name. The record asked for each file's pinned upstream version line; profiles carry the pin only in comments, in no fixed form, so the digest stands in until the planned `verified_version` field (profile-schema section 3, M2) gives a line to print |
+| `--profiles` | Loaded like the embedded set (top-level `*.yaml`, name order, strict, validated, one file per server key). A missing path, a file, or a directory with no `*.yaml` exits 2: an empty set would put every server on the fallback classifier without a word |
+| `--inventory` | Loaded with `inventory.LoadFile` and `File.Chain` (the same chain as `LoadChain`), so the device count and the ADR 0031 decision 5 warning come from the one read. The warning text comes from the new `inventory.File.PatternWarnings`. A `*.csv` path is refused with a pointer to `fathomgate inventory import`; serve reads no CSV |
+| Obligation warnings | Only obligations on `allow` rules are warned about: a `hold` is not run in M1 and a `deny` never runs, so their obligations change nothing yet. `dry_run`, `diff` and `timed_rollback` say the call is not run; the others say it is forwarded without them, with `enforced_from` (`M2` for `redact`, `M4` for the rest). One more Warn, not in the record, lists the `hold` rules, since a policy written for M3 (`prod-approval.yaml`) otherwise looks enforced |
+| Start-up line | `serving on stdio` (no longer `...; M0 pass-through, no policy enforced`) and each `listening` line carry `policy`, `rules`, `inventory`, `devices`, `profiles` and `profile` (the file for `--server`, or `none (fallback classifier)`). With `--no-policy`: `policy="none (--no-policy: every call is forwarded)"` |
+| `--listen-remote`, `--listen-host` | Still refused; their text now says M2 (the board moved M1-26 to M2), and the `--listen` address error no longer promises M1 |
+
 ## References
 
 - [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md), [ADR 0016](0016-streamable-http-listener.md), [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md), [ADR 0028](0028-audit-key-custody.md), [ADR 0029](0029-remote-listener-tls-and-loopback-authentication.md)

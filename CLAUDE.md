@@ -82,7 +82,7 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 ## Repo map
 
 ```
-cmd/fathomgate/      CLI (version, serve [M0 pass-through], policy test|eval, audit verify|keygen, redact, inventory import)
+cmd/fathomgate/      CLI (version, serve --policy | --no-policy, policy test|eval, audit verify|keygen, redact, inventory import)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
@@ -106,7 +106,8 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 ## Things that look wrong but are deliberate
 
-- `fathomgate serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
+- `fathomgate serve` refuses to start without `--policy <file>` or `--no-policy` (exit 2, ADR 0027), and `--no-policy` forwards every call unchecked on purpose: it is v0.1.0's pass-through, kept for conformance and client testing, and the tier 2 transport jobs and `make conformance` use it. `--audit` is still refused until M4. A `hold`, and an `allow` carrying `dry_run`, `diff` or `timed_rollback`, is not run in M1 (ADR 0026); the agent gets a tool error naming the rule.
+- `profiles/embed.go` is a Go file among the YAML profiles: `go:embed` cannot reach a parent directory, so the package that embeds `profiles/*.yaml` lives there (ADR 0027). It carries the directory's Apache-2.0 SPDX line.
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver` and resolves nothing. NetBox is optional (ADR 0007), and the live NetBox and Nautobot connectors are in the paid edition (ADR 0034, *Amendments*): the stub stays until the paid resolver exists, then leaves the core. The free path is CSV import and snapshots.
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.

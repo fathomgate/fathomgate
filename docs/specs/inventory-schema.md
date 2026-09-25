@@ -91,6 +91,8 @@ roles:                                  # the shape; anchored at both ends
 | `role`, `site`, `status`, `vendor` | string | Set if the pattern is the winning provider or the field is otherwise empty |
 | `tags` | list | Always unioned |
 
+A pattern that matches no device listed under `devices:` is a warning, never an error, when `fathomgate serve --inventory` loads the file ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 5; `File.PatternWarnings`): `inventory: roles[<i>] "<match>": matches no listed device`.
+
 Every matching pattern contributes. The first pattern that sets `role` wins `role`. A target matched only by a pattern that sets no role remains `unknown` for `role`, and `device_roles: [unknown]` matches it.
 
 Current code: any matching pattern, whatever it sets, makes the target known (`known: true`, `status: pattern`), so the unknown-target default does not apply to it. The original intent, that a pattern match alone never resolves a target, is not implemented; whether it should be is for the follow-up inventory ADR named in the [threat model](../security/threat-model.md) (row "Pattern-resolved target").
