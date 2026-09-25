@@ -3,7 +3,7 @@
 - **Task:** M1-16 — Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants
 - **From → To:** policy-engineer → security-reviewer (go-reviewer is the second reviewer)
 - **State now:** in review. M1-16 is on the board only on PR #125's branch; this PR does not edit `docs/milestones/`.
-- **Branch / PR:** `feat/classify-downgrade-cases` · PR_URL
+- **Branch / PR:** `feat/classify-downgrade-cases` · [PR #152](https://github.com/fathomgate/fathomgate/pull/152)
 - **Date:** 2026-09-25
 
 ## Done
