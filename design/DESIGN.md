@@ -23,16 +23,20 @@ The mark is a gateway: a divided arch with its gate panels open, a guiding star 
 | --- | --- |
 | README and docs headers | `fathomgate-horizontal-tagline-dark.svg` / `-light.svg`, swapped with `<picture>` and `prefers-color-scheme`, at 480 px wide or more |
 | Headers without room for the tagline | `fathomgate-horizontal-dark.svg` / `-light.svg`, 240 px wide or more |
-| Square places: avatars, social cards, the console sign-in screen | `fathomgate-icon-dark.svg` / `-light.svg`, 48 px or more; `fathomgate-stacked-*.svg` when the name must be there too |
+| Avatars and the console sign-in screen | `fathomgate-icon-dark.svg` / `-light.svg`, 48 px or more, centred on a square with clear space (the mark is 512 × 448, not square) |
+| Social cards and release pages | `fathomgate-stacked-dark.svg` / `-light.svg` on a solid ground |
+| Where the capitals would be too loud: slides, long-form docs | `fathomgate-brandcase-dark.svg` / `-light.svg` |
 | 16 to 32 px: favicons, tabs, small UI | `fathomgate-favicon.svg` (adapts to light and dark by itself) or `fathomgate-small-*.svg`. Never shrink the detailed mark this far |
-| One colour only: print, engraving, vinyl, monochrome UI | `fathomgate-icon-teal/-white/-ink.svg`, `fathomgate-horizontal-white/-ink.svg` |
+| One colour only: print, engraving, vinyl, monochrome UI | `fathomgate-icon-white.svg` / `fathomgate-horizontal-white.svg` on dark; `fathomgate-icon-ink.svg` / `fathomgate-horizontal-ink.svg` on light; `fathomgate-icon-teal.svg` on dark only |
 
 "Dark" means *for a dark page*, "light" means *for a light page*; every canvas is transparent. `manifest.json` lists each file with its size and checksum.
 
-- **Colours belong to the artwork.** The logo's teal (`#00D4C7`), ink (`#0B1B2E`) and light (`#E6ECF1`) are for the logo only. UI keeps using Fathom's semantic tokens; the "no new hue" rule above still holds for everything that isn't the logo.
-- **The wordmark is uppercase artwork; prose is not.** The logo spells FATHOMGATE in custom display lettering. In text, the product is always Fathomgate (one word, capital F only) and `fathomgate` in mono for the command. The `fathomgate-brandcase-*.svg` lockups spell it "Fathomgate" for places where the uppercase would read as shouting.
-- **Leave it alone.** Don't recolour the detailed mark, stretch it, add effects, or set it on a busy background. Give it clear space of at least the height of the gate panels on every side.
-- **The logo is a trademark.** It marks the project's own releases; see [TRADEMARKS.md](../TRADEMARKS.md).
+In the console, don't swap with `<picture>`: it follows the OS, not the theme toggle. Render both files and show the one that matches the resolved theme, the same way `tokens.css` resolves `data-theme`. Use the files through `<img>` with `alt="Fathomgate"`; don't inline them, because their `<title>` and `<desc>` are production notes, not labels.
+
+- **Colours belong to the artwork.** The logo's colours (teal `#00D4C7`, ink `#0B1B2E`, light `#E6ECF1` and the gradients between them) live only inside the SVG files. No token, stylesheet or component uses them; UI keeps using Fathom's semantic tokens, so the "no new hue" rule holds. The dark teal sits next to `--primary`, which in Midnight Zone is also `--decision-allow`, so on any view that shows decisions use the one-colour `-white` or `-ink` mark, never teal. Words beside the mark use `--text`.
+- **The wordmark is artwork; prose is not.** The logo sets FATHOMGATE and its tagline in capitals, with GATE in teal. Neither the capitals nor the colour split carry into text: the product is always Fathomgate (one word, capital F only; never FathomGate, Fathom Gate, or Fathom, which is the design system) and `fathomgate` in mono for the command. The `fathomgate-brandcase-*.svg` lockups spell it "Fathomgate" for places where the capitals would be too loud.
+- **Leave it alone.** Don't recolour the detailed mark, stretch it, add effects, or set it on a busy background. Never give it `shadow-glow`; the glow means "act here" and belongs to the pending approval card. Give it clear space of at least a quarter of the mark's height (the height of a gate panel) on every side.
+- **The logo marks official releases.** Modified builds don't carry it; see [TRADEMARKS.md](../TRADEMARKS.md).
 
 ## Theme
 
@@ -81,7 +85,7 @@ CLI output uses the same words and the same order as the console: decision, clas
 
 ## Motif
 
-Fathom's sonar rings suit Fathomgate exactly: a guardrail is a boundary, and a ping is a probe against it. Use the rings on the empty state ("No calls held") and the sign-in screen, cropped at an edge, never behind text.
+Fathom's sonar rings suit Fathomgate exactly: a guardrail is a boundary, and a ping is a probe against it. The logo carries three of them around the gate. Use the rings on the empty state ("No calls held") and the sign-in screen, cropped at an edge, never behind text. When the mark is on the screen, its rings are the motif: don't add a second set behind or around it.
 
 ## Accessibility
 

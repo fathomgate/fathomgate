@@ -20,7 +20,7 @@ Section 6 of the licence says so directly: it "does not grant permission to use 
 | Ship a fork, modified build or derived product as "Fathomgate", or under a name that could be confused with it ("Fathomgate Pro", "FathomGate", "Fathomgate Enterprise") | Users must be able to tell the project's releases from someone else's build of a policy proxy that sits in front of their routers |
 | Suggest that the project or its maintainer endorses, sponsors, certifies or supports your product or service | Only the maintainer can make that statement |
 | Use the name, or a confusingly similar one, in your product, company or domain name | Same reason as the first row |
-| Use any logo the project adopts on a modified build | A logo marks an official release |
+| Use the project's logo ([`design/brand/`](design/brand/)) on a modified build | A logo marks an official release |
 
 ## If you fork
 
