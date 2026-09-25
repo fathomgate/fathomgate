@@ -3,7 +3,7 @@
 - **Task:** M1.34, Decide whether a hostname pattern alone may make a target known (inventory ADR), code change
 - **From → To:** network-safety-engineer → security-reviewer (policy-engineer is the second reviewer)
 - **State now:** in review
-- **Branch / PR:** `feat/inventory-patterns-enrich` · PR linked from the board once opened
+- **Branch / PR:** `feat/inventory-patterns-enrich` · [PR #184](https://github.com/fathomgate/fathomgate/pull/184)
 - **Date:** 2026-09-25
 
 ## Done
