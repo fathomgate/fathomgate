@@ -52,7 +52,10 @@ func TestNoFileContentInErrors(t *testing.T) {
 }
 
 func TestUnmarshal(t *testing.T) {
-	for _, in := range []string{"name: a\n", "---\nname: a\n", "name: a\n---\n", "# c\n---\nname: a\n", "name: a\n...\n", "--- # start\nname: a\n"} {
+	for _, in := range []string{"name: a\n", "---\nname: a\n", "name: a\n---\n", "# c\n---\nname: a\n", "name: a\n...\n", "--- # start\nname: a\n",
+		// Directives before the first marker are not content (L-c).
+		"%YAML 1.2\n---\nname: a\n",
+		"name: a\r\n", "---\r\nname: a\r\n"} {
 		var d doc
 		if err := Unmarshal([]byte(in), &d); err != nil || d.Name != "a" {
 			t.Errorf("%q: %v %+v", in, err, d)
@@ -68,11 +71,20 @@ func TestUnmarshal(t *testing.T) {
 		"name: a\n---\nname: b\n":               "2 YAML documents",
 		"--- {name: a}\n--- {name: b}\n":        "2 YAML documents",
 		"name: a\n...\n---\nname: b\n":          "2 YAML documents",
+		// A lone \r is a line break to the parser (L-b).
+		"---\r---\rname: a\r":     "starts with an empty YAML document",
+		"name: a\r---\rname: b\r": "2 YAML documents",
 	} {
 		var late doc
 		if err := Unmarshal([]byte(in), &late); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", in, err, want)
 		}
+	}
+	// %TAG is not a document either (L-c). goccy/go-yaml v1.19 cannot parse
+	// a %TAG directive, so the file is refused, but by the parser, never as
+	// "2 YAML documents".
+	if err := layout([]byte("%YAML 1.2\n%TAG !e! tag:example.com,2026:\n---\nname: a\n")); err != nil {
+		t.Errorf("directives counted as content: %v", err)
 	}
 	// A `---` inside a block scalar is indented and is not a marker.
 	var block doc

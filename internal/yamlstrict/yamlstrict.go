@@ -59,9 +59,15 @@ var marker = regexp.MustCompile(`^---(?:[ \t].*)?$`)
 // the first marker, or only right after it (a leading `---`). Anything
 // else is two documents, or an empty one before the content.
 func layout(b []byte) error {
-	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	// Line breaks as the YAML parser counts them: \r\n, and a lone \r too
+	// (security re-check of PR #172, L-b).
+	text := strings.ReplaceAll(string(b), "\r\n", "\n")
+	lines := strings.Split(strings.ReplaceAll(text, "\r", "\n"), "\n")
 	segment, contentIn, count := 0, -1, 0
 	for _, l := range lines {
+		if segment == 0 && strings.HasPrefix(l, "%") {
+			continue // a %YAML or %TAG directive before the first marker (L-c)
+		}
 		if marker.MatchString(l) {
 			segment++
 			if strings.TrimSpace(strings.TrimPrefix(l, "---")) != "" && !strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(l, "---")), "#") {
@@ -94,9 +100,13 @@ func layout(b []byte) error {
 func documents(docs []*ast.DocumentNode) int {
 	n := 0
 	for _, d := range docs {
-		if d != nil && d.Body != nil {
-			n++
+		if d == nil || d.Body == nil {
+			continue
 		}
+		if _, directive := d.Body.(*ast.DirectiveNode); directive {
+			continue // %YAML before the first marker is not a document (L-c)
+		}
+		n++
 	}
 	return n
 }

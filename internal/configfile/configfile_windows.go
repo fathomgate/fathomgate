@@ -7,8 +7,10 @@ package configfile
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -146,9 +148,11 @@ func check(f *os.File, path, what string, dir bool) error {
 // are the SIDs of the offending non-inherited entries, which /grant:r
 // leaves in place; a second command removes them. Each command is on a
 // line of its own (PowerShell 5.1 has no &&, and nothing may follow a
-// command on its line). A path holding a character a shell would change
-// (%, !, a control character, a quote) gets prose instead of a command.
+// command on its line). The path is cleaned first (a trailing `\` would
+// escape the closing quote), and a path with any character outside
+// safeForCommand's allow-list gets prose instead of a command.
 func fixAdvice(path string, dir bool, user *windows.SID, explicit []string) string {
+	path = filepath.Clean(path)
 	if !safeForCommand(path) {
 		return "remove every other account's write access with icacls /inheritance:r and /grant:r (no command is printed, because the path holds a character a command line would change)"
 	}
@@ -164,11 +168,27 @@ func fixAdvice(path string, dir bool, user *windows.SID, explicit []string) stri
 }
 
 // safeForCommand reports whether path can be put between double quotes on
-// a Command Prompt or PowerShell line and reach icacls unchanged.
+// a Command Prompt or PowerShell line and reach icacls unchanged. It is an
+// allow-list (security re-check of PR #172, M1): letters and digits in any
+// script, space, and `\ / : . _ - ( ) [ ] { } + , = @ # ~ ' & ^`. Nothing
+// else passes: not `%` or `!` (Command Prompt expansion), not `$` or a
+// backquote (PowerShell), not a straight or typographic quote (PowerShell
+// takes U+201C, U+201D and U+201E as double quotes), not a control or
+// format character. A path that ends in a separator (a root such as C:\,
+// where the `\` would escape the closing quote) fails too.
 func safeForCommand(path string) bool {
-	return !strings.ContainsFunc(path, func(r rune) bool {
-		return r == '%' || r == '!' || r == '"' || r == '$' || r == '`' || r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0)
-	})
+	if path == "" || strings.HasSuffix(path, `\`) || strings.HasSuffix(path, "/") {
+		return false
+	}
+	for _, r := range path {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+		case strings.ContainsRune(` \/:._-()[]{}+,=@#~'&^`, r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // account names sid as DOMAIN\name, or as its SID string when the name
