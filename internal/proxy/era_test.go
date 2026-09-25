@@ -887,8 +887,11 @@ func TestUpstreamEra(t *testing.T) {
 		{"2026-12-01", true, eraStateful},
 	}
 	for _, tc := range cases {
-		if got := upstreamEra(tc.version, tc.handshake); got != tc.want {
-			t.Errorf("upstreamEra(%s, handshake %t) = %s, want %s", tc.version, tc.handshake, got, tc.want)
-		}
+		t.Run(fmt.Sprintf("%s handshake %t", tc.version, tc.handshake), func(t *testing.T) {
+			t.Parallel()
+			if got := upstreamEra(tc.version, tc.handshake); got != tc.want {
+				t.Errorf("upstreamEra(%s, handshake %t) = %s, want %s", tc.version, tc.handshake, got, tc.want)
+			}
+		})
 	}
 }

@@ -163,10 +163,12 @@ type upstream struct {
 	// initialise handshake only (ADR 0018). It is the version the upstream
 	// answered, which after an initialise handshake can be 2026-07-28.
 	version string
-	// era is the upstream session's era (upstreamEra): from version and
-	// from the handshake go-sdk completed on the session, never from which
-	// connect attempt fathomgate made. A session opened with the initialise
-	// handshake is stateful even at 2026-07-28 (T0.47, N6).
+	// era is the upstream session's era label (upstreamEra): from version
+	// and from the handshake request go-sdk had answered on the session,
+	// never from which connect attempt fathomgate made. A session opened
+	// with the initialise handshake is labelled stateful even at 2026-07-28
+	// (T0.47, N6). It is a label for logs and the audit, not a capability:
+	// no control may read it as what the upstream can or cannot send.
 	era     string
 	done    chan struct{}
 	err     error
@@ -303,8 +305,8 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// (progress.go).
 		ProgressNotificationHandler: p.upstreamProgress(up),
 	})
-	// Which handshake go-sdk completed on each attempt's session, for the
-	// era label (upstreamEra).
+	// Which handshake request go-sdk had answered on each attempt's
+	// session, for the era label (upstreamEra).
 	hs := &handshakes{}
 	client.AddSendingMiddleware(hs.middleware)
 	if expired == nil {

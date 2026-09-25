@@ -30,28 +30,35 @@ func eraOf(version string) string {
 	return eraStateful
 }
 
-// upstreamEra returns the era of an upstream session from the protocol
-// version it negotiated and from how go-sdk opened it (T0.47, N6): handshake
-// reports that the initialise handshake completed on the session, rather
-// than server/discover. A session opened with the initialise handshake is
-// stateful whatever version the upstream named in its answer: it has a
-// handshake and a session, and the upstream may send it server-initiated
-// requests. That happens when an upstream answers the 2025-11-25 initialise
-// request, after the ADR 0018 restart or go-sdk's own fallback, with
-// 2026-07-28, which go-sdk accepts. Only a session opened with
-// server/discover at a stateless version is stateless.
+// upstreamEra returns the era label of an upstream session from the protocol
+// version it negotiated and from how go-sdk opened it (T0.47, N6). handshake
+// reports that the session's initialise request was answered, rather than
+// server/discover. A session opened with the initialise handshake is labelled
+// stateful whatever version the upstream named in its answer. That happens
+// when an upstream answers the 2025-11-25 initialise request, after the ADR
+// 0018 restart or go-sdk's own fallback, with 2026-07-28, which go-sdk
+// accepts. Only a session opened with server/discover at a stateless version
+// is labelled stateless.
+//
+// The era is a label of the handshake, for logs and the audit, and nothing
+// more. It says nothing about what the upstream can send: go-sdk accepts a
+// server-initiated elicitation/create from an upstream in either era, so one
+// labelled stateless can still send it, and fathomgate relays it (profile-schema
+// 8.4). No control may treat up.era as a capability.
 func upstreamEra(version string, handshake bool) string {
 	if handshake {
 		return eraStateful
 	}
+	// upstreamEra("", false) is stateful: the conservative direction, and
+	// unreachable after a successful Connect, which always sets a version.
 	return eraOf(version)
 }
 
 // handshakes records which upstream sessions go-sdk opened with the
 // initialise handshake. It is a sending middleware on the upstream's
-// mcp.Client, so it sees the handshake go-sdk actually completed on each
-// session, over any transport, and not which connect attempt fathomgate
-// made (ADR 0018). It holds at most one entry per connect attempt (two),
+// mcp.Client, so it sees the handshake request go-sdk sent and had answered
+// on each session, over any transport, and not which connect attempt
+// fathomgate made (ADR 0018). It holds at most one entry per connect attempt (two),
 // and take empties it once the upstream has connected, so a failed first
 // attempt's session is not kept alive. go-sdk sends initialise only inside
 // Client.Connect, so nothing is recorded after that.
@@ -61,7 +68,11 @@ type handshakes struct {
 }
 
 // middleware marks a session once its initialise request has been answered
-// without error. A failed handshake leaves no mark; its session is closed.
+// without a JSON-RPC error. The mark is set before go-sdk checks the answered
+// version (client.go:395 in v1.8.0) and before it sends its initialised
+// notification; go-sdk may still reject the answered version, in which case
+// Connect fails and the mark is never read. A request that got an error
+// leaves no mark.
 func (h *handshakes) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		res, err := next(ctx, method, req)
