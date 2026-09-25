@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 10 · blocked 3 · in review 7 · merged 17 · dropped 3
+Tasks: open 12 · blocked 2 · merged 24 · dropped 3
 
 ## In flight
 
@@ -30,23 +30,24 @@ Tasks: open 10 · blocked 3 · in review 7 · merged 17 · dropped 3
 | M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | merged | M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
 | M1-20 | fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4 | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian, release-engineer | merged | M1-19 | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |
 | M1-21 | Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval | `policies` | policy-engineer | security-reviewer | merged | — | 3, 4, 6 | — |
-| M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | in review | — | 4 | — |
-| M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | in review | M1-18 | — | — |
+| M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | merged | — | 4 | — |
+| M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | merged | M1-18 | — | — |
 | M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | open | — | 5, 6 | — |
 | M1-27 | Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
-| M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | blocked | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 6 | — |
+| M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | open | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 6 | — |
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | docs-writer | test-engineer | open | — | — | — |
-| M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in review | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
+| M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | open | M1-18 | 3, 4, 6 | — |
-| M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | in review | — | 6 | [0031](docs/adr/0031-hostname-patterns-never-make-a-target-known.md) |
+| M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | merged | — | 6 | [0031](docs/adr/0031-hostname-patterns-never-make-a-target-known.md) |
 | M1-35 | Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 4 | — |
 | M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 4 | — |
 | M1-37 | Make an unset unknown_target deny every class (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | merged | — | 6 | — |
-| M1-38 | Issue hygiene - GitHub issues follow the board automatically | `tools/status` | release-engineer | security-reviewer, docs-writer | in review | — | — | — |
-| M1-39 | Bring the worst cases at the 64 KiB argument cap under the 5 ms budget (per-call caps, one Decide) | `internal/gate` | policy-engineer | security-reviewer, go-reviewer, mcp-protocol-engineer | in review | M1-23 | — | — |
-| M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | in review | — | — | — |
+| M1-38 | Issue hygiene - GitHub issues follow the board automatically | `tools/status` | release-engineer | security-reviewer, docs-writer | merged | — | — | — |
+| M1-39 | Bring the worst cases at the 64 KiB argument cap under the 5 ms budget (per-call caps, one Decide) | `internal/gate` | policy-engineer | security-reviewer, go-reviewer, mcp-protocol-engineer | merged | M1-23 | — | — |
+| M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | merged | — | — | — |
+| M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | open | — | — | — |
 
 ## Done this milestone
 
