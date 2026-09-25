@@ -158,7 +158,7 @@ This section records factual corrections (GOVERNANCE.md). It does not change the
 
 ## Notes after acceptance
 
-**2026-09-25, M1-19 (wiring, PR to be linked).** The record left the final export table and the proxy's `Gate` interface to the wiring task. This is what was built, and the choices the task made inside this record's decision. The choices marked *(review)* go beyond the sketch; security-reviewer and the maintainer decide in review whether any needs a record of its own.
+**2026-09-25, M1-19 (wiring, [PR #167](https://github.com/fathomgate/fathomgate/pull/167)).** The record left the final export table and the proxy's `Gate` interface to the wiring task. This is what was built, and the choices the task made inside this record's decision. The choices marked *(review)* go beyond the sketch; security-reviewer and the maintainer decide in review whether any needs a record of its own.
 
 The export table of `internal/proxy`, replacing ADR 0022's (its rules stand: a new export needs a new record, and `go doc ./internal/proxy` must match):
 
