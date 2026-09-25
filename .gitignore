@@ -20,6 +20,9 @@ venv/
 *.egg-info/
 uv.lock
 
+# Agent worktrees (full copies of the repo made by Claude Code)
+.claude/worktrees/
+
 # Secrets and local state
 .env
 .env.*
