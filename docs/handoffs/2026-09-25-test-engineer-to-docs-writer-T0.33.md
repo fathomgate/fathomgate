@@ -29,6 +29,46 @@
   - `docs/testing/test-matrix.md`: row 23 and its run note. The coverage tables add 23 (and 22 under netdev-ssh-mcp, which was missing).
   - `tests/README.md` and `CHANGELOG.md` (Added). The CHANGELOG also loses a stale duplicate of the T0.31 entry that still said `127.0.0.0/8`, left by the PR #112 merge.
 
+## Fix round (security and docs reviews of PR #115)
+
+The security review asked for changes (three medium items, all docs). The docs review approves after changes. Where they conflict, security wins: docs item 5 (put the `export` in `~/.zshrc` or `$PROFILE` so it lasts) was rejected by the coordinator, and the docs now say the opposite.
+
+- **M1, the client variable spreads the token.**
+  - install.md step 3 and the README now add the server once with `'Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}'`. They start Claude Code with the variable set for that process alone: `CLAUDE_FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/claude-code.token)" claude` in sh, or in PowerShell a window used only to start Claude Code.
+  - They say never to put it in a shell rc file, `$PROFILE` or `setx`, and why: Claude Code's Bash tool, hooks and stdio servers inherit it.
+  - They say to read a project's `url` and `headers` before approving its MCP servers.
+  - The variable is renamed from `FATHOMGATE_TOKEN` to `CLAUDE_FATHOMGATE_TOKEN`: outside the reserved `FATHOMGATE_*` prefix, and not `FG_*` (ADR 0019). The docs say Fathomgate never reads it.
+  - Docs item 1 is covered with my own wording, because the reviewer's text was not available to me. Don't use `FATHOMGATE_LISTEN_TOKEN` (checked: `serve --listen-token-file` exits 2 with it set). Don't use a credential variable such as `ANTHROPIC_API_KEY` (checked: an empty `Bearer`, a 401, no warning).
+- **M2, "safe to commit".** It now reads "It holds the variable's name, not the token". The docs also:
+  - recommend `--scope local` or `user`;
+  - forbid `--scope project` with a pasted token;
+  - say that a committed entry sends each person's token to that port on their own machine (the port-squatting row).
+- **M3, withdrawing a token.**
+  - install.md step 2, SECURITY.md hardening and threat-model row 58 now say that token files are read once at startup, so a token is withdrawn by removing its entry or replacing the file, then restarting. Deleting the file changes nothing until the restart.
+  - The examples use a per-client file and principal (`claude-code.token`, `claude-code`).
+- **L1:** `claude mcp get` on a `${VAR}` entry prints `Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}`, the reference, whether the variable is set or not. This is recorded in the row 23 run note, and install.md matches it.
+- **L2:** a new `non-loopback Host without token` case gets 403.
+  - Mutation with `hostAllowed` returning true: that case fails (`401 == 403`).
+  - The case with a token still passes, because go-sdk's own Host check answers 403 behind authentication. So only the tokenless case notices.
+- **L3:** new `test_http_tool_call_needs_token` in both eras.
+  - A `tools/call` of `run_show_command` with no token or a wrong one gets 401, and the device logs nothing. The 2025 call goes on a session the right token opened.
+  - A control call with the token then runs `show version` once.
+  - Mutation with a verifier that accepts any token: fails in both eras (`200 == 401`).
+- **N2:** SECURITY.md payload row: "Results have no cap below the 16 MiB frame limit".
+- **N3:** SECURITY.md port-squatting row: on Windows a wildcard bind (`0.0.0.0:P` or `[::]:P`) can wait for Fathomgate to stop.
+- **Threat model:** row 38 now lists the client-side exposures: an exported or persisted variable, inheritance by tools and hooks, a project `.mcp.json` naming the variable, and `claude mcp get` printing a literal token. Their status is "client side open, documentation only (T0.33)". The OWASP MCP07 line says the same.
+- **Docs 2:** install.md has a tested/untested paragraph, with my own wording, because the reviewer's text was not available to me.
+  - Tested: Git Bash on Windows 11, Claude Code 2.1.281.
+  - Not run: the PowerShell lines in Windows PowerShell 5.1 or 7 (this agent's sandbox refuses `powershell.exe`, and I did not work around it), macOS and Linux terminals, project `.mcp.json` approval, and Cursor or any other client over HTTP.
+  - The row 23 run note has the matching evidence.
+- **Docs 3:** "If you already added `netdev` over stdio earlier on this page, remove it first with `claude mcp remove netdev`, or use another name."
+- **Docs 6:** README "Or start it yourself and let assistants connect over HTTP.", the scoped launch, and "docs/install.md shows how to make the token, the Windows commands and the `.mcp.json` form."
+- **Docs 7:** "Fathomgate" in prose on the lines this PR touched: CHANGELOG, test-matrix row 23 and its run note, the SECURITY.md listener, port-squatting and slot rows and bullets, tests/README, and install.md step 3.
+- **Docs 8:** the row 23 run note says ADR 0016 names `.mcp.json`, but the same JSON ran through `--mcp-config --strict-mcp-config`.
+- **Minor:** "Here is the same entry as JSON, ...".
+
+Locally after the round: `test_http_listener.py` 9 passed on Windows against v1.7.1.
+
 ## Look at this first
 
 - The install.md step 3 text: it is the first user-facing HTTP client config, so it should be checked for tone and accuracy. Every command and key in it was run against Claude Code 2.1.281, except a project `.mcp.json` session (it needs the interactive approval). The text says so.

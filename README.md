@@ -114,22 +114,28 @@ The trace lists every rule Fathomgate checked, top to bottom, and why each one d
 
 The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. Point `--upstream` at the server itself (its binary, or the Python interpreter in its virtual environment), not at a launcher such as `uvx`, `npx`, `uv run`, a shell script or `docker run -i`. A server that has not answered within 5 seconds is restarted on the older protocol, and although fathomgate stops the launcher's whole process tree, a server that escapes it (behind `docker run -i`, or detached by its launcher) keeps running when the launcher is stopped ([why](docs/install.md#point---upstream-at-the-server-not-at-a-launcher)). If you must use `uvx` or `npx`, run it once by hand first so it starts fast. For now every request passes straight through (see above).
 
-**Or run it once and let assistants connect over HTTP.** Start Fathomgate yourself with `--listen` and a token file that only you can read, and it serves on this computer only:
+**Or start it yourself and let assistants connect over HTTP.** Start Fathomgate with `--listen` and a token file that only you can read, one per client, and it serves on this computer only:
 
 ```sh
-fathomgate serve --listen 127.0.0.1:8931 --listen-token-file me=$HOME/.config/fathomgate/agent.token \
+fathomgate serve --listen 127.0.0.1:8931 \
+  --listen-token-file claude-code=$HOME/.config/fathomgate/claude-code.token \
   --server netdev-ssh-mcp --upstream /usr/local/bin/netdev-ssh-mcp
 ```
 
-Copy the URL from the `listening` line it prints, and give the assistant the token as a header. In Claude Code:
+Copy the URL from the `listening` line it prints. In Claude Code, add the server with a header that names a variable, not the token:
 
 ```sh
-export FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/agent.token)"
 claude mcp add --transport http netdev http://127.0.0.1:8931/mcp \
-  --header 'Authorization: Bearer ${FATHOMGATE_TOKEN}'
+  --header 'Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}'
 ```
 
-Making the token, the Windows commands and the `.mcp.json` form are in [docs/install.md](docs/install.md#remote-agents-over-http).
+Then start Claude Code with the token set for it alone, in one command, so your shell never keeps it:
+
+```sh
+CLAUDE_FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/claude-code.token)" claude
+```
+
+Never put the token in a shell startup file or `setx`, where every program you run would inherit it. [docs/install.md](docs/install.md#remote-agents-over-http) shows how to make the token, the Windows commands and the `.mcp.json` form.
 
 Step-by-step setup for Claude Code and Cursor, device credentials, and what to do if the client can't find fathomgate or the server, is in [docs/install.md](docs/install.md).
 

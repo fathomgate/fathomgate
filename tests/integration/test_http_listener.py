@@ -12,7 +12,8 @@ bearer token, in both protocol eras:
 Each lists the prefixed tools and runs a read-only `show version` on the fake
 device, on both loopback URLs the `listening` lines print. Raw HTTP requests
 check the refusals: 401 with no token and with a wrong one, 403 with an
-`Origin` header or a non-loopback `Host`. Every case also checks that the
+`Origin` header or a non-loopback `Host`, and a `tools/call` with no token
+or a wrong one reaches no device. Every case also checks that the
 token never reaches fathomgate's stderr, and that nothing is written to
 stdout (the listener and stdio are exclusive).
 
@@ -305,10 +306,18 @@ def _post(url: str, body: dict, headers: dict[str, str]) -> Reply:
     try:
         conn.request("POST", u.path, body=json.dumps(body), headers=headers)
         resp = conn.getresponse()
-        # The whole body of a refusal; a 200 is an SSE stream, and the first
-        # event is enough.
-        data = resp.read().decode() if resp.status != 200 else resp.readline().decode() + resp.readline().decode()
-        return Reply(resp.status, {k.lower(): v for k, v in resp.getheaders()}, data)
+        headers_ = {k.lower(): v for k, v in resp.getheaders()}
+        if resp.status != 200 or not headers_.get("content-type", "").startswith("text/event-stream"):
+            return Reply(resp.status, headers_, resp.read().decode())
+        # An SSE stream: read events up to the JSON-RPC response (a stateful
+        # GET-less stream may stay open after it).
+        lines: list[str] = []
+        for raw in iter(resp.readline, b""):
+            line = raw.decode()
+            lines.append(line)
+            if line.startswith("data:") and ('"result"' in line or '"error"' in line):
+                break
+        return Reply(resp.status, headers_, "".join(lines))
     finally:
         conn.close()
 
@@ -353,6 +362,7 @@ def test_http_refusals(file_listener: Listener, fake_device: FakeDevice, body: d
             # DNS rebinding: a page's name resolved to loopback. Checked
             # before authentication too.
             "non-loopback Host": (403, {**headers, "Authorization": f"Bearer {token}", "Host": "evil.example"}),
+            "non-loopback Host without token": (403, {**headers, "Host": "evil.example"}),
         }
         for name, (want, hdrs) in cases.items():
             r = _post(url, body, hdrs)
@@ -369,3 +379,66 @@ def test_http_refusals(file_listener: Listener, fake_device: FakeDevice, body: d
     # At least one failed attempt is logged with its reason (rate-limited to
     # one line a second, so not one per request).
     assert re.search(r'msg="listener: authentication failed" remote=\S+ reason="(no Authorization header|unknown token|not a bearer token)"', err), err
+
+
+# --- unauthenticated tool calls ---------------------------------------------------
+
+SHOW_VERSION = "show version"
+
+
+def _call_body(port: int, meta: dict | None = None) -> dict:
+    params: dict = {
+        "name": f"{SERVER}.run_show_command",
+        "arguments": {"host": "127.0.0.1", "port": port, "device_type": "eos", "command": SHOW_VERSION},
+    }
+    if meta:
+        params["_meta"] = meta
+    return {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": params}
+
+
+def _session_2025(url: str, token: str) -> dict[str, str]:
+    """Open a 2025-11-25 session with the token; return the headers a later
+    request on it carries (without Authorization)."""
+    auth = {"Authorization": f"Bearer {token}"}
+    init = _post(url, INITIALIZE, {**BASE_HEADERS, **auth})
+    assert init.status == 200, init
+    sid = init.headers.get("mcp-session-id")
+    assert sid, init.headers
+    headers = {**BASE_HEADERS, "Mcp-Session-Id": sid, "MCP-Protocol-Version": "2025-11-25"}
+    note = _post(url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, {**headers, **auth})
+    assert note.status == 202, note
+    return headers
+
+
+@pytest.mark.parametrize("era", list(ERAS))
+def test_http_tool_call_needs_token(file_listener: Listener, fake_device: FakeDevice, era: str) -> None:
+    """Row 23 (security review L3): a `tools/call` of `run_show_command` with
+    no token or a wrong one gets 401 and sends nothing to the device, so an
+    authentication bypass would show up as a device command. In the 2025 era
+    the call goes on a session the right token opened, so the check is per
+    request, not per session. A control call with the token runs
+    `show version` once, so the request shape does reach the device."""
+    url = file_listener.urls[0]
+    token = file_listener.token
+    wrong = _wrong_token(token)
+    if era == "2025-11-25":
+        headers = _session_2025(url, token)
+        body = _call_body(fake_device.port)
+    else:
+        headers = {**BASE_HEADERS, "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": "tools/call", "Mcp-Name": f"{SERVER}.run_show_command"}
+        body = _call_body(fake_device.port, TOOLS_LIST_2026["params"]["_meta"])
+
+    for name, hdrs in {
+        "no token": headers,
+        "wrong token": {**headers, "Authorization": f"Bearer {wrong}"},
+    }.items():
+        r = _post(url, body, hdrs)
+        assert r.status == 401, (name, r)
+        assert r.headers.get("www-authenticate", "").startswith("Bearer"), (name, r.headers)
+    assert fake_device.commands() == []
+
+    ok = _post(url, body, {**headers, "Authorization": f"Bearer {token}"})
+    assert ok.status == 200, ok
+    assert "FAKE0000SN01" in ok.body, ok.body
+    assert fake_device.commands() == [SHOW_VERSION]
+    _assert_token_kept_out(file_listener, wrong)
