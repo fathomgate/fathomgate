@@ -13,6 +13,7 @@ Milestone argument: `$ARGUMENTS` (empty means the milestone named in `docs/miles
    - a task whose owner slug does not match a file in `.claude/agents/`;
    - a blocker in the YAML whose text mentions a task that is already `merged`;
    - a handoff note addressed to an agent for a task that is not in the YAML.
-5. End with one line: the next unblocked task and its owner, or "milestone <Mn> can close" if every task is `validated` or `dropped` and every exit criterion is met.
+5. Run `python tools/status/issues.py` (a dry run; it needs `gh` authenticated and PyYAML, so `uv run --no-project --with pyyaml python tools/status/issues.py` if PyYAML is missing). Show the issue changes it would make and its drift report: issues for task ids on no board, active tasks with no issue, closed issues of active tasks, duplicate issues, task-id issues from outside collaborators, and open issues with no activity in 30 days. Exit 3 means more closures than `--max-close` (5) are due: say so, and that the maintainer starts the workflow by hand with a higher `max_close`. Never pass `--apply` here: `.github/workflows/issue-hygiene.yaml` applies it on the next push to `main` that changes the board, weekly, or by hand. If `gh` is not available, say so and skip this step.
+6. End with one line: the next unblocked task and its owner, or "milestone <Mn> can close" if every task is `validated` or `dropped` and every exit criterion is met.
 
 Do not edit any file. If the user asks to fix drift, hand off to `/handoff` or `/milestone` rather than editing the YAML directly here.
