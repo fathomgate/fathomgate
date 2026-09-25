@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from policy_lint import Finding, lint_file, lint_policy, main
+from policy_lint import Finding, lint_file, lint_policy, main, warn_policy
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLES = sorted(p for p in (REPO / "policies" / "examples").glob("*.yaml") if not p.name.endswith(".test.yaml"))
@@ -127,3 +127,34 @@ def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert main([str(good), str(bad)]) == 1
     out = capsys.readouterr().out
     assert "bad.yaml:$.rules[0].effect" in out
+
+
+@pytest.mark.tier1
+@pytest.mark.parametrize(
+    ("unknown_target", "warned"),
+    [("allow", True), ("deny", False), (None, False)],
+)
+def test_unknown_target_allow_warns(unknown_target: str | None, warned: bool) -> None:
+    doc = copy.deepcopy(PLAN_POLICY)
+    if unknown_target is None:
+        del doc["defaults"]["unknown_target"]
+    else:
+        doc["defaults"]["unknown_target"] = unknown_target
+    assert lint_policy(doc) == []
+    warnings = warn_policy(doc)
+    assert bool(warnings) is warned
+    if warned:
+        assert warnings[0].path == "$.defaults.unknown_target"
+        assert "ADR 0032" in warnings[0].message
+
+
+@pytest.mark.tier1
+def test_cli_warning_keeps_exit_zero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    doc = copy.deepcopy(PLAN_POLICY)
+    doc["defaults"]["unknown_target"] = "allow"
+    f = tmp_path / "allow.yaml"
+    f.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    assert main([str(f)]) == 0
+    out = capsys.readouterr().out
+    assert "allow.yaml:$.defaults.unknown_target: warning:" in out
+    assert "allow.yaml: ok" in out

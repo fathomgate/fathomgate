@@ -279,6 +279,50 @@ rules:
 		}
 	})
 
+	// Every YAML spelling of "no value" is unset, and unset is deny.
+	t.Run("YAML null forms load as deny", func(t *testing.T) {
+		for name, defaults := range map[string]string{
+			"empty value":   "defaults:\n  unknown_target:\n",
+			"null":          "defaults:\n  unknown_target: null\n",
+			"tilde":         "defaults:\n  unknown_target: ~\n",
+			"defaults null": "defaults: null\n",
+			"defaults {}":   "defaults: {}\n",
+			"session only":  "defaults:\n  session: { max_devices: 5 }\n",
+		} {
+			p := mustParse(t, strings.Replace(base, "rules:", defaults+"rules:", 1))
+			if p.Defaults.UnknownTarget != Deny {
+				t.Errorf("%s: loaded unknown_target %q, want deny", name, p.Defaults.UnknownTarget)
+			}
+			if d := Evaluate(p, Request{Class: classify.ReadOperational, Targets: []Target{ghost}}); d.Effect != Deny || d.RuleID != RuleUnknownTarget {
+				t.Errorf("%s: got %s/%s, want deny/%s", name, d.Effect, d.RuleID, RuleUnknownTarget)
+			}
+		}
+	})
+
+	// Values that are not allow or deny are load errors, never a silent
+	// default in either direction.
+	t.Run("loader refuses other values", func(t *testing.T) {
+		for name, defaults := range map[string]string{
+			"yes":           "defaults:\n  unknown_target: yes\n",
+			"true":          "defaults:\n  unknown_target: true\n",
+			"false":         "defaults:\n  unknown_target: false\n",
+			"empty string":  "defaults:\n  unknown_target: \"\"\n",
+			"hold":          "defaults:\n  unknown_target: hold\n",
+			"list":          "defaults:\n  unknown_target: [allow]\n",
+			"duplicate key": "defaults:\n  unknown_target: deny\n  unknown_target: allow\n",
+		} {
+			if _, err := Parse([]byte(strings.Replace(base, "rules:", defaults+"rules:", 1))); err == nil {
+				t.Errorf("%s: Parse accepted it", name)
+			}
+		}
+		// Effects are case-insensitive everywhere (ParseEffect), so ALLOW
+		// is the explicit allow, not an unrecognised value.
+		p := mustParse(t, strings.Replace(base, "rules:", "defaults:\n  unknown_target: ALLOW\nrules:", 1))
+		if p.Defaults.UnknownTarget != Allow {
+			t.Errorf("ALLOW loaded as %q, want allow", p.Defaults.UnknownTarget)
+		}
+	})
+
 	t.Run("a policy built without Parse fails closed", func(t *testing.T) {
 		p := mustParse(t, base)
 		for _, v := range []Effect{"", Hold, "bogus"} {

@@ -24,7 +24,9 @@ We will make an unset `defaults.unknown_target` deny every class, exactly as `un
 2. **Explicit settings keep their meaning.** `unknown_target: deny` is unchanged. `unknown_target: allow` still lets the rules decide for every class, for operators who accept the risk (a lab with no inventory). `hold` stays refused at load. The schema gains no class-scoped form and no new value.
 3. **Where it lives.** `policy.Parse` fills an unset value in as `deny`, so a loaded policy says what is enforced. `Evaluate` denies on any value other than `allow`, so a `Policy` built in Go without `Parse` also fails closed. `Evaluate` stays pure (invariant 1).
 4. **Unchanged.** The rule id `default:unknown_target`, its position as step 1 before the session cap and the rules (invariant 2), the deny text, and the trace entry. Under `allow` the trace entry is recorded unmatched, as before.
-5. **Only named targets.** The default applies to a target the request names. A request with no targets, such as an `INVENTORY_READ` that lists the upstream's own devices, has nothing unknown, so step 1 does not apply and the rules decide. A call to a tool that declares a target parameter but arrives with none is refused before `Evaluate` by the normaliser with `default:bad_arguments` (M1-18), so an empty target list is not a way around this default.
+5. **Only named targets.** The default applies to a target the request names. A request with no targets, such as an `INVENTORY_READ` that lists the upstream's own devices, has nothing unknown, so step 1 does not apply and the rules decide. A call to a tool that declares a target parameter but arrives with none (for example eos-mcp `daily_brief` given only `tags`, a group selector the upstream expands itself) is to be refused before `Evaluate` by the normaliser with `default:bad_arguments`; that refusal is open, owner M1-18, and until it lands an empty target list skips this default.
+6. **Known means resolved.** The default runs only for targets no provider resolves. A hostname-pattern hit makes a target known today, so `core-x.attacker.example` under an operator pattern `^core-` never reaches this step; that is open until the ADR 0031 code change lands (owner M1-34).
+7. **Warnings.** `policy-lint` warns on an explicit `unknown_target: allow` (exit status unchanged). `fathomgate serve` logs the same warning at startup once the gate is wired (M1-19).
 
 [policy-schema section 2.1 and section 4](../specs/policy-schema.md#21-defaults), [inventory-schema section 7](../specs/inventory-schema.md#7-unknown-target-semantics), ARCHITECTURE.md, PLAN.md, the PRD (R12), the glossary, test-matrix row 6 and the threat model change in the implementing PR.
 
@@ -44,7 +46,7 @@ We will make an unset `defaults.unknown_target` deny every class, exactly as `un
 ### Neutral
 
 - The example policies' decisions do not change, and neither do their test cases.
-- `tools/policy-lint` checks the key's values only, not the default, so it does not change.
+- `tools/policy-lint` checks the key's values, not the default; it gains the warning in point 7.
 
 ## Alternatives considered
 

@@ -43,4 +43,11 @@ bin/fathomgate policy eval --policy no-default.yaml --server eos-mcp --tool get_
 
 ## Questions for the receiver
 
-- Should `Validate` also warn (not refuse) on an explicit `unknown_target: allow`, given the credential exposure? I did not add a warning because `Evaluate` does no I/O and the loader has no warning channel today.
+- Should `Validate` also warn (not refuse) on an explicit `unknown_target: allow`? **Answered by security-reviewer, 2026-09-25:** warn in policy-lint now, and in `serve` startup logging once M1-19 wires the gate. Done for policy-lint in this PR (`warn_policy` in `tests/policy_lint/lint.py`, exit status unchanged); the `serve` warning is M1-19's.
+
+## Review round 1 (security-reviewer, approve with fixes), addressed
+
+- M1: threat-model row and CHANGELOG Security line now name the residual: a hostname-pattern hit makes the target known (open until the ADR 0031 change lands, M1-34).
+- M2: the zero-target refusal is marked open, M1-18, with eos-mcp `daily_brief` given only `tags` as the example (row, ADR 0032 point 5, policy-schema step 1).
+- L1: `TestUnknownTargetDefaults` pins the YAML null forms (empty, `null`, `~`, `defaults: null`, `defaults: {}`) as deny, and loader refusals (`yes`, `true`, `false`, `""`, `hold`, a list, a duplicate key). `ALLOW` loads as `allow`: effects are case-insensitive everywhere (`ParseEffect`). Python `policy-lint` differs on two of these: it refuses `ALLOW` and PyYAML accepts a duplicate key (last wins); not changed here.
+- Merged `origin/main` (M1-16); threat-model mapping conflict resolved, STATUS.md re-rendered.

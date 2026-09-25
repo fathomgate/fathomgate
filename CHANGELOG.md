@@ -32,7 +32,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Security
 
-- Reads to unknown hosts no longer pass under a policy that omits `defaults.unknown_target` (M1-37, ADR 0032; security reviews of PR #154 and PR #158). eos-mcp and netdev-ssh-mcp log in to whatever host the agent names with the operator's device credentials, so the old default let `reads-anywhere` send them to a host such as `core-x.attacker.example`. Not live in v0.1.0, which enforced no policy; `serve` applies it once the gate is wired (M1-18, M1-19). Threat model row added.
+- Reads to unknown hosts no longer pass under a policy that omits `defaults.unknown_target` (M1-37, ADR 0032; security reviews of PR #154 and PR #158). eos-mcp and netdev-ssh-mcp log in to whatever host the agent names with the operator's device credentials, so the old default let `reads-anywhere` send them to a host such as `core-x.attacker.example`. Not live in v0.1.0, which enforced no policy; `serve` applies it once the gate is wired (M1-18, M1-19). Two residuals stay open: a hostname-pattern hit still makes a target known, so the default does not run for `core-x.attacker.example` under an operator pattern `^core-` until the ADR 0031 change lands (M1-34); and a call with no targets skips the default until the normaliser refuses zero-target calls to tools that take a target (M1-18). `policy-lint` now warns on an explicit `unknown_target: allow`. Threat model row added.
 
 ## [0.1.0] - 2026-09-25
 
