@@ -231,7 +231,7 @@ func TestServeListenRefusals(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	good := tokenFile(t, dir, "good", testListenToken+"\n")
-	base := []string{"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(dir, "FAKE-canary-no-such-upstream")}
+	base := []string{"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(dir, "FAKE-canary-no-such-upstream"), "--no-policy"}
 	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
 	withToken := func(extra ...string) []string {
 		return with(append([]string{"--listen-token-file", "alice=" + good}, extra...)...)
@@ -244,24 +244,24 @@ func TestServeListenRefusals(t *testing.T) {
 	}{
 		{"no token", with("--listen", "127.0.0.1:0"), nil, "--listen needs a bearer token"},
 		{"all interfaces", withToken("--listen", "0.0.0.0:8931"), nil, "--listen takes localhost:<port>"},
-		{"bare port", withToken("--listen", ":8931"), nil, "loopback only in M0"},
-		{"IPv6 any", withToken("--listen", "[::]:8931"), nil, "loopback only in M0"},
-		{"LAN", withToken("--listen", "192.168.1.10:8931"), nil, "loopback only in M0"},
+		{"bare port", withToken("--listen", ":8931"), nil, "loopback only until remote binding with TLS arrives (M2)"},
+		{"IPv6 any", withToken("--listen", "[::]:8931"), nil, "loopback only until remote binding with TLS arrives (M2)"},
+		{"LAN", withToken("--listen", "192.168.1.10:8931"), nil, "loopback only until remote binding with TLS arrives (M2)"},
 		{"other 127/8 address", withToken("--listen", "127.0.0.2:8931"), nil, "--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>"},
-		{"host name", withToken("--listen", "example.com:8931"), nil, "loopback only in M0"},
+		{"host name", withToken("--listen", "example.com:8931"), nil, "loopback only until remote binding with TLS arrives (M2)"},
 		{"token as the address", withToken("--listen", testListenToken), nil, "--listen takes"},
 		{"bad port", withToken("--listen", "127.0.0.1:99999"), nil, "--listen: the port must be a number from 0 to 65535"},
-		{"listen-remote", withToken("--listen", "127.0.0.1:0", "--listen-remote"), nil, "--listen-remote reserved for M1"},
-		{"listen-remote=true", withToken("--listen", "0.0.0.0:0", "--listen-remote=true"), nil, "--listen-remote reserved for M1"},
-		{"listen-remote=value", withToken("--listen-remote=" + testListenToken), nil, "flag at argument 7 takes no value"},
-		{"listen-host", withToken("--listen", "127.0.0.1:0", "--listen-host", "fathomgate.internal"), nil, "--listen-host reserved for M1: the listener is loopback-only"},
-		{"both M1 flags", with("--listen-host", "a", "--listen-remote"), nil, "--listen-host, --listen-remote reserved for M1"},
-		{"M1 flags without --listen", with("--listen-remote"), nil, "--listen-remote reserved for M1"},
-		{"reserved policy flag with --listen", withToken("--listen", "127.0.0.1:0", "--policy", "p.yaml"), nil, "--policy not enforced in M0"},
-		{"token on argv", with("--listen", "127.0.0.1:0", "--listen-token", testListenToken), nil, "unknown flag at argument 7"},
-		{"token on argv with =", with("--listen", "127.0.0.1:0", "--listen-token="+testListenToken), nil, "unknown flag at argument 7"},
+		{"listen-remote", withToken("--listen", "127.0.0.1:0", "--listen-remote"), nil, "--listen-remote reserved for M2"},
+		{"listen-remote=true", withToken("--listen", "0.0.0.0:0", "--listen-remote=true"), nil, "--listen-remote reserved for M2"},
+		{"listen-remote=value", withToken("--listen-remote=" + testListenToken), nil, "flag at argument 8 takes no value"},
+		{"listen-host", withToken("--listen", "127.0.0.1:0", "--listen-host", "fathomgate.internal"), nil, "--listen-host reserved for M2: the listener is loopback-only"},
+		{"both M1 flags", with("--listen-host", "a", "--listen-remote"), nil, "--listen-host, --listen-remote reserved for M2"},
+		{"M1 flags without --listen", with("--listen-remote"), nil, "--listen-remote reserved for M2"},
+		{"audit with --listen", withToken("--listen", "127.0.0.1:0", "--audit", "a.jsonl"), nil, "--audit arrives in M4"},
+		{"token on argv", with("--listen", "127.0.0.1:0", "--listen-token", testListenToken), nil, "unknown flag at argument 8"},
+		{"token on argv with =", with("--listen", "127.0.0.1:0", "--listen-token="+testListenToken), nil, "unknown flag at argument 8"},
 		{"token file without --listen", withToken(), nil, "--listen-token-file is only used with --listen"},
-		{"token file as a positional", with("--listen", "127.0.0.1:0", "--listen-token-file", "alice="+good, testListenToken), nil, "unexpected argument 9"},
+		{"token file as a positional", with("--listen", "127.0.0.1:0", "--listen-token-file", "alice="+good, testListenToken), nil, "unexpected argument 10"},
 		{"env and file", withToken("--listen", "127.0.0.1:0"), map[string]string{listenTokenEnv: testListenToken2}, "both set"},
 		{"group-readable file", with("--listen", "127.0.0.1:0", "--listen-token-file", "alice="+func() string {
 			p := tokenFile(t, dir, "loose", testListenToken2+"\n")
@@ -302,7 +302,7 @@ func TestServeListenBindFails(t *testing.T) {
 	defer func() { _ = busy.Close() }()
 	var stderr lockedBuffer
 	code := serveContext(context.Background(), []string{
-		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"),
+		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"), "--no-policy",
 		"--listen", busy.Addr().String(),
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
 	out := stderr.String()
@@ -508,7 +508,7 @@ func TestListenerEndToEnd(t *testing.T) {
 	if n := strings.Count(log.String(), "principals=alice"); n != families {
 		t.Errorf("%d listening lines name the principal, want %d:\n%s", n, families, log.String())
 	}
-	for _, want := range []string{"server=fake", "principals=alice", "policy=\"none (M0 pass-through"} {
+	for _, want := range []string{"server=fake", "principals=alice", "policy=\"none (--no-policy: every call is forwarded)\""} {
 		if !strings.Contains(log.String(), want) {
 			t.Errorf("listening line lacks %q:\n%s", want, log.String())
 		}
@@ -852,7 +852,7 @@ func TestServeListenProcess(t *testing.T) {
 	}
 	tokPath := tokenFile(t, t.TempDir(), "alice.token", testListenToken+"\n")
 	args := []string{
-		"--server", "fake", "--upstream", exe,
+		"--server", "fake", "--upstream", exe, "--no-policy",
 		"--upstream-env", serveTestUpstreamEnv + "=mcp",
 		"--upstream-env", "GORACE=atexit_sleep_ms=0",
 		"--listen", "localhost:0",

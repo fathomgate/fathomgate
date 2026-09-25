@@ -53,7 +53,7 @@ const (
 
 // errListenAddr is the refusal of a --listen address that is not loopback.
 // It never quotes the value.
-var errListenAddr = errors.New("--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>; fathomgate listens on loopback only in M0, until the policy pipeline is wired (M1)")
+var errListenAddr = errors.New("--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>; fathomgate listens on loopback only until remote binding with TLS arrives (M2)")
 
 // listenAddr is a checked --listen value: the loopback address asked for
 // and its port (0: the OS picks one).
@@ -404,6 +404,10 @@ type listenRun struct {
 	tokens    listenTokens
 	server    string   // the upstream's --server name
 	passNames []string // --upstream-env-pass names, for the log line
+	// pipeline is the policy, inventory and profile attributes of the
+	// `listening` line (loadPipeline); nil logs policy="none (--no-policy:
+	// every call is forwarded)".
+	pipeline []any
 	// grace replaces shutdownGrace when set (tests).
 	grace time.Duration
 }
@@ -440,7 +444,10 @@ func runListener(ctx context.Context, p *proxy.Proxy, lns []net.Listener, run li
 		if len(run.passNames) > 0 {
 			attrs = append(attrs, "upstream_env_pass", strings.Join(run.passNames, ","))
 		}
-		logger.Info("listening", append(attrs, "policy", "none (M0 pass-through: every call is forwarded)")...)
+		if run.pipeline == nil {
+			attrs = append(attrs, "policy", noPolicyValue)
+		}
+		logger.Info("listening", append(attrs, run.pipeline...)...)
 	}
 
 	code := exitOK

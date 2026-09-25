@@ -37,12 +37,12 @@ func TestParseServe(t *testing.T) {
 		{name: "blank upstream", args: []string{"--server", "s", "--upstream", "  "}, wantErr: "not an executable path"},
 		{name: "upstream is --", args: []string{"--server", "s", "--upstream", "--"}, wantErr: "not an executable path"},
 		{name: "positional without --", args: with("extra"), wantErr: "unexpected argument 5; arguments for the upstream go after --"},
-		{name: "reserved --policy", args: with("--policy", "p.yaml"), wantErr: "--policy"},
-		{name: "reserved -audit=x", args: with("-audit=a.jsonl"), wantErr: "--audit"},
-		{name: "reserved flags listed together", args: with("--inventory", "i", "--profiles", "p"), wantErr: "--inventory, --profiles"},
+		{name: "-audit=x refused until M4", args: with("-audit=a.jsonl"), wantErr: "--audit arrives in M4"},
 		// S1: the flag parser stops at "extra", so --policy is not parsed as a flag.
-		{name: "reserved after a positional", args: with("extra", "--policy", "p.yaml"), wantErr: "--policy"},
-		{name: "reserved after --", args: with("--", "--policy=p.yaml"), wantErr: "--policy not enforced"},
+		{name: "reserved after a positional", args: with("extra", "--policy", "p.yaml"), wantErr: "--policy among the upstream arguments"},
+		{name: "reserved after --", args: with("--", "--policy=p.yaml"), wantErr: "--policy among the upstream arguments"},
+		{name: "reserved listed together after --", args: with("--", "--inventory", "i", "-profiles=p", "--audit", "--inventory"), wantErr: "--inventory, --profiles, --audit among"},
+		{name: "no-policy after -- is the upstream's", args: with("--", "--no-policy"), wantArgs: []string{"--no-policy"}},
 		{name: "missing upstream", args: []string{"--server", "s"}, wantErr: "required"},
 		{name: "missing server", args: []string{"--upstream", "x"}, wantErr: "required"},
 		{name: "dotted server", args: []string{"--server", "net.dev", "--upstream", "x"}, wantErr: "--server"},
@@ -53,7 +53,13 @@ func TestParseServe(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cfg, err := parseServe(tc.args, io.Discard, noEnv, "linux")
+			args := tc.args
+			if tc.wantErr == "" {
+				// The pipeline flags are checked last, after every error
+				// above; TestParseServePipelineFlags covers them.
+				args = append([]string{"--no-policy"}, args...)
+			}
+			cfg, err := parseServe(args, io.Discard, noEnv, "linux")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want it to contain %q", err, tc.wantErr)

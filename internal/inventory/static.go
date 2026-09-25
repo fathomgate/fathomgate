@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -107,6 +108,38 @@ func (f *File) Chain() (Chain, error) {
 		return nil, err
 	}
 	return Chain{static, patterns}, nil
+}
+
+// PatternWarnings returns one line for each hostname pattern under roles:
+// that matches no device listed under devices:, in file order, worded as
+// ADR 0031 decision 5 fixes it: `inventory: roles[<i>] "<match>": matches
+// no listed device`. Such a pattern resolves nothing (a pattern never makes
+// a target known on its own), so an operator who wrote it probably
+// expected something it does not do. It is a warning at load, never an
+// error, so a stale pattern never stops `fathomgate serve`. A pattern that
+// does not compile is skipped here; Chain reports it.
+func (f *File) PatternWarnings() []string {
+	var out []string
+	for i, p := range f.Roles {
+		if p.Match == "" {
+			continue
+		}
+		re, err := regexp.Compile("(?i)" + p.Match)
+		if err != nil {
+			continue
+		}
+		hit := false
+		for _, d := range f.Devices {
+			if re.MatchString(d.Name) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			out = append(out, fmt.Sprintf("inventory: roles[%d] %q: matches no listed device", i, p.Match))
+		}
+	}
+	return out
 }
 
 // WriteFile encodes targets as inventory.yaml to w.

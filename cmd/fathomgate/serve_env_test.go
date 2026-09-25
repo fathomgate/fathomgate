@@ -34,7 +34,7 @@ func envMap(m map[string]string) lookupEnvFunc {
 
 func TestParseServeEnvPass(t *testing.T) {
 	t.Parallel()
-	base := []string{"--server", "netdev-ssh-mcp", "--upstream", "/opt/bin/netdev-ssh-mcp"}
+	base := []string{"--server", "netdev-ssh-mcp", "--upstream", "/opt/bin/netdev-ssh-mcp", "--no-policy"}
 	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
 	env := map[string]string{
 		"DEVICE_PASSWORD":  serveCanary,
@@ -171,7 +171,8 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 		{"pass unset", with("--upstream-env-pass", "NOT_THERE"), "--upstream-env-pass NOT_THERE: not set"},
 		{"pass empty", with("--upstream-env-pass", "EMPTY"), "--upstream-env-pass EMPTY: set but empty"},
 		{"conflict", with("--upstream-env", "DEVICE_PASSWORD="+serveCanary, "--upstream-env-pass", "DEVICE_PASSWORD"), "DEVICE_PASSWORD is given with both"},
-		{"reserved flag with pass", with("--upstream-env-pass", "DEVICE_PASSWORD", "--policy", "p.yaml"), "--policy not enforced in M0"},
+		{"reserved flag with pass", with("--upstream-env-pass", "DEVICE_PASSWORD", "--", "--policy", serveCanary), "--policy among the upstream arguments"},
+		{"pipeline flags with pass", with("--upstream-env-pass", "DEVICE_PASSWORD", "--upstream-env", "A="+serveCanary), "--policy <file> or --no-policy is required"},
 		{"bad server with pass", []string{"--server", "net.dev", "--upstream", "x", "--upstream-env-pass", "DEVICE_PASSWORD", "--upstream-env", "A=" + serveCanary}, "--server"},
 		{"missing upstream with pass", []string{"--server", "s", "--upstream-env-pass", "DEVICE_PASSWORD"}, "required"},
 	}
@@ -206,6 +207,9 @@ func TestMain(m *testing.M) {
 		return
 	case "mcp":
 		runMCPUpstream()
+		return
+	case "netdev":
+		runNetdevUpstream()
 		return
 	}
 	code := m.Run()
@@ -279,7 +283,7 @@ func TestServeKeepsPassedValuesOffStderr(t *testing.T) {
 	env := envMap(map[string]string{"DEVICE_PASSWORD": serveCanary, "DEVICE_PIN": "FK1"})
 	var stderr lockedBuffer
 	code := serve([]string{
-		"--server", "netdev-ssh-mcp", "--upstream", exe,
+		"--server", "netdev-ssh-mcp", "--upstream", exe, "--no-policy",
 		"--upstream-env", serveTestUpstreamEnv + "=leaky",
 		"--upstream-env", "GORACE=atexit_sleep_ms=0",
 		"--upstream-env", "DEVICE_USERNAME=netops",

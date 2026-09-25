@@ -27,24 +27,29 @@ import (
 // including the restart after an unanswered server/discover (ADR 0018).
 const startupTimeout = 30 * time.Second
 
-// reservedServeFlags are refused in M0: the pipeline they configure is not
-// wired into the proxy until M1 (policy, inventory, profiles) and M4
-// (audit). Refusing them keeps an operator from believing a policy is
-// enforced when M0 forwards every call.
-var reservedServeFlags = []string{"policy", "inventory", "profiles", "audit"}
+// upstreamReservedFlags are fathomgate's pipeline flags. They are refused
+// among the upstream's arguments (after "--", or after a stray positional
+// argument, where the flag package stops parsing), so a flag of that name
+// can never be passed to an upstream, and a --policy misplaced after "--"
+// is never silently handed to the upstream while fathomgate runs without it
+// (ADR 0027, "Reserved inside the upstream arguments").
+var upstreamReservedFlags = []string{"policy", "inventory", "profiles", "audit"}
 
-// reservedListenFlags are refused in M0: they take the listener off
-// loopback, which waits for the policy pipeline and built-in TLS (M1, ADR
-// 0016). Unlike reservedServeFlags they are not looked for among the
-// upstream's arguments after "--": an upstream flag of that name is the
-// upstream's.
+// reservedListenFlags are refused: they take the listener off loopback,
+// which waits for built-in TLS and loopback authentication (ADR 0016, ADR
+// 0029; moved to M2 on the M1 board, 2026-09-25). Unlike
+// upstreamReservedFlags they are not looked for among the upstream's
+// arguments after "--": an upstream flag of that name is the upstream's.
 var reservedListenFlags = []string{"listen-remote", "listen-host"}
 
 const serveUsage = `Usage:
-  fathomgate serve --server <name> --upstream <path> [--upstream-env K=V]... [--upstream-env-pass NAME]...
+  fathomgate serve --server <name> --upstream <path> (--policy <file> [--inventory <file>] [--profiles <dir>] | --no-policy)
+                   [--upstream-env K=V]... [--upstream-env-pass NAME]...
                    [--listen <addr>:<port> (--listen-token-file NAME=PATH... | env FATHOMGATE_LISTEN_TOKEN)]
                    [-- <upstream args>...]
 
+Every call is decided by the --policy file before it reaches the upstream;
+--no-policy forwards every call unchecked instead. One of the two is required.
 The agent side is stdio, or with --listen Streamable HTTP at http://<addr>:<port>/mcp
 (loopback only, a bearer token on every request) instead of stdio.
 
@@ -78,6 +83,10 @@ type serveConfig struct {
 	// --listen-token-file files or FATHOMGATE_LISTEN_TOKEN. They are never
 	// passed to the upstream, and serve scrubs them from its stderr.
 	tokens listenTokens
+
+	// pipeline is --policy, --inventory, --profiles and --no-policy, checked
+	// for their combination but not yet loaded (loadPipeline).
+	pipeline pipelineFlags
 }
 
 // lookupEnvFunc reads a variable from fathomgate's own environment
@@ -108,15 +117,17 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	var env, pass stringList
 	fs.Var(&env, "upstream-env", "`KEY=VALUE` added to the upstream's environment, for non-secrets: the value is on fathomgate's command line (repeatable)")
 	fs.Var(&pass, "upstream-env-pass", "variable `NAME` copied from fathomgate's own environment to the upstream's, for secrets: no value on the command line (repeatable)")
-	for _, name := range reservedServeFlags {
-		fs.String(name, "", "not enforced in M0; refused until the pipeline is wired (M1)")
-	}
+	fs.StringVar(&cfg.pipeline.policy, "policy", "", "policy `file` that decides every call before it is forwarded (one file); this or --no-policy is required")
+	fs.StringVar(&cfg.pipeline.inventory, "inventory", "", "static inventory `file` (inventory.yaml) naming the devices the policy knows; without it every target is unknown. Only with --policy")
+	fs.StringVar(&cfg.pipeline.profiles, "profiles", "", "`dir`ectory of profile YAML files that replaces the embedded profiles (no merge). Only with --policy")
+	fs.BoolVar(&cfg.pipeline.noPolicy, "no-policy", false, "forward every call to the upstream unchecked (the v0.1.0 pass-through); this or --policy is required")
+	fs.String("audit", "", "refused: the signed audit chain arrives in M4; until then --policy logs every decision to stderr")
 	var listen string
 	var tokenFiles, listenHosts stringList
 	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.0.0.1 or [::1] (loopback only); 127.0.0.1 and [::1] are both bound on the port, whichever is given; port 0 picks a free port")
 	fs.Var(&tokenFiles, "listen-token-file", "`NAME=PATH` of an owner-only file holding the bearer token of principal NAME (repeatable); or set FATHOMGATE_LISTEN_TOKEN instead (principal env)")
-	fs.Bool("listen-remote", false, "reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
-	fs.Var(&listenHosts, "listen-host", "allowed `host` name: reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
+	fs.Bool("listen-remote", false, "reserved for M2; refused: the listener is loopback-only until remote binding with TLS arrives")
+	fs.Var(&listenHosts, "listen-host", "allowed `host` name: reserved for M2; refused: the listener is loopback-only until remote binding with TLS arrives")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(usageOut, serveUsage)
 		fs.SetOutput(usageOut)
@@ -131,19 +142,19 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	}
 
 	var refused []string
-	fs.Visit(func(f *flag.Flag) {
-		if isReservedServeFlag(f.Name) {
-			refused = append(refused, "--"+f.Name)
-		}
-	})
 	rest := fs.Args()
 	for _, a := range rest {
-		if name, ok := flagName(a); ok && isReservedServeFlag(name) {
+		if name, ok := flagName(a); ok && slices.Contains(upstreamReservedFlags, name) && !slices.Contains(refused, "--"+name) {
 			refused = append(refused, "--"+name) // the name, not "=value"
 		}
 	}
 	if len(refused) > 0 {
-		return cfg, fmt.Errorf("%s not enforced in M0; fathomgate serve is pass-through only and forwards every call", strings.Join(refused, ", "))
+		return cfg, fmt.Errorf("%s among the upstream arguments: fathomgate's own flags go before --, and a flag of that name is never passed to an upstream", strings.Join(refused, ", "))
+	}
+	auditSet := false
+	fs.Visit(func(f *flag.Flag) { auditSet = auditSet || f.Name == "audit" })
+	if auditSet {
+		return cfg, errors.New("--audit arrives in M4 with the signed audit chain; until then serve --policy logs every decision to stderr")
 	}
 	fs.Visit(func(f *flag.Flag) {
 		if slices.Contains(reservedListenFlags, f.Name) {
@@ -151,7 +162,7 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 		}
 	})
 	if len(refused) > 0 {
-		return cfg, fmt.Errorf("%s reserved for M1: the listener is loopback-only until the policy pipeline is wired, and then needs TLS", strings.Join(refused, ", "))
+		return cfg, fmt.Errorf("%s reserved for M2: the listener is loopback-only until remote binding with TLS arrives", strings.Join(refused, ", "))
 	}
 	consumed := len(args) - len(rest)
 	sawDashDash := consumed > 0 && args[consumed-1] == "--"
@@ -244,6 +255,10 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	case len(tokenFiles) > 0:
 		return cfg, errors.New("--listen-token-file is only used with --listen")
 	}
+	// The policy flags last, so every other usage error is reported first.
+	if err := cfg.pipeline.check(); err != nil {
+		return cfg, err
+	}
 	cfg.upstreamEnv = env
 	cfg.upstreamArgs = rest
 	return cfg, nil
@@ -326,15 +341,6 @@ func flagName(a string) (string, bool) {
 	return name, name != ""
 }
 
-func isReservedServeFlag(name string) bool {
-	for _, r := range reservedServeFlags {
-		if name == r {
-			return true
-		}
-	}
-	return false
-}
-
 // cmdServe runs the proxy: an MCP server toward the agent, on stdio or
 // with --listen over Streamable HTTP, and an MCP client toward one upstream
 // spawned over stdio.
@@ -380,6 +386,22 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 	out := &redactingWriter{w: stderr, red: proxy.NewRedactor(scrub)}
 	logger := slog.New(slog.NewTextHandler(out, nil))
 
+	// The policy, inventory and profiles, loaded and checked before
+	// anything is bound or spawned (ADR 0027): a file that does not load
+	// is a usage error, and no upstream starts.
+	pl, err := loadPipeline(cfg.pipeline, cfg.server)
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "fathomgate: serve: %v\n", err)
+		return exitUsage
+	}
+	pl.logWarnings(logger)
+	opts := proxy.Options{Version: version, Logger: logger}
+	if pl.gate != nil {
+		// Only a non-nil *gate.Gate: a nil pointer in the interface would
+		// not read as "no gate" to the proxy.
+		opts.Gate = pl.gate
+	}
+
 	// The listener's pre-flight, before anything is bound or spawned: the
 	// MCPGODEBUG refusal (S6 in the security review of T0.40), then the
 	// bind of both loopback families, so a port in use on either fails
@@ -412,7 +434,7 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 		NewTransport: func() mcp.Transport { return cmd.Transport() },
 	}
 	startCtx, cancel := context.WithTimeout(ctx, startupTimeout)
-	p, err := proxy.New(startCtx, []proxy.Upstream{up}, proxy.Options{Version: version, Logger: logger})
+	p, err := proxy.New(startCtx, []proxy.Upstream{up}, opts)
 	cancel()
 	if err != nil {
 		for _, ln := range lns {
@@ -427,9 +449,9 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 	}
 	if cfg.listen != nil {
 		// Neither stdin nor stdout is touched from here on (ADR 0016).
-		return runListener(ctx, p, lns, listenRun{tokens: cfg.tokens, server: cfg.server, passNames: cfg.passNames}, logger, out)
+		return runListener(ctx, p, lns, listenRun{tokens: cfg.tokens, server: cfg.server, passNames: cfg.passNames, pipeline: pl.attrs}, logger, out)
 	}
-	logger.Info("serving on stdio; M0 pass-through, no policy enforced", attrs...)
+	logger.Info("serving on stdio", append(attrs, pl.attrs...)...)
 
 	runErr := p.Run(ctx, &mcp.StdioTransport{})
 	if err := p.Close(); err != nil {

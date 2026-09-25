@@ -229,17 +229,19 @@ def client_env(env: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def serve_args(upstream: Path | str, device: FakeDevice | None, *extra: str) -> list[str]:
-    return ["serve", "--server", SERVER, "--upstream", str(upstream), *upstream_env_args(device), *extra]
+    # --no-policy: these jobs check the transport, which the pass-through
+    # shows unchanged; the policy rows run through --policy (M1-28).
+    return ["serve", "--server", SERVER, "--upstream", str(upstream), "--no-policy", *upstream_env_args(device), *extra]
 
 
 @pytest.fixture
 def proxy_server_params(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice) -> dict:
     """StdioServerParameters kwargs for `fathomgate serve` wrapping the upstream.
 
-    A dict so this module imports without the `mcp` package installed. M0
-    serve is pass-through: --policy, --inventory, --profiles and --audit are
-    refused until M1 wires the pipeline (ADR 0012). `env` is the client's
-    `env` block; the python-sdk client merges it into HOME, PATH and friends.
+    A dict so this module imports without the `mcp` package installed. It
+    runs serve with --no-policy, the pass-through (ADR 0027); --audit stays
+    refused until M4. `env` is the client's `env` block; the python-sdk
+    client merges it into HOME, PATH and friends.
     """
     return {"command": str(fathomgate_binary), "args": serve_args(upstream_binary, fake_device), "env": client_env()}
 

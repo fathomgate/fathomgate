@@ -187,7 +187,7 @@ func TestServeListenOtherFamilyTaken(t *testing.T) {
 	port := strconv.Itoa(int(portOf(t, squatter)))
 	var stderr lockedBuffer
 	code := serveContext(t.Context(), []string{
-		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"),
+		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"), "--no-policy",
 		"--listen", "localhost:" + port,
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
 	out := stderr.String()

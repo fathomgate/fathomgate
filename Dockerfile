@@ -26,7 +26,8 @@ COPY --from=build /out/fathomgate /usr/local/bin/fathomgate
 COPY LICENSE NOTICE /usr/share/doc/fathomgate/
 COPY THIRD_PARTY_LICENSES /usr/share/doc/fathomgate/THIRD_PARTY_LICENSES
 COPY policies/examples /etc/fathomgate/policies/examples
-COPY profiles /etc/fathomgate/profiles
+# The binary embeds these profiles (ADR 0027); the copy is for --profiles.
+COPY profiles/*.yaml profiles/LICENSE /etc/fathomgate/profiles/
 COPY inventory.example.yaml /etc/fathomgate/inventory.example.yaml
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/fathomgate"]

@@ -47,7 +47,8 @@ archives:
       - TRADEMARKS.md
       - README.md
       - policies/examples/*
-      - profiles/*
+      - profiles/*.yaml
+      - profiles/LICENSE
       - inventory.example.yaml
 
 checksum:

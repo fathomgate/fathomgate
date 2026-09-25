@@ -250,3 +250,29 @@ func TestRepoExampleInventory(t *testing.T) {
 		}
 	}
 }
+
+// TestPatternWarnings: ADR 0031 decision 5. A pattern that matches no
+// listed device is named in file order with the ADR's wording; a pattern
+// that matches one (case-insensitively, as Resolve does) is not.
+func TestPatternWarnings(t *testing.T) {
+	f := &File{
+		Devices: []Target{{Name: "Core-Rtr-01", Role: "core"}, {Name: "lab-sw-01", Role: "access"}},
+		Roles: []Pattern{
+			{Match: "^core-", Tags: []string{"prod"}},
+			{Match: "^fw-", Role: "firewall"},
+			{Match: "^lab-", Tags: []string{"lab"}},
+			{Match: "^border-|^edge-", Role: "border"},
+		},
+	}
+	got := f.PatternWarnings()
+	want := []string{
+		`inventory: roles[1] "^fw-": matches no listed device`,
+		`inventory: roles[3] "^border-|^edge-": matches no listed device`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("PatternWarnings() = %q, want %q", got, want)
+	}
+	if w := (&File{Devices: f.Devices}).PatternWarnings(); len(w) != 0 {
+		t.Fatalf("no patterns: %q", w)
+	}
+}

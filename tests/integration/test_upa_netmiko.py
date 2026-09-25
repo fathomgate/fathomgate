@@ -164,7 +164,7 @@ def _inventory(tmp_path: Path, device: FakeDevice) -> Path:
 
 
 def _serve(fathomgate: Path, python: Path, main: Path, toml: Path) -> list[str]:
-    return [str(fathomgate), "serve", "--server", UPA_SERVER, "--upstream", str(python), "--", str(main), str(toml)]
+    return [str(fathomgate), "serve", "--server", UPA_SERVER, "--upstream", str(python), "--no-policy", "--", str(main), str(toml)]
 
 
 @pytest.fixture
