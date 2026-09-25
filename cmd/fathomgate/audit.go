@@ -5,6 +5,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -31,7 +32,7 @@ func cmdAudit(args []string) int {
 // cmdAuditVerify replays the chain and exits 1 on the first break.
 func cmdAuditVerify(args []string) int {
 	fs := flag.NewFlagSet("audit verify", flag.ContinueOnError)
-	keyPath := fs.String("key", "", "Ed25519 public (or private) key PEM to verify checkpoint signatures")
+	keyPath := fs.String("key", "", "Ed25519 public key PEM (the .pub file keygen writes) to verify checkpoint signatures; a private key is refused")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	files, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -43,7 +44,7 @@ func cmdAuditVerify(args []string) int {
 	}
 	var pub ed25519.PublicKey
 	if *keyPath != "" {
-		k, err := audit.LoadPublicKey(*keyPath)
+		k, err := loadVerifyKey(*keyPath)
 		if err != nil {
 			return fail(err)
 		}
@@ -76,6 +77,17 @@ func cmdAuditVerify(args []string) int {
 		return exitFail
 	}
 	return exitOK
+}
+
+// loadVerifyKey loads the --key of audit verify. ADR 0028: a verifier's
+// trust anchor is the public key alone, so a private key is refused rather
+// than used to derive it.
+func loadVerifyKey(path string) (ed25519.PublicKey, error) {
+	k, err := audit.LoadPublicKey(path)
+	if errors.Is(err, audit.ErrPrivateKey) {
+		return nil, fmt.Errorf("--key must be the public key (%s.pub); a verifier never needs the signing key", path)
+	}
+	return k, err
 }
 
 // cmdAuditKeygen creates a checkpoint signing key pair.

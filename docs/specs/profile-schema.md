@@ -25,7 +25,7 @@ Comments at the top of the file record the research brief section the tool names
 | `group_params` | list of string | no | Argument names holding group or tag selectors (`tags`). Each value is emitted as an `@name` token for the inventory to expand. |
 | `command_params` | list of string | no | Argument names holding operational commands, as a string or an array (`command`, `commands`). |
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
-| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. |
+| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. One token is read by the classifier: `never-downgrade` anywhere in the notes, in any case, of an `EXEC_ARBITRARY` tool keeps it `EXEC_ARBITRARY` whatever its commands say ([classification.md](classification.md) section 8). |
 
 ### 2.1 Normalisation rules
 
@@ -107,7 +107,7 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
-    notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
+    notes: never-downgrade. PFE shell on an FPC (`target`); the execution context is the risk, so a PFE "show jnh 0 exceptions" stays EXEC_ARBITRARY (classification.md section 8).
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]

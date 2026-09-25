@@ -14,7 +14,7 @@ func TestClassifyCommand(t *testing.T) {
 		{"show interfaces terse", ReadOperational},
 		{"get system status", ReadOperational},
 		{"display version", ReadOperational},
-		{"monitor interface traffic", ReadOperational},
+		{"monitor traffic interface ge-0/0/0 count 5", ReadOperational},
 		{"ping 10.0.0.1 count 3", ReadOperational},
 		{"traceroute 10.0.0.1", ReadOperational},
 		{"tracepath 10.0.0.1", ReadOperational},
@@ -31,6 +31,7 @@ func TestClassifyCommand(t *testing.T) {
 		{"show config", ReadConfig},
 
 		{"", ExecArbitrary},
+		{"monitor interface traffic", ExecArbitrary},
 		{"reload", ExecArbitrary},
 		{"reload in 5", ExecArbitrary},
 		{"write erase", ExecArbitrary},

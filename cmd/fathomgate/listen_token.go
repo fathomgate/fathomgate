@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"slices"
 	"strings"
 )
@@ -138,26 +136,4 @@ func trimOneNewline(b []byte) []byte {
 	}
 	b, _ = bytes.CutSuffix(b, []byte("\n"))
 	return b
-}
-
-// readCapped reads at most maxTokenFileBytes from r, and fails if there is
-// more.
-func readCapped(r io.Reader) ([]byte, error) {
-	b, err := io.ReadAll(io.LimitReader(r, maxTokenFileBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("cannot read the token file: %w", pathless(err))
-	}
-	if len(b) > maxTokenFileBytes {
-		return nil, fmt.Errorf("the token file is larger than %d bytes", maxTokenFileBytes)
-	}
-	return b, nil
-}
-
-// pathless strips the path from a *fs.PathError, so an error never quotes
-// the path, which may be a token typed in the wrong place.
-func pathless(err error) error {
-	if pe, ok := errors.AsType[*fs.PathError](err); ok {
-		return pe.Err
-	}
-	return err
 }

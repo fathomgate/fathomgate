@@ -136,3 +136,47 @@ cases:
       targets: [{name: core-rtr-02, role: core}]
       session: {pending_holds: 2}
     expect: {effect: deny, rule: default:session.max_pending}
+
+  # M1 test-matrix rows 3, 4 and 6 (docs/testing/test-matrix.md). The runner
+  # takes the class as given: server and tool name the call the class came
+  # from but do not classify it. The classification half is pinned by the
+  # tier 1 tests in internal/classify and shown by `fathomgate policy eval --profile`.
+  - name: "row 3: show ip bgp summary through upa send_command_and_get_output, downgraded, is allowed"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      class: READ_OPERATIONAL
+      targets: [{name: lab-sw-01, site: lab, tags: [lab]}]
+    expect: {effect: allow, rule: reads-anywhere, obligations: []}
+
+  - name: "row 4: reload through upa send_command_and_get_output on a core router is denied by no-exec"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      class: EXEC_ARBITRARY
+      targets: [{name: core-rtr-01, role: core, tags: [prod]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 4: reload through netdev-ssh-mcp run_show_command is denied by no-exec"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: EXEC_ARBITRARY
+      targets: [{name: core-rtr-01, role: core, tags: [prod]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 6: write to an unknown host is denied before the hold rule"
+    request:
+      server: upa
+      tool: set_config_commands_and_commit_or_save
+      class: WRITE_CONFIG
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
+
+  - name: "row 6: exec on an unknown host through netdev-ssh-mcp is denied by the unknown-target default"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: EXEC_ARBITRARY
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
