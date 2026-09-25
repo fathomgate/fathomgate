@@ -53,6 +53,22 @@ def parse_handoff_name(name: str) -> tuple[str, str, str, str] | None:
     return m.groups() if m else None
 
 
+# <date>-<rest>[-round<n>].md, for ordering notes in either form.
+HANDOFF_ORDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.*?)(?:-round(\d+))?\.md$")
+
+
+def handoff_order(name: str) -> tuple[str, str, int]:
+    """Sort key: date, then the name without its -round<n> suffix, then the
+    round, the note without a suffix counting as round 1. So a round2 note
+    sorts after its base note and round10 after round2, which comparing
+    names alone gets wrong."""
+    m = HANDOFF_ORDER_RE.match(name)
+    if not m:
+        return ("", name, 0)
+    date, rest, rnd = m.groups()
+    return (date, rest, int(rnd) if rnd else 1)
+
+
 def load_current() -> tuple[str, dict]:
     cur = (MILESTONES / "CURRENT").read_text(encoding=ENCODING).strip()
     path = MILESTONES / f"{cur}.yaml"
@@ -91,7 +107,7 @@ def latest_handoffs(n: int = 5) -> list[tuple[str, str, str, str, str]]:
     out = []
     if not HANDOFFS.exists():
         return out
-    for p in sorted(HANDOFFS.glob("*.md"), reverse=True):
+    for p in sorted(HANDOFFS.glob("*.md"), key=lambda p: handoff_order(p.name), reverse=True):
         parsed = parse_handoff_name(p.name)
         if not parsed:
             continue

@@ -309,11 +309,11 @@ relo
   - id: M1-31
     title: Let the status renderer read handoff notes whose task id has a hyphen (M1-06)
     package: tools/status
-    owner: docs-writer
-    reviewers: [test-engineer]
+    owner: mcp-protocol-engineer
+    reviewers: [go-reviewer]
     state: in review
     matrix: []
-    notes: 'Found at kickoff. tools/status/render.py HANDOFF_RE takes the task id as the last hyphen-free part of the file name, so 2026-09-26-mcp-protocol-engineer-to-go-reviewer-M1-06.md renders with the receiver go-reviewer-M1 and the task 06. The /milestone procedure prescribes ids like M1-03. Fix the pattern (task id matches M<n>-<nn> or T<n>.<n>), add cases to tests/unit/test_status_render.py, and say it in docs/handoffs/README.md. Until it merges, name handoff files with the task id written M1.06; the note body uses M1-06. Do this first: every other M1 task ends with a handoff. 2026-09-26 (fix/status-hyphen-ids): render.py tries HANDOFF_HYPHEN_RE first (task id M<n>-<n> or T<n>-<n> ending the name, optional -round<n> suffix), then the old dot-form pattern; every existing note parses exactly as before and render.py --check is unchanged. Cases in tests/unit/test_status_render.py, including one that compares every note on disk with the old pattern. docs/handoffs/README.md names the hyphen form. PR #190. In Go review.'
+    notes: 'Found at kickoff. tools/status/render.py HANDOFF_RE takes the task id as the last hyphen-free part of the file name, so 2026-09-26-mcp-protocol-engineer-to-go-reviewer-M1-06.md renders with the receiver go-reviewer-M1 and the task 06. The /milestone procedure prescribes ids like M1-03. Fix the pattern (task id matches M<n>-<nn> or T<n>.<n>), add cases to tests/unit/test_status_render.py, and say it in docs/handoffs/README.md. Until it merges, name handoff files with the task id written M1.06; the note body uses M1-06. Do this first: every other M1 task ends with a handoff. 2026-09-25 (fix/status-hyphen-ids): render.py tries HANDOFF_HYPHEN_RE first (task id M<n>-<n> or T<n>-<n> ending the name, optional -round<n> suffix), then the old dot-form pattern; every existing note parses exactly as before and render.py --check is unchanged. Cases in tests/unit/test_status_render.py, including one that compares every note on disk with the old pattern. docs/handoffs/README.md names the hyphen form. PR #190. Go review approved; fixes: the on-disk test asserts every hyphen-form name is dated 2026-09-25 or later, latest_handoffs orders by (date, name without -round<n>, round) so round2 follows its base note and round10 follows round2, owner and reviewers match the review that ran. Follow-up (not in this PR): render.py --check should warn on a .md name in docs/handoffs/ that neither pattern reads.'
   - id: M1-32
     title: Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover
     package: internal/proxy

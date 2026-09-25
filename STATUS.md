@@ -35,7 +35,7 @@ Tasks: open 9 · blocked 2 · in review 1 · merged 24 · dropped 5
 | M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | open | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 6 | — |
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
-| M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | docs-writer | test-engineer | in review | — | — | — |
+| M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | mcp-protocol-engineer | go-reviewer | in review | — | — | — |
 | M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | open | M1-18 | 3, 4, 6 | — |
 | M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | merged | — | 6 | [0031](docs/adr/0031-hostname-patterns-never-make-a-target-known.md) |

@@ -105,16 +105,42 @@ def test_handoff_name_accepts_hyphen_and_dot_task_ids(name, parsed):
     assert load_render().parse_handoff_name(name) == parsed
 
 
-def test_every_dot_form_note_parses_as_the_dot_only_pattern_did():
-    # Every note on disk that is not named with a hyphenated id (the notes
-    # written before M1-31, and README.md and _template.md) parses exactly
-    # as before, so render.py --check output is unchanged for them.
+def test_no_note_before_m1_31_is_read_as_hyphen_form():
+    # The hyphen form is tried first, so a note named before M1-31 (all dated
+    # before 2026-09-25 or on it) that matched it would render differently.
+    # None does: every on-disk match is a note written from M1-31 on.
     render = load_render()
-    for p in sorted(render.HANDOFFS.glob("*.md")):
-        if render.HANDOFF_HYPHEN_RE.match(p.name):
-            continue
-        m = render.HANDOFF_RE.match(p.name)
-        assert render.parse_handoff_name(p.name) == (m.groups() if m else None), p.name
+    matches = [p.name for p in render.HANDOFFS.glob("*.md") if render.HANDOFF_HYPHEN_RE.match(p.name)]
+    assert matches, "the M1-31 note itself is named with a hyphenated id"
+    for name in matches:
+        assert name[:10] >= "2026-09-25", name
+
+
+def test_latest_handoffs_lists_rounds_in_order(tmp_path, monkeypatch):
+    render = load_render()
+    notes = tmp_path / "handoffs"
+    notes.mkdir()
+    names = [
+        "2026-09-25-a-to-b-M1-06.md",
+        "2026-09-25-a-to-b-M1-06-round2.md",
+        "2026-09-25-a-to-b-M1-06-round10.md",
+        "2026-09-25-a-to-b-M1.36.md",
+        "2026-09-25-a-to-b-M1.36-round2.md",
+        "2026-09-26-a-to-b-M1-07.md",
+    ]
+    for n in names:
+        (notes / n).write_text("# " + n + "\n", encoding="utf-8")
+    monkeypatch.setattr(render, "HANDOFFS", notes)
+
+    got = [path.rsplit("/", 1)[1] for _, _, _, _, path, _ in render.latest_handoffs(n=10)]
+    assert got == [
+        "2026-09-26-a-to-b-M1-07.md",
+        "2026-09-25-a-to-b-M1.36-round2.md",
+        "2026-09-25-a-to-b-M1.36.md",
+        "2026-09-25-a-to-b-M1-06-round10.md",
+        "2026-09-25-a-to-b-M1-06-round2.md",
+        "2026-09-25-a-to-b-M1-06.md",
+    ]
 
 
 def test_latest_handoffs_lists_a_hyphen_id_note(tmp_path, monkeypatch):
