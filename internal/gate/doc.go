@@ -24,9 +24,10 @@
 //     EXEC_ARBITRARY and never let it be downgraded (invariant 3, ADR 0010).
 //     A tool the profile does not list is refused when it carries any
 //     argument, and so is an argument the profile does not name (ADR 0033).
-//  4. Resolve: each name through the inventory. A name is known only when an
-//     inventory record carries exactly that name and it did not come from a
-//     hostname pattern alone (ADR 0031).
+//  4. Resolve: each name through the inventory. A name is known only when a
+//     name authority lists it and the record carries exactly that name; a
+//     hostname pattern never makes a name known, and only adds role, site
+//     and tags to a listed device (ADR 0031).
 //  5. Session counters: taken from the call, never counted here.
 //  6. Evaluate: policy.Evaluate, which stays pure (invariant 1).
 //

@@ -7,9 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
 )
@@ -137,12 +139,29 @@ func cmdPolicyEval(args []string) int {
 		}
 		resolver = chain
 	}
+	var badNames []string
 	for _, name := range targets {
+		// As internal/gate does: a name the gate refuses is
+		// default:bad_arguments before resolution, and a name is known only
+		// when a name authority lists it exactly as sent (inventory-schema
+		// section 7); a hostname pattern only enriches a listed device
+		// (ADR 0031).
+		if !gate.ValidTargetName(name) {
+			badNames = append(badNames, strconv.QuoteToASCII(name))
+		}
 		t := policy.Target{Name: name}
-		if inv, ok := resolver.Resolve(name); ok {
+		if inv, ok := inventory.Known(resolver, name); ok {
 			t.Role, t.Site, t.Tags, t.Known = inv.Role, inv.Site, inv.Tags, true
 		}
 		req.Targets = append(req.Targets, t)
+	}
+	if argDeny == nil && len(badNames) > 0 {
+		argDeny = &policy.Decision{
+			Effect: policy.Deny,
+			RuleID: policy.RuleBadArguments,
+			Reason: gate.ReasonBadTarget,
+			Trace:  []policy.TraceEntry{{RuleID: policy.RuleBadArguments, Matched: true, Note: "not a hostname or IP address: " + strings.Join(badNames, ", ")}},
+		}
 	}
 
 	var d policy.Decision

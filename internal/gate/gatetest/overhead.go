@@ -17,14 +17,15 @@
 // run the overhead tests alone with -p 1 set: in a full parallel go test
 // run, other packages' tests share the CPU and a p50 of a few milliseconds
 // is not the gate's alone. In the strict steps a p50 over the budget fails
-// unless the case is known ([KnownOverBudget]), and a known case back under
-// the budget fails too, so its entry is removed. A p99 over the budget is
-// logged as OVER BUDGET AT p99 everywhere. Their p99 is not a pass condition
-// because it is set by garbage collection, not by the call: each worst case
-// allocates 0.4 to 1.0 MB (0.4 to 3.4 MB before M1-39), so a collection
-// starts every few calls and, on Windows with GOMAXPROCS 8 or more, stalls
-// a random call for 10 to 13 ms (p99 1.5 to 2 ms with GOGC=off, or with
-// GOMAXPROCS 4). The threshold never moves; the numbers are in
+// unless the case is known ([KnownOverBudget]), and a known case well under
+// the budget ([StaleFactor]) fails too, so its entry is removed. A p99
+// over the budget is logged as OVER BUDGET AT p99. A worst case's p99 is
+// not a pass condition because garbage collection sets it, not the call:
+// each worst case allocates 0.4 to 1.0 MB (0.4 to 3.4 MB before M1-39), so
+// a collection starts every few calls and, on Windows with GOMAXPROCS 8 or
+// more, stalls a random call for 10 to 13 ms (p99 1.5 to 2 ms with
+// GOGC=off, or with GOMAXPROCS 4). The threshold never moves; the numbers
+// are in
 // docs/testing/test-strategy.md.
 package gatetest
 
@@ -83,11 +84,11 @@ const (
 
 // knownOverBudget holds the worst cases whose p50 is over Budget, keyed
 // "<what>: <case>", with the finding and its owner. Remove an entry when its
-// finding is fixed: the strict steps fail on a known case that is back
-// under the budget, and on an unknown case over it. It is empty: M1-39
-// fixed both M1-23 findings (commands are classified without unanchored
-// regexps and capped at 64 a call, targets at 256, and the proxy runs
-// Decide once).
+// finding is fixed: the strict steps fail on a known case that is well
+// under the budget (StaleFactor), and on an unknown case over it. It is
+// empty: M1-39 fixed both M1-23 findings (commands are classified without
+// unanchored regexps and capped at 64 a call, targets at 256, and the proxy
+// runs Decide once).
 var knownOverBudget = map[string]string{}
 
 // KnownOverBudget returns the finding for worst case name under
@@ -328,9 +329,7 @@ func withKey(base map[string]any, key string, v any) map[string]any {
 // Rounds returns the measured and warm-up passes: over the typical corpus
 // (each pass is one call of every case), and per worst case. With 200
 // samples the nearest-rank p99 is the third-largest. -short and -race run
-// fewer: a worst case's p99 of 10 samples is its maximum. Under -race the
-// tests time no worst case at all (TimeWorst), since a worst case costs
-// 100 to 200 ms a call there.
+// fewer. The worst cases are timed only in the strict steps (TimeWorst).
 func Rounds() (typicalRounds, worstRounds, warm int) {
 	if testing.Short() || RaceEnabled {
 		return 100, 10, 2
@@ -338,9 +337,19 @@ func Rounds() (typicalRounds, worstRounds, warm int) {
 	return 2000, 200, 50
 }
 
-// TimeWorst reports whether the tests time the worst cases: not under
-// -race, where they check each worst case's verdict once and move on.
-func TimeWorst() bool { return !RaceEnabled }
+// TimeWorst reports whether the tests time the worst cases: only when
+// Strict is true and the build is not -race, the one place their p50 is
+// enforced. Elsewhere the tests check each worst case's verdict once and
+// move on, which saves about 30 s a job (a worst case costs 100 to 200 ms
+// a call under -race).
+func TimeWorst() bool { return Strict() && !RaceEnabled }
+
+// StaleFactor is the hysteresis on the stale-entry check: a known case
+// fails as "now under budget" only when its p50 is under StaleFactor times
+// Limit, so a case that hovers at the limit does not flip the strict step
+// between runs. Between StaleFactor times Limit and Limit it is logged.
+// Detecting a case over the budget stays at exactly Limit.
+const StaleFactor = 0.8
 
 // Time runs fn warm times untimed, collects garbage, then runs it n times
 // and returns each run's wall time.
@@ -407,7 +416,8 @@ func CheckTypical(t testing.TB, what, name string, samples []time.Duration) {
 // as OVER BUDGET AT p99 (see the package doc for why p99 is reported, not
 // enforced, for a worst case). When Strict is true it fails t if the p50 is
 // over Limit and the case is not known (KnownOverBudget), or if the case is
-// known and its p50 is back under Limit; otherwise it only logs those.
+// known and its p50 is under StaleFactor times Limit; otherwise it only
+// logs those.
 func CheckWorst(t testing.TB, what, name string, samples []time.Duration) {
 	t.Helper()
 	p50, p99 := summary(t, what, name, samples)
@@ -424,8 +434,10 @@ func CheckWorst(t testing.TB, what, name string, samples []time.Duration) {
 		t.Logf("%s: %s: KNOWN OVER BUDGET: p50 %v > %v (%s)", what, name, p50, Limit(), finding)
 	case p50 > Limit():
 		report("%s: %s: p50 %v over the budget %v (enforced with %s=1)", what, name, p50, Limit(), StrictEnv)
-	case known:
+	case known && float64(p50) < StaleFactor*float64(Limit()):
 		report("%s: %s: p50 %v now under budget %v; remove it from KnownOverBudget (enforced with %s=1)", what, name, p50, Limit(), StrictEnv)
+	case known:
+		t.Logf("%s: %s: KNOWN, NEAR BUDGET: p50 %v is between %.1fx and 1x of %v (%s)", what, name, p50, StaleFactor, Limit(), finding)
 	}
 }
 

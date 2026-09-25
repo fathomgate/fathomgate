@@ -52,3 +52,11 @@ Commit `799957f`, [CI run 36189812049](https://github.com/fathomgate/fathomgate/
 5. In the strict step, a known case whose p50 is back under budget fails with "now under budget; remove it from KnownOverBudget".
 
 Nits are done, and `TestNotInBinary` checks that `go list -deps ./cmd/fathomgate` excludes gatetest. All three strict steps logged `KNOWN OVER BUDGET` for the same five cases, and nothing unknown was over budget. Typical p99 in the strict steps: Linux 19 µs gate / 87 µs proxy stage, macOS arm64 54 / 182 µs, Windows 527 / 740 µs (clock step 0.3 ms).
+
+## Round 3 (Go re-check)
+
+Commit `b124d9c`, [CI run 36190995499](https://github.com/fathomgate/fathomgate/actions/runs/36190995499), all green. origin/main is merged in and `STATUS.md` is re-rendered.
+
+- `gatetest.TimeWorst()` is now `Strict() && !RaceEnabled`. The proxy test sends worst cases end to end only when that is true, and not under `-short`. Full-suite `internal/proxy`: Windows 50 s → 20 s, macOS 50 s → 26 s. The Linux `-race` job took 34 s for `internal/proxy` and 2.4 s for `internal/gate`.
+- Stale-entry hysteresis: a known case fails as "now under budget" only when its p50 is under 0.8 × the limit (`gatetest.StaleFactor`, 4 ms). Between 4 and 5 ms it is logged as `KNOWN, NEAR BUDGET`. Over-budget detection stays at exactly 5 ms.
+- `gate Decide: eos daily_brief` (3,300 targets) did not trip the strict step: its p50 was under 5 ms on all three runners, so there is no new entry. The strict steps logged the same five known cases.

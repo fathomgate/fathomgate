@@ -88,23 +88,22 @@ cases:
       targets: [{name: ghost-99, known: false}]
     expect: {effect: deny, rule: default:unknown_target}
 
-  # Pattern hazard. This is what an inventory produces when a hostname pattern
-  # adds the lab tag (^lab- with tags: [lab]): the agent made the name up, the
-  # pattern made it a known lab device, and the write is allowed and forwarded
-  # with no dry run. Any pattern match also makes a read of the name allowed.
-  # The case pins the behaviour so the hazard stays visible; the fix is in
-  # the inventory, not the policy: list devices by name, with no active
-  # pattern (see lab-open.yaml and inventory.example.yaml).
-  - name: "pattern hazard: a made-up lab- name tagged lab by a pattern is allowed to write"
+  # A known target tagged lab is allowed to write, whether the tag is on its
+  # own record or a hostname pattern added it to a device the inventory lists
+  # (ADR 0031 decision 2). A policy case cannot express a pattern: that a
+  # made-up name such as lab-ghost-99 stays unknown however it matches ^lab-
+  # is tested through the inventory (cmd/fathomgate TestEvalPatternsEnrichOnly,
+  # internal/inventory, internal/gate TestPatternEnrichesListedDevice).
+  - name: "a known device tagged lab is allowed to write"
     request:
       server: eos-mcp
       tool: push_config
       class: WRITE_CONFIG
-      targets: [{name: lab-ghost-99, site: lab, tags: [lab]}]
+      targets: [{name: lab-sw-09, site: lab, tags: [lab]}]
     expect: {effect: allow, rule: lab-writes-free, obligations: []}
 
-  # A made-up name through the shipped inventory.example.yaml, which has no
-  # active pattern: unknown, so even a config read is denied before the rules.
+  # A made-up name is unknown whatever hostname pattern it matches (ADR 0031),
+  # so even a config read is denied before the rules.
   - name: "a made-up name through the shipped inventory is unknown, and a config read is denied"
     request:
       server: netdev-ssh-mcp

@@ -13,6 +13,8 @@
 //	fathomgate audit keygen --out audit.key [--pub audit.pub]
 //	fathomgate redact --key-file k [file]
 //	fathomgate inventory import --csv devices.csv --out inventory.yaml
+//	fathomgate inventory lint <inventory.yaml>
+//	fathomgate inventory resolve [--inventory inventory.yaml] [--json] <name>...
 //
 // Exit codes: 0 success (or allow), 1 failure (or deny, or a failing test),
 // 2 usage or internal error, 3 hold.
@@ -86,6 +88,8 @@ Usage:
   fathomgate audit keygen --out audit.key [--pub audit.pub]
   fathomgate redact --key-file <file> [input-file]
   fathomgate inventory import --csv devices.csv --out inventory.yaml
+  fathomgate inventory lint <inventory.yaml>
+  fathomgate inventory resolve [--inventory inventory.yaml] [--json] <name>...
 
 Run "fathomgate <command> -h" for flags.
 `)
