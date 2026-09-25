@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+// attrBufSizeForTest is the size of the darwin buffer (attrBufSize), which
+// is only compiled on darwin.
+const attrBufSizeForTest = 4096
+
 // attrBuf builds what fgetattrlist returns: with an ACL when count is
 // non-nil, in host byte order unless swapped.
 func attrBuf(count *uint32, swapped bool) []byte {
@@ -76,6 +80,14 @@ func TestParseAttrBuf(t *testing.T) {
 			return b
 		}(), err: true},
 		{name: "short buffer", buf: make([]byte, 8), err: true},
+		// A call that returned success without filling the buffer (a
+		// reused system call number) must not read as "no ACL".
+		{name: "buffer never written", buf: make([]byte, attrBufSizeForTest), err: true},
+		{name: "length past the buffer", buf: func() []byte {
+			b := attrBuf(nil, false)
+			binary.NativeEndian.PutUint32(b[0:4], uint32(len(b)+1))
+			return b
+		}(), err: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

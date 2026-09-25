@@ -15,8 +15,11 @@
 // in docs/security/threat-model.md.
 //
 // The macOS check needs no cgo: it reads ATTR_CMN_EXTENDED_SECURITY with
-// fgetattrlist(2), called through the syscall package, on the open
-// descriptor, so the file checked is the file read.
+// fgetattrlist(2), entered by a raw system call through the syscall
+// package, on the open descriptor, so the file checked is the file read.
+// extended_darwin.go says how each way that call could break fails
+// closed. Filesystems that do not store ACLs (SMB and NFS mounts among
+// them) report none, whatever the server enforces.
 package fileacl
 
 import (
@@ -65,7 +68,14 @@ func parseAttrBuf(buf []byte) (bool, error) {
 	if len(buf) < refOffset {
 		return false, errMalformed
 	}
+	// The kernel always writes the total length, which covers at least
+	// itself and the returned attribute set. A length below that, or past
+	// the buffer, means the buffer was not filled by fgetattrlist as
+	// asked, so it is refused rather than read as "no ACL".
 	total := ne.Uint32(buf[0:4])
+	if total < refOffset || int64(total) > int64(len(buf)) {
+		return false, errMalformed
+	}
 	if ne.Uint32(buf[4:8])&attrCmnExtendedSecurity == 0 {
 		return false, nil
 	}
