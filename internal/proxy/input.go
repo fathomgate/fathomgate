@@ -913,6 +913,9 @@ func (p *Proxy) upstreamElicitation(u *upstream) func(context.Context, *mcp.Elic
 		if err := promptable(f); err != nil {
 			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", err))
 		}
+		if p.argumentsClosed(u.name, f.tool) {
+			return nil, p.refuse(u, f, newRefusal(u.name, f.tool, "elicitation", errPromptsUnchecked))
+		}
 		var ep *mcp.ElicitParams
 		if req != nil {
 			ep = req.Params

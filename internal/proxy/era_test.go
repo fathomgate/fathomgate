@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -277,10 +278,13 @@ type eraSetup struct {
 	noElicit        bool   // the agent declares no elicitation
 	manualMRTR      bool   // the agent handles input_required itself
 	hooks           *blockHooks
-	extra           func(*mcp.Server) // adds test-specific upstream tools
-	gate            <-chan struct{}   // if set, the agent answers a prompt only once it closes (or after 5s)
-	progress        *progressLog      // if set, the agent records the progress notifications it gets
-	reads           *readGate         // if set, the agent reads only while it is open (progress_stall_test.go)
+	extra           func(*mcp.Server)                 // adds test-specific upstream tools
+	gate            <-chan struct{}                   // if set, the agent answers a prompt only once it closes (or after 5s)
+	progress        *progressLog                      // if set, the agent records the progress notifications it gets
+	reads           *readGate                         // if set, the agent reads only while it is open (progress_stall_test.go)
+	policy          Gate                              // if set, Options.Gate
+	logger          *slog.Logger                      // if set, Options.Logger
+	upstreamWrap    func(mcp.Transport) mcp.Transport // if set, wraps the upstream's server-side transport
 }
 
 type eraHarness struct {
@@ -301,10 +305,14 @@ func newEraHarness(t *testing.T, s eraSetup) *eraHarness {
 		s.extra(srv)
 	}
 	upSrvT, upCliT := mcp.NewInMemoryTransports()
-	if _, err := srv.Connect(ctx, pinServer(s.upstream, upSrvT), nil); err != nil {
+	var upT mcp.Transport = upSrvT
+	if s.upstreamWrap != nil {
+		upT = s.upstreamWrap(upT)
+	}
+	if _, err := srv.Connect(ctx, pinServer(s.upstream, upT), nil); err != nil {
 		t.Fatal(err)
 	}
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test"})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test", Gate: s.policy, Logger: s.logger})
 	if err != nil {
 		t.Fatal(err)
 	}

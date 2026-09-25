@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"net/netip"
-	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -289,28 +288,12 @@ func declaresTargets(spec classify.ToolSpec) bool {
 	return len(spec.TargetParams) > 0 || len(spec.TargetsParams) > 0 || len(spec.GroupParams) > 0
 }
 
-// argumentFindings is the hook for the closed argument list (board task
-// M1-35, ADR 0033, PR #161): the argument names classify reports as not
-// named by the profile, and the named target, command or config arguments
-// whose value is not a string that does not parse as JSON, or a list of
-// such strings. Either one is default:bad_arguments; the argument is never
-// stripped and never named to the agent (the decision log line carries the
-// names, capped).
-//
-// TODO(M1-35): once PR #161 is on main, read res.UnnamedArgs and
-// res.MalformedArgs directly and drop the reflection. Until then
-// classify.Result has neither field and this returns nothing;
-// TestClosedArgumentListHook starts running, and must pass, the moment it
-// does. M1-19 must not wire the gate into the proxy before that.
+// argumentFindings is the closed argument list's result (ADR 0033): the
+// argument names classify reports as not named by the profile, and the
+// named target, command or config arguments whose value is not a string
+// that does not parse as JSON, or a list of such strings. Either one is
+// default:bad_arguments; the argument is never stripped and never named to
+// the agent (the decision log line carries the names, capped).
 func argumentFindings(res classify.Result) (unnamed, malformed []string) {
-	v := reflect.ValueOf(res)
-	field := func(name string) []string {
-		f := v.FieldByName(name)
-		if !f.IsValid() {
-			return nil
-		}
-		s, _ := f.Interface().([]string)
-		return s
-	}
-	return field("UnnamedArgs"), field("MalformedArgs")
+	return res.UnnamedArgs, res.MalformedArgs
 }

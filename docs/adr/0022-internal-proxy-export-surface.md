@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-25
 - Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25; proposed by mcp-protocol-engineer for T0.52 (L3 in the post-merge security review of PR #109); reviewers security-reviewer, go-reviewer
-- Superseded in part by: [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md) (2026-09-25), for the export table only: it adds `Options.Gate`, `Gate`, `CallInfo` and `Verdict`. The rules of this record stand
+- Superseded in part by: [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md) (2026-09-25), for the export table only: it adds `Options.Gate`, `Gate`, `CallInfo` and `Verdict`. The rules of this record stand. The table as built (M1-19: `Options.Gate` and `Gate`; `CallInfo` and `Verdict` stay in `internal/gate/seam`) is in ADR 0026, *Notes after acceptance*
 
 ## Context
 

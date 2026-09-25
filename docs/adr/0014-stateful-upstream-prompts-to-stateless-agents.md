@@ -74,6 +74,10 @@ This section records factual corrections (GOVERNANCE.md). It does not change the
 | --- | --- | --- |
 | 2026-09-23 | The quoted refusal text now reads "this client speaks the stateless era (2026-07-28) …" | It matches `errStatelessClient` in `internal/proxy/input.go`, which `tests/conformance/era_pairs.py` (T0.19) asserts |
 
+## Notes after acceptance
+
+**2026-09-25, M1-19: answers to upstream prompts under a policy.** The security review of PR #161 (N1, [ADR 0033](0033-closed-argument-list-per-tool.md) *Notes after acceptance*) found that an answer to a relayed upstream prompt is a second argument channel the closed argument list never checks (junos v1.1.1 `add_device` elicits `ssh_key_path`). The decision, made under this record by the wiring task and open to the maintainer in review: when a policy is enforced (`proxy.Options.Gate` set) and the call is to a tool whose argument list is closed (its server has a profile), fathomgate refuses the upstream's input request on both paths, `input_required` and `elicitation/create`, with the refusal text of profile-schema 8.2 and the reason `a policy is enforced and fathomgate cannot check an answer against the server profile, so upstream prompts are not relayed`. The prompt is not shown. The ADR 0014 refusal for a stateless agent still comes first where it applies. Relaying continues, as this record describes, with no policy (`serve --no-policy`, M0) and for a server with no profile, whose arguments are not checked either. A later record may relay again once an answer can be checked against the profile (named answer fields, like `args`). Tests: `TestGateRefusesUpstreamPrompts` in `internal/proxy`.
+
 ## References
 
 - [ADR 0008, dual-era MCP support](0008-dual-era-mcp-support.md)
