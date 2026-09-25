@@ -35,10 +35,13 @@ type Gate interface {
 	Decide(ctx context.Context, in seam.CallInfo) seam.Verdict
 	// Arguments reports the argument names the server's profile names for
 	// tool, and whether the tool's argument list is closed (ADR 0033). The
-	// proxy calls it once per upstream tool in [New] to drop, from the
-	// inputSchema it advertises, every property Decide would refuse; and
-	// it refuses to relay an upstream's input request during a call to a
-	// closed tool (its answers would reach the upstream unchecked).
+	// proxy calls it once per upstream tool, in [New], and keeps the answer
+	// on the tool's route: that one snapshot narrows the inputSchema it
+	// advertises (every property Decide would refuse is dropped) and decides
+	// whether an upstream's input request during a call to the tool is
+	// refused (its answers would reach the upstream unchecked). It is never
+	// called per call or per prompt. A panic in it counts as closed with no
+	// names.
 	Arguments(server, tool string) (named []string, closed bool)
 }
 
@@ -60,10 +63,12 @@ const (
 
 // The proxy's own refusals, in the gate's one first-line shape. The class
 // is EXEC_ARBITRARY because fathomgate did not classify the call, and an
-// unclassified call is EXEC_ARBITRARY (classification.md section 3).
+// unclassified call is EXEC_ARBITRARY (classification.md section 3). The
+// class_source "proxy" says the classifier never ran (policy-schema 5,
+// audit-event-schema 2).
 const (
 	unclassified        = "EXEC_ARBITRARY"
-	unclassifiedSource  = "fallback"
+	unclassifiedSource  = "proxy"
 	reasonTooLarge      = "the arguments are larger than 64 KiB"
 	reasonInternalError = "fathomgate could not decide this call, so it was not run"
 	// reasonNotForwarded stands in for a Verdict that refuses a call
@@ -80,11 +85,33 @@ type decision struct {
 }
 
 // gated runs the gate on c and either refuses it or forwards it with the
-// re-encoded arguments. Every call, forwarded or not, writes one decision
-// line (ADR 0026 step 8). An MRTR retry runs here again, on the tool and
-// arguments the sealed state binds.
+// re-encoded arguments. Every call the gate decides, forwarded or not,
+// writes one decision line (ADR 0026 step 8). An MRTR retry runs here
+// again, on the tool and arguments the sealed state binds.
+//
+// What forward could still refuse without the upstream is checked first,
+// so a call the gate allows is sent (forwarded=true in the line, and its
+// targets counted): a retry's requestState is opened and verified (a
+// forged, expired or rebound state is the JSON-RPC error resume returns,
+// logged by warnState, with no decision line and nothing counted), and an
+// upstream that has exited gets its tool error. An upstream that exits
+// between that check and the send still has the call counted: the count
+// errs high, never low.
 func (p *Proxy) gated(ctx context.Context, c call) (*mcp.CallToolResult, error) {
-	d := p.decide(ctx, c)
+	if c.requestState != "" {
+		rs, err := p.resume(c)
+		if err != nil {
+			return nil, err
+		}
+		c.resumed = &rs
+	}
+	if c.up.exited() {
+		return upstreamDown(c.up), nil
+	}
+	d, err := p.decide(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	p.logDecision(ctx, d.v)
 	if !d.v.Forward {
 		return toolError(d.v.Error), nil
@@ -96,15 +123,23 @@ func (p *Proxy) gated(ctx context.Context, c call) (*mcp.CallToolResult, error) 
 // decide is steps 5 to 7 around Gate.Decide: the argument cap, the session
 // counters (read, and for a forwarded call updated, under the counter key's
 // lock, so two calls of one key cannot both pass max_devices on the same
-// count), the panic guard and the re-encoding of the arguments.
-func (p *Proxy) decide(ctx context.Context, c call) decision {
+// count), the panic guard and the re-encoding of the arguments. It fails
+// only when ctx ends while it waits for the key's lock.
+func (p *Proxy) decide(ctx context.Context, c call) (decision, error) {
 	in := p.callInfo(c)
 	if len(c.arguments) > maxArgumentBytes {
-		return decision{v: p.refusalVerdict(in, ruleBadArguments, reasonTooLarge, parseTooLarge)}
+		return decision{v: p.refusalVerdict(in, ruleBadArguments, reasonTooLarge, parseTooLarge)}, nil
 	}
 	sc := p.counters.get(counterKey(c))
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
+	if err := sc.lock(ctx, p.testHookCounterWait); err != nil {
+		return decision{}, err
+	}
+	defer sc.unlock()
+	return p.decideLocked(ctx, c, in, sc), nil
+}
+
+// decideLocked is decide with the counter key's lock held.
+func (p *Proxy) decideLocked(ctx context.Context, c call, in seam.CallInfo, sc *sessionCounter) decision {
 	in.DevicesTouched = sc.touchedCount()
 	v, ok := p.safeDecide(ctx, in)
 	if !ok {
@@ -146,8 +181,10 @@ func (p *Proxy) decide(ctx context.Context, c call) decision {
 func (p *Proxy) safeDecide(ctx context.Context, in seam.CallInfo) (v seam.Verdict, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
+			// Only the runtime's own errors have fixed text; a type from
+			// elsewhere that implements runtime.Error may carry anything.
 			kind := fmt.Sprintf("%T", r)
-			if re, isRuntime := r.(runtime.Error); isRuntime {
+			if re, isRuntime := r.(runtime.Error); isRuntime && strings.HasPrefix(strings.TrimPrefix(kind, "*"), "runtime.") {
 				kind = re.Error()
 			}
 			p.logger.Error("the gate panicked; the call is denied", "server", in.Server, "tool", in.Tool, "panic", kind)
@@ -309,12 +346,13 @@ func parseCode(err error) string {
 	return "invalid_json"
 }
 
-// The session counters (ADR 0026, Session counters, decision 4). A stateful
-// agent session (2025-11-25, stdio or HTTP) is its own counter key; a
-// stateless agent (2026-07-28), which has no session, is counted by its
-// principal over HTTP and as the process on stdio. pending_holds is always
-// 0 in M1 (no hold is ever pending). Counters live in memory and reset with
-// the process.
+// The session counters (ADR 0026, Session counters, decision 4 as amended
+// by the maintainer on 2026-09-25). Over the HTTP listener every call is
+// counted by its principal, whatever its era: a principal that opens,
+// closes or has evicted its sessions keeps its count (T0.57). On stdio,
+// where one agent owns the process, every call is counted as the process.
+// pending_holds is always 0 in M1 (no hold is ever pending). Counters live
+// in memory and reset with the process.
 
 // maxTouchedNames caps the distinct target names one counter key remembers.
 // Past it, every target not remembered is counted again on each forwarded
@@ -322,25 +360,18 @@ func parseCode(err error) string {
 // devices touched, never fewer.
 const maxTouchedNames = 4096
 
-// counterKey is the counter key of c. A stateful call whose agent session
-// fathomgate could not name (a request key, input.go) is counted with its
-// principal or the process: more calls share that count, never fewer.
+// counterKey is the counter key of c: its principal over HTTP, the process
+// on stdio. No key names a session, so no entry outlives what it counts.
 func counterKey(c call) string {
-	if !c.agent.stateless() {
-		if strings.HasPrefix(c.sessionKey, "s") || strings.HasPrefix(c.sessionKey, localKeyPrefix) {
-			return "session:" + c.sessionKey
-		}
-	}
 	if c.transport == transportHTTP {
 		return "principal:" + c.principal
 	}
 	return "process"
 }
 
-// counters holds one sessionCounter per counter key. The entries of stateful
-// sessions are dropped when the session ends (forgetSession); principals
-// are the listener's configured ones, so the map is bounded by the live
-// sessions plus the principals plus one.
+// counters holds one sessionCounter per counter key. Entries are never
+// removed: the keys are the listener's configured principals plus the
+// process, so the map holds at most that many entries.
 type counters struct {
 	mu   sync.Mutex
 	keys map[string]*sessionCounter
@@ -354,27 +385,42 @@ func (cs *counters) get(key string) *sessionCounter {
 	}
 	sc := cs.keys[key]
 	if sc == nil {
-		sc = &sessionCounter{touched: make(map[string]struct{})}
+		sc = &sessionCounter{touched: make(map[string]struct{}), sem: make(chan struct{}, 1)}
 		cs.keys[key] = sc
 	}
 	return sc
 }
 
-// forgetSession drops the counters of an agent session that has ended
-// (sessionKey as agentSessionKey made it).
-func (cs *counters) forgetSession(sessionKey string) {
-	cs.mu.Lock()
-	delete(cs.keys, "session:"+sessionKey)
-	cs.mu.Unlock()
-}
-
-// sessionCounter is one counter key's devices touched. mu is held across a
-// decision (decide).
+// sessionCounter is one counter key's devices touched. Its lock (sem, one
+// slot) is held across a decision, up to two Decide calls (decide), and
+// is taken with the call's context, so a call whose agent gives up does
+// not wait behind another call's decision.
 type sessionCounter struct {
-	mu      sync.Mutex
+	sem     chan struct{}
 	touched map[string]struct{}
 	extra   int // targets counted past maxTouchedNames
 }
+
+// lock takes the key's lock, or returns ctx's error if ctx ends first.
+// waiting, when set (tests), runs when the lock is held by another call.
+func (s *sessionCounter) lock(ctx context.Context, waiting func()) error {
+	select {
+	case s.sem <- struct{}{}:
+		return nil
+	default:
+	}
+	if waiting != nil {
+		waiting()
+	}
+	select {
+	case s.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *sessionCounter) unlock() { <-s.sem }
 
 func (s *sessionCounter) touchedCount() int { return len(s.touched) + s.extra }
 
@@ -422,10 +468,13 @@ func dedupe(targets []string) []string {
 
 // narrowSchema returns a copy of an upstream tool's inputSchema that offers
 // only the named properties (ADR 0033 section 4): every other property is
-// removed from properties and from required. The upstream's schema is not
-// changed. What the agent is offered changes; what is checked does not
-// (Decide still refuses an unnamed argument). dropped lists the removed
-// property names for the log.
+// removed from properties and from required, and additionalProperties is
+// false. The upstream's schema is not changed. What the agent is offered
+// changes; what is checked does not (Decide still refuses an unnamed
+// argument). Only the top-level properties and required are trimmed: a
+// property offered through allOf, anyOf, oneOf, $defs, patternProperties
+// or dependentSchemas stays in the schema, and Decide refuses it when sent.
+// dropped lists the removed property names for the log.
 func narrowSchema(schema any, named []string) (_ any, dropped []string) {
 	m, ok := schema.(map[string]any)
 	if !ok {
@@ -455,20 +504,31 @@ func narrowSchema(schema any, named []string) (_ any, dropped []string) {
 		}
 		out["required"] = kept
 	}
+	out["additionalProperties"] = false
 	slices.Sort(dropped)
 	return out, dropped
 }
 
 // argumentsClosed reports whether calls to server's tool have a closed
-// argument list under the gate: then an upstream prompt during such a call
-// is refused, because its answer would be an argument the profile never
-// named (ADR 0026 amendment of M1-19; ADR 0033 N1).
+// argument list under the gate, from the snapshot New took (route.closed):
+// then an upstream prompt during such a call is refused, because its answer
+// would be an argument the profile never named (ADR 0026 and ADR 0014,
+// notes after acceptance; ADR 0033 N1).
 func (p *Proxy) argumentsClosed(server, tool string) bool {
-	if p.gate == nil {
-		return false
-	}
-	_, closed := p.gate.Arguments(server, tool)
-	return closed
+	return p.routes[prefixName(server, tool)].closed
+}
+
+// toolArguments is Gate.Arguments for one upstream tool, read once in New.
+// A panic is closed with no names (every argument refused), logged at
+// Error.
+func (p *Proxy) toolArguments(server, tool string) (named []string, closed bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.Error("the gate panicked listing a tool's arguments; the tool takes none", "server", server, "tool", tool, "panic", fmt.Sprintf("%T", r))
+			named, closed = nil, true
+		}
+	}()
+	return p.gate.Arguments(server, tool)
 }
 
 // errPromptsUnchecked is the reason fathomgate gives the agent and the

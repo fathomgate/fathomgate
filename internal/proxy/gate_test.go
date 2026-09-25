@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -356,11 +358,36 @@ func TestGateAnnotations(t *testing.T) {
 	}
 }
 
-// TestGateCountersPerKey: devices_touched per counter key (ADR 0026
-// decision 4). Over HTTP a stateless agent is counted by its principal, a
-// stateful one by its session; a device already touched is counted once;
-// only forwarded calls count.
-func TestGateCountersPerKey(t *testing.T) {
+// capGate forwards a call only while its key's distinct devices stay
+// within max, as policy.Evaluate's max_devices does.
+func capGate(max int) *fakeGate {
+	return &fakeGate{decide: func(in seam.CallInfo) seam.Verdict { return capVerdict(in, max) }}
+}
+
+func capVerdict(in seam.CallInfo, max int) seam.Verdict {
+	v := allowAll(in)
+	if in.DevicesTouched+len(v.Targets) > max {
+		v.Forward, v.Effect, v.RuleID = false, "deny", "default:session.max_devices"
+		v.Error = "fathomgate denied " + in.Server + "." + in.Tool + ": rule default:session.max_devices (class READ_OPERATIONAL): this session would touch more devices than its cap allows"
+	}
+	return v
+}
+
+func showOn(t *testing.T, cs *mcp.ClientSession, host string) *mcp.CallToolResult {
+	t.Helper()
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": host}})
+	if err != nil {
+		t.Fatalf("%s: %v", host, err)
+	}
+	return res
+}
+
+// TestGateCountersPerPrincipal: over HTTP devices_touched is counted per
+// principal in both eras (ADR 0026 decision 4 as amended 2026-09-25): new
+// clients and new sessions of one principal share the count, another
+// principal has its own, a device already touched is counted once, and only
+// forwarded calls count.
+func TestGateCountersPerPrincipal(t *testing.T) {
 	g := &fakeGate{decide: func(in seam.CallInfo) seam.Verdict {
 		v := allowAll(in)
 		if hostOf(in)[0] == "refused-01" {
@@ -386,84 +413,156 @@ func TestGateCountersPerKey(t *testing.T) {
 		{alice1, "a-01", 1}, // touched already: counted once, so 2 - 1
 		{alice2, "c-01", 2},
 		{bob, "refused-01", 1},
-		{bob, "d-01", 1}, // the refused call did not count
-		{aliceS, "e-01", 0},
-		{aliceS, "f-01", 1},
-		{aliceS2, "e-01", 0}, // another stateful session of alice
+		{bob, "d-01", 1},     // the refused call did not count
+		{aliceS, "e-01", 3},  // a stateful session of alice shares her count
+		{aliceS2, "e-01", 3}, // and so does another: e-01 is counted once
 	} {
-		if _, err := s.who.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": s.host}}); err != nil {
-			t.Fatalf("step %d: %v", i, err)
-		}
+		showOn(t, s.who, s.host)
 		calls := g.all()
 		if got := calls[len(calls)-1].DevicesTouched; got != s.want {
 			t.Errorf("step %d (%s): devices_touched %d, want %d", i, s.host, got, s.want)
 		}
 	}
-	// A stateful session's counters go when the session does.
-	_ = aliceS.Close()
-	waitFor(t, "the stateful session's counters to go", func() bool {
-		h.proxy.counters.mu.Lock()
-		defer h.proxy.counters.mu.Unlock()
-		n := 0
-		for k := range h.proxy.counters.keys {
-			if strings.HasPrefix(k, "session:") {
-				n++
-			}
-		}
-		return n == 1
-	})
+	h.proxy.counters.mu.Lock()
+	keys := slices.Sorted(maps.Keys(h.proxy.counters.keys))
+	h.proxy.counters.mu.Unlock()
+	if !slices.Equal(keys, []string{"principal:alice", "principal:bob"}) {
+		t.Errorf("counter keys %q", keys)
+	}
 }
 
-// TestGateCountersStdio: on stdio a stateful agent is counted by its
-// session and a stateless one as the process.
+// TestGateCountersSurviveSessionChurn (security review of PR #167, M1): a
+// 2025-era agent that opens a session, touches a device and closes it,
+// again and again, cannot reset max_devices; nor can a principal that
+// mixes eras.
+func TestGateCountersSurviveSessionChurn(t *testing.T) {
+	h := newHTTPHarness(t, httpSetup{policy: capGate(1)})
+	for i := range 4 {
+		cs := h.connect(t, v2025, tokAlice, nil)
+		res := showOn(t, cs, "dev-0"+strconv.Itoa(i))
+		if res.IsError != (i > 0) {
+			t.Errorf("session %d: isError=%v %q", i, res.IsError, text(res))
+		}
+		if err := cs.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(h.rec.all()); n != 1 {
+		t.Errorf("upstream saw %d calls, want only the first", n)
+	}
+
+	// One principal, both eras, one count.
+	stateful := h.connect(t, v2025, tokBob, nil)
+	stateless := h.connect(t, v2026, tokBob, nil)
+	if res := showOn(t, stateful, "dev-a"); res.IsError {
+		t.Fatalf("first device: %q", text(res))
+	}
+	if res := showOn(t, stateless, "dev-b"); !res.IsError || !strings.Contains(text(res), "default:session.max_devices") {
+		t.Errorf("second device through the other era: %v %q", res.IsError, text(res))
+	}
+	if res := showOn(t, stateless, "dev-a"); res.IsError {
+		t.Errorf("the device already touched, through the other era: %q", text(res))
+	}
+}
+
+// TestGateCountersStdio: on stdio every call is counted as the process,
+// in both eras.
 func TestGateCountersStdio(t *testing.T) {
 	for _, agent := range []string{v2025, v2026} {
 		t.Run(agent, func(t *testing.T) {
 			g := &fakeGate{decide: allowAll}
 			h := newEraHarness(t, eraSetup{agent: agent, upstream: v2026, policy: g})
 			for i, host := range []string{"a-01", "b-01", "a-01"} {
-				if _, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": host}}); err != nil {
-					t.Fatal(err)
-				}
+				showOn(t, h.agent, host)
 				calls := g.all()
 				if got, want := calls[len(calls)-1].DevicesTouched, []int{0, 1, 1}[i]; got != want {
 					t.Errorf("call %d: devices_touched %d, want %d", i, got, want)
 				}
 			}
 			h.proxy.counters.mu.Lock()
-			keys := slices.Sorted(func(yield func(string) bool) {
-				for k := range h.proxy.counters.keys {
-					if !yield(k) {
-						return
-					}
-				}
-			})
+			keys := slices.Sorted(maps.Keys(h.proxy.counters.keys))
 			h.proxy.counters.mu.Unlock()
-			want := "process"
-			if agent == v2025 {
-				want = "session:l1"
-			}
-			if !slices.Equal(keys, []string{want}) {
-				t.Errorf("counter keys %q, want %q", keys, want)
+			if !slices.Equal(keys, []string{"process"}) {
+				t.Errorf("counter keys %q, want [process]", keys)
 			}
 		})
 	}
 }
 
-// TestCounterKey pins the key rule, including a stateful call fathomgate
-// could not name a session for.
+// TestGateCountersSerialised (Go review of PR #167, item 3): two concurrent
+// calls on one key under max_devices 1, the first held inside Decide until
+// the second is waiting for the key's lock: exactly one is forwarded. No
+// sleeps: the test hook says when the second call is waiting.
+func TestGateCountersSerialised(t *testing.T) {
+	entered, release, waiting := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	var mu sync.Mutex
+	n := 0
+	g := &fakeGate{decide: func(in seam.CallInfo) seam.Verdict {
+		mu.Lock()
+		n++
+		first := n == 1
+		mu.Unlock()
+		if first {
+			close(entered)
+			<-release
+		}
+		return capVerdict(in, 1)
+	}}
+	h := newEraHarness(t, eraSetup{agent: v2026, upstream: v2026, policy: g})
+	h.proxy.testHookCounterWait = func() { waiting <- struct{}{} }
+	results := make(chan *mcp.CallToolResult, 2)
+	call := func(host string) {
+		res, err := h.agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": host}})
+		if err != nil {
+			res = toolError(err.Error())
+		}
+		results <- res
+	}
+	go call("dev-a")
+	<-entered
+	go call("dev-b")
+	<-waiting
+	close(release)
+	forwarded := 0
+	for range 2 {
+		if res := <-results; !res.IsError {
+			forwarded++
+		}
+	}
+	if forwarded != 1 || len(h.rec.all()) != 1 {
+		t.Errorf("forwarded %d, upstream calls %d; want 1 and 1", forwarded, len(h.rec.all()))
+	}
+}
+
+// TestGateCounterLockHonoursContext: a call waiting for its key's lock
+// gives up when its context ends.
+func TestGateCounterLockHonoursContext(t *testing.T) {
+	sc := (&counters{}).get("process")
+	if err := sc.lock(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := sc.lock(ctx, cancel); !errors.Is(err, context.Canceled) {
+		t.Errorf("lock with a cancelled context: %v", err)
+	}
+	sc.unlock()
+	if err := sc.lock(context.Background(), nil); err != nil {
+		t.Errorf("after unlock: %v", err)
+	}
+}
+
+// TestCounterKey pins the key rule: the principal over HTTP and the
+// process on stdio, whatever the era or session.
 func TestCounterKey(t *testing.T) {
 	stateful, stateless := agentPeer{version: v2025}, agentPeer{version: v2026}
 	for _, tc := range []struct {
 		c    call
 		want string
 	}{
-		{call{agent: stateful, sessionKey: "sabc", transport: transportHTTP, principal: "alice"}, "session:sabc"},
-		{call{agent: stateful, sessionKey: "l1", transport: transportStdio}, "session:l1"},
+		{call{agent: stateful, sessionKey: "sabc", transport: transportHTTP, principal: "alice"}, "principal:alice"},
+		{call{agent: stateful, sessionKey: "l1", transport: transportStdio}, "process"},
 		{call{agent: stateful, sessionKey: "r7", transport: transportHTTP, principal: "alice"}, "principal:alice"},
-		{call{agent: stateful, sessionKey: "r8", transport: transportStdio}, "process"},
 		{call{agent: stateless, sessionKey: "r9", transport: transportHTTP, principal: "bob"}, "principal:bob"},
-		{call{agent: stateless, sessionKey: "sabc", transport: transportHTTP, principal: "bob"}, "principal:bob"},
 		{call{agent: stateless, sessionKey: "l1", transport: transportStdio}, "process"},
 	} {
 		if got := counterKey(tc.c); got != tc.want {
@@ -515,9 +614,9 @@ func TestGateNarrowsSchema(t *testing.T) {
 	g := &fakeGate{decide: allowAll, named: map[string][]string{"run_show_command": {"host"}, "with_required": {"host"}, "get_config": {}}}
 	got := schemas(newEraHarness(t, eraSetup{agent: v2025, upstream: v2026, policy: g, extra: extra}))
 	for name, want := range map[string]string{
-		"netdev-ssh-mcp.run_show_command": `{"properties":{"host":{"type":"string"}},"type":"object"}`,
-		"netdev-ssh-mcp.with_required":    `{"properties":{"host":{"type":"string"}},"required":["host"],"type":"object"}`,
-		"netdev-ssh-mcp.get_config":       `{"properties":{},"type":"object"}`,
+		"netdev-ssh-mcp.run_show_command": `{"additionalProperties":false,"properties":{"host":{"type":"string"}},"type":"object"}`,
+		"netdev-ssh-mcp.with_required":    `{"additionalProperties":false,"properties":{"host":{"type":"string"}},"required":["host"],"type":"object"}`,
+		"netdev-ssh-mcp.get_config":       `{"additionalProperties":false,"properties":{},"type":"object"}`,
 		"netdev-ssh-mcp.failing_tool":     `{"properties":{"command":{"type":"string"},"host":{"type":"string"}},"type":"object"}`,
 	} {
 		if got[name] != want {

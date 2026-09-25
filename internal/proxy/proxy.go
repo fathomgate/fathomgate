@@ -142,6 +142,9 @@ type Proxy struct {
 	// window in which a session can be evicted or expire under a call).
 	// Nil outside tests.
 	testHookBeforeAdmit func()
+	// testHookCounterWait runs when a call finds its counter key's lock
+	// held by another call's decision (gate.go). Nil outside tests.
+	testHookCounterWait func()
 	closeOnce           sync.Once
 	closeErr            error
 	// exited is closed, once (exitedOnce), when the first upstream session
@@ -158,6 +161,9 @@ type route struct {
 	// destructiveHint as the upstream sent them, nil when it did not
 	// (untrusted; the gate may only raise a class on them, ADR 0010).
 	readOnly, destructive *bool
+	// closed is the gate's answer, read once in New, to whether the tool's
+	// argument list is closed (Gate.Arguments); false with no gate.
+	closed bool
 }
 
 // upstream is one connected upstream session. done is closed, and err set,
@@ -843,8 +849,10 @@ func (p *Proxy) addUpstreamTools(up *upstream, tools []*mcp.Tool, readOnly map[s
 			return fmt.Errorf("proxy: tool name %q collides across upstreams", name)
 		}
 		schema := t.InputSchema
+		closed := false
 		if p.gate != nil {
-			if named, closed := p.gate.Arguments(up.name, t.Name); closed {
+			var named []string
+			if named, closed = p.toolArguments(up.name, t.Name); closed {
 				var dropped []string
 				if schema, dropped = narrowSchema(schema, named); len(dropped) > 0 {
 					p.logger.Info("advertising only the arguments the profile names", "server", up.name, "tool", t.Name, "dropped", dropped)
@@ -859,7 +867,7 @@ func (p *Proxy) addUpstreamTools(up *upstream, tools []*mcp.Tool, readOnly map[s
 			OutputSchema: t.OutputSchema,
 			Annotations:  t.Annotations,
 		}
-		r := route{up: up, tool: t.Name, readOnly: readOnly[t.Name]}
+		r := route{up: up, tool: t.Name, readOnly: readOnly[t.Name], closed: closed}
 		if t.Annotations != nil {
 			r.destructive = t.Annotations.DestructiveHint
 		}
@@ -983,10 +991,8 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	}
 	defer func() {
 		p.localMu.Lock()
-		key := p.locals[ss]
 		delete(p.locals, ss)
 		p.localMu.Unlock()
-		p.counters.forgetSession(key)
 	}()
 
 	// As mcp.Server.Run: wait for the session to end, or close it when ctx
@@ -1128,6 +1134,9 @@ type call struct {
 	// the agent sent it: the sealed requestState binds that (argsDigest).
 	gated       bool
 	upArguments json.RawMessage
+	// resumed is the verified requestState of an MRTR retry when gated has
+	// already opened it (before the decision); forward then uses it.
+	resumed *resumed
 }
 
 // binding is the agent side a requestState issued for c is bound to, and
@@ -1244,9 +1253,14 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 	// Only a retry with fathomgate's requestState carries answers; newCall
 	// has already cleared any sent without one (T0.18).
 	if c.requestState != "" {
-		rs, err := p.resume(c)
-		if err != nil {
-			return nil, err
+		var rs resumed
+		if c.resumed != nil {
+			rs = *c.resumed // opened by gated before the decision
+		} else {
+			var err error
+			if rs, err = p.resume(c); err != nil {
+				return nil, err
+			}
 		}
 		params.InputResponses, params.RequestState = rs.responses, rs.upState
 		round, prompts = rs.round, rs.prompts
