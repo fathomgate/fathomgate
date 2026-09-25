@@ -366,8 +366,10 @@ func TestZeroTargets(t *testing.T) {
 		// FastMCP json.loads a string sent for a list parameter: "null" is
 		// None (the whole fleet) and a JSON array string is a list, while
 		// fathomgate would see one target (security review of PR #161).
+		// Refused here as a bad target, and by M1-35 as malformed first;
+		// the rule is the same either way.
 		{"hostnames the string null", eos, "daily_brief", map[string]any{"hostnames": "null"},
-			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL", text: "fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): " + reasonBadTarget}},
+			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL"}},
 		{"hostnames a JSON array string", eos, "daily_brief", map[string]any{"hostnames": `["core-rtr-01"]`},
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL"}},
 		{"hostnames a JSON empty array string", eos, "daily_brief", map[string]any{"hostnames": "[]"},
@@ -653,10 +655,11 @@ func TestAnnotationsOnlyRaise(t *testing.T) {
 // raise now only makes the class stricter.
 func TestAnnotationRaiseNeverLowers(t *testing.T) {
 	t.Parallel()
-	prof, err := classify.ParseProfile([]byte("server: dumper\ntools:\n  dump:\n    class: READ_CONFIG\n    target_params: [host]\n    command_params: [command]\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Built in Go so the test holds with and without the closed argument
+	// list's required args key (M1-35).
+	prof := &classify.Profile{Server: "dumper", Tools: map[string]classify.ToolSpec{
+		"dump": {Class: classify.ReadConfig, TargetParams: []string{"host"}, CommandParams: []string{"command"}},
+	}}
 	pol, err := policy.Parse([]byte("version: 1\ndefaults: {unknown_target: deny}\nrules:\n" +
 		"  - id: ops-only\n    match: {class: [READ_OPERATIONAL]}\n    effect: allow\n" +
 		"  - id: nothing-else\n    effect: deny\n    reason: only operational reads\n"))
