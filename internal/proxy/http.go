@@ -979,7 +979,6 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, slo
 		// cannot keep a closed session (the #121 leak).
 		limits.forget(kept)
 		h.mu.Unlock()
-		h.p.counters.forgetSession("s" + sid)
 		release()
 		h.logger.Info("agent session closed", "session", shortHash(sid), "principal", principal)
 	})

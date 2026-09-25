@@ -181,9 +181,9 @@ func TestRealGateThroughProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"eos-mcp.get_version":             `{"properties":{"hostname":{"type":"string"}},"required":["hostname"],"type":"object"}`,
-		"eos-mcp.push_config":             `{"properties":{"commit_timer":{"type":"string"},"config_lines":{"type":"string"},"dry_run":{"type":"string"},"hostname":{"type":"string"}},"required":["hostname","config_lines"],"type":"object"}`,
-		"netdev-ssh-mcp.run_show_command": `{"properties":{"command":{"type":"string"},"device_type":{"type":"string"},"host":{"type":"string"},"port":{"type":"string"}},"required":["host","command"],"type":"object"}`,
+		"eos-mcp.get_version":             `{"additionalProperties":false,"properties":{"hostname":{"type":"string"}},"required":["hostname"],"type":"object"}`,
+		"eos-mcp.push_config":             `{"additionalProperties":false,"properties":{"commit_timer":{"type":"string"},"config_lines":{"type":"string"},"dry_run":{"type":"string"},"hostname":{"type":"string"}},"required":["hostname","config_lines"],"type":"object"}`,
+		"netdev-ssh-mcp.run_show_command": `{"additionalProperties":false,"properties":{"command":{"type":"string"},"device_type":{"type":"string"},"host":{"type":"string"},"port":{"type":"string"}},"required":["host","command"],"type":"object"}`,
 	}
 	for _, tl := range lt.Tools {
 		b, _ := json.Marshal(tl.InputSchema)
@@ -287,16 +287,25 @@ func TestRealGateLogInjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = p.Close() }()
+	t.Cleanup(func() { _ = p.Close() }) // runs last
 	agSrv, agCli := mcp.NewInMemoryTransports()
 	runCtx, stop := context.WithCancel(ctx)
-	defer stop()
-	go func() { _ = p.Run(runCtx, agSrv) }()
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run(runCtx, agSrv) }()
+	// Joined before p.Close: cancel Run, then wait for it.
+	t.Cleanup(func() {
+		stop()
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("Run did not return")
+		}
+	})
 	agent, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, nil).Connect(ctx, agCli, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = agent.Close() }()
+	t.Cleanup(func() { _ = agent.Close() })
 	res, err := agent.CallTool(ctx, &mcp.CallToolParams{Name: "eos-mcp.get_version", Arguments: map[string]any{
 		"hostname": "core-rtr-01", "x\ntime=0 level=ERROR msg=forged": "1",
 	}})
