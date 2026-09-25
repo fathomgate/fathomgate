@@ -1,10 +1,12 @@
 # Changelog
 
-All notable changes to Fathomgate are recorded here. The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged. Until `0.1.0`, `main` is the only line.
+All notable changes to Fathomgate are recorded here. The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from `0.1.0`. Until `1.0.0`, a minor version may change the policy or profile file format, with a migration note.
 
 Entries use the project vocabulary: decisions are allow, hold, deny, expired; classes are spelled as in [docs/glossary.md](docs/glossary.md).
 
 ## [Unreleased]
+
+## [0.1.0] - TBD
 
 ### Added
 
@@ -49,6 +51,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ### Changed
 
+- Release setup for the first tag, v0.1.0: the GitHub release page is `docs/releases/<tag>.md`, written in the release pull request from this file, instead of GoReleaser's list of every commit, and `release.yaml` stops before building when the file is missing or empty. The Homebrew formula is generated but not uploaded (`skip_upload: true`) until `fathomgate/homebrew-tap` and its token exist, and the container image is built but not pushed (`skip_push: true`) until it is multi-arch, tagged `vX.Y.Z`, `vX.Y` and `latest`, and signed; `release.yaml` drops `packages: write` until then. `checksums.txt` is not signed in this release.
 - `make conformance` and CI job `mcp-conformance` drive the real `fathomgate serve --listen` over Streamable HTTP (T0.32, ADR 0016). `tests/conformance/relay.py` and its unit test are removed. In their place `tests/conformance/shim.py` (standard library) adds a FAKE bearer token and the `conf.` prefix on an unprefixed `tools/call` name, in `params.name` and `Mcp-Name` alike, and passes everything else through, streams included. Its unit tests are in `tests/unit/test_conformance_shim.py`. The control legs run go-sdk's everything-server `-http` directly (`-stateless=false` for 2025-11-25, `true` for 2026-07-28) behind the same shim, and both control baselines are now empty. On the fathomgate legs 11 of the 12 HTTP-transport baseline entries clear, as ADR 0016 predicted. `sep-2575-missing-capability-http-400` stays, now under the tool prefix. New entries, each with its ADR: `dns-rebinding-protection:localhost-host-valid-accepted` on every fathomgate leg (any `Origin` gets 403), and, on `fathomgate-up2025` 2025-11-25, `tools-call-elicitation` and `elicitation-sep1034-defaults` (the `OrphanTTL` rule across agent sessions of one process). Those two, and `server-session-lifecycle` on both 2025-11-25 fathomgate legs, then run again, each alone on a fresh fathomgate, and must pass. `era_pairs.py` runs both of its cells over the listener as well as stdio.
 - `fathomgate serve --listen` shutdown (T0.52; Go review of PR #109): a 2026-era `subscriptions/listen` stream no longer counts toward the 5-second grace, as a GET stream does not (go-sdk answers one at once today, since the proxy declares no `listChanged`), and a second SIGINT or SIGTERM during shutdown ends fathomgate at once. [ADR 0022](docs/adr/0022-internal-proxy-export-surface.md) (accepted) restates the whole exported surface of `internal/proxy`, `UpstreamExited` included, so it changes only by a new record. CI lints `windows/arm64` as well, and the `cmd/fathomgate` tests compile on every `GOOS`.
 - Tier 2, `docs/install.md` and the profile move from krisiasty/netdev-ssh-mcp v1.6.6 to v1.7.1 (T0.51). CI job `client-smoke` pins the linux_amd64 release binary by sha256 `f90795b4…0c9e7`, from the release's `checksums.txt`. Tool names, parameters and the protocol version (2026-07-28) are unchanged. The upstream's tokens are now keyed, and run over the redaction fixtures, once the fixtures' rule annotations are stripped, its obfuscation leaves no secret in clear (v1.6.6: 20 of 71). `test_passthrough.py` asserts the keyed token, the per-run key with its notice block, and the upstream's own refusal text for six injected commands with nothing sent to the device; all eight cases fail against v1.6.6. Nothing in `fathomgate` changes, and row 15 stays `planned`: the upstream's tokens are not Fathomgate redaction.
@@ -111,4 +114,5 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 - `ci.yaml`, `release.yaml` and `nightly-clab.yaml` install the newest Go 1.25 patch (`go-version: 1.25.x`, `check-latest: true`) instead of reading `go.mod`. `go-version-file: go.mod` installed exactly go1.25.0, whose standard library has four vulnerabilities govulncheck traces to `internal/audit` (GO-2025-4007, GO-2025-4009, GO-2025-4011, GO-2026-5972), and release binaries would have shipped with them. `go.mod` keeps `go 1.25.0` as the floor (T0.10).
 - `release.yaml` runs `make vulncheck` before GoReleaser, so a reachable vulnerability stops a release; its permissions move to the job (`contents: write`, `packages: write`), `id-token: write` is dropped until cosign signing lands, and setup-go runs with `cache: false`.
 
-[Unreleased]: https://github.com/fathomgate/fathomgate/compare/main...HEAD
+[Unreleased]: https://github.com/fathomgate/fathomgate/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/fathomgate/fathomgate/releases/tag/v0.1.0
