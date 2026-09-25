@@ -5,6 +5,19 @@
 # tools are blocklist-filtered server-side (block.cmd, fail-closed) which is
 # weaker than an allow-list, so they stay EXEC_ARBITRARY until the proxy proves
 # every command is a read.
+#
+# Not pinned: no tier 2 run and no audit against a release yet (M1 validates
+# netdev-ssh-mcp, upa and eos-mcp). Argument lists (M1-35, ADR 0033) read
+# [src] from list_tools() inputSchema in jmcp.py at the main branch head,
+# commit 75fe90afd7a0566f8c9e4c88099309aa12dee6e6 (2026-09-24):
+#   https://github.com/Juniper/junos-mcp-server/blob/75fe90afd7a0566f8c9e4c88099309aa12dee6e6/jmcp.py
+# Every property of the nine tools there is named here; none is refused.
+# The newest tag, v1.1.1 (0fe6354), also lists add_device (device_name,
+# device_ip, device_port, username, ssh_key_path) and reload_devices
+# (file_name), which main no longer has. They are not in this profile, so
+# they are EXEC_ARBITRARY and any argument they carry is unnamed and denied
+# (ADR 0033); reload_devices reads an agent-chosen file, the eos-mcp
+# config_path hazard. Pin a version before this profile is validated.
 server: junos-mcp-server
 source: https://github.com/Juniper/junos-mcp-server
 description: Official Juniper Junos server over PyEZ
@@ -13,38 +26,47 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [timeout]
     notes: Server applies block.cmd regexes; proxy downgrades to READ_OPERATIONAL/READ_CONFIG when the command passes the allow-list.
   execute_junos_pfe_command:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [target, timeout]
     notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]
     command_params: [command]
+    args: [timeout]
     notes: Fleet-wide; targets_count rules apply.
   get_junos_config:
     class: READ_CONFIG
     target_params: [router_name]
+    args: []
   junos_config_diff:
     class: READ_CONFIG
     target_params: [router_name]
+    args: [version]
     notes: version 1-49 selects the rollback to diff against.
   gather_device_facts:
     class: READ_OPERATIONAL
     target_params: [router_name]
+    args: [timeout]
   get_router_list:
     class: INVENTORY_READ
+    args: []
     notes: Seeds the proxy's target allow-list at startup (M1).
   load_and_commit_config:
     class: WRITE_CONFIG
     target_params: [router_name]
     config_params: [config_text]
+    args: [config_format, commit_comment]
     notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed.
   render_and_apply_j2_template:
     class: WRITE_CONFIG
     target_params: [router_name]
     targets_params: [router_names]
     config_params: [template_content, vars_content]
+    args: [apply_config, dry_run, commit_comment, config_format, timeout]
     notes: Render-only unless apply_config=true; dry_run=true is commit-check + rollback. Classified WRITE_CONFIG conservatively; M1 may relax when apply_config is false.

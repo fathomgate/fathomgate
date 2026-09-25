@@ -101,6 +101,7 @@ func cmdPolicyEval(args []string) int {
 	req.Session = policy.Session{DevicesTouched: *touched, PendingHolds: *pending}
 
 	var classNote string
+	var argDeny *policy.Decision
 	if *profilePath != "" {
 		prof, err := classify.LoadProfile(*profilePath)
 		if err != nil {
@@ -115,6 +116,7 @@ func cmdPolicyEval(args []string) int {
 		if res.Reason != "" {
 			classNote = fmt.Sprintf(" (profile %s; %s)", res.ProfileClass, res.Reason)
 		}
+		argDeny = argumentDecision(res)
 	}
 	if *className != "" {
 		c, err := classify.Parse(*className)
@@ -143,7 +145,14 @@ func cmdPolicyEval(args []string) int {
 		req.Targets = append(req.Targets, t)
 	}
 
-	d := policy.Evaluate(p, req)
+	var d policy.Decision
+	if argDeny != nil {
+		// The gate refuses the call before Evaluate (ADR 0026 step 1,
+		// ADR 0033); eval shows what the gate will do.
+		d = *argDeny
+	} else {
+		d = policy.Evaluate(p, req)
+	}
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -221,6 +230,45 @@ func describeTarget(t policy.Target) string {
 
 // parseArgs turns --arg k=v flags into a tool argument map. Values containing
 // commas become arrays, mirroring what an agent would send.
+// ruleBadArguments is the reserved rule id the gate uses for arguments it
+// cannot accept (ADR 0026, ADR 0033). Evaluate never produces it.
+const ruleBadArguments = "default:bad_arguments"
+
+// argumentDecision returns the deny the gate gives a call whose arguments
+// fail the profile's closed argument list, or nil when they pass. The reason
+// is fixed text: the agent-facing reason never quotes an argument name. The
+// trace note names them, for the operator running eval.
+func argumentDecision(res classify.Result) *policy.Decision {
+	if res.ArgumentsOK() {
+		return nil
+	}
+	reason := "an argument is not named in the server profile for this tool"
+	var notes []string
+	if len(res.UnnamedArgs) > 0 {
+		notes = append(notes, "not named: "+strings.Join(quoteAll(res.UnnamedArgs), ", "))
+	}
+	if len(res.MalformedArgs) > 0 {
+		if len(res.UnnamedArgs) == 0 {
+			reason = "a target, command or config argument is not a string or a list of strings"
+		}
+		notes = append(notes, "not a string or list of strings: "+strings.Join(quoteAll(res.MalformedArgs), ", "))
+	}
+	return &policy.Decision{
+		Effect: policy.Deny,
+		RuleID: ruleBadArguments,
+		Reason: reason,
+		Trace:  []policy.TraceEntry{{RuleID: ruleBadArguments, Matched: true, Note: strings.Join(notes, "; ")}},
+	}
+}
+
+func quoteAll(in []string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = fmt.Sprintf("%q", s)
+	}
+	return out
+}
+
 func parseArgs(kv []string) map[string]any {
 	out := make(map[string]any, len(kv))
 	for _, pair := range kv {

@@ -5,6 +5,18 @@
 # adds the most value here. Devices are names or "@group" tokens from the
 # server's devices.yaml; group tokens pass through Normalize unchanged for the
 # inventory layer to expand.
+#
+# Not pinned: no tier 2 run and no release audit yet (the project has no
+# tags). Argument lists (M1-35, ADR 0033) read [src] from the @mcp.tool()
+# signatures in src/netmiko_mcp/tools/{commands,config_tools,discovery}.py at
+# the main branch head, commit 4cc59d6c5300353e0f8cb032efe6bf091efd840c
+# (2026-01-21):
+#   https://github.com/ntunes/netmiko-mcp-server/tree/4cc59d6c5300353e0f8cb032efe6bf091efd840c/src/netmiko_mcp/tools
+# Every parameter is named except send_config's enter_config_mode, which is
+# in refused_args: with enter_config_mode=false, netmiko send_config_set
+# sends config_commands in exec mode, so "reload" would run as an exec
+# command under a WRITE_CONFIG class. The default (true) is what the class
+# assumes. Pin a version before this profile is validated.
 server: ntunes-netmiko-mcp-server
 source: https://github.com/ntunes/netmiko-mcp-server
 description: Netmiko server with YAML inventory, groups, tags and parallel tools
@@ -13,40 +25,53 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [device]
     command_params: [command]
+    args: [use_textfsm, read_timeout]
     notes: Unfiltered exec-mode command; downgraded only when the command passes the allow-list.
   send_command_parallel:
     class: EXEC_ARBITRARY
     targets_params: [devices]
     command_params: [command]
+    args: [max_concurrent, use_textfsm]
     notes: devices may contain "@group" tokens; max_concurrent defaults to 10.
   send_commands_sequence:
     class: EXEC_ARBITRARY
     target_params: [device]
     command_params: [commands]
+    args: [stop_on_error]
     notes: Every command in the sequence must pass for a downgrade.
   send_config:
     class: WRITE_CONFIG
     target_params: [device]
     config_params: [config_commands]
+    args: [save_config, dry_run]
+    refused_args: [enter_config_mode]
     notes: dry_run and save_config flags exist; the proxy forces dry_run first (M3 obligation dry_run).
   send_config_parallel:
     class: WRITE_CONFIG
     targets_params: [devices]
     config_params: [config_commands]
+    args: [save_config, max_concurrent, rollback_on_error]
     notes: Fleet-wide; rollback_on_error is best effort. Subject to fleet-cap and canary-first rules.
   list_devices:
     class: INVENTORY_READ
+    args: [tag, device_type]
   get_device_info:
     class: INVENTORY_READ
     target_params: [device]
+    args: [include_connection_status]
   list_groups:
     class: INVENTORY_READ
+    args: []
   get_device_types:
     class: INVENTORY_READ
+    args: []
   get_tags:
     class: INVENTORY_READ
+    args: []
   get_pool_status:
     class: INVENTORY_READ
+    args: []
   test_connection:
     class: READ_OPERATIONAL
     target_params: [device]
+    args: []

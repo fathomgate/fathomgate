@@ -91,6 +91,9 @@ func TestPolicyEvalExitCodes(t *testing.T) {
 		{"bad class", []string{"--class", "NOPE"}, exitUsage},
 		{"profile classifies show", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=show version"}, exitOK},
 		{"profile classifies reload", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=reload"}, exitFail},
+		{"profile named args", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01"}, exitOK},
+		{"profile config_path refused", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path=/proc/self/stat"}, exitFail},
+		{"profile empty config_path refused", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path="}, exitFail},
 		{"profile unknown tool", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "nope", "--arg", "hostname=lab-leaf-01"}, exitFail},
 		{"no class no profile", []string{"--tool", "x"}, exitUsage},
 	}

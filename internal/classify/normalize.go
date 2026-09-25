@@ -4,6 +4,7 @@ package classify
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -87,6 +88,75 @@ type Result struct {
 	ConfigPayload string
 	// Reason explains any change from ProfileClass.
 	Reason string
+	// UnnamedArgs lists, sorted, the argument names the call carried that
+	// the profile does not name for the tool (ADR 0033). MalformedArgs
+	// lists, sorted, the target, command and config arguments whose value
+	// is not a string or an array of strings. Either one non-empty means
+	// the gate denies the call with default:bad_arguments before Evaluate;
+	// see ArgumentsOK. The names are agent-chosen text: log them escaped,
+	// never put them in the text the agent sees.
+	UnnamedArgs   []string
+	MalformedArgs []string
+}
+
+// ArgumentsOK reports whether the call's arguments passed CheckArguments.
+func (r Result) ArgumentsOK() bool {
+	return len(r.UnnamedArgs) == 0 && len(r.MalformedArgs) == 0
+}
+
+// CheckArguments enforces the profile's closed argument list (ADR 0033).
+//
+// unnamed holds every argument key the profile does not name for the tool,
+// whatever its value: a key sent as "" or null is still sent, and the
+// upstream still sees it. For a tool the profile does not list, every key is
+// unnamed. malformed holds the named target, command and config arguments
+// whose value is neither a string nor an array of strings (a number, a
+// boolean, an object, or an array holding anything but strings); null counts
+// as absent. Arguments in args are not inspected: any JSON value passes.
+//
+// With no profile (the fallback classifier, ADR 0027) nothing is checked
+// and both are nil. Both results are sorted, so the output does not depend
+// on map order.
+func CheckArguments(profile *Profile, tool string, args map[string]any) (unnamed, malformed []string) {
+	if profile == nil {
+		return nil, nil
+	}
+	spec, known := profile.Lookup(tool)
+	for k := range args {
+		if !known || !spec.Named(k) {
+			unnamed = append(unnamed, k)
+		}
+	}
+	if known {
+		for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams} {
+			for _, name := range l {
+				if v, ok := args[name]; ok && !stringOrStrings(v) {
+					malformed = append(malformed, name)
+				}
+			}
+		}
+	}
+	sort.Strings(unnamed)
+	sort.Strings(malformed)
+	return unnamed, malformed
+}
+
+// stringOrStrings reports whether v is null, a string, or an array whose
+// every element is a string, as decoded from JSON.
+func stringOrStrings(v any) bool {
+	switch t := v.(type) {
+	case nil, string, []string:
+		return true
+	case []any:
+		for _, e := range t {
+			if _, ok := e.(string); !ok {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // Classify normalises the arguments and applies the command rules:
@@ -99,8 +169,14 @@ type Result struct {
 //     defence in depth against servers whose own filter is weaker than
 //     their tool name suggests.
 //   - Tools missing from the profile are EXEC_ARBITRARY.
+//
+// Classify also runs CheckArguments and reports its findings in
+// UnnamedArgs and MalformedArgs; it does not change the class for them.
+// Refusing the call is the gate's job (ADR 0026 step 1, ADR 0033), so
+// policy.Evaluate never sees arguments it cannot trust.
 func Classify(profile *Profile, tool string, args map[string]any) Result {
 	var res Result
+	res.UnnamedArgs, res.MalformedArgs = CheckArguments(profile, tool, args)
 	if profile == nil {
 		res.Class = ExecArbitrary
 		res.Reason = "no profile for server"
