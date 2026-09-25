@@ -6,7 +6,9 @@
 // role -> evaluate). Evaluate is a pure function from a Policy and a Request
 // to a Decision, so it can be unit-tested without a proxy, a device or a
 // network, and so contributors can test policies with `fathomgate policy test`
-// over *.test.yaml files without a Go toolchain.
+// over *.test.yaml files without a Go toolchain. The test-file format and its
+// runner are in internal/policytest, which also runs the cases that carry
+// arguments through internal/gate (ADR 0035).
 //
 // Semantics, in order:
 //
