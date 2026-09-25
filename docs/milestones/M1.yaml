@@ -338,17 +338,17 @@ relo
     package: internal/inventory
     owner: network-safety-engineer
     reviewers: [security-reviewer, policy-engineer]
-    state: open
+    state: in review
     matrix: [6]
-    notes: 'From the security review of PR #154 (H1, H2). internal/inventory/patterns.go Resolve returns known:true on any match, so a pattern switches off the unknown-target default for every string it matches (reads reach attacker-chosen hosts through free-form-host upstreams; tags from a pattern could unlock writes). inventory-schema originally intended that a tags-only pattern never makes a target known. ADR options: a pattern never makes a target known on its own (it only adds attributes to a listed device); or it may, but pattern-derived tags can never satisfy device_tags for WRITE_CONFIG, EXEC_ARBITRARY or LAB_LIFECYCLE (carry Target.Status pattern into policy.Target). The shipped example has no active patterns meanwhile. Threat-model row: Pattern-resolved target (reads and writes).'
+    notes: 'From the security review of PR #154 (H1, H2). internal/inventory/patterns.go Resolve returns known:true on any match, so a pattern switches off the unknown-target default for every string it matches (reads reach attacker-chosen hosts through free-form-host upstreams; tags from a pattern could unlock writes). inventory-schema originally intended that a tags-only pattern never makes a target known. ADR options: a pattern never makes a target known on its own (it only adds attributes to a listed device); or it may, but pattern-derived tags can never satisfy device_tags for WRITE_CONFIG, EXEC_ARBITRARY or LAB_LIFECYCLE (carry Target.Status pattern into policy.Target). The shipped example has no active patterns meanwhile. Threat-model row: Pattern-resolved target (reads and writes). ADR 0031 drafted in PR #157; accepted by the maintainer 2026-09-25 with all recommendations: a pattern never makes a target known on its own; a pattern-given role or tags count for write rules on a device listed elsewhere; upstream-listed devices decided in the M2 upstream-provider ADR; warning at load, error in inventory lint for a pattern matching no listed device; no aliases field yet. Code change is a follow-up task.'
   - id: M1-35
     title: Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR)
     package: internal/classify
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in progress
     matrix: [4]
-    notes: 'From the security review of PR #158 (critical once enforced). Every eos-mcp tool takes config_path: an agent-chosen file the upstream parses with configparser, quoting malformed lines in the error (one-line files such as /proc/<ppid>/environ leak fathomgate''s whole environment, FATHOMGATE_LISTEN_TOKEN and every --upstream-env-pass value) and using it to replace the credentials for that call. Reproduced: get_version and get_router_list with config_path are allowed under read-only. ADR (profile schema): options are a per-tool forbidden_params list, or a closed list where any argument the profile does not name is denied with default:bad_arguments (also covers parameters an upstream adds in a later version); deny, never strip. Interim: operators put a deny rule for eos-mcp first or sandbox it (documented in the profile header). Blocks eos-mcp validation in M1-28.'
+    notes: 'From the security review of PR #158 (critical once enforced). Every eos-mcp tool takes config_path: an agent-chosen file the upstream parses with configparser, quoting malformed lines in the error (one-line files such as /proc/<ppid>/environ leak fathomgate''s whole environment, FATHOMGATE_LISTEN_TOKEN and every --upstream-env-pass value) and using it to replace the credentials for that call. Reproduced: get_version and get_router_list with config_path are allowed under read-only. ADR (profile schema): options are a per-tool forbidden_params list, or a closed list where any argument the profile does not name is denied with default:bad_arguments (also covers parameters an upstream adds in a later version); deny, never strip. Interim: operators put a deny rule for eos-mcp first or sandbox it (documented in the profile header). Blocks eos-mcp validation in M1-28. Maintainer decided 2026-09-25: a closed list - any argument the profile does not name is denied with default:bad_arguments, never stripped. ADR written as accepted in the implementing PR.'
   - id: M1-36
     title: Config lines that leave the configure session make a write EXEC_ARBITRARY
     package: internal/classify
@@ -362,6 +362,6 @@ relo
     package: internal/policy
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in progress
     matrix: [6]
-    notes: 'From the security reviews of PR #154, #158 and ADR 0031 (PR #157) question 4. A policy that leaves defaults.unknown_target unset still lets reads reach unknown hosts; for upstreams that send the fleet''s credentials to any host the agent names (eos-mcp: TLS verification off, TLS 1.0; netdev-ssh-mcp free-form host), reads are as dangerous as writes. ADR: the unset default denies every class (recommended), or a profile flag forces deny for that server. Awaiting the maintainer''s decision with ADR 0031.'
+    notes: 'From the security reviews of PR #154, #158 and ADR 0031 (PR #157) question 4. A policy that leaves defaults.unknown_target unset still lets reads reach unknown hosts; for upstreams that send the fleet''s credentials to any host the agent names (eos-mcp: TLS verification off, TLS 1.0; netdev-ssh-mcp free-form host), reads are as dangerous as writes. ADR: the unset default denies every class (recommended), or a profile flag forces deny for that server. Awaiting the maintainer''s decision with ADR 0031. Maintainer decided 2026-09-25: an unset unknown_target denies every class (per-server flag rejected). ADR written as accepted in the implementing PR.'
