@@ -236,6 +236,7 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 | Date | What changed | Why |
 | --- | --- | --- |
 | 2026-09-25 | The maintainer waived the lawyer's review of decision 6 and told the orchestrator to go ahead with the relicensing pull request (#166). `design/` goes under FSL-1.1-ALv2 with the rest of the core, as decision 7 already reads; only `policies/examples/` and `profiles/` stay Apache-2.0. The questions listed for the lawyer (Competing Use and managed service providers, AI co-author trailers) stay open for the maintainer to take up later. | Maintainer decision, recorded so the history shows the review was waived rather than done |
+| 2026-09-25 | The DCO GitHub App and its required check stay for now; `.github/dco.yml` is kept. Every commit, today only the maintainer's, keeps a `Signed-off-by` line. | Maintainer decision; it costs nothing and keeps the history ready for a CLA plus DCO later (decision 3) |
 
 ## References
 
