@@ -33,7 +33,7 @@ We will ship a local console for one operator on one machine in the core, in M5,
 - Shows live activity (decision, class, target, rule), each held request with its diff, rule trace and rule, and an audit timeline for the local log with its `fathomgate audit verify` status.
 - Approves and denies as the local OS user. That is no stronger than the CLI: an approval from the local console never satisfies `approver_must_differ` on its own, because the agent may run as the same OS user.
 - Shows redacted output only and reads the audit chain without writing it (ADR 0020 extension invariants 4 and 5 apply to it as to any extension).
-- Its serving, authentication, identity namespace and frontend stack are decided in the local console ADR (ADR 0024, proposed).
+- Its serving, authentication, identity namespace and frontend stack are decided in the local console ADR ([ADR 0024](0024-local-console-embedded-loopback-only.md), accepted 2026-09-25).
 
 **Team console (paid edition, enterprise or team, possibly hosted).** Single sign-on, roles and RBAC, multi-approver and N-of-M approvals, a fleet view across many Fathomgate instances, central policy management, long-term retention and search, and SIEM export through the exporters in decision 2. The rules these feed stay core, as ADR 0020 section 2 requires: the approval state machine, `approver_must_differ`, the policy and the audit chain. No dates or pricing are set here.
 
@@ -82,7 +82,7 @@ We will ship a local console for one operator on one machine in the core, in M5,
 
 - [ADR 0020, open core under Apache-2.0](0020-open-core-apache-2.md): section 2 (boundary rule), the *Approval console* contested row, section 3 (extension invariants)
 - [ADR 0009, Fathom design system plus a policy layer](0009-fathom-design-system-policy-layer.md)
-- The local console ADR (ADR 0024, proposed)
+- The local console ADR ([ADR 0024](0024-local-console-embedded-loopback-only.md), accepted 2026-09-25)
 - [ADR 0004, approval hold state machine](0004-approval-hold-state-machine.md); [approval-protocol](../specs/approval-protocol.md) sections 6.1 and 8
 - [ADR 0005, hash-chained JSONL audit](0005-hash-chained-jsonl-audit.md); [audit-event-schema](../specs/audit-event-schema.md) section 8 (exporters)
 - [PRD.md requirements](../PRD.md#6-requirements) R27, R29, R35 and R36; [ROADMAP.md](../../ROADMAP.md) stages 5 and 6
