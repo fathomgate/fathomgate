@@ -160,8 +160,8 @@ func overCap(t *testing.T, worst []gatetest.Case) gatetest.Case {
 // re-encoding of the arguments, the decision line and, for a refusal, the
 // tool error. The p99 over the typical corpus must stay under the budget in
 // every run; each worst case's p50 is enforced only with
-// FATHOMGATE_OVERHEAD_STRICT=1 (gatetest.CheckWorst), and under -race the
-// worst cases are checked for their verdict only. The session counters are
+// FATHOMGATE_OVERHEAD_STRICT=1 (gatetest.CheckWorst), and in every other
+// run, and under -race, the worst cases are checked for their verdict only. The session counters are
 // those of one stdio agent that has already made every typical call, the
 // steady state.
 //
@@ -173,7 +173,8 @@ func overCap(t *testing.T, worst []gatetest.Case) gatetest.Case {
 // jitter, which is as large on the pass-through proxy (on Windows its p99
 // alone is about 10 ms for a call the gate decides in microseconds). The
 // p50 of the typical corpus's differences must stay under the budget. The
-// worst cases are not sent end to end under -short or -race.
+// worst cases are sent end to end only in the strict steps, not under
+// -short.
 func TestDispatchOverhead(t *testing.T) {
 	g, names := overheadGate(t)
 	worst, err := gatetest.Worst(names)
@@ -228,7 +229,7 @@ func TestDispatchOverhead(t *testing.T) {
 			gatetest.CheckWorst(t, gatetest.WhatProxy, all[i].Name, gatetest.Time(worstRounds, warm, func() { stage(i) }))
 		}
 	} else {
-		t.Logf("%s: worst cases checked for their verdict only under -race", gatetest.WhatProxy)
+		t.Logf("%s: worst cases checked for their verdict only (not strict, or -race)", gatetest.WhatProxy)
 	}
 
 	// 2. End to end, gated against pass-through, paired call by call.
@@ -284,7 +285,7 @@ func TestDispatchOverhead(t *testing.T) {
 	if p50 > gatetest.Limit() {
 		t.Errorf("%s: typical corpus: p50 %v over the budget %v", added, p50, gatetest.Limit())
 	}
-	if testing.Short() || gatetest.RaceEnabled {
+	if testing.Short() || !gatetest.TimeWorst() {
 		return
 	}
 	for i := len(typical); i < len(all); i++ {

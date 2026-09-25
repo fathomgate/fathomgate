@@ -49,8 +49,8 @@ func overheadCases(t testing.TB, g *Gate) (typical, worst []gatetest.Case) {
 // prod-approval and inventory.example.yaml, adds under 5 ms at p99 per call
 // over the typical corpus, in every run. Each worst case at the 64 KiB
 // argument cap is timed on its own; its p50 is enforced only with
-// FATHOMGATE_OVERHEAD_STRICT=1 (gatetest.CheckWorst), and under -race it is
-// checked for its verdict only. Every call is timed on its own after a
+// FATHOMGATE_OVERHEAD_STRICT=1 (gatetest.CheckWorst), and in every other
+// run, and under -race, it is checked for its verdict only. Every call is timed on its own after a
 // warm-up; run go test -v -run Overhead for the numbers.
 func TestDecideOverhead(t *testing.T) {
 	g := newGate(t, examplePolicy(t, "prod-approval"), false)
@@ -72,7 +72,7 @@ func TestDecideOverhead(t *testing.T) {
 	gatetest.CheckTypical(t, gatetest.WhatGate, "typical corpus", all)
 
 	if !gatetest.TimeWorst() {
-		t.Logf("%s: worst cases checked for their verdict only under -race", gatetest.WhatGate)
+		t.Logf("%s: worst cases checked for their verdict only (not strict, or -race)", gatetest.WhatGate)
 		return
 	}
 	for _, c := range worst {
