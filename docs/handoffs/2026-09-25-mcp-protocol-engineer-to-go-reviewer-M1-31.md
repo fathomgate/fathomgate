@@ -3,7 +3,7 @@
 - **Task:** M1-31 — Let the status renderer read handoff notes whose task id has a hyphen (M1-06)
 - **From → To:** mcp-protocol-engineer → go-reviewer
 - **State now:** in review
-- **Branch / PR:** fix/status-hyphen-ids · PR link in the PR's first comment and on the board
+- **Branch / PR:** fix/status-hyphen-ids · https://github.com/fathomgate/fathomgate/pull/190
 - **Date:** 2026-09-25
 
 ## Done
