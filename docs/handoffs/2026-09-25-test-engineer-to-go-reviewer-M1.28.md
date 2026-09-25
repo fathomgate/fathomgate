@@ -1,4 +1,4 @@
-# M1-28: rows 3, 4 and 6 pass through serve --policy on netdev-ssh-mcp, upa and eos-mcp; conformance runs with a policy loaded
+# M1-28: rows 3, 4 and 6 (and row 5's M1 half) pass through serve --policy on netdev-ssh-mcp, upa and eos-mcp; conformance runs with a policy loaded
 
 - **Task:** M1-28 — Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command
 - **From → To:** test-engineer → go-reviewer (security-reviewer also reviews)
@@ -24,7 +24,12 @@
   - `docs/testing/test-matrix.md`: rows 3 and 4 `passing`, row 6 `passing for the decision`, with run notes.
   - `tests/README.md`, `docs/testing/test-strategy.md`, `tests/fixtures/device/README.md` (the blocked cEOS items), CHANGELOG.
   - CI step names.
-- Board: M1-28 in review. M1-22 and M1-23 are marked merged (PRs #182 and #183 were on `main`).
+- **Row 5, M1 half** (scope added by the coordinator after PR #194 split the row), in `test_upa_netmiko.py` and `test_eos_mcp.py`:
+  - `show running-config` in four whitespace variants is READ_CONFIG with `class_source=reclassify`.
+  - Under read-only it is allowed and runs on the device. On upa only the space variants are sent: netmiko's interactive shell cannot carry a tab.
+  - Under a policy that denies READ_CONFIG it is denied by `no-config-reads` and nothing is forwarded.
+  - The row text is not edited while #194 is open. The matrix run notes give the wording to set when it merges.
+- Board: M1-28 in review, matrix `[3, 4, 5, 6]`. `main` had already moved M1-22 and M1-23 to merged; the merge keeps its notes.
 
 ## Look at this first
 
@@ -59,6 +64,8 @@ CI [run 36200510504](https://github.com/fathomgate/fathomgate/actions/runs/36200
 | tier2 upa/mcp-netmiko-server (2025 era) | 12 passed |
 | tier2 eos-mcp (eAPI, --policy) | 12 passed |
 | mcp-conformance | every leg within its baseline; `gate checks passed` on both policy revisions |
+
+CI [run 36201094163](https://github.com/fathomgate/fathomgate/actions/runs/36201094163) at `bae1f6d` (after `origin/main` was merged in and the row 5 cases were added): every job green. netdev-ssh-mcp gave 38 passed, 2 skipped, 1 xfailed; upa gave 14 passed; eos-mcp gave 14 passed.
 
 Local run on Windows 11: tier 2 gave 52 passed, 12 skipped and 1 xfailed, and the policy leg passed on both revisions. Mutation check: with `--no-policy` in place of the policy, the five gated netdev cases fail.
 

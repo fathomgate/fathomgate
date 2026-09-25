@@ -110,7 +110,11 @@ a mock.
   and prod-approval.yaml; `set_config_commands_and_commit_or_save` with
   `["end", "reload now"]` denied as EXEC_ARBITRARY and a plain line as
   WRITE_CONFIG; a device name not in the inventory denied by
-  `default:unknown_target` for a read, a write and exec.
+  `default:unknown_target` for a read, a write and exec. Row 5's M1 half:
+  `show running-config` with spaces between the words is READ_CONFIG,
+  `class_source=reclassify`, allowed and run under read-only; all four
+  whitespace variants, tabs included, are denied by a policy that denies
+  READ_CONFIG, with nothing forwarded.
 - Tier 2: live for shigechika/eos-mcp 1.3.0 (the PyPI wheel; every
   artifact in `requirements.txt` hash-checked, including the pyeapi 1.0.4
   sdist, which is built with the setuptools pinned and hashed in
@@ -139,6 +143,11 @@ a mock.
     denies config reads. Each denial is the exact tool error and decision
     line; for every denied call that would otherwise reach the loopback
     fake, its connection log shows eos-mcp never connected.
+  - Row 5's M1 half (M1-28): `show running-config` through `run_command`
+    in four whitespace variants, tabs included, is READ_CONFIG with
+    `class_source=reclassify`: allowed and carried to the device as sent
+    under read-only, and denied with no connection under a policy that
+    denies READ_CONFIG.
   - This is the eos-mcp half of matrix row 4 in CI; with the upa half it
     closes the row (M1-28, test-matrix.md run notes).
 - Tier 3: workflow skeleton only.
