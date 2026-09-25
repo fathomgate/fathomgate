@@ -43,7 +43,7 @@ An MRTR retry (a call with fathomgate's `requestState`) runs the whole pipeline 
 | --- | --- | --- | --- |
 | `allow` | none, or only `redact`, `notify`, `require_ticket`, `canary_first` | forward as M0 does | the upstream result |
 | `allow` | any of `dry_run`, `diff`, `timed_rollback` | **not forwarded**: nothing in M1 can meet them (M3 drivers) | a tool error, rule id of the matching rule, reason `obligation <name> cannot be met until change-safety drivers exist` |
-| `hold` | any | **not forwarded** and no pending record (M3 store) | a tool error with the fixed hold text below, naming the holding rule |
+| `hold` | any | **not forwarded** and no pending record (M3 store) | a tool error, rule id of the holding rule, the fixed hold reason below |
 | `deny` | any | not forwarded | a tool error naming the rule id and its reason |
 
 The effect `Evaluate` returned is what is recorded: a `hold` is logged as `hold`, not rewritten to `deny`, so the M3 change is to the enforcement column only. Obligations fathomgate cannot yet enforce (`redact` before M2, `notify`, `require_ticket`, `canary_first` before M4) are carried in the log line and not enforced; `serve` warns once at start for each such obligation that appears in the loaded policy (ADR 0027). Only `dry_run`, `diff` and `timed_rollback` gate a write, because they are the ones whose absence changes a device.
@@ -56,13 +56,13 @@ A call that is not forwarded gets a `CallToolResult` with `isError: true`, never
 fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list
 ```
 
-The shape is `fathomgate <denied|cannot run> <server>.<tool>: rule <rule_id> (class <CLASS>): <reason>`, `denied` for `deny` and `cannot run` for an `allow` whose obligations cannot be met. A `hold` gets one fixed sentence instead (decision 3):
+There is one shape: `fathomgate <denied|cannot run|held> <server>.<tool>: rule <rule_id> (class <CLASS>): <reason>`. The verb is `denied` for `deny`, `cannot run` for an `allow` whose obligations cannot be met, and `held` for `hold`. A `hold` carries the maintainer's fixed reason (decision 3):
 
 ```text
-Held by rule <rule_id>: needs approval, and approvals aren't available yet, so this call was not run.
+fathomgate held junos.load_and_commit_config: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run.
 ```
 
-Both first lines are fixed, so a parser reads the rule id from either. The reason is the policy author's `reason`, or fathomgate's fixed text for a `default:` rule. Nothing from the upstream and no argument value is quoted: the agent already has its arguments, and a target name, command or payload echoed back is a place for injected text to ride. For an unknown target the text adds `; target not in inventory` without naming it. The trace is **not** sent to the agent (it describes the whole policy); it goes to the decision log line, and to the audit event in M4.
+One parser reads the verb and the rule id from every refusal. design-guardian reviews the exact copy in M1-18 and M1-19. For a `deny`, the reason is the policy author's `reason`, or fathomgate's fixed text for a `default:` rule. Nothing from the upstream and no argument value is quoted: the agent already has its arguments, and a target name, command or payload echoed back is a place for injected text to ride. For an unknown target the text adds `; target not in inventory` without naming it. The trace is **not** sent to the agent (it describes the whole policy); it goes to the decision log line, and to the audit event in M4.
 
 The error-table row "Policy denials arrive in M1 as tool errors that name the rule id" in [profile-schema 8.2](../specs/profile-schema.md#82-errors-toward-the-agent) becomes a full row with this text in the wiring PR.
 
@@ -142,7 +142,7 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
 1. **Fail closed on unmet obligations: accepted.** An `allow` carrying `dry_run`, `diff` or `timed_rollback` is not forwarded in M1. The `lab-open` example changes in M1-21 so that lab writes do not require those obligations until M3, with a comment in the file saying they return in M3.
 2. **Machine-readable deny: text only in M1.** No `_meta` decision key yet. One can be added later without breaking a client that reads the text.
-3. **Hold wording: accepted.** The agent sees `Held by rule <rule_id>: needs approval, and approvals aren't available yet, so this call was not run.` The recorded effect stays `hold`.
+3. **Hold wording: accepted.** The maintainer's sentence, "Held by rule `<id>`: needs approval, and approvals aren't available yet, so this call was not run.", is carried in the one fixed first-line shape with the verb `held`: `fathomgate held <server>.<tool>: rule <rule_id> (class <CLASS>): needs approval, and approvals aren't available yet, so this call was not run.` (orchestrator, 2026-09-25, so agents and scripts parse one shape). design-guardian reviews the exact copy in M1-18 and M1-19. The recorded effect stays `hold`.
 4. **Counter key for 2026-era agents: accepted as written.** The principal over HTTP, the process on stdio.
 5. **Decision log level: Info for every decision line.** Until M4 the log line is the only record of a decision.
 
