@@ -38,3 +38,10 @@ Mutation: making `serveBinding` bind with `listenTCP, holdWildcards` instead of 
 ## Questions for the receiver
 
 - Should the `checkReleased` calls in `TestBindLoopbackExclusiveWindows` and `heldSocketsCloseReleases`, which are not deferred, also skip once `t.Failed()`? I left them alone: they run after `t.Errorf` (not `Fatalf`) checks, and their lines there are real information.
+
+## Round 2 (Go review approved, fixes)
+
+- The `binder` godoc says both fields are required and that a nil `hold` means hold nothing.
+- The `checkReleasedOnReturn` doc says it is skipped once t has failed, in this attempt or an earlier one.
+- The new `bindRecorder.recordedHolds()` is a locked copy of the holds. Both serve attempts take `binds, holds := rec.recorded(), rec.recordedHolds()` and assert on `len(holds)`.
+- The direct `checkReleased` calls are unchanged, as agreed.

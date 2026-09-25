@@ -389,6 +389,10 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 // holdWildcards (bindLoopback's listen and hold). It is a test seam
 // (M1-41): the listener tests record each bind and its error, so they
 // retry on another port only when the error is address in use.
+//
+// Both fields are required: a zero binder is not "the defaults". listen
+// must be non-nil. hold is passed to bindLoopback as it is, and a nil hold
+// (holdWildcards everywhere but Windows) means hold nothing.
 type binder struct {
 	listen listenFunc
 	hold   holdFunc

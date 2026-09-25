@@ -423,7 +423,7 @@ func serveListenWildcardHeld(t *testing.T) bool {
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}), binder{listen: rec.listen, hold: rec.hold(holdWildcards)})
 	out := stderr.String()
 	checkNoCanary(t, "stderr", out)
-	binds := rec.recorded()
+	binds, holds := rec.recorded(), rec.recordedHolds()
 	for _, b := range binds {
 		if b.err != nil {
 			if !addrTaken(b.err) {
@@ -436,8 +436,8 @@ func serveListenWildcardHeld(t *testing.T) bool {
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::]:"+p+" (dual-stack), a wildcard address on the same port, cannot be held") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
 	}
-	if len(binds) != 2 || len(rec.holds) != 0 {
-		t.Fatalf("binds %+v, holds %d; want both loopbacks bound and the hold refused", binds, len(rec.holds))
+	if len(binds) != 2 || len(holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want both loopbacks bound and the hold refused", binds, len(holds))
 	}
 	return true
 }

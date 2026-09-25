@@ -213,6 +213,13 @@ func (r *bindRecorder) recorded() []recordedBind {
 	return append([]recordedBind(nil), r.binds...)
 }
 
+// recordedHolds is a copy of the holds so far.
+func (r *bindRecorder) recordedHolds() []*recordedHold {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]*recordedHold(nil), r.holds...)
+}
+
 // socketClosed reports whether l's socket is closed. Go's Close returns
 // only after the close system call (poll.FD.Close waits for it), so a
 // closed descriptor is a socket the OS has released: a listening socket
@@ -260,10 +267,10 @@ func (r *bindRecorder) checkReleased(t *testing.T) {
 }
 
 // checkReleasedOnReturn is checkReleased for a defer at the top of an
-// attempt. It is skipped when t has already failed: a t.Fatalf in the
-// attempt may return with sockets still open that the failure itself
-// explains, and still-bound lines after it would only bury the first
-// error (M1-41). A passing attempt is always checked.
+// attempt. It is skipped once t has failed, in this attempt or an earlier
+// one: a t.Fatalf may return with sockets still open that the failure
+// itself explains, and still-bound lines after it would only bury the
+// first error (M1-41). While t has not failed, every attempt is checked.
 func (r *bindRecorder) checkReleasedOnReturn(t *testing.T) {
 	t.Helper()
 	if t.Failed() {
@@ -384,7 +391,7 @@ func serveListenOtherFamilyTaken(t *testing.T) bool {
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}), binder{listen: rec.listen, hold: rec.hold(holdWildcards)})
 	out := stderr.String()
 	checkNoCanary(t, "stderr", out)
-	binds := rec.recorded()
+	binds, holds := rec.recorded(), rec.recordedHolds()
 	first := "127.0.0.1:" + port
 	if len(binds) == 1 && binds[0].addr == first && binds[0].err != nil {
 		if !addrTaken(binds[0].err) {
@@ -396,8 +403,8 @@ func serveListenOtherFamilyTaken(t *testing.T) bool {
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::1]:"+port+", the other loopback address") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
 	}
-	if len(binds) != 2 || binds[0].addr != first || binds[0].err != nil || binds[1].addr != squatter.Addr().String() || binds[1].err == nil || len(rec.holds) != 0 {
-		t.Fatalf("binds %+v, holds %d; want %s bound, then %s refused, and nothing held", binds, len(rec.holds), first, squatter.Addr())
+	if len(binds) != 2 || binds[0].addr != first || binds[0].err != nil || binds[1].addr != squatter.Addr().String() || binds[1].err == nil || len(holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want %s bound, then %s refused, and nothing held", binds, len(holds), first, squatter.Addr())
 	}
 	return true
 }
