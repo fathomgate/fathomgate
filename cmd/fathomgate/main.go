@@ -6,6 +6,7 @@
 //
 //	fathomgate version
 //	fathomgate serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- ARGS...]
+//	fathomgate serve --server S --upstream PATH --listen ADDR:PORT (--listen-token-file NAME=PATH... | env FATHOMGATE_LISTEN_TOKEN) [-- ARGS...]
 //	fathomgate policy test <file.test.yaml>...
 //	fathomgate policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D...
 //	fathomgate audit verify <audit.jsonl> [--key audit.pub]
@@ -76,6 +77,7 @@ func usage() {
 Usage:
   fathomgate version
   fathomgate serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
+  fathomgate serve --server S --upstream PATH --listen 127.0.0.1:PORT --listen-token-file NAME=PATH [-- upstream args...]
   fathomgate policy test <file.test.yaml>...
   fathomgate policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D [--target D2] [--json]
   fathomgate policy eval --policy p.yaml --profile profiles/S.yaml --tool T --arg k=v [--arg k=v] ...

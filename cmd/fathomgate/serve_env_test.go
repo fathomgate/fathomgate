@@ -192,18 +192,33 @@ func TestServeErrorsNeverCarryValues(t *testing.T) {
 	}
 }
 
-// serveTestUpstreamEnv makes the test binary act as a leaky upstream: it
-// prints the passed values to stderr and answers every JSON-RPC request with
-// an error whose message carries the password, so startup fails with the
-// upstream's words in fathomgate's error.
+// serveTestUpstreamEnv makes the test binary act as an upstream. "leaky"
+// prints the passed values to stderr and answers every JSON-RPC request
+// with an error whose message carries the password, so startup fails with
+// the upstream's words in fathomgate's error. "mcp" is a go-sdk stdio
+// server (runMCPUpstream).
 const serveTestUpstreamEnv = "SERVE_TEST_UPSTREAM"
 
 func TestMain(m *testing.M) {
-	if os.Getenv(serveTestUpstreamEnv) == "leaky" {
+	switch os.Getenv(serveTestUpstreamEnv) {
+	case "leaky":
 		runLeakyUpstream()
 		return
+	case "mcp":
+		runMCPUpstream()
+		return
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if code == 0 {
+		if leaks := waitForLeaks(5 * time.Second); len(leaks) > 0 {
+			fmt.Fprintf(os.Stderr, "goroutine leak check: %d goroutine(s) from go-sdk, internal/proxy, net/http or this command still running after all tests:\n\n%s\n",
+				len(leaks), strings.Join(leaks, "\n\n"))
+			code = 1
+		} else {
+			fmt.Fprintln(os.Stderr, "goroutine leak check: ok")
+		}
+	}
+	os.Exit(code)
 }
 
 func runLeakyUpstream() {
