@@ -33,8 +33,10 @@ import (
 )
 
 // ErrUnsafe is matched (errors.Is) by every refusal: a file that exists
-// but others can change.
-var ErrUnsafe = errors.New("configfile: other users can change the file")
+// but others can change, or whose owner or permissions cannot be read, so
+// its integrity cannot be established. A refusal caused by a system call
+// also matches that call's error.
+var ErrUnsafe = errors.New("configfile: the file's integrity cannot be established")
 
 // Read returns the content of the file at path after the checks above.
 // what names the file in errors (for example "the policy file p.yaml").
@@ -67,11 +69,27 @@ func CheckDir(path, what string) error {
 	return f.Close()
 }
 
-type refusal struct{ msg string }
+// refusal is a failed check. Its text is the message alone; it unwraps to
+// ErrUnsafe and, when a system call failed, to that call's error too.
+type refusal struct {
+	msg   string
+	cause error
+}
 
 func (r *refusal) Error() string { return r.msg }
-func (r *refusal) Unwrap() error { return ErrUnsafe }
+
+func (r *refusal) Unwrap() []error {
+	if r.cause == nil {
+		return []error{ErrUnsafe}
+	}
+	return []error{ErrUnsafe, r.cause}
+}
 
 func refuse(format string, args ...any) error {
 	return &refusal{msg: fmt.Sprintf(format, args...)}
+}
+
+// refuseCause is a refusal caused by err, which the message describes.
+func refuseCause(err error, format string, args ...any) error {
+	return &refusal{msg: fmt.Sprintf(format, args...), cause: err}
 }

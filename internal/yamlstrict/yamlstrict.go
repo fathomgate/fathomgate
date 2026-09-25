@@ -46,7 +46,7 @@ func Unmarshal(b []byte, v any) error {
 func documents(docs []*ast.DocumentNode) int {
 	n := 0
 	for _, d := range docs {
-		if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d.String()), "---")) != "" {
+		if d != nil && d.Body != nil {
 			n++
 		}
 	}
@@ -97,6 +97,8 @@ func isKey(b []byte, s string) bool {
 	if !keyLike.MatchString(s) {
 		return false
 	}
+	// Compiled per call on purpose: isKey runs only on the error path, once
+	// per quoted string in one error message, never while a file decodes.
 	re := regexp.MustCompile(`(?m)(^[ \t-]*|[{,][ \t]*)` + regexp.QuoteMeta(s) + `[ \t]*:`)
 	return re.Match(b)
 }
