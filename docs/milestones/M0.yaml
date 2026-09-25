@@ -327,17 +327,17 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     matrix: [2]
-    notes: 'From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline.'
+    notes: 'Carried to M1 as M1-10. From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline.'
   - id: T0.36
     title: Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects
     package: docs
     owner: joshscott13
     reviewers: [mcp-protocol-engineer]
-    state: open
+    state: dropped
     matrix: []
-    notes: 'From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead.'
+    notes: 'Carried to M1 as M1-11. From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead.'
   - id: T0.37
     title: Note in the Command.Secrets godoc that the built transport holds passed values in its Env
     package: internal/proxy
@@ -427,9 +427,9 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     matrix: [2]
-    notes: 'N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit.'
+    notes: 'Carried to M1 as M1-06. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit.'
   - id: T0.48
     title: Apply the post-merge reviews of T0.30 (log tampered requestState retries, drop or use the unused progress owner fields, doc and test nits)
     package: internal/proxy
@@ -479,25 +479,25 @@ tasks:
     package: docs/security
     owner: security-reviewer
     reviewers: [docs-writer]
-    state: open
+    state: dropped
     matrix: [15, 16]
-    notes: 'From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI. Also from the security review of PR #111 (N5): on Windows an upstream can open fathomgate''s own process with at least PROCESS_CREATE_PROCESS and PROCESS_DUP_HANDLE, and probably PROCESS_VM_READ, which could read other upstreams'' secrets from fathomgate''s memory; give it its own row and consider a restrictive process DACL.'
+    notes: 'Carried to M1 as M1-07. From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI. Also from the security review of PR #111 (N5): on Windows an upstream can open fathomgate''s own process with at least PROCESS_CREATE_PROCESS and PROCESS_DUP_HANDLE, and probably PROCESS_VM_READ, which could read other upstreams'' secrets from fathomgate''s memory; give it its own row and consider a restrictive process DACL.'
   - id: T0.54
     title: Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule)
     package: docs
     owner: docs-writer
     reviewers: [design-guardian]
-    state: open
+    state: dropped
     matrix: []
-    notes: 'From the docs review of PR #108. docs/install.md and other docs inherited lower-case netguard-in-prose and now say fathomgate in prose; ADR 0019 wants Fathomgate in prose and fathomgate in mono for the command and typed values. One sweep after T0.52 merges, not file by file.'
+    notes: 'Carried to M1 as M1-08. From the docs review of PR #108. docs/install.md and other docs inherited lower-case netguard-in-prose and now say fathomgate in prose; ADR 0019 wants Fathomgate in prose and fathomgate in mono for the command and typed values. One sweep after T0.52 merges, not file by file.'
   - id: T0.55
     title: Check the audit signing key like every other secret file, and stop audit verify trusting a private key
     package: internal/audit
     owner: policy-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     matrix: []
-    notes: 'From the security review of PR #112 (medium, predates it, MCP08). audit.LoadKey (internal/audit/key.go:138) calls os.ReadFile: it follows symbolic links and checks no owner, mode, link count, Windows DACL or macOS ACL. LoadPublicKey (key.go:160-173) accepts a private key file and derives the public key from it, so audit verify --key <signing key> trusts the file the signer uses. Latent: nothing signs in production until M1 wires serve --audit. Fix: open the key like openExistingLog and readTokenFile (O_NOFOLLOW, regular file, one link, owned by the current user, 0600 or 0400, fileacl.Extended, protected DACL on Windows), and make verify refuse a private key as its trust anchor. Needs a short ADR on key custody (also PLAN.md open question on key custody). Blocks the M1 task that wires --audit.'
+    notes: 'Carried to M1 as M1-09. From the security review of PR #112 (medium, predates it, MCP08). audit.LoadKey (internal/audit/key.go:138) calls os.ReadFile: it follows symbolic links and checks no owner, mode, link count, Windows DACL or macOS ACL. LoadPublicKey (key.go:160-173) accepts a private key file and derives the public key from it, so audit verify --key <signing key> trusts the file the signer uses. Latent: nothing signs in production until M1 wires serve --audit. Fix: open the key like openExistingLog and readTokenFile (O_NOFOLLOW, regular file, one link, owned by the current user, 0600 or 0400, fileacl.Extended, protected DACL on Windows), and make verify refuse a private key as its trust anchor. Needs a short ADR on key custody (also PLAN.md open question on key custody). Blocks the M1 task that wires --audit.'
   - id: T0.56
     title: Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour
     package: design
@@ -520,11 +520,11 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: dropped
     blocked_by: [T0.57]
     adr: "0016"
     matrix: [23]
-    notes: 'M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass.'
+    notes: 'Carried to M1 as M1-12. M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
