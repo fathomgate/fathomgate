@@ -55,7 +55,7 @@ Optional arguments need nothing extra. Named means allowed whether it is present
 - **Unknown tool.** When the profile does not list the tool, every key is unnamed. A tool the upstream adds after the profile was written is then denied as soon as it carries an argument. A call with no arguments is still classified `EXEC_ARBITRARY` as today (classification spec section 3).
 - **No profile.** When the server has no profile, nothing is checked: [ADR 0027](0027-serve-policy-inventory-profiles-flags.md) starts it with the fallback classifier and a Warn. That Warn must also say the arguments are not checked (M1-20).
 - **Empty strings in named arguments.** They are allowed. In a target argument an empty string adds no target, as it does today, and a tool that then has zero targets is M1-18's zero-target rule.
-- **Nested objects.** Only top-level keys are checked. A value in `args` may be any JSON value, including an object, and fathomgate does not read inside it. A named target, command or config argument must be a string or an array of strings. `null` counts as absent. A number, a boolean, an object, or an array holding anything other than strings is reported in `MalformedArgs` and denied with the same rule id. Until now `fmt.Sprint` turned such a value into a target or command string that the upstream never sees in that form. A profile author must not put an argument in `args` if its value is an object whose inner keys can change what the upstream does. Leave such an argument unnamed (refused) until the schema can describe it. None of the shipped profiles has one.
+- **Nested objects.** Only top-level keys are checked. A value in `args` may be any JSON value, including an object, and fathomgate does not read inside it. A named target, command or config argument must be a string or an array of strings. `null` counts as absent. A number, a boolean, an object, or an array holding anything other than strings is reported in `MalformedArgs` and denied with the same rule id. So is a string the upstream would parse as JSON itself (see *Notes after acceptance*, H1). Until now `fmt.Sprint` turned such a value into a target or command string that the upstream never sees in that form. A profile author must not put an argument in `args` if its value is an object whose inner keys can change what the upstream does. Leave such an argument unnamed (refused) until the schema can describe it. None of the shipped profiles has one.
 
 ### 3. Where the check lives, and who denies
 
@@ -82,7 +82,8 @@ The list fails closed. A new optional parameter the agent does not send changes 
 The tests carry the upstream's parameter set:
 
 - **Tier 1** (`internal/classify/profiles_repo_test.go`, `TestRepoProfileArguments`). A table of every parameter each shipped upstream accepts per tool, read from source at the commit in each profile's header, must equal the named set plus `refused_args`. A second table pins each `refused_args` list. The test also checks that every tool of every profile reports an unknown probe argument, and that each refused argument is reported with a path, `""` and `null` as its value.
-- **Tier 2** (test-engineer, with the M1-28 validation runs). For each upstream the harness runs, fetch `tools/list` and compare each tool's `inputSchema.properties` keys with the profile's named set plus `refused_args`. Any difference fails. This is the check that sees a parameter the Go table has not caught up with.
+- **Tier 2** (test-engineer, with the M1-28 validation runs). For each upstream the harness runs, fetch `tools/list` and compare each tool's `inputSchema.properties` keys with the profile's named set plus `refused_args`. Any difference fails. This is the check that sees a parameter the Go table has not caught up with. The harness also fails when a property named in `args` has an object schema (`type: object`, `properties` or `additionalProperties`), because fathomgate does not look inside values in `args`.
+- **Neither check replaces reading the handlers.** A server whose handlers read the arguments dict directly accepts keys its schema never lists. junos `load_and_commit_config` reads `config` and `timeout`, and a `tools/list` comparison cannot see them. The tier 1 table is filled from the handler code as well as the declared schema.
 
 ### 6. The shipped profiles
 
@@ -94,8 +95,9 @@ Each profile's parameters were read from the upstream source (the M1-35 PR lists
 | `eos-mcp` | `push_config`, `confirm_config_session`, `abort_config_session` | `session_name` | Free text interpolated into `configure session <name>` (`eapi.py:112-115`, `133-134`). Every session is the default `mcp-push`. |
 | `netdev-ssh-mcp` (v1.7.1) | `get_config`, `run_show_command`, `run_ping`, `run_traceroute` | `username` | Picks the device account the server's credentials log in as. The operator sets `DEVICE_USERNAME`, which the server falls back to. |
 | `ntunes-netmiko-mcp-server` (unpinned, read at `4cc59d6`) | `send_config` | `enter_config_mode` | With `false`, netmiko sends the "config" lines in exec mode, so `reload` would run under a `WRITE_CONFIG` class. |
+| `junos-mcp-server` (unpinned, read at main `75fe90a`) | `load_and_commit_config` | `config` | Not in the schema. The handler reads it as the payload when `config_text` is absent (`jmcp.py:1657`), so the device would get a payload fathomgate never read. Added after the security review of PR #161. |
 
-`junos-mcp-server` (unpinned, read at main `75fe90a`) and `upa` (`96e8ff3`) refuse nothing.
+`upa` (`96e8ff3`) refuses nothing.
 
 ## Consequences
 
@@ -127,6 +129,19 @@ Each profile's parameters were read from the upstream source (the M1-35 PR lists
 | No `refused_args`; keep refusals in comments or in the tier 2 harness | The coverage test could not tell a reviewed refusal from a new parameter without a second list somewhere. Keeping that list in the profile puts the decision next to the argument it concerns, where the security reviewer reads it. |
 | Per-argument value types or patterns (`port: int`, `destination: ^[^-]`) | Richer and eventually useful (the netdev-ssh-mcp leading `-` finding, M2), but not needed to close this finding. This record keeps the list to names. The only type check is for the five mapped kinds, which fathomgate itself reads. |
 | Check inside `policy.Evaluate` | Would put profile knowledge and argument names into the pure evaluator, and give policy authors a way to allow an unnamed argument. The profile defines the set, so the check sits next to it. |
+
+## Notes after acceptance
+
+**2026-09-25, security review of PR #161.** The reviewer found no name trick that gets past the closed list: case, padding, zero-width characters, look-alike letters, `_meta`, NUL, and prefixed names of tools the profile does not list. The maintainer upheld the three extra refusals (`username`, `session_name`, `enter_config_mode`). The same PR recorded the following:
+
+- **H1, fixed here: a JSON string in a list parameter.** Python FastMCP (`mcp` 1.x, `func_metadata.pre_parse_json`) runs `json.loads` on any string sent for a parameter not annotated plain `str`. So `hostnames: "[\"core-rtr-01\"]"` reaches eos-mcp as a list, while fathomgate saw one target literally named `["core-rtr-01"]`. `hostnames: "null"` reaches it as `None`, and `daily_brief` then runs on every device. A `config_lines` sent as a JSON string would be read as one payload line. `CheckArguments` now reports a mapped argument as malformed in two cases:
+  - its string value, after trimming, is valid JSON that starts with `[`, `n`, `t` or `f`;
+  - it is a target, group or command argument that starts with `[` or `{`, whether or not the JSON is valid.
+
+  Config arguments keep Junos `[edit ...]` text and JSON-object payloads.
+- **H2, fixed here: junos `render_and_apply_j2_template` runs agent code.** It renders `template_content` in a plain Jinja2 `Environment` (`jmcp.py:1369-1375`), so a template runs Python on the upstream host. The tool is now `EXEC_ARBITRARY` with `never-downgrade`. The closed list cannot help here, because the dangerous input is a named config argument; the class has to carry it.
+- **N1, not covered: answers to elicitation.** An upstream that asks the agent for input mid-call (junos v1.1.1 `add_device` elicits `ssh_key_path`) gets a second argument channel. The closed list does not see it, because it checks only `tools/call` arguments. Relayed input requests are ADR 0014's territory. Until a record covers checking their answers against the profile, operators should not run upstreams whose tools elicit paths or credentials (the junos profile header says so for v1.1.1).
+- **N2, for M1-18: duplicate keys.** Go's `encoding/json` keeps the last of two duplicate keys, and the upstream's parser may not. The gate's decoder must refuse an arguments object with a duplicate key. Otherwise it must forward the re-encoded map it checked, never the raw bytes.
 
 ## References
 

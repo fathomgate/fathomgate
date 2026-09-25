@@ -49,7 +49,7 @@ At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily
 Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A tool's named set is `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args` together. `CheckArguments(profile, tool, args)` returns, sorted:
 
 - `unnamed`: every top-level argument key not in the named set. A key is sent whatever its value: `""` and `null` count. Matching is exact and case-sensitive. For a tool not in the profile, every key is unnamed.
-- `malformed`: every named target, command or config argument whose value is not a string or an array of strings (`null` is absent). Values of `args` arguments are not inspected, whatever their JSON type; only top-level keys are checked, so an argument whose object value has keys that change the upstream's behaviour must stay unnamed.
+- `malformed`: every named target, command or config argument whose value is not a string or an array of strings (`null` is absent), or is a string the upstream could parse as JSON itself. Python FastMCP runs `json.loads` on a string sent for any parameter not annotated plain `str`, so `hostnames: "[\"core-rtr-01\"]"` reaches eos-mcp as a list and `hostnames: "null"` as `None` (the whole fleet for `daily_brief`). After trimming whitespace, a string is malformed when it is valid JSON starting with `[`, `n`, `t` or `f`. For target, group and command arguments, a leading `[` or `{` is malformed whether or not it is valid JSON. Config arguments keep Junos `[edit ...]` text and JSON-object payloads. Values of `args` arguments are not inspected, whatever their JSON type; only top-level keys are checked, so an argument whose object value has keys that change the upstream's behaviour must stay unnamed.
 
 `Classify` copies both into `Result.UnnamedArgs` and `Result.MalformedArgs` without changing the class; `Result.ArgumentsOK()` is true when both are empty. The gate denies a call whose arguments are not OK with rule `default:bad_arguments`, before `Evaluate`, and never forwards a stripped copy. The reason the agent sees names no argument: `an argument is not named in the server profile for this tool`, or `a target, command or config argument is not a string or a list of strings` when only a type is wrong. `fathomgate policy eval --profile` prints the same deny, with the argument names in the trace. With no profile for the server (fallback classifier), nothing is checked.
 
@@ -61,7 +61,7 @@ These are in the plan and in the research but the strict loader rejects them tod
 
 | Field | Intended meaning | Milestone |
 | --- | --- | --- |
-| `dry_run_param`, `dry_run_default`, `apply_param` | Which argument makes the tool a dry run or a real apply, so the classifier can reclassify a dry run as `READ_CONFIG` and the `dry_run` obligation can be satisfied through the tool itself (eos-mcp `push_config`, ntunes `send_config`, junos `render_and_apply_j2_template`). | M3 |
+| `dry_run_param`, `dry_run_default`, `apply_param` | Which argument makes the tool a dry run or a real apply, so the classifier can reclassify a dry run as `READ_CONFIG` and the `dry_run` obligation can be satisfied through the tool itself (eos-mcp `push_config`, ntunes `send_config`; not junos `render_and_apply_j2_template`, which runs the agent's template before `apply_config` is read). | M3 |
 | `config_format_param` | Argument naming the payload format (`set`, `text`, `xml`). | M3 |
 | `fanout_params` | `max_concurrent`, `max_workers`; the proxy would cap them. | M4 |
 | `targets_all_when_empty` | Empty selection means every device in the upstream inventory (eos-mcp batch tools). | M2 |
@@ -162,22 +162,23 @@ tools:
     class: WRITE_CONFIG
     target_params: [router_name]
     config_params: [config_text]
-    args: [config_format, commit_comment]
-    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed.
+    args: [config_format, commit_comment, timeout]
+    refused_args: [config]
+    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed. The handler also reads timeout and, when config_text is absent, an undocumented config key as the payload (jmcp.py:1657, 1660); config is refused so the payload is always config_text, which fathomgate reads.
   render_and_apply_j2_template:
-    class: WRITE_CONFIG
+    class: EXEC_ARBITRARY
     target_params: [router_name]
     targets_params: [router_names]
     config_params: [template_content, vars_content]
     args: [apply_config, dry_run, commit_comment, config_format, timeout]
-    notes: Render-only unless apply_config=true; dry_run=true is commit-check + rollback. Classified WRITE_CONFIG conservatively; M1 may relax when apply_config is false.
+    notes: never-downgrade. Renders the agent's template_content in a plain jinja2 Environment (jmcp.py:1369-1375), so a template runs Python on the upstream host whatever apply_config says (header, hazard 1). EXEC_ARBITRARY since M1-35 (security review of PR #161, H2); was WRITE_CONFIG.
 ```
 
-`render_and_apply_j2_template` is `WRITE_CONFIG` even when `apply_config` is false, because the loader has no `apply_param` yet (section 3). The conservative class is correct: a policy that allows reads but not writes denies the render, and the operator can add a `tools: [render_and_apply_j2_template]` allow rule if rendering without applying is wanted.
+`render_and_apply_j2_template` is `EXEC_ARBITRARY` and never downgraded, whatever `apply_config` says. The upstream renders the agent's `template_content` in a plain, unsandboxed Jinja2 environment (`jmcp.py:1369-1375` at `75fe90a`), so a template runs Python on the MCP host before anything is applied (M1-35, security review of PR #161). A policy rule that allows this tool allows code execution on that host. `load_and_commit_config` refuses `config`: the handler reads that undocumented key as the payload when `config_text` is absent (`jmcp.py:1657`).
 
 ## 6. Other shipped profiles
 
-The rows show the normalisation keys that differ. Full files, with each tool's `args` and `refused_args`, are in `profiles/`. The refused arguments are eos-mcp `config_path` on every tool and `session_name` on `push_config`, `confirm_config_session` and `abort_config_session`, and ntunes `send_config` `enter_config_mode` ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 6).
+The rows show the normalisation keys that differ. Full files, with each tool's `args` and `refused_args`, are in `profiles/`. The refused arguments are eos-mcp `config_path` on every tool and `session_name` on `push_config`, `confirm_config_session` and `abort_config_session`, ntunes `send_config` `enter_config_mode`, and junos `load_and_commit_config` `config`, which the handler reads but the schema does not list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 6).
 
 | Server | Tool | class | target_params | targets_params | group_params | command_params | config_params |
 | --- | --- | --- | --- | --- | --- | --- | --- |

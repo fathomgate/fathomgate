@@ -146,7 +146,7 @@ type Decision struct {
 }
 ```
 
-Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`.
+Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`, and `default:bad_arguments`. `Evaluate` never returns `default:bad_arguments`. The gate produces it before `Evaluate` runs, in two cases: the arguments are not a JSON object ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md) step 1), or they fail the profile's closed argument list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md), [profile-schema 2.2](profile-schema.md#22-closed-argument-list)). `fathomgate policy eval --profile` shows the second case the same way (`policy.RuleBadArguments`).
 
 `expired` is a fourth decision word that appears in the audit log and console. It is never returned by `Evaluate`; it is produced by the approval store when a hold's TTL elapses.
 

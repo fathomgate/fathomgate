@@ -15,6 +15,21 @@
 - All five profiles name every argument of every tool. Refused: eos-mcp `config_path` (all 17 tools) and `session_name`; netdev-ssh-mcp `username`; ntunes `send_config` `enter_config_mode`.
 - Docs: profile-schema §2, §2.2, §7 and the §4/§5 examples; threat-model (the config_path row plus one new row); glossary; ARCHITECTURE; CHANGELOG with a migration note.
 
+## Fix round (security review of PR #161, request changes)
+
+- Merged origin/main. PR #152's `classify_test.go` fixtures gain `args: []`.
+- **H1:** `upstreamMayParseJSON` in `normalize.go`. It treats as malformed any string that is valid JSON starting with `[`/`n`/`t`/`f`, and (target, group and command arguments only) any string starting with `[` or `{`. The reviewer's two tests are merged into `security_test.go`; `TestJSONStringCheckBoundaries` adds the negatives (Junos `[edit ...]` text, JSON-object `config_text`, `nyc-...` hostnames).
+- **H2:** junos `render_and_apply_j2_template` is now `EXEC_ARBITRARY` with `never-downgrade`. The profile header has it as hazard 1. Updated to match: the class table in `TestRepoProfiles`, the worked example in `classify_test.go`, and classification.md section 9 with its † note.
+- **L1:** junos `load_and_commit_config` has `refused_args: [config]` and names `timeout`, both read by the handler (`jmcp.py:1657, 1660`). The comment on the `TestRepoProfileArguments` table and ADR 0033 §5 now say to read handler code, not only the declared schema.
+- **L2:** `policy.RuleBadArguments`. The `parseArgs` doc comment is fixed. policy-schema §5 lists `default:bad_arguments` as a reserved id.
+- **N1 and N2:** recorded in ADR 0033 *Notes after acceptance*, with elicitation also in the threat model and the junos header.
+- **M1** (`port` and fan-out) and the new H1, H2 and N1 rows are in the threat model.
+- **For M1-18:** the decoder must refuse duplicate JSON keys, or forward the re-encoded map it checked, never the raw bytes.
+- **For test-engineer (tier 2):**
+  - compare `inputSchema.properties` with the named set plus `refused_args`;
+  - fail when a property in `args` has an object schema;
+  - the comparison cannot see keys that handlers read without declaring them (junos `config`).
+
 ## Look at this first
 
 - `CheckArguments` in `internal/classify/normalize.go`. Then the refusal table in ADR 0033 section 6: each refusal is a security judgement, `username` above all.
