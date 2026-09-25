@@ -3,7 +3,7 @@
 - **Task:** M1-15 — Tier 1 fallback-classification tests for every other surveyed tool in brief 02
 - **From → To:** test-engineer → policy-engineer
 - **State now:** in review
-- **Branch / PR:** test/m1-15-fallback-classes · PR link in the board notes once opened
+- **Branch / PR:** test/m1-15-fallback-classes · https://github.com/fathomgate/fathomgate/pull/193
 - **Date:** 2026-09-25
 
 ## Done
