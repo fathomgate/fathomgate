@@ -38,15 +38,19 @@ Fathomgate learns device roles from wherever you keep them: a spreadsheet, a nam
 
 ### 4. Ask first (M3)
 
-The heart of it. A config change on a production device is held. A person sees exactly what would change, approves or denies it from the command line or a webhook, and the change runs once. If the device's config changed in the meantime, it doesn't run at all. Changes can be applied with a timer that rolls them back unless someone confirms. First for Junos and Arista EOS.
+The heart of it. A config change on a production device is held. For every held request, the command line shows the diff, the rule trace and the rule that held it, so the person deciding sees exactly what would change and why. They approve or deny it from the command line or a webhook, and the change runs once. If the device's config changed in the meantime, it doesn't run at all. Changes can be applied with a timer that rolls them back unless someone confirms. First for Junos and Arista EOS.
 
 ### 5. Prove it (M4)
 
-Every decision lands in a tamper-evident audit log that you can verify and hand to an auditor. Limits on how much an assistant can touch at once: no more than N devices per session, a canary device first, changes only in maintenance windows.
+Every decision lands in a tamper-evident audit log that you can verify and hand to an auditor. The log is standard JSON, one line per event, so any log shipper can forward it to your SIEM. Limits on how much an assistant can touch at once: no more than N devices per session, a canary device first, changes only in maintenance windows.
 
 ### 6. See it (M5)
 
-A console to watch what assistants are doing and approve changes in one place. Safe-change drivers with automatic rollback for Cisco IOS-XE and NX-OS, Palo Alto PAN-OS and Fortinet FortiOS.
+A console in your browser, served by Fathomgate itself on your own machine. Watch what assistants are doing as it happens, open each held request to see its diff, its rule trace and the rule that held it, approve or deny it, and check that your audit log still verifies. It's off until you turn it on, it only listens on your own machine, and it needs no accounts. An approval there counts the same as one from your command line, so a rule that needs a second person still needs one.
+
+Safe-change drivers with automatic rollback for Cisco IOS-XE and NX-OS, Palo Alto PAN-OS and Fortinet FortiOS. Where a platform can't roll a change back on its own timer, Fathomgate keeps the timer: if nobody confirms the change in time, it rolls it back. And if your team already writes policy in OPA, you can use it as the policy engine, with the same allow, hold and deny.
+
+For teams, the paid edition will add a team console: single sign-on, roles, approvals that need more than one person, one view across many Fathomgate instances, central policy, long-term search of the audit log, and ready-made OCSF and CEF exporters for your SIEM.
 
 ## Beyond
 
@@ -69,7 +73,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are under Apache-2.
 
 ## Open source, and how it's funded
 
-The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line, the safe-change drivers and the audit log) is open source under Apache-2.0. Some conveniences that larger teams want, such as a web console, single sign-on, SIEM exporters and managed integrations, may become paid add-ons that fund the work. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
+The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log) is open source under Apache-2.0. The paid edition that funds the work is for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. The team console shows nothing about a request that you can't get from the open command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
 
 ## For the details
 

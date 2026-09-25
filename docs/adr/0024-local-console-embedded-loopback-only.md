@@ -3,13 +3,13 @@
 - Status: accepted
 - Date: 2026-09-25
 - Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by docs-writer with the orchestrator; reviewers security-reviewer, design-guardian, release-engineer, go-reviewer
-- Relates to: ADR 0025 (the console split: the local console in the core, the team console in the paid edition; accepted by the maintainer 2026-09-25, in pull request #120), which settles the console row that [ADR 0020](0020-open-core-apache-2.md) left contested. This record decides how the core's half is built and served
+- Relates to: [ADR 0025](0025-split-the-console.md) (the console split: the local console in the core, the team console in the paid edition; accepted by the maintainer 2026-09-25, in pull request #120), which settles the console row that [ADR 0020](0020-open-core-apache-2.md) left contested. This record decides how the core's half is built and served
 - Settles: the `design/` contested row of [ADR 0020](0020-open-core-apache-2.md) (dated row in its *Amendments*)
 - Builds on: [ADR 0016](0016-streamable-http-listener.md) and [ADR 0023](0023-listener-binds-both-loopback-families.md) (the loopback listener and its browser defences), [ADR 0009](0009-fathom-design-system-policy-layer.md) (the design system), [ADR 0004](0004-approval-hold-state-machine.md) and [approval-protocol 6 and 8](../specs/approval-protocol.md#6-decision-channels) (decision channels and separation of duties)
 
 ## Context
 
-On 2026-09-25 the maintainer split the console in two (ADR 0025). The open core gets a **local console**: one operator, one machine, used to watch activity, approve or deny held requests, and read the audit chain. The paid edition gets the **team console**: SSO, RBAC, N-of-M approval, fleet views, retention and SIEM. This record decides how the local console is built, served and secured, so that M5 tasks can be written against it.
+On 2026-09-25 the maintainer split the console in two ([ADR 0025](0025-split-the-console.md)). The open core gets a **local console**: one operator, one machine, used to watch activity, approve or deny held requests, and read the audit chain. The paid edition gets the **team console**: SSO, RBAC, N-of-M approval, fleet views, retention and SIEM. This record decides how the local console is built, served and secured, so that M5 tasks can be written against it.
 
 The maintainer supplied two AI-generated reference mockups ([design/reference/](../../design/reference/README.md)) and a proposed stack: Next.js (App Router, API routes), TypeScript, React, Tailwind with CSS variables, shadcn/ui, TanStack Query, TanStack Table, Recharts, Lucide, React Hook Form with Zod, SSE or WebSockets, Framer Motion used sparingly, the fonts Unbounded, Figtree and Martian Mono, and the architecture Browser, then a Next.js app and API layer, then the Fathomgate core.
 
@@ -109,7 +109,7 @@ Everything the console shows from an upstream, an inventory or a diff is untrust
 | Devices | Inventory and resolved roles, including `sot: stale` marking | None (read-only) |
 | Drivers | `ChangeSafety` driver health per target (M5 drivers) | None |
 
-Out of scope for the core console: editing settings, policy or inventory in the UI; accounts, sign-in pages or roles; anything that runs as a second process or on a non-loopback address. The team console features (SSO, RBAC, N-of-M approval, fleet, retention, SIEM) are the paid edition's (ADR 0025).
+Out of scope for the core console: editing settings, policy or inventory in the UI; accounts, sign-in pages or roles; anything that runs as a second process or on a non-loopback address. The team console features (SSO, RBAC, N-of-M approval, fleet, retention, SIEM) are the paid edition's ([ADR 0025](0025-split-the-console.md)).
 
 ### 7. Design rules the mockups bend to
 
@@ -153,7 +153,7 @@ The mockups in `design/reference/` are references; [DESIGN.md](../../design/DESI
 ### Neutral
 
 - Stdio stays the default for agents, and `--listen` is unchanged.
-- The core console is deliberately small. The team console (ADR 0025) is built in the paid edition on the same open tokens and components, and on the exported approval-channel seam that ADR 0020 section 3 anticipates.
+- The core console is deliberately small. The team console ([ADR 0025](0025-split-the-console.md)) is built in the paid edition on the same open tokens and components, and on the exported approval-channel seam that ADR 0020 section 3 anticipates.
 - The console lands in M5, after the pending store (M3) and the audit chain (M4) exist to show.
 
 ### Follow-ups
@@ -164,7 +164,7 @@ The mockups in `design/reference/` are references; [DESIGN.md](../../design/DESI
 | [approval-protocol](../specs/approval-protocol.md): section 6.5 *Console*; `decision_channel` gains `console`; section 8 lists `console:<os-user>` and the rule that it never satisfies `approver_must_differ` | docs-writer, policy owner | With the spec |
 | Threat-model rows for the four residuals under *Negative*, and for XSS from untrusted upstream data | security-reviewer | With the spec |
 | M5 board tasks: `internal/console` handler and embedding; `serve --console` and `console open` in `cmd/fathomgate`; `console/` scaffold on the `fg-*` components; the five pages; npm licence and audit checks, Dependabot `npm`, CI and release jobs; self-hosted fonts and their notices | orchestrator | When the M5 board is written |
-| `design/DESIGN.md`: the console is the local console (core) and the team console (paid edition), both on these tokens; the mockup rules of section 7 | design-guardian | With ADR 0025 or the first console pull request |
+| `design/DESIGN.md`: the console is the local console (core) and the team console (paid edition), both on these tokens; the mockup rules of section 7 | design-guardian | With [ADR 0025](0025-split-the-console.md) or the first console pull request |
 
 ## Alternatives considered
 
@@ -180,7 +180,7 @@ The mockups in `design/reference/` are references; [DESIGN.md](../../design/DESI
 | WebSockets | Two-way transport for one-way updates, an upgrade path the core does not otherwise need, and no cookie handling advantage |
 | Tailwind and shadcn/ui on top of the tokens | Two styling vocabularies and two definitions of each component; see section 4 |
 | Commit the built assets | Unreviewable generated code in every console pull request, and a second diff to keep in step |
-| No local console; CLI only in the core | The maintainer's decision of 2026-09-25 (ADR 0025) puts a local console in the core. The CLI stays complete and needs no browser |
+| No local console; CLI only in the core | The maintainer's decision of 2026-09-25 ([ADR 0025](0025-split-the-console.md)) puts a local console in the core. The CLI stays complete and needs no browser |
 
 ## Decisions on the open questions
 
@@ -188,7 +188,7 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
 1. **CLI surface: accepted.** `fathomgate serve --console <addr>:<port>` on its own loopback port, plus `fathomgate console open [--print] [--port]`, with the login URL in an owner-only file, as in section 1.
 2. **`approver_must_differ`: accepted as written.** A console approval never satisfies it (section 3). A later record may revisit this for a `serve` that runs as a dedicated OS user, with the console session started over the local socket by a different user.
-3. **The console split and the milestone: resolved.** Pull request #120 records the split as ADR 0025 (accepted). The local console stays in M5, the roadmap stage "See it".
+3. **The console split and the milestone: resolved.** Pull request #120 records the split as [ADR 0025](0025-split-the-console.md) (accepted). The local console stays in M5, the roadmap stage "See it".
 4. **Licence of `design/`: decided.** `design/` (`tokens.css`, `policy.css`, `preview.html`, `DESIGN.md` and the reference mockups in `design/reference/`) is under Apache-2.0 like the rest of the core. The fonts keep their own licence, the SIL Open Font License 1.1. The logo and the name stay governed by [TRADEMARKS.md](../../TRADEMARKS.md), not by the code licence. This settles the `design/` contested row of [ADR 0020](0020-open-core-apache-2.md), in a dated row of its *Amendments*.
 5. **Session lifetimes, `Secure` or `__Host-` cookies on plain-HTTP loopback, and the bundle size budget: deferred** to the M5 console spec, `docs/specs/console.md`. The values in section 2 stay recommendations until then.
 6. **OFL-1.1 on the licence allow-list for font files only: approved in principle**, applied in the pull request that adds the fonts, and specified in `docs/specs/console.md`.
@@ -197,7 +197,7 @@ The wording rules for the mockups in section 7 are accepted as written.
 
 ## References
 
-- ADR 0025, the console split (pull request #120)
+- [ADR 0025](0025-split-the-console.md), the console split (pull request #120)
 - [ADR 0016, the Streamable HTTP listener](0016-streamable-http-listener.md): *Request handling, in order*, steps 1 to 3, and why `http.CrossOriginProtection` was ruled out
 - [ADR 0023, both loopback families](0023-listener-binds-both-loopback-families.md): point 1 and the port-squatting residual
 - [ADR 0020, open core](0020-open-core-apache-2.md): the boundary rule, the contested console row, invariants 4 to 6

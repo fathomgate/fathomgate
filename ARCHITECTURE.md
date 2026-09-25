@@ -39,7 +39,7 @@ Each stage is one Go package under `internal/`. The table is the contract betwee
 | `internal/approval` | Pending store (SQLite) with TTL; CLI, HMAC webhook and MRTR channels; drift guard; idempotent execution keyed by pending id | `Decision` with effect hold | Approved, denied, expired or cancelled record | [approval-protocol](docs/specs/approval-protocol.md) |
 | `internal/safety` | `ChangeSafety` drivers per platform: `Prepare`, `Apply`, `Confirm`, `Abort`; proxy watchdog for platforms without a native timer | Obligations `dry_run`, `diff`, `timed_rollback` | Diff, diff hash, rollback deadline | [change-safety-drivers](docs/specs/change-safety-drivers.md) |
 | `internal/redact` | Ordered vendor regex list, then generic patterns; keyed truncated HMAC-SHA256 tokens; runs at the response serialiser | Every tool result | Redacted result, count and pattern ids | [redaction-patterns](docs/specs/redaction-patterns.md) |
-| `internal/audit` | Hash-chained JSONL, Ed25519 checkpoints, `fathomgate audit verify`, OCSF and CEF exporters | One event per call | Appended line; checkpoint record | [audit-event-schema](docs/specs/audit-event-schema.md) |
+| `internal/audit` | Hash-chained JSONL, Ed25519 checkpoints, `fathomgate audit verify`. The OCSF and CEF exporters that read it are in the paid edition ([ADR 0025](docs/adr/0025-split-the-console.md)) | One event per call | Appended line; checkpoint record | [audit-event-schema](docs/specs/audit-event-schema.md) |
 
 One package under `internal/` is a helper, not a stage: `internal/fileacl` reports whether an open file has a macOS extended ACL, which the owner-only checks on listen token files (`cmd/fathomgate`) and on the audit key and log (`internal/audit`) refuse because the mode bits do not show it (T0.52). It reads the ACL with `fgetattrlist(2)` through the `syscall` package, so it needs no cgo, and on every other OS it reports none.
 
@@ -133,7 +133,7 @@ Fathomgate is a network-semantic policy layer. It does not rebuild what generic 
 | Not built | Use instead |
 | --- | --- |
 | Authentication federation, OAuth flows, token exchange | [agentgateway](https://github.com/agentgateway/agentgateway), [IBM ContextForge](https://github.com/IBM/mcp-context-forge), or the MCP host's own auth |
-| OpenTelemetry tracing and metrics pipelines | Put a generic gateway in front; Fathomgate emits audit JSONL and OCSF or CEF |
+| OpenTelemetry tracing and metrics pipelines | Put a generic gateway in front; Fathomgate emits audit JSONL, which any log shipper can forward (ready-made OCSF and CEF exporters are in the paid edition) |
 | Multi-tenant catalogues, virtual servers, REST-to-MCP conversion | ContextForge, Kong, Traefik Hub |
 | Generic PII detection | Lasso mcp-gateway plugins |
 | A device connection library | The upstream server owns the SSH, eAPI, NETCONF or REST session; Fathomgate only sees MCP |

@@ -85,6 +85,8 @@ fathomgate deny    <id> --reason "..."
 fathomgate pending [--json]
 ```
 
+`fathomgate pending` lists every PENDING record and, for each, shows the diff, the rule trace and the rule that held it, with the fields in the CLI order of `design/DESIGN.md` (decision, class, target, rule, reason), the pending id and the time left. `--json` carries the same fields. No one has to approve without them ([PRD R35](../PRD.md#6-requirements), [ADR 0025](../adr/0025-split-the-console.md)).
+
 The CLI talks to the running proxy over a Unix domain socket (`$XDG_RUNTIME_DIR/fathomgate.sock`, mode 0600) or a named pipe on Windows. The approver is the OS user that owns the socket connection, resolved via `SO_PEERCRED` (Linux) or `getpeereid` (macOS). The socket is never exposed over TCP.
 
 ### 6.2 Webhook
@@ -154,7 +156,8 @@ The proxy exposes a `fathomgate.check_approval(id)` tool returning `{state, expi
 ## 8. Separation of duties
 
 - `approver_must_differ: true` compares the approver identity string with `requester`. Identities are namespaced by channel (`cli:josh`, `webhook:slack:U024BE7LH`, `mrtr:<session principal>`), so the comparison is on the canonical principal behind the namespace when the proxy can resolve it, otherwise on the full string. An unresolved comparison is treated as "same" (fail closed).
-- The console shows "Approver must differ from requester" on such cards.
+- The CLI and the local console show "Approver must differ from requester" on such records.
+- An approval from the local console (M5) is no stronger than one from the CLI and never satisfies `approver_must_differ` on its own, because the agent may run as the same OS user ([ADR 0025](../adr/0025-split-the-console.md)). Its identity namespace is set by the local console ADR (ADR 0024, proposed).
 
 ## 9. Audit hooks
 

@@ -1,6 +1,6 @@
 # Audit event schema
 
-Normative specification for the Fathomgate audit log. The log is JSONL: one canonicalised record per line. Tool-call records have `type: "call"` and carry `seq`, `prev_hash` and `hash`. A checkpoint record `{type: checkpoint, seq, hash, sig}` is appended every N events, signed with Ed25519. `fathomgate audit verify` replays the chain. OCSF and CEF are exporters, never the native format. Raw device output never enters the log.
+Normative specification for the Fathomgate audit log. The log is JSONL: one canonicalised record per line. Tool-call records have `type: "call"` and carry `seq`, `prev_hash` and `hash`. A checkpoint record `{type: checkpoint, seq, hash, sig}` is appended every N events, signed with Ed25519. `fathomgate audit verify` replays the chain. OCSF and CEF are exporters, never the native format; the ready-made exporters are in the paid edition ([ADR 0025](../adr/0025-split-the-console.md)). Raw device output never enters the log.
 
 This document describes what `internal/audit` (`event.go`, `hash.go`, `writer.go`, `verify.go`) implements. Fields the plan calls for but the Go struct does not yet carry are listed separately and marked planned (M4). Decision record: [ADR 0005](../adr/0005-hash-chained-jsonl-audit.md).
 
@@ -127,9 +127,9 @@ Verify never needs the private key. The tier 1 tamper test edits one character i
 
 Redacted output and diffs will go to a content-addressed directory keyed by their SHA-256, referenced from the record by `output_ref` and `diff_ref`. Until then the record carries only `redactions`; output stays out of the log by construction.
 
-## 8. Exporters (planned, M4)
+## 8. Exporters (paid edition)
 
-Exporters read the JSONL and emit one record per `call` record. They never write to the chain. Rows whose source is a planned field are marked.
+The ready-made OCSF and CEF exporters are in the paid edition, not the core ([ADR 0025](../adr/0025-split-the-console.md), R27; until 2026-09-25 they were planned for M4). The JSONL is standard JSON that any log shipper can forward without them. Exporters read the JSONL and emit one record per `call` record. They never write to the chain. Rows whose source is a planned field are marked.
 
 ### 8.1 OCSF `API Activity` (class_uid 6003)
 

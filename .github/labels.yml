@@ -19,7 +19,7 @@
   description: "Audit chain + blast radius"
 - name: "milestone:M5"
   color: "1d2a40"
-  description: "Console + watchdog drivers"
+  description: "Local console + watchdog drivers"
 
 - name: "state:open"
   color: "5a7099"
