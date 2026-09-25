@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 8 · merged 46 · validated 2 · dropped 1
+Tasks: open 7 · in review 1 · merged 46 · validated 2 · dropped 1
 
 ## In flight
 
@@ -62,7 +62,7 @@ Tasks: open 8 · merged 46 · validated 2 · dropped 1
 | T0.53 | Record the PR | `docs/security` | security-reviewer | docs-writer | open | — | 15, 16 | — |
 | T0.54 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | T0.55 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | — | — | — |
-| T0.56 | Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour | `design` | design-guardian | docs-writer | open | — | — | — |
+| T0.56 | Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour | `design` | design-guardian | docs-writer | in review | — | — | — |
 | T0.57 | Stop the listener's session cap and orphan rule locking out an agent that restarts without ending its session | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Done this milestone
