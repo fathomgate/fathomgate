@@ -2,7 +2,7 @@
 
 Fathomgate is a policy product: every screen exists to answer "what did the agent try, what did policy decide, and what happens next". The design system is **Fathom** (Josh's shared two-theme system) plus one **policy layer** defined in this folder. Nothing here introduces a new hue, font or spacing step; it names the states a guardrail has that a topology tool does not.
 
-Fathom reference: https://claude.ai/artifact/EAmcPjFiSHKMwpBX9oj8Gf
+Fathom reference: the tokens in [`tokens.css`](tokens.css); open [`preview.html`](preview.html) in a browser to see them applied
 
 ## Files
 

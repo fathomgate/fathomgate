@@ -289,11 +289,11 @@ tasks:
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
-    state: open
+    state: in progress
     blocked_by: [T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48, T0.49]
     adr: "0016"
     matrix: [23]
-    notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/fathomgate''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself. From the T0.48 security review (L1): transportOf must not bind a listener call as stdio when go-sdk''s RequestExtra is missing. Have serveAuthed mark the context and treat the marker as http in newCall, refusing a marked request with no TokenInfo, or re-state the residual if the two sides stay exclusive; pin it with a test.'
+    notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/fathomgate''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself. From the T0.48 security review (L1): transportOf must not bind a listener call as stdio when go-sdk''s RequestExtra is missing. Have serveAuthed mark the context and treat the marker as http in newCall, refusing a marked request with no TokenInfo, or re-state the residual if the two sides stay exclusive; pin it with a test. Unblocked 2026-09-25: every blocker has merged (T0.30, T0.38, T0.40, T0.42 to T0.44, T0.48, T0.49). Started.'
   - id: T0.32
     title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
     package: tests/conformance
@@ -418,9 +418,9 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: open
+    state: in progress
     matrix: [2, 22]
-    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name.'
+    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name. ADR drafted 2026-09-25 (proposed): process group on Unix, Job Object on Windows, widening ADR 0011''s x/sys scope to internal/proxy. Code waits on the maintainer''s acceptance.'
   - id: T0.47
     title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected, before M1 audits it (N6)
     package: internal/proxy
@@ -453,9 +453,17 @@ tasks:
     package: .github/workflows
     owner: release-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: dropped
     matrix: []
-    notes: 'The three WSL runners share one GOCACHE (~/.cache/go-build, 3.6 GB) and module cache, and every job''s setup-go restores the Actions cache into them while other runners compile from the same directory. PR #93''s snapshot job failed once with "link: crypto/ed25519: reference to nonexistent package runtime" for darwin_amd64 and passed on a re-run, which fits a cache overwritten in use. Fix without sudo if possible: a first step that writes GOCACHE and GOMODCACHE under the runner''s own directory to GITHUB_ENV before setup-go (or setup-go cache off), or per-runner .env entries with a service restart (sudo; runbook). Record it in docs/ci-runners.md. Also note there that the runners'' .runner still names github.com/joshscott13/netguard and works through GitHub''s redirect after the transfer; re-register under fathomgate/fathomgate if the redirect ever stops working.'
+    notes: 'The three WSL runners share one GOCACHE (~/.cache/go-build, 3.6 GB) and module cache, and every job''s setup-go restores the Actions cache into them while other runners compile from the same directory. PR #93''s snapshot job failed once with "link: crypto/ed25519: reference to nonexistent package runtime" for darwin_amd64 and passed on a re-run, which fits a cache overwritten in use. Fix without sudo if possible: a first step that writes GOCACHE and GOMODCACHE under the runner''s own directory to GITHUB_ENV before setup-go (or setup-go cache off), or per-runner .env entries with a service restart (sudo; runbook). Record it in docs/ci-runners.md. Also note there that the runners'' .runner still names github.com/joshscott13/netguard and works through GitHub''s redirect after the transfer; re-register under fathomgate/fathomgate if the redirect ever stops working. Dropped 2026-09-25: the repository went public and CI moved back to GitHub-hosted runners (PR #96); the self-hosted runners are removed, so there is no shared cache to split.'
+  - id: T0.51
+    title: Move tier 2 and the docs to netdev-ssh-mcp v1.7.1, which fixes the keyed-hash issue Fathomgate reported
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [docs-writer, security-reviewer]
+    state: open
+    matrix: [1, 15, 22]
+    notes: 'From the public-history audit 2026-09-24. Upstream fixed the unkeyed-hash obfuscation Fathomgate reported (T0.29) in GHSA-8g43-jrf3-q9vq (v1.7.0, maintainer credited) and GHSA-h47r-329w-6p9h (v1.7.1). docs/install.md, the netdev-ssh-mcp profile notes and the tier 2 pin (release binary sha256 in ci.yaml, tests/README.md) still name v1.6.6. Bump the pinned binary and its sha256, re-run tier 2 against it, update the profile notes (what v1.7.x changed about obfuscation, verified from source), docs/install.md and the matrix rows that name the version, and link both advisories. Re-check matrix row 15 against the new behaviour.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
