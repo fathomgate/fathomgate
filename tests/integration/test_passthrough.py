@@ -339,7 +339,7 @@ async def test_upstream_refuses_command_injection(proxy_server_params: dict, fak
 
 # --- M1: the pipeline in Proxy.dispatch --------------------------------------
 
-m1 = pytest.mark.skip(reason="M1: pipeline not wired; serve refuses --policy and --audit (ADR 0012)")
+m1 = pytest.mark.skip(reason="M1-28 validates these through serve --policy; the audit file they read arrives with --audit in M4 (ADR 0027)")
 
 
 @m1

@@ -172,8 +172,10 @@ start_chain() {
   if [ "$chain" = fathomgate ]; then
     # The server name "conf" is the tool prefix fathomgate applies; the shim
     # puts it on the suite's unprefixed tools/call names (and nowhere else).
+    # --no-policy: the suite checks the protocol, through the pass-through
+    # (ADR 0027), so the baselines do not change with the policy.
     FATHOMGATE_LISTEN_TOKEN=$token "$fathomgate" serve --listen 127.0.0.1:0 \
-      --server conf --upstream "$fixture" </dev/null >"$chain_log" 2>&1 &
+      --server conf --upstream "$fixture" --no-policy </dev/null >"$chain_log" 2>&1 &
     chain_pid=$!
     # One `listening url=` line per loopback family, the address asked for
     # first (ADR 0023); the shim targets that one.

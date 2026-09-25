@@ -21,6 +21,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -49,8 +50,7 @@ func run(args []string) int {
 	}
 	switch args[0] {
 	case "version", "--version", "-v":
-		fmt.Printf("fathomgate %s (commit %s, built %s)\n", version, commit, date)
-		return exitOK
+		return printVersion(os.Stdout)
 	case "serve":
 		return cmdServe(args[1:])
 	case "policy":
@@ -76,8 +76,9 @@ func usage() {
 
 Usage:
   fathomgate version
-  fathomgate serve --server S --upstream PATH [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
-  fathomgate serve --server S --upstream PATH --listen ADDR:PORT (--listen-token-file NAME=PATH... | env FATHOMGATE_LISTEN_TOKEN) [-- upstream args...]
+  fathomgate serve --server S --upstream PATH (--policy p.yaml [--inventory inv.yaml] [--profiles DIR] | --no-policy)
+                   [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- upstream args...]
+  fathomgate serve ... --listen ADDR:PORT (--listen-token-file NAME=PATH... | env FATHOMGATE_LISTEN_TOKEN)
   fathomgate policy test <file.test.yaml>...
   fathomgate policy eval --policy p.yaml [--inventory inv.yaml] --server S --tool T --class C --target D [--target D2] [--json]
   fathomgate policy eval --policy p.yaml --profile profiles/S.yaml --tool T --arg k=v [--arg k=v] ...
@@ -88,6 +89,22 @@ Usage:
 
 Run "fathomgate <command> -h" for flags.
 `)
+}
+
+// printVersion writes the version line and the embedded profile set (ADR
+// 0027), which is part of what a binary enforces.
+func printVersion(w io.Writer) int {
+	_, _ = fmt.Fprintf(w, "fathomgate %s (commit %s, built %s)\n", version, commit, date)
+	lines, err := embeddedProfileLines()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fathomgate: embedded profiles: %v\n", err)
+		return exitFail
+	}
+	_, _ = fmt.Fprintln(w, "embedded profiles (serve --profiles <dir> replaces them):")
+	for _, l := range lines {
+		_, _ = fmt.Fprintln(w, l)
+	}
+	return exitOK
 }
 
 // fail prints an error in the CLI's voice and returns the usage exit code.

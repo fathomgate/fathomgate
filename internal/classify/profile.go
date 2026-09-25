@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"github.com/fathomgate/fathomgate/internal/yamlstrict"
 )
 
 // Profile describes one upstream MCP server: which class each tool belongs
@@ -66,7 +66,7 @@ type ToolSpec struct {
 // ParseProfile decodes a profile from YAML and validates it.
 func ParseProfile(b []byte) (*Profile, error) {
 	var p Profile
-	if err := yaml.UnmarshalWithOptions(b, &p, yaml.Strict()); err != nil {
+	if err := yamlstrict.Unmarshal(b, &p); err != nil {
 		return nil, fmt.Errorf("classify: parse profile: %w", err)
 	}
 	if err := p.Validate(); err != nil {

@@ -27,7 +27,9 @@ pick one), writes DIR/known_hosts with the key for `[127.0.0.1]:<port>`, and
 prints one line `READY <port>` on stdout once it accepts connections. Every
 exec request, and every non-empty line typed at the shell prompt, is
 appended to DIR/commands.log as `<user>\t<command>`, so a test can prove
-what reached the device (or that nothing did).
+what reached the device (or that nothing did). Every SSH connection, before
+authentication, appends one line to DIR/sessions.log, so a test can prove
+that a denied call opened no session at all.
 
 Auth is password only: the username and password come from --username and
 the FAKE_DEVICE_PASSWORD environment variable (default `FAKE-device-pass`).
@@ -70,9 +72,14 @@ def transcript_name(command: str) -> str:
 
 
 class _Server(asyncssh.SSHServer):
-    def __init__(self, username: str, password: str) -> None:
+    def __init__(self, username: str, password: str, sessions: Path) -> None:
         self._username = username
         self._password = password
+        self._sessions = sessions
+
+    def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
+        with self._sessions.open("a", encoding="utf-8") as f:
+            f.write("connect\n")
 
     def begin_auth(self, username: str) -> bool:
         return True
@@ -159,9 +166,11 @@ async def serve(vendor: str, state_dir: Path, port: int, username: str, password
     key.write_private_key(str(key_path))
     log = state_dir / "commands.log"
     log.touch()
+    sessions = state_dir / "sessions.log"
+    sessions.touch()
 
     acceptor = await asyncssh.create_server(
-        lambda: _Server(username, password),
+        lambda: _Server(username, password, sessions),
         "127.0.0.1",
         port,
         server_host_keys=[str(key_path)],

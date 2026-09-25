@@ -77,7 +77,7 @@ class Fathomgate:
 
     def __init__(self, fathomgate: str, upstream: str) -> None:
         self.proc = subprocess.Popen(
-            [fathomgate, "serve", "--server", SERVER, "--upstream", upstream],
+            [fathomgate, "serve", "--server", SERVER, "--upstream", upstream, "--no-policy"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -136,7 +136,7 @@ class FathomgateHTTP:
         env = dict(os.environ)
         env["FATHOMGATE_LISTEN_TOKEN"] = self.token
         self.proc = subprocess.Popen(
-            [fathomgate, "serve", "--listen", "127.0.0.1:0", "--server", SERVER, "--upstream", upstream],
+            [fathomgate, "serve", "--listen", "127.0.0.1:0", "--server", SERVER, "--upstream", upstream, "--no-policy"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,

@@ -21,9 +21,17 @@ Claude Code / Cursor  ->  fathomgate serve  ->  netdev-ssh-mcp  ->  SSH  ->  dev
 The client sees the upstream's tools with the upstream's name in front:
 `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config` and so on.
 
-In M0, fathomgate forwards every call without checking it. No policy, no
-redaction and no audit log yet; those come in M1 to M4 (see
-[ROADMAP.md](../ROADMAP.md)). Use M0 against lab devices only.
+Fathomgate checks every call against your policy file (`--policy`) before
+the upstream sees it: it works out what the call does (a show command, a
+configuration change, a free-form command), which devices it names, and what
+your policy says about that. A call the policy does not allow never reaches
+the upstream, and the agent gets a tool error naming the rule. Redaction of
+device output and a signed audit log are not there yet; they come in M2 and
+M4 (see [ROADMAP.md](../ROADMAP.md)). Until then, use lab devices.
+
+Upgrading from v0.1.0? It forwarded every call, and `serve` now refuses to
+start without `--policy` or `--no-policy`. See
+[Upgrading from v0.1.0](#upgrading-from-v010).
 
 ## What you need
 
@@ -85,16 +93,53 @@ redaction and no audit log yet; those come in M1 to M4 (see
      ([GHSA-h47r-329w-6p9h](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h),
      fixed in v1.7.1).
 
-   In M0, fathomgate forwards every call without checking it, so the
-   upstream's own checks are the only ones there are. Log in to devices with
-   a read-only account as well, so that no command sent through the server
-   can change a device.
+   Fathomgate's policy is one layer; keep the upstream's own checks as
+   another. Log in to devices with a read-only account as well, so that no
+   command sent through the server can change a device.
 
-3. **Full paths to both programs.** Run `command -v fathomgate` and
+3. **A policy file and an inventory of your devices.** A release archive
+   has the example policies in `policies/examples/` and an example
+   inventory, `inventory.example.yaml`; with `make build` they are in the
+   repository. Copy one policy and the inventory somewhere permanent:
+
+   ```sh
+   mkdir -p ~/.config/fathomgate
+   cp policies/examples/read-only.yaml ~/.config/fathomgate/policy.yaml
+   cp inventory.example.yaml ~/.config/fathomgate/inventory.yaml
+   ```
+
+   `read-only.yaml` allows show commands, configuration reads and inventory
+   listings on devices it knows, and denies configuration changes,
+   free-form commands, lab and local admin actions. Edit `inventory.yaml` so
+   it lists your devices by name, exactly as the agent will name them. A
+   device that is not listed is unknown, and every example policy denies
+   every call to an unknown device. `fathomgate inventory import --csv
+   devices.csv --out inventory.yaml` builds the file from a spreadsheet or
+   IPAM export; `--inventory` takes the YAML file, not the CSV. Ask the
+   policy what it would decide with `fathomgate policy eval` (see the
+   README) before an agent does.
+
+   Fathomgate also needs a *profile* for the upstream: which of its tools
+   read, which write, and which arguments name a device. The profiles for
+   the servers it has been checked against are built into the binary, and
+   `fathomgate version` lists their server keys. Pass one of those keys as
+   `--server` (`netdev-ssh-mcp` here). With a `--server` that has no
+   profile, Fathomgate denies every call that carries arguments (rule
+   `default:bad_arguments`) and warns at start; use a key that `fathomgate
+   version` lists, or add a profile with `--profiles <dir>`.
+
+   Fathomgate refuses to start if another user can change the policy, the
+   inventory or a `--profiles` file: they decide what reaches your devices.
+   On macOS and Linux run `chmod go-w` on them (the `cp` above keeps your
+   umask, usually fine). On Windows no one but you, SYSTEM and
+   Administrators may have write access; if Fathomgate names another
+   account, remove it with `icacls <file> /inheritance:d /remove:g <name>`.
+
+4. **Full paths to all of these.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example
    `/usr/local/bin/fathomgate` and `/Users/you/go/bin/netdev-ssh-mcp`). Use
    these full paths in every config below. The last section explains why.
-4. **A `known_hosts` entry for each device.** netdev-ssh-mcp checks SSH host
+5. **A `known_hosts` entry for each device.** netdev-ssh-mcp checks SSH host
    keys. SSH to the device once by hand, or use its `trust_host_key` tool.
 
 ### Device credentials
@@ -172,7 +217,7 @@ once with the "not set" message above; nothing hangs.
 
 ### Leave netdev-ssh-mcp's obfuscation on
 
-fathomgate M0 does not redact anything. Device output reaches the agent
+Fathomgate does not redact anything yet. Device output reaches the agent
 exactly as the upstream sends it, and fathomgate's own redaction arrives in
 M2. Until then, do not start netdev-ssh-mcp with `--no-obfuscate`. Its
 default obfuscation replaces secrets in `get_config` and `run_show_command`
@@ -243,6 +288,8 @@ Claude Code runs. With ssh-agent, nothing secret is written anywhere:
 claude mcp add netdev -- /usr/local/bin/fathomgate serve \
   --server netdev-ssh-mcp \
   --upstream /Users/you/go/bin/netdev-ssh-mcp \
+  --policy /Users/you/.config/fathomgate/policy.yaml \
+  --inventory /Users/you/.config/fathomgate/inventory.yaml \
   --upstream-env DEVICE_USERNAME=netops \
   --upstream-env-pass SSH_AUTH_SOCK
 ```
@@ -254,6 +301,8 @@ with `--upstream-env-pass`:
 claude mcp add netdev -e DEVICE_PASSWORD=your-lab-password -- /usr/local/bin/fathomgate serve \
   --server netdev-ssh-mcp \
   --upstream /Users/you/go/bin/netdev-ssh-mcp \
+  --policy /Users/you/.config/fathomgate/policy.yaml \
+  --inventory /Users/you/.config/fathomgate/inventory.yaml \
   --upstream-env DEVICE_USERNAME=netops \
   --upstream-env-pass DEVICE_PASSWORD
 ```
@@ -277,6 +326,8 @@ it starts. The same entry as JSON:
         "serve",
         "--server", "netdev-ssh-mcp",
         "--upstream", "/Users/you/go/bin/netdev-ssh-mcp",
+        "--policy", "/Users/you/.config/fathomgate/policy.yaml",
+        "--inventory", "/Users/you/.config/fathomgate/inventory.yaml",
         "--upstream-env", "DEVICE_USERNAME=netops",
         "--upstream-env-pass", "DEVICE_PASSWORD"
       ],
@@ -298,6 +349,25 @@ shows as connected. Claude Code shows the tools as
 `mcp__netdev__netdev-ssh-mcp_run_show_command` and so on. It swaps the `.`
 for `_`, and that is expected.
 
+Ask the agent to run `show version` on a device in your inventory, then on
+one that is not. The first comes back from the device. The second comes back
+as a tool error, `fathomgate denied netdev-ssh-mcp.run_show_command: rule
+default:unknown_target (class READ_OPERATIONAL): target not in inventory`,
+and never reaches the upstream. Fathomgate writes one `msg=decision` line to
+its stderr for every call; Claude Code keeps a
+server's stderr in its MCP logs (`claude --debug`).
+
+## Claude Desktop
+
+Claude Desktop reads the same `mcpServers` block from
+`claude_desktop_config.json` (Settings, Developer, Edit Config). Use the JSON
+block from the Claude Code section with full paths for every file, since
+Claude Desktop does not start Fathomgate from your shell. Fathomgate's tests
+do not run Claude Desktop, so check whether your version expands
+`${DEVICE_PASSWORD}` in `env`; if not, use ssh-agent (`SSH_AUTH_SOCK`), or
+put the value in the file, which is yours alone. Restart Claude Desktop
+after editing the file.
+
 ## Cursor
 
 Cursor reads the same `mcpServers` format from `~/.cursor/mcp.json` (all
@@ -315,19 +385,20 @@ Instead of letting the client start fathomgate, you can start fathomgate
 yourself and have clients connect to it over HTTP. That helps when an app
 cannot start programs, or when several clients should share one fathomgate.
 
-In M0 this has three limits, on purpose:
+This has three limits, on purpose:
 
 - fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
   `[::1]`, and no other address, not even another `127.x.x.x`). Other
-  machines cannot connect, and it refuses any other address. Listening on a network waits for M1, when a policy runs in
-  front of your devices. Whichever of the three you give, Fathomgate
+  machines cannot connect, and it refuses any other address. Listening on a network waits for M2, when
+  Fathomgate gains built-in TLS. Whichever of the three you give, Fathomgate
   takes the port on both `127.0.0.1` and `[::1]`, so that no other user of this
   computer can take the other one and collect tokens from clients that try
   it first.
 - Every request must carry a token, a long random password that you make.
   Anyone who has the token can use your devices through fathomgate, so
   treat it like a device password.
-- fathomgate still checks nothing. Use it against lab devices only.
+- It needs `--policy` (or `--no-policy`) like every `serve`. Use it
+  against lab devices until redaction arrives (M2).
 
 **1. Make a token file for each client, that only you can read.** Name
 the file after the client that will use it. Here that is Claude Code. On
@@ -362,6 +433,8 @@ fathomgate serve --listen 127.0.0.1:8931 \
   --listen-token-file claude-code=$HOME/.config/fathomgate/claude-code.token \
   --server netdev-ssh-mcp \
   --upstream /Users/you/go/bin/netdev-ssh-mcp \
+  --policy ~/.config/fathomgate/policy.yaml \
+  --inventory ~/.config/fathomgate/inventory.yaml \
   --upstream-env DEVICE_USERNAME=netops \
   --upstream-env-pass SSH_AUTH_SOCK
 ```
@@ -369,8 +442,8 @@ fathomgate serve --listen 127.0.0.1:8931 \
 It prints one `listening` line for each address it listens on:
 
 ```text
-time=... level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
-time=... level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
+time=... level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy=/Users/you/.config/fathomgate/policy.yaml rules=4 inventory=/Users/you/.config/fathomgate/inventory.yaml devices=12 profiles=embedded profile=netdev-ssh-mcp.yaml
+time=... level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy=/Users/you/.config/fathomgate/policy.yaml rules=4 inventory=/Users/you/.config/fathomgate/inventory.yaml devices=12 profiles=embedded profile=netdev-ssh-mcp.yaml
 ```
 
 Port `0` picks a free port, and the lines then show which one. If another
@@ -533,7 +606,7 @@ back-off. While Fathomgate is not running, another user of this computer
 can take its port, and a client that keeps retrying will send that program
 its token: the client has no way to tell it is not Fathomgate. Fathomgate
 refuses to start if it finds its port taken, so the log shows it when this
-happens. M1 closes the gap with TLS and a pinned certificate, or a socket
+happens. M2 closes the gap with TLS and a pinned certificate, or a socket
 file that only you can open.
 
 ## If the client can't find fathomgate or the upstream
@@ -615,6 +688,39 @@ killed an upstream before ADR 0021), the child ended with it. Since ADR
 0021 the child is also in the upstream's job. So on Windows the venv's
 `Scripts\python.exe` is safe to use as `--upstream`.
 
+## Upgrading from v0.1.0
+
+v0.1.0 forwarded every call with no policy, and refused `--policy`. Since
+v0.2.0, `fathomgate serve` needs one of two flags and exits with status 2,
+before it starts the upstream, if it has neither:
+
+- Add `--policy <file> --inventory <file>`, and check that `--server` is a
+  server key that `fathomgate version` lists (for example
+  `netdev-ssh-mcp`). A `--server` name with no profile denies every call
+  that carries arguments. This is what the snippets above do.
+- Or add `--no-policy` to keep v0.1.0's pass-through: every call is
+  forwarded unchecked. Fathomgate logs a warning saying so at every start.
+  Use it for protocol testing, not in front of devices you care about.
+
+`fathomgate version` now prints more lines: the built-in profiles follow the
+version line. The policy and inventory files must not be writable by other
+users (see step 3 of [What you need](#what-you-need)).
+
+`--inventory` and `--profiles` work only with `--policy`, and `--policy`
+with `--no-policy` is an error. `--audit` is still refused: the signed
+audit log arrives in M4, and until then every decision is one
+`msg=decision` line on fathomgate's stderr. Nothing else in the command line
+changes.
+
+At start, Fathomgate logs a warning for anything in your files that will not
+do what it seems to: no `--inventory` (every device is unknown), a server
+with no profile (calls with arguments are denied), `unknown_target: allow`
+in the policy, a hostname pattern in the inventory that matches no listed
+device, an obligation that is not enforced yet, and a `hold` rule, whose
+calls are not run until approvals arrive (M3). A `roles:` pattern adds
+nothing to a device you list by name until M1-34: put the role and tags a
+rule needs on the device itself.
+
 ## Running fathomgate in a container
 
 If you run fathomgate itself in a container (the distroless image), start
@@ -645,10 +751,23 @@ uv run --extra integration python fixtures/device/fake_ssh.py --state-dir /tmp/f
 
 Then set `--upstream-env DEVICE_USERNAME=admin`,
 `--upstream-env DEVICE_PASSWORD=FAKE-device-pass` and
-`--upstream-env SSH_KNOWN_HOSTS=/tmp/fakedev/known_hosts`, and ask for
-`show version` on host `127.0.0.1`, port `22022`, device type `eos`. The
-answer includes `Serial number: FAKE0000SN01`, and `/tmp/fakedev/commands.log`
-records the command.
+`--upstream-env SSH_KNOWN_HOSTS=/tmp/fakedev/known_hosts`, add the fake
+device to your inventory by the name the agent will use:
+
+```yaml
+devices:
+  - name: 127.0.0.1
+    role: lab
+    tags: [lab]
+```
+
+and ask for `show version` on host `127.0.0.1`, port `22022`, device type
+`eos`. The answer includes `Serial number: FAKE0000SN01`, and
+`/tmp/fakedev/commands.log` records the command. Then ask for `reload` on the
+same host: with `read-only.yaml` the agent gets `fathomgate denied
+netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY):
+EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list
+or outside configuration mode`, and `commands.log` has no new line.
 
 Here the password goes in the arguments with `--upstream-env` only because
 `FAKE-device-pass` is a published fake. Do not copy this for a real

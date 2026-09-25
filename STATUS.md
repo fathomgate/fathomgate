@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 10 · blocked 8 · in progress 2 · in review 8 · merged 6 · dropped 3
+Tasks: open 11 · blocked 6 · in progress 2 · in review 8 · merged 7 · dropped 3
 
 ## In flight
 
@@ -20,15 +20,15 @@ Tasks: open 10 · blocked 8 · in progress 2 · in review 8 · merged 6 · dropp
 | M1-09 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | in review | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-10 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
-| M1-12 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | M1-19 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| M1-12 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | M1-19 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | merged | — | 4 | — |
 | M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | in review | M1-13 | 3, 4 | — |
 | M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | open | — | — | — |
 | M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in review | — | 3, 5 | — |
 | M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | open | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
 | M1-18 | internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026 | `internal/gate` | policy-engineer | security-reviewer, go-reviewer | blocked | M1-16 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
-| M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | in review | M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
-| M1-20 | fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4 | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian, release-engineer | blocked | M1-19 | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |
+| M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | merged | M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
+| M1-20 | fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4 | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian, release-engineer | in review | M1-19 | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |
 | M1-21 | Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval | `policies` | policy-engineer | security-reviewer | in review | — | 3, 4, 6 | — |
 | M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | open | — | 4 | — |
 | M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | blocked | M1-18 | — | — |

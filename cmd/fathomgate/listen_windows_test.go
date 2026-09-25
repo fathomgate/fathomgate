@@ -289,7 +289,7 @@ func TestServeListenWildcardHeldWindows(t *testing.T) {
 	p := strconv.Itoa(int(port))
 	var stderr lockedBuffer
 	code := serveContext(t.Context(), []string{
-		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"),
+		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"), "--no-policy",
 		"--listen", "localhost:" + p,
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
 	out := stderr.String()
