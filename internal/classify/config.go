@@ -38,8 +38,14 @@ const (
 // dialectCLI. The server key is the profile's server, which the gate checks
 // against the --server name, so an operator profile under another name gets
 // dialectCLI, the stricter rules.
-var configDialects = map[[2]string]configDialect{
-	{"junos-mcp-server", "load_and_commit_config"}: dialectJunosLoad,
+var configDialects = map[dialectKey]configDialect{
+	{server: "junos-mcp-server", tool: "load_and_commit_config"}: dialectJunosLoad,
+}
+
+// dialectKey names a tool of one profile: the profile's server and the bare
+// tool name (no "<server>." prefix).
+type dialectKey struct {
+	server, tool string
 }
 
 // cliEscapeWords are the first words that leave configuration mode, re-enter
@@ -115,6 +121,18 @@ const (
 	maxConfigPayloadLen = 64 << 10
 )
 
+// The login autocommand check of the CLI dialect (classification.md 11.2):
+// IOS runs a line or username autocommand at the next login, which is the
+// agent's next call on the upstreams that open a session per call.
+const (
+	// autocommand is the keyword refused in any word position of a line.
+	autocommand = "autocommand"
+	// minAutocommandAbbrev is the shortest abbreviation of autocommand
+	// refused ("autoc"): shorter ones collide with "auto" (auto-cost,
+	// "speed auto", "switchport mode auto").
+	minAutocommandAbbrev = 5
+)
+
 // Check identifiers for config payload lines, in Result.Reason. The
 // control-character, non-ascii and too-long identifiers are shared with the
 // command checks.
@@ -147,7 +165,7 @@ func (f configFailure) reason() string {
 // lines on CR, LF and CRLF; every line is checked. It returns nil when every
 // line passes.
 func checkConfigPayload(profile *Profile, tool string, spec ToolSpec, args map[string]any) *configFailure {
-	dialect := configDialects[[2]string{profile.Server, bareToolName(profile, tool)}]
+	dialect := configDialects[dialectKey{server: profile.Server, tool: bareToolName(profile, tool)}]
 	format := ""
 	if dialect == dialectJunosLoad {
 		format = junosLoadFormat(args["config_format"])
@@ -333,14 +351,6 @@ func checkJunosDataLine(line, format string) string {
 	}
 	return ""
 }
-
-// minAutocommandAbbrev is the shortest abbreviation of "autocommand" the
-// CLI dialect refuses in any word position ("autoc"): shorter ones collide
-// with "auto" (auto-negotiation, auto-cost, "switchport mode auto").
-const (
-	autocommand          = "autocommand"
-	minAutocommandAbbrev = 5
-)
 
 // trimWord strips every character outside [a-z0-9-] from both ends of a
 // lower-cased word, so quotes, backslashes and punctuation cannot hide a

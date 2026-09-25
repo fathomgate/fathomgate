@@ -225,80 +225,103 @@ func TestInjectionInputs(t *testing.T) {
 }
 
 // TestConfigSessionEscape is the M1-36 reproduction from the security review
-// of PR #158: under lab-open, push_config with config_lines ["end"] was
-// allowed by lab-writes-free. A config payload that leaves configuration
-// mode is EXEC_ARBITRARY (classification.md section 11), so no-exec denies
-// it, on both CLI config tools of the M1 servers; an ordinary payload is
-// still the write lab-writes-free allows.
+// of PR #158 and the payloads of the PR #170 reviews, from arguments to
+// decision under lab-open: push_config with config_lines ["end"] was allowed
+// by lab-writes-free. A config payload that leaves configuration mode, runs
+// or schedules an exec command, or defines an alias for one is
+// EXEC_ARBITRARY (classification.md section 11), so no-exec denies it, on
+// both CLI config tools of the M1 servers and on junos
+// load_and_commit_config; an ordinary payload is still the write
+// lab-writes-free allows.
 func TestConfigSessionEscape(t *testing.T) {
 	t.Parallel()
 	g := newGate(t, examplePolicy(t, "lab-open"), true)
-	tools := []struct{ server, tool, target, param string }{
+	denied := want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"}
+	allowed := want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true}
+
+	type tc struct {
+		name         string
+		server, tool string
+		args         map[string]any
+		want         want
+	}
+	var cases []tc
+
+	cliTools := []struct{ server, tool, target, param string }{
 		{eos, "push_config", "hostname", "config_lines"},
 		{upa, "set_config_commands_and_commit_or_save", "name", "commands"},
 	}
-	for _, tl := range tools {
-		for i, lines := range [][]any{
-			{"end"},
-			{"end", "reload now"},
-			{"end", "configure", "hostname x"},
-			{"hostname x\nend\nreload now"},
-			{"do reload"},
-			// Security review of PR #170: NX-OS ";" separator (H1) and
-			// scheduled execution (H3).
-			{"hostname x ; end ; reload", "y"},
-			{"event manager applet X", " event timer countdown time 5", " action 1 cli command \"reload\""},
-			{"kron policy-list P", " cli reload"},
-			{"event-handler H", " action bash reboot"},
-			{"schedule s interval 1 max-log-files 1 command bash reboot"},
-			{"daemon d", " exec /mnt/flash/x"},
-			{"scheduler job name j"},
-			// Round 2 (R2-H1): a login autocommand runs at the agent's
-			// next session, which upa opens per call.
-			{"line vty 0 15", " autocommand reload"},
-			{"username netops autocommand reload"},
-		} {
-			label := tl.server + "." + tl.tool + " payload " + string(rune('a'+i))
-			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: lines}))
-			check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
-			for _, word := range []string{"reload", "configure", "end"} {
-				if strings.Contains(v.Error, word) {
-					t.Errorf("%s: the payload is echoed: %q", label, v.Error)
-				}
-			}
-		}
-		v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{"interface Ethernet1", " description uplink"}}))
-		check(t, tl.server+"."+tl.tool+" ordinary write", v, want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
-
+	cliPayloads := []struct {
+		name  string
+		lines []any
+		want  want
+	}{
+		{"end alone (PR #158 reproduction)", []any{"end"}, denied},
+		{"end then reload", []any{"end", "reload now"}, denied},
+		{"end then configure outside the session", []any{"end", "configure", "hostname x"}, denied},
+		{"end and reload inside one element", []any{"hostname x\nend\nreload now"}, denied},
+		{"do from configuration mode", []any{"do reload"}, denied},
+		// Security review of PR #170: NX-OS separator (H1) and scheduled
+		// execution (H3).
+		{"NX-OS semicolon separator", []any{"hostname x ; end ; reload", "y"}, denied},
+		{"IOS EEM applet", []any{"event manager applet X", " event timer countdown time 5", " action 1 cli command \"reload\""}, denied},
+		{"IOS kron policy", []any{"kron policy-list P", " cli reload"}, denied},
+		{"EOS event-handler", []any{"event-handler H", " action bash reboot"}, denied},
+		{"EOS schedule", []any{"schedule s interval 1 max-log-files 1 command bash reboot"}, denied},
+		{"EOS daemon", []any{"daemon d", " exec /mnt/flash/x"}, denied},
+		{"NX-OS scheduler", []any{"scheduler job name j"}, denied},
+		// Round 2 (R2-H1): a login autocommand runs at the agent's next
+		// session, which upa opens per call.
+		{"vty login autocommand", []any{"line vty 0 15", " autocommand reload"}, denied},
+		{"username autocommand", []any{"username netops autocommand reload"}, denied},
 		// H2, the alias two-call sequence: the first call defines an exec
 		// word (IOS, EOS, NX-OS spellings), the second uses it, with a blank
 		// line to answer reload's confirmation. The definition is denied, so
 		// the word never exists. The second call on its own is an ordinary
-		// line and stays WRITE_CONFIG: an alias an operator configured on
-		// the device is the accepted residual in the threat model.
-		for i, def := range []string{"alias configure hn do reload", "alias hn reload now", "cli alias name hn reload"} {
-			label := tl.server + "." + tl.tool + " alias definition " + string(rune('a'+i))
-			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{def}}))
-			check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+		// line and stays WRITE_CONFIG: an alias an operator configured on the
+		// device is the accepted residual in the threat model.
+		{"alias call 1, IOS definition", []any{"alias configure hn do reload"}, denied},
+		{"alias call 1, EOS definition", []any{"alias hn reload now"}, denied},
+		{"alias call 1, NX-OS definition", []any{"cli alias name hn reload"}, denied},
+		{"alias call 2, use (accepted residual)", []any{"hn", ""}, allowed},
+		{"ordinary write", []any{"interface Ethernet1", " description uplink"}, allowed},
+	}
+	for _, tl := range cliTools {
+		for _, p := range cliPayloads {
+			cases = append(cases, tc{
+				name:   tl.server + "." + tl.tool + "/" + p.name,
+				server: tl.server, tool: tl.tool,
+				args: map[string]any{tl.target: "lab-sw-01", tl.param: p.lines},
+				want: p.want,
+			})
 		}
-		v = g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{"hn", ""}}))
-		check(t, tl.server+"."+tl.tool+" alias use", v, want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
 	}
 
 	// Junos configuration that runs something (H3) and top/up with a
 	// command (M2), through load_and_commit_config.
-	for i, text := range []string{
-		"set event-options policy P events ui_commit then execute-commands commands \"request system reboot\"",
-		"edit system\nset scripts commit file x.slax",
-		"top run request system reboot",
-		"up 1 run request system reboot",
-	} {
-		label := "junos load_and_commit_config payload " + string(rune('a'+i))
-		v := g.Decide(context.Background(), call("junos-mcp-server", "load_and_commit_config", map[string]any{"router_name": "lab-sw-01", "config_text": text}))
-		check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+	junos := func(name string, args map[string]any) tc {
+		args["router_name"] = "lab-sw-01"
+		return tc{name: "junos-mcp-server.load_and_commit_config/" + name, server: "junos-mcp-server", tool: "load_and_commit_config", args: args, want: denied}
 	}
-	v := g.Decide(context.Background(), call("junos-mcp-server", "load_and_commit_config", map[string]any{"router_name": "lab-sw-01", "config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}))
-	check(t, "junos text event-options", v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+	cases = append(cases,
+		junos("set event-options with execute-commands", map[string]any{"config_text": "set event-options policy P events ui_commit then execute-commands commands \"request system reboot\""}),
+		junos("relative scripts after edit system", map[string]any{"config_text": "edit system\nset scripts commit file x.slax"}),
+		junos("top with a command", map[string]any{"config_text": "top run request system reboot"}),
+		junos("up with a command", map[string]any{"config_text": "up 1 run request system reboot"}),
+		junos("text-format event-options", map[string]any{"config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}),
+	)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := g.Decide(context.Background(), call(c.server, c.tool, c.args))
+			check(t, c.name, v, c.want)
+			for _, word := range []string{"reload", "configure", "end"} {
+				if strings.Contains(v.Error, word) {
+					t.Errorf("the payload is echoed: %q", v.Error)
+				}
+			}
+		})
+	}
 }
 
 // TestAttackerHostNames: the names of the PR #154 review and ADR 0031, with
