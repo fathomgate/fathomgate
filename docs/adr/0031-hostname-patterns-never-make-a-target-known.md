@@ -1,8 +1,10 @@
 # ADR 0031: A hostname pattern never makes a target known; it only adds attributes to a device listed elsewhere
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer); proposed by network-safety-engineer (board task M1-34, from the security review of PR #154, findings H1 and H2); reviewers security-reviewer, policy-engineer
+- Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by network-safety-engineer (board task M1-34, from the security review of PR #154, findings H1 and H2); reviewers security-reviewer, policy-engineer
+- Supersedes in part: [ADR 0007](0007-role-resolver-chain-sot-optional.md), provider row 2 only (dated row in its *Amendments*)
+- Related: board task M1-37, its own record: an unset `defaults.unknown_target` denies every class (decision 4 below)
 
 ## Context
 
@@ -24,7 +26,7 @@ Hostname patterns and the unknown-target default are core ("Decides", [ADR 0020]
 
 We will make hostname patterns attribute-only: a pattern never makes a target known on its own, and only fills in role, site and tags on a device that a name authority (static file or CSV import in M1; the upstream inventory and the source-of-truth snapshot in M2) has already listed.
 
-1. **Two kinds of provider.** *Name authorities* decide whether a target is known: the static file (including what `fathomgate inventory import` writes), and in M2 the upstream `INVENTORY_READ` provider and the NetBox or Nautobot resolver or its snapshot. First authority to list the exact name wins, as in ADR 0007. *Enrichers* run only after an authority has hit: hostname patterns are the only enricher.
+1. **Two kinds of provider.** *Name authorities* decide whether a target is known: the static file (including what `fathomgate inventory import` writes), and in M2 the upstream `INVENTORY_READ` provider (its standing for writes is decided in the M2 upstream-provider ADR, decision 3 below) and the NetBox or Nautobot resolver or its snapshot. First authority to list the exact name wins, as in ADR 0007. *Enrichers* run only after an authority has hit: hostname patterns are the only enricher.
 2. **Merge.** The authority's record wins every field it sets. Each matching pattern fills a field the record leaves empty (`role`, `site`; the first matching pattern in file order wins each field) and unions its `tags`. This is the merge [inventory-schema section 2](../specs/inventory-schema.md#2-resolver-chain) already describes and the code never implemented. A name no authority lists is `unknown`, whatever patterns it matches.
 3. **Provenance.** `inventory.Target` gains a per-field source (spec section 1 already names `source`; values `static`, `pattern`, `upstream:<id>`, `netbox`, `nautobot`, `snapshot`). `Status` goes back to meaning device status and is never `pattern`. `fathomgate inventory resolve` prints which provider supplied each field. The audit event (M4) records the sources.
 4. **No policy interface change.** `policy.Request` and `policy.Target` are unchanged; `Known` keeps its meaning (an authority listed the name). `Evaluate` is untouched and stays pure (invariant 1).
@@ -44,7 +46,7 @@ We will make hostname patterns attribute-only: a pattern never makes a target kn
 ### Negative
 
 - A network that relied on patterns alone must now list its devices. Mitigated: `fathomgate inventory import devices.csv` takes the list from any spreadsheet or IPAM export, `inventory sync` (M2) from a source of truth, and the upstream provider (M2) from the server itself. v0.1.0 enforced nothing (`serve` refused `--inventory`), so nobody relied on it in production.
-- Pattern-derived role and tags on a listed device can still unlock writes (for example `^lab-` tagging a listed `lab-core-01` that is really a core router). This is the misclassification ADR 0007 accepted; the operator vouched for the name. Open question 2 asks whether to go further.
+- Pattern-derived role and tags on a listed device can still unlock writes (for example `^lab-` tagging a listed `lab-core-01` that is really a core router). This is the misclassification ADR 0007 accepted; the operator vouched for the name. The maintainer confirmed this (decision 2 below).
 - The chain grows a second pass (enrich after hit). Small, and tested below.
 
 ### Neutral
@@ -59,7 +61,7 @@ We will make hostname patterns attribute-only: a pattern never makes a target kn
 | --- | --- |
 | (b) A pattern may make a target known for reads, but pattern-derived tags and roles never satisfy `device_tags` or `device_roles` for `WRITE_CONFIG`, `EXEC_ARBITRARY` or `LAB_LIFECYCLE` (carry `source: pattern` into `policy.Target`) | Closes H2 only. H1, the credential leak to an agent-chosen host on a read, is the more severe finding and stays open. It also changes `policy.Target` and puts a class list inside `Evaluate`'s matcher semantics, so the policy file no longer says everything about what is allowed. |
 | (c) Keep today's behaviour behind a required per-pattern opt-in (`known: true`) | A flag that reproduces a documented credential leak, for a need CSV import already meets. Anyone who sets it has H1 and H2 back, and a copied example would carry it. |
-| (a) with pattern-derived attributes barred from write rules | Stricter than recommended; left as open question 2 because it removes the main write-side use (tagging a listed lab range) and the name is already operator-vouched. |
+| (a) with pattern-derived attributes barred from write rules | Declined by the maintainer (decision 2 below): it removes the main write-side use (tagging a listed lab range) and the name is already operator-vouched. |
 | Validation only (M1-18) | `core-x.attacker.example` and `lab-ghost-99` are valid hostnames. |
 | Drop hostname patterns | Loses role-by-naming-convention, which is how M2's upstream-listed devices would get a role at all. |
 
@@ -88,19 +90,21 @@ In `cmd/fathomgate` and `policies/`:
 9. The "pattern hazard" case in `policies/examples/lab-open.test.yaml` is rewritten: the policy test file cannot express a pattern, so it moves to test 7 and the policy case says what it is (a tagged, known target).
 10. The M1-18 gate tests (with M1-33) carry the attacker names of test 1 from arguments to decision with a pattern-bearing inventory.
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **Accept (a) as recommended?** It supersedes ADR 0007 row 2 only.
-2. **Should pattern-derived role and tags on a listed device satisfy write rules?** Recommended: yes (the operator listed the name; misclassification is the ADR 0007 risk). The stricter alternative, attributes that unlock `WRITE_CONFIG`, `EXEC_ARBITRARY` or `LAB_LIFECYCLE` must come from the authority's own record, could be added later as a policy-level option without changing this decision.
-3. **Is an upstream inventory listing (M2, provider 3) a name authority for writes?** ADR 0007 says it is a provider, but what an upstream returns is untrusted data (invariant 7), and for upa it is the TOML that alias drift is about. Recommended: this record lists it as an authority, because the upstream can only reach what it lists, and leaves the write side to the M2 upstream-provider ADR, decided together with the drift cross-check.
-4. **The absent-key default still allows reads to unknown targets** (ADR 0007: `unknown_target` unset denies only `WRITE_CONFIG` and `EXEC_ARBITRARY`). All three examples set `unknown_target: deny`, but a policy that omits it still lets `get_config` reach `core-x.attacker.example` through netdev-ssh-mcp, with or without patterns. This record does not change that; should a separate record make the absent-key default `deny` for every class, or at least for `READ_CONFIG` on free-form-host upstreams?
-5. **Warning or error** for a pattern that matches no listed device (decision 5)? Recommended: warning at load, error in `inventory lint`, so a stale pattern never stops `serve`.
-6. **Aliases.** Should a device record gain `aliases:` (for example the FQDN and the short name) so an operator does not list the same device twice? Recommended: defer until someone asks; exact match fails closed meanwhile.
+Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
+
+1. **Option (a): accepted.** A hostname pattern never makes a target known; it only adds attributes to a device a name authority lists. This record supersedes [ADR 0007](0007-role-resolver-chain-sot-optional.md) provider row 2 only, and ADR 0007 gets a dated row in its *Amendments*. The rest of ADR 0007 stands.
+2. **Pattern-derived role and tags on a listed device: yes, they count for write rules.** A role or tag a pattern gives a device that a name authority lists may satisfy `device_roles` and `device_tags` for `WRITE_CONFIG`, `EXEC_ARBITRARY` and `LAB_LIFECYCLE`, because the operator listed the name. A stricter policy-level option (write-unlocking attributes must come from the authority's own record) may be proposed later in its own record; it would not change this decision.
+3. **The upstream inventory listing (M2, provider 3) as a name authority for writes: decided in the M2 upstream-provider ADR,** together with the target alias drift cross-check. What an upstream returns is untrusted data (invariant 7). Until that record, this record's list of name authorities for M1 is the static file and CSV import.
+4. **An unset `unknown_target`: decided separately.** The maintainer chose that an unset `defaults.unknown_target` denies every class, so a read to an unknown target no longer reaches the rules by default. That is board task M1-37, with its own record; this record does not change `Evaluate` and relies on M1-37 for the read half of an unknown target under a policy that omits the key.
+5. **A pattern that matches no listed device: warning at load, error in `fathomgate inventory lint`** (decision 5), so a stale pattern never stops `serve`.
+6. **Aliases: no `aliases:` field until someone asks.** Matching stays exact on the string the upstream receives, which fails closed: an operator who needs both the FQDN and the short name lists both.
 
 ## References
 
 - [ADR 0007](0007-role-resolver-chain-sot-optional.md), [ADR 0020](0020-open-core-apache-2.md), [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md)
 - [inventory-schema](../specs/inventory-schema.md) sections 1, 2, 4, 5 and 7; [policy-schema section 4](../specs/policy-schema.md#4-evaluation-order)
 - [Threat model](../security/threat-model.md), rows "Pattern-resolved target (reads and writes)" and "Target alias drift"
-- Security review of PR #154 (H1, H2); [M1 board](../milestones/M1.yaml): M1-34 (this record), M1-18 (target-name validation), M1-33
+- Security review of PR #154 (H1, H2); [M1 board](../milestones/M1.yaml): M1-34 (this record), M1-18 (target-name validation), M1-33, M1-37 (an unset `unknown_target` denies every class)
 - `internal/inventory/patterns.go`, `internal/inventory/resolver.go`
