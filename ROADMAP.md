@@ -26,7 +26,7 @@ Fathomgate sits between Claude Code, Cursor or any other MCP client and a networ
 
 It also listens over HTTP on your own machine, for agents that connect that way, with a token for each agent. Binaries for Linux, macOS and Windows come with a signed checksum file you can verify.
 
-### 2. Say no (M1) — *next*
+### 2. Say no (M1) — *in progress*
 
 Your rules start to count. Fathomgate works out what each request really does (a read, a config change, an arbitrary command), which device it touches and what role that device plays, then allows or denies it. A denial tells the assistant which rule refused it, so the assistant can try something safer.
 
