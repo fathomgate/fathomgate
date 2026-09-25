@@ -86,6 +86,7 @@ internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, do
 internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
+internal/fileacl/    one question: does this open file carry a macOS extended ACL (refuse it); no-op elsewhere
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (M2)
 internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
