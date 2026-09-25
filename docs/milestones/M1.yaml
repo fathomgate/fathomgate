@@ -237,10 +237,10 @@ relo
     package: internal/gate
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in review
     blocked_by: [M1-18]
     matrix: []
-    notes: 'PRD M1 success metric. Go benchmark over the gate with the shipped profiles and prod-approval, reporting p99 over a fixed corpus of calls (reads, downgraded exec, writes, unknown targets); fail the test above 5 ms on the CI runner.'
+    notes: 'PRD M1 success metric. Go benchmark over the gate with the shipped profiles and prod-approval, reporting p99 over a fixed corpus of calls (reads, downgraded exec, writes, unknown targets); fail the test above 5 ms on the CI runner. PR #183 2026-09-25: TestDecideOverhead (internal/gate) and TestDispatchOverhead (internal/proxy, decision stage plus an end-to-end cross-check against a pass-through proxy) over the corpus in internal/gate/gatetest; typical p99 33 us (gate) and 131 us (proxy stage) on ubuntu-latest, 5 ms limit (10x under -race), Linux CI step at 1x with -p 1. Worst cases at the 64 KiB cap fail at p50; two findings are in gatetest.KnownOverBudget: 1,900 commands take 10 ms in classify (backtracking regexps, policy-engineer) and the proxy runs Decide twice when a target is already counted (21 ms; 3,300 targets 9 ms; mcp-protocol-engineer). Numbers in docs/testing/test-strategy.md.'
   - id: M1-24
     title: Reconcile the M1 test-matrix rows and specs with the code and PLAN
     package: docs
