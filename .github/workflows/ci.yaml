@@ -61,6 +61,7 @@ jobs:
       # root-owned file lands in the Go build or module cache; only the
       # binary runs under sudo (hosted runners have passwordless sudo).
       # M1-09, security review of PR #155 (N3).
+      # Never copy this sudo pattern to a self-hosted runner or to a job that holds secrets or a write-scoped token.
       - name: other-owner tests ran as root
         run: |
           go test -c -o "$RUNNER_TEMP/audit.test" ./internal/audit/

@@ -237,7 +237,7 @@ var pemBegin = []byte("-----BEGIN ")
 
 // onePEMBlock decodes the single PEM block a key file holds. The file must
 // contain "-----BEGIN " exactly once, with only white space before it and
-// after the block's END line. pem.Decode alone would skip anything it
+// after the block's END line, and the block must have no headers. pem.Decode alone would skip anything it
 // cannot parse, before the block or as a corrupted first block, so a file
 // could carry text or a second key the reader never looks at.
 func onePEMBlock(path string, b []byte) (*pem.Block, error) {
@@ -254,6 +254,11 @@ func onePEMBlock(path string, b []byte) (*pem.Block, error) {
 	block, rest := pem.Decode(b[i:])
 	if block == nil {
 		return nil, fmt.Errorf("audit: %s: the PEM block is malformed", path)
+	}
+	// A header (for example "Comment: <base64>") could carry another key
+	// the reader never looks at; key files have none.
+	if len(block.Headers) != 0 {
+		return nil, fmt.Errorf("audit: %s: the PEM block has headers; a key file has none", path)
 	}
 	if len(bytes.TrimSpace(rest)) != 0 {
 		return nil, fmt.Errorf("audit: %s: text after the PEM block", path)

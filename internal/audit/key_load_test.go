@@ -80,6 +80,7 @@ func TestLoadPublicKeyRefusesPrivateKey(t *testing.T) {
 		{"corrupted other block before the public key", "-----BEGIN JUNK-----\n!!\n" + block("PUBLIC KEY", pkix), nil, "more than the one PEM block"},
 		{"text after the public key", block("PUBLIC KEY", pkix) + "trailing\n", nil, "text after the PEM block"},
 		{"white space around the public key", "\n  \n" + block("PUBLIC KEY", pkix) + "\n\n", nil, ""},
+		{"public block with a header carrying a key", string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Headers: map[string]string{"Comment": base64.StdEncoding.EncodeToString(pkcs8)}, Bytes: pkix})), nil, "has headers"},
 		{"malformed public block", "-----BEGIN PUBLIC KEY-----\n!!\n", nil, "malformed"},
 		{"certificate", block("CERTIFICATE", pkix), nil, "not a PUBLIC KEY PEM block"},
 		{"no PEM", "not a key\n", nil, "no PEM block"},

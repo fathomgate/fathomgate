@@ -29,6 +29,14 @@ func read(path, what string, limit int64) ([]byte, error) {
 	return readCapped(f, what, limit)
 }
 
+// aclReadRefusal refuses a file whose ACL could not be read. The cause is
+// stripped of its path as well as the message, so errors.As cannot reach
+// the path either.
+func aclReadRefusal(what string, err error) error {
+	cause := pathless(err)
+	return refuseCause(cause, "cannot check the access control list of %s: %v", what, cause)
+}
+
 // check runs Read's checks on the open descriptor.
 func check(f *os.File, what string) error {
 	fi, err := f.Stat()
@@ -57,7 +65,7 @@ func check(f *os.File, what string) error {
 	// review of PR #109); fileacl reads it on the open descriptor.
 	switch ext, err := fileacl.Extended(f); {
 	case err != nil:
-		return refuseCause(err, "cannot check the access control list of %s: %v", what, pathless(err))
+		return aclReadRefusal(what, err)
 	case ext:
 		return refuse("%s has an extended ACL, which can give other users access the mode does not show; remove it with chmod -N", what)
 	}
