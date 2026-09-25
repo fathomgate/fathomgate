@@ -6,7 +6,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ## [Unreleased]
 
-## [0.1.0] - TBD
+## [0.1.0] - 2026-09-25
 
 ### Added
 
