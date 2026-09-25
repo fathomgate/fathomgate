@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23)
-- Amended: 2026-09-23 (T0.16), 2026-09-25 (T0.46), facts only; the decision is unchanged. See [Amendments](#amendments).
+- Amended: 2026-09-23 (T0.16), 2026-09-25 (T0.46, M1-09), facts only; the decision is unchanged. See [Amendments](#amendments).
 
 ## Context
 
@@ -19,7 +19,7 @@ go-sdk `v1.7.0` declares `go 1.25.0`, so `go.mod` moves from `go 1.24` to `go 1.
 | `github.com/yosida95/uritemplate/v3` | `v3.0.2` | `go.mod` indirect | `mcp` → `uritemplate/v3` (resource templates) |
 | `golang.org/x/oauth2` | `v0.35.0` | `go.mod` indirect | `mcp` → `golang.org/x/oauth2` (Streamable HTTP client, `mcp/streamable.go`) |
 | `golang.org/x/sync` | `v0.20.0` | `go.mod` indirect | `mcp` → `golang.org/x/sync/errgroup` |
-| `golang.org/x/sys` | `v0.48.0` | `go.mod` direct (T0.12) | `internal/audit` → `golang.org/x/sys/windows` (audit key and log DACL, Windows only); `cmd/fathomgate` → `golang.org/x/sys/windows` (the `--listen-token-file` owner and DACL check, Windows only; T0.31); `internal/proxy` → `golang.org/x/sys/windows` (the upstream's Job Object, Windows only; [ADR 0021](0021-kill-the-upstream-process-tree.md)); also `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` on every platform |
+| `golang.org/x/sys` | `v0.48.0` | `go.mod` direct (T0.12) | `internal/audit` → `golang.org/x/sys/windows` (audit key and log DACL on create and log resume, Windows only); `internal/secretfile` → `golang.org/x/sys/windows` (the owner and DACL check on reading the audit signing key and `--listen-token-file` files, Windows only; M1-09); `cmd/fathomgate` → `golang.org/x/sys/windows` (Winsock error codes in `listen_windows.go`, Windows only); `internal/proxy` → `golang.org/x/sys/windows` (the upstream's Job Object, Windows only; [ADR 0021](0021-kill-the-upstream-process-tree.md)); also `segmentio/asm/cpu/x86` → `golang.org/x/sys/cpu` on every platform |
 | `golang.org/x/time` | `v0.15.0` | `go.mod` indirect | `mcp` → `golang.org/x/time/rate` (log rate limiting, `mcp/logging.go`) |
 | `github.com/golang-jwt/jwt/v5` | `v5.3.1` | `go.sum` only | `go-sdk/oauthex.test` (go-sdk tests only) |
 | `github.com/google/go-cmp` | `v0.7.0` | `go.sum` only | `go-sdk/mcp.test` (go-sdk tests only) |
@@ -73,6 +73,7 @@ This section records factual corrections. It does not change the decision, the m
 | 2026-09-23 | T0.16 | Guardrail 1 re-verified on `./cmd/netguard`; the `internal/tools` and binary-size lines are marked as T0.1 facts | T0.2 removed `internal/tools/tools.go` and links go-sdk into `bin/netguard` |
 | 2026-09-25 | T0.46 | `golang.org/x/sys` row: a second import path, `internal/proxy` → `golang.org/x/sys/windows` (the upstream's Job Object: `CreateJobObject`, `SetInformationJobObject`, `AssignProcessToJobObject`, `TerminateJobObject`, `OpenProcess`, the Toolhelp32 thread snapshot and `ResumeThread`; Windows only, `internal/proxy/tree_windows.go`). No module is added, removed or moved and the version stays `v0.48.0`. Guardrail 1 re-verified: `CGO_ENABLED=0 go build ./...` for linux, darwin and windows on amd64 and arm64 with go1.26.8 | [ADR 0021](0021-kill-the-upstream-process-tree.md): the standard library's `syscall` has no Job Object calls. The same kind of change as the T0.16 row |
 | 2026-09-25 | T0.46 | `golang.org/x/sys` row: the third import path, `cmd/fathomgate` → `golang.org/x/sys/windows` (`cmd/fathomgate/token_windows.go`, the `--listen-token-file` owner and DACL check, Windows only), is now listed; it has been there since T0.31 (PR #109, commit `b37a17f`). All three importers are Windows only | S3 in the Go review of PR #111: the row and CLAUDE.md named two importers of three. No module or version changed |
+| 2026-09-25 | M1-09 | `golang.org/x/sys` row: the importers of `golang.org/x/sys/windows` are now `internal/audit` (key and log DACL on create and log resume), `internal/secretfile` (the owner and DACL check on reading the audit signing key and listen token files), `internal/proxy` (the upstream's Job Object) and `cmd/fathomgate` (`listen_windows.go`, Winsock error codes, since commit `fb9de35`). `cmd/fathomgate` no longer imports it for the token DACL check: `token_windows.go` is gone. All four are Windows only. No module or version changed | [ADR 0028](0028-audit-key-custody.md) moved the token file check into `internal/secretfile` so the audit key uses the same code (Go review of PR #155, item 4) |
 
 ## References
 

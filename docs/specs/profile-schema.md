@@ -27,7 +27,7 @@ Comments at the top of the file record the research brief section the tool names
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
 | `args` | list of string | **yes** (`[]` when empty) | Every other argument the tool accepts ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)). The argument list is closed: an argument named in none of the five `*_params` lists and not in `args` is denied ([section 2.2](#22-closed-argument-list)). Values are not inspected. |
 | `refused_args` | list of string | no | Arguments the upstream accepts that the profile deliberately leaves unnamed (eos-mcp `config_path`). No run-time effect beyond being unnamed; the coverage tests use it to tell a reviewed refusal from a parameter the upstream added later. |
-| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. |
+| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. One token is read by the classifier: `never-downgrade` anywhere in the notes, in any case, of an `EXEC_ARBITRARY` tool keeps it `EXEC_ARBITRARY` whatever its commands say ([classification.md](classification.md) section 8). |
 
 ### 2.1 Normalisation rules
 
@@ -134,7 +134,7 @@ tools:
     target_params: [router_name]
     command_params: [command]
     args: [target, timeout]
-    notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
+    notes: never-downgrade. PFE shell on an FPC (`target`); the execution context is the risk, so a PFE "show jnh 0 exceptions" stays EXEC_ARBITRARY (classification.md section 8).
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]

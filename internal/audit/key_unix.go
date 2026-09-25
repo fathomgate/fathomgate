@@ -128,6 +128,13 @@ func checkLogFile(f *os.File, path string) error {
 	return nil
 }
 
+// openPublicKey opens a public key for reading with O_NONBLOCK, so a FIFO
+// at the path cannot block the verifier; LoadPublicKey then refuses
+// anything but a regular file on the open descriptor.
+func openPublicKey(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+}
+
 // restrictOpenFile sets mode 0600 through the open descriptor.
 func restrictOpenFile(f *os.File) error {
 	return f.Chmod(ownerOnlyMode)

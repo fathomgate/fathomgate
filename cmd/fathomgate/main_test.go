@@ -151,6 +151,17 @@ func TestAuditVerifyAndKeygen(t *testing.T) {
 	if got := run([]string{"audit", "verify", "--key", key + ".pub", log}); got != exitOK {
 		t.Fatalf("verify (flag first) exit %d", got)
 	}
+	// ADR 0028: the signing key is refused as the verifier's trust anchor.
+	if got := run([]string{"audit", "verify", log, "--key", key}); got != exitUsage {
+		t.Fatalf("verify with the private key exit %d, want %d", got, exitUsage)
+	}
+	want := "--key must be the public key (" + key + ".pub); a verifier never needs the signing key"
+	if _, err := loadVerifyKey(key); err == nil || err.Error() != want {
+		t.Fatalf("verify with the private key: error %v, want %q", err, want)
+	}
+	if k, err := loadVerifyKey(key + ".pub"); err != nil || !k.Equal(priv.Public()) {
+		t.Fatalf("verify key from the .pub file: %v", err)
+	}
 	raw, _ := os.ReadFile(log)
 	tampered := filepath.Join(dir, "tampered.jsonl")
 	if err := os.WriteFile(tampered, []byte(string(raw[:len(raw)/2])+"x"+string(raw[len(raw)/2:])), 0o600); err != nil {

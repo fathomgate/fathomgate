@@ -144,6 +144,15 @@ func checkLogFile(h windows.Handle, path string) error {
 	return nil
 }
 
+// openPublicKey opens a public key for reading. SECURITY_SQOS_PRESENT with
+// SECURITY_IDENTIFICATION: if the path names a named pipe, its server can
+// identify this process but not impersonate it; LoadPublicKey then refuses
+// anything but a regular file on the open handle.
+func openPublicKey(path string) (*os.File, error) {
+	return createFile(path, windows.GENERIC_READ, nil, windows.OPEN_EXISTING,
+		windows.SECURITY_SQOS_PRESENT|windows.SECURITY_IDENTIFICATION)
+}
+
 // restrictOpenFile replaces the DACL of an open log with the protected
 // owner-only DACL, removing inherited and explicit entries for anyone else.
 // The handle must have WRITE_DAC (openExistingLog asks for it).

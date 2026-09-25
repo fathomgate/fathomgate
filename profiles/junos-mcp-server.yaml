@@ -33,7 +33,7 @@ tools:
     target_params: [router_name]
     command_params: [command]
     args: [target, timeout]
-    notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
+    notes: never-downgrade. PFE shell on an FPC (`target`); the execution context is the risk, so a PFE "show jnh 0 exceptions" stays EXEC_ARBITRARY (classification.md section 8).
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]
