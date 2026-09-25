@@ -30,16 +30,33 @@ redaction and no audit log yet; those come in M1 to M4 (see
 1. **fathomgate.** Build it with `make build` (the binary is `bin/fathomgate`)
    and copy it somewhere permanent, such as `/usr/local/bin/fathomgate`.
 2. **An upstream MCP server.** This guide uses
-   [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) v1.6.6, the
+   [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) v1.7.1, the
    version fathomgate is tested against. Download
-   `netdev-ssh-mcp_1.6.6_<os>_<arch>` from its
-   [v1.6.6 release](https://github.com/krisiasty/netdev-ssh-mcp/releases/tag/v1.6.6),
+   `netdev-ssh-mcp_1.7.1_<os>_<arch>` from its
+   [v1.7.1 release](https://github.com/krisiasty/netdev-ssh-mcp/releases/tag/v1.7.1),
    check it against that release's `checksums.txt`, and make it executable.
    Or build it:
 
    ```sh
-   go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6   # lands in $(go env GOPATH)/bin
+   go install github.com/krisiasty/netdev-ssh-mcp@v1.7.1   # lands in $(go env GOPATH)/bin
    ```
+
+   Do not use an older version:
+
+   - v1.6.6 and earlier leave some secrets in clear, and hide others with a
+     hash that a word list reverses
+     ([GHSA-8g43-jrf3-q9vq](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-8g43-jrf3-q9vq),
+     fixed in v1.7.0).
+   - v1.7.0 and earlier let a `run_show_command`, `run_ping` or
+     `run_traceroute` call make the device run further commands, which could
+     change its configuration or write files on it
+     ([GHSA-h47r-329w-6p9h](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h),
+     fixed in v1.7.1).
+
+   In M0, fathomgate forwards every call without checking it, so the
+   upstream's own checks are the only ones there are. Log in to devices with
+   a read-only account as well, so that no command sent through the server
+   can change a device.
 
 3. **Full paths to both programs.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example
@@ -68,6 +85,8 @@ There are two flags, one for each kind of setting:
 | `DEVICE_PASSWORD` | SSH password | `--upstream-env-pass DEVICE_PASSWORD` |
 | `SSH_AUTH_SOCK` | Your ssh-agent socket, to log in with keys instead of a password | `--upstream-env-pass SSH_AUTH_SOCK` |
 | `SSH_KNOWN_HOSTS` | Path to a `known_hosts` file, if not `~/.ssh/known_hosts` | `--upstream-env SSH_KNOWN_HOSTS=/Users/you/.ssh/known_hosts` |
+| `OBFUSCATION_KEY_FILE` | Optional. Path to a key file, only if netdev-ssh-mcp's secret tokens must match across runs; keep the file where the agent's tools cannot read it (see [below](#leave-netdev-ssh-mcps-obfuscation-on)) | `--upstream-env OBFUSCATION_KEY_FILE=/Users/you/.config/netdev-ssh-mcp.key` |
+| `OBFUSCATION_KEY` | Optional. The same key as a value. Never put it in a client's `env` block; set it from a wrapper script that reads your keychain | `--upstream-env-pass OBFUSCATION_KEY` |
 
 Why two flags: a value in fathomgate's arguments can be seen by other users
 on the machine (`ps`) and is recorded by process-auditing tools (Linux
@@ -124,21 +143,63 @@ once with the "not set" message above; nothing hangs.
 fathomgate M0 does not redact anything. Device output reaches the agent
 exactly as the upstream sends it, and fathomgate's own redaction arrives in
 M2. Until then, do not start netdev-ssh-mcp with `--no-obfuscate`. Its
-default obfuscation replaces many secrets in `get_config` and
-`run_show_command` output with tokens like `[h:efa1f375d761]`, which is
-better than nothing.
+default obfuscation replaces secrets in `get_config` and `run_show_command`
+output with tokens like `[h:3c91e0a47b2d]`. Since v1.7.0 each token is a
+keyed hash (HMAC-SHA256), so it cannot be matched against guessed values
+without the key.
 
-It is not a security control. Treat everything the agent sees as if it
-contained your secrets:
+Leave the key at its default unless you need tokens to match across runs.
+By default netdev-ssh-mcp picks a random key each time it starts and keeps
+it only in its own memory. Nothing, the agent included, can read it, so this
+is the safest setting. Tokens match within one run, not across runs. Every
+result that holds a token ends with a note from netdev-ssh-mcp saying so and
+suggesting a key. The note is harmless; the agent may pass the suggestion on,
+and you can ignore it.
 
-- The token is a plain, unkeyed SHA-256. Anyone who has the output can hash
-  a word list and match it. `[h:efa1f375d761]` is `public`.
-- Some lines keep the secret in clear next to a token. For example, in
-  `key-string 7 <key>` it is the `7` that gets hashed. Other lines, such as
-  `snmp-server host ... <community>`, are not touched at all.
+A key file makes tokens stable across runs and machines, and it makes the key
+something that can be stolen. Anyone who has the key and a transcript can
+check guessed values against the tokens offline, which is the weakness
+GHSA-8g43-jrf3-q9vq fixed. If you need one anyway:
 
-Details, checked against the v1.6.6 source, are in
-[docs/research/02-network-mcp-servers.md](research/02-network-mcp-servers.md#update-2026-09-23-the-obfuscation-is-an-unkeyed-hash-with-gaps-t029).
+- Keep it where the agent's tools cannot read it: outside every project and
+  workspace the agent works in, covered by your client's deny rules for file
+  reads, and ideally owned by a separate OS user that fathomgate runs as.
+- Pass its path with `--upstream-env OBFUSCATION_KEY_FILE=<full path>`
+  (clients do not expand `~`). The path is not secret; the file is.
+- Never put the key itself in a client config's `env` block. If you pass it
+  as a value with `--upstream-env-pass OBFUSCATION_KEY`, set it from a
+  wrapper script that reads your keychain (see
+  [Device credentials](#device-credentials)). Use a file or a value, not
+  both: netdev-ssh-mcp exits at startup if both are set, or if the key is
+  shorter than 16 bytes.
+
+To make a key file (then add the file to your client's deny rules for reads):
+
+```sh
+mkdir -p ~/.config
+# only you can read it
+(umask 077 && openssl rand -hex 32 > ~/.config/netdev-ssh-mcp.key)
+```
+
+The examples below use the default per-run key. If you need stable tokens,
+add `--upstream-env OBFUSCATION_KEY_FILE=<full path>` to fathomgate's
+arguments in them.
+
+Obfuscation is still not fathomgate's redaction. Treat everything the agent
+sees as if it contained your secrets:
+
+- It replaces only the secrets on lines its patterns know. A secret on any
+  other line reaches the agent in clear.
+- Output collected with v1.6.6 or earlier may hold secrets in clear, or as
+  tokens that a word list reverses. The advisory
+  ([GHSA-8g43-jrf3-q9vq](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-8g43-jrf3-q9vq))
+  says to treat it as sensitive and to consider rotating secrets whose output
+  left your control.
+
+The v1.6.6 findings and what v1.7.1 changed, checked against the source and
+run against fathomgate's redaction fixtures, are in
+[profiles/netdev-ssh-mcp.yaml](../profiles/netdev-ssh-mcp.yaml) and
+[docs/research/02-network-mcp-servers.md](research/02-network-mcp-servers.md#update-2026-09-25-v171-keys-the-hash-and-closes-the-gaps-t051).
 Use lab devices and lab credentials only.
 
 ## Claude Code

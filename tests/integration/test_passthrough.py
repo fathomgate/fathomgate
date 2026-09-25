@@ -15,8 +15,10 @@ until the pipeline is wired at `Proxy.dispatch` (ADR 0012).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -116,34 +118,62 @@ async def test_show_version_reaches_device_through_proxy(proxy_server_params: di
 # run_show_command ("use the get_config tool"), so this goes through
 # get_config, which sends `show running-config | no-more` for EOS.
 #
-# netdev-ssh-mcp v1.6.6 replaces secrets itself by default (internal/netdev/
-# obfuscate.go): `[h:<first 6 bytes of sha256(value), hex>]`. That hash has no
-# key, so a low-entropy value such as `public` is recovered by hashing a
-# dictionary. It is the upstream's feature, can be switched off with
-# --no-obfuscate, and is not fathomgate's redaction (keyed HMAC, invariant 4).
-# In M0 fathomgate redacts nothing, so with --no-obfuscate the agent sees the
-# config exactly as the device sent it.
+# netdev-ssh-mcp replaces secrets itself by default. Up to v1.6.6 the token
+# was `[h:<first 6 bytes of sha256(value), hex>]`, with no key, so a
+# low-entropy value such as `public` was recovered by hashing a dictionary
+# (T0.29). Since v1.7.0 (GHSA-8g43-jrf3-q9vq, internal/netdev/obfuscate.go and
+# obfuscation_key.go at 0869bc3) the token keeps that shape but is
+# HMAC-SHA256 under a key derived from OBFUSCATION_KEY or
+# --obfuscation-key-file / OBFUSCATION_KEY_FILE; with neither set the server
+# draws a random key for the run and appends a notice to results that hold a
+# token. It is the upstream's feature, can be switched off with
+# --no-obfuscate, and is not fathomgate's redaction (invariant 4 applies to
+# fathomgate's own tokens; row 15). In M0 fathomgate redacts nothing, so with
+# --no-obfuscate the agent sees the config exactly as the device sent it.
 
 RUNNING_CONFIG = REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt"
 RUNNING_CONFIG_SECRETS: list[str] = json.loads((REPO / "tests/fixtures/configs/eos-4.16.expect.json").read_text())["secrets"]
 
+# A FAKE obfuscation key for the upstream, handed over by the optional route
+# docs/install.md describes: a key file, `--upstream-env OBFUSCATION_KEY_FILE=<path>`.
+UPSTREAM_OBFUSCATION_KEY = "FAKE-netdev-ssh-mcp-obfuscation-key-0123456789"
+# The upstream's domain-separation label (obfuscate.go, obfuscationKeyLabel).
+UPSTREAM_OBFUSCATION_LABEL = b"netdev-ssh-mcp/obfuscation/v1"
+UPSTREAM_TOKEN = re.compile(r"\[h:[0-9a-f]{12}\]")
+# EphemeralKeyNotice's opening words (obfuscation_key.go). Upstream text is
+# data: the test compares it and never acts on it.
+UPSTREAM_EPHEMERAL_NOTICE = "Note from netdev-ssh-mcp: the [h:...] tokens above use a random key"
 
-def _upstream_hash(secret: str) -> str:
-    """netdev-ssh-mcp v1.6.6 hashSecret: unkeyed, 48 bits."""
+
+def _upstream_token(secret: str, key: str) -> str:
+    """netdev-ssh-mcp v1.7.x hashSecret: HMAC-SHA256(k, value) cut to 48 bits,
+    where k = HMAC-SHA256(key, label) (SetObfuscationKey)."""
+    k = hmac.new(key.strip().encode(), UPSTREAM_OBFUSCATION_LABEL, hashlib.sha256).digest()
+    return f"[h:{hmac.new(k, secret.encode(), hashlib.sha256).digest()[:6].hex()}]"
+
+
+def _unkeyed_hash(secret: str) -> str:
+    """netdev-ssh-mcp v1.6.6 hashSecret: unkeyed, 48 bits. Kept to prove the
+    pinned upstream no longer produces it."""
     return f"[h:{hashlib.sha256(secret.encode()).digest()[:6].hex()}]"
 
 
-async def _get_running_config(params: dict, port: int):
+async def _get_running_config_with_init(params: dict, port: int):
+    """The agent's initialize result and the get_config result."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     async with stdio_client(StdioServerParameters(**params)) as (read, write):
         async with ClientSession(read, write) as session:
-            await session.initialize()
-            return await session.call_tool(
+            init = await session.initialize()
+            return init, await session.call_tool(
                 f"{SERVER}.get_config",
                 {"host": "127.0.0.1", "port": port, "device_type": "eos", "config_type": "running"},
             )
+
+
+async def _get_running_config(params: dict, port: int):
+    return (await _get_running_config_with_init(params, port))[1]
 
 
 @pytest.fixture
@@ -152,22 +182,61 @@ def no_obfuscate_params(fathomgate_binary: Path, upstream_binary: Path, fake_dev
     return {"command": str(fathomgate_binary), "args": serve_args(upstream_binary, fake_device, "--", "--no-obfuscate"), "env": client_env()}
 
 
+@pytest.fixture
+def keyed_params(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice, tmp_path: Path) -> dict:
+    """fathomgate serve with the upstream's obfuscation keyed from a FAKE key
+    file, the optional route in docs/install.md."""
+    key_file = tmp_path / "netdev-ssh-mcp.key"
+    key_file.write_text(UPSTREAM_OBFUSCATION_KEY + "\n", encoding="utf-8")
+    extra = ["--upstream-env", f"OBFUSCATION_KEY_FILE={key_file}"]
+    return {"command": str(fathomgate_binary), "args": serve_args(upstream_binary, fake_device, *extra), "env": client_env()}
+
+
 @pytest.mark.asyncio
-async def test_running_config_reaches_device_through_proxy(proxy_server_params: dict, fake_device: FakeDevice) -> None:
-    """A read-config call with the upstream's defaults: the device gets one
+async def test_running_config_reaches_device_through_proxy(keyed_params: dict, fake_device: FakeDevice) -> None:
+    """A read-config call with the upstream keyed: the device gets one
     `show running-config | no-more`; the agent gets the transcript with
-    exactly the four credentials replaced by the upstream's `[h:...]` hash.
-    fathomgate changed nothing; the replacement is the upstream's."""
-    result = await _get_running_config(proxy_server_params, fake_device.port)
+    exactly the four credentials replaced by the upstream's keyed `[h:...]`
+    token, in one content block. fathomgate changed nothing; the replacement
+    is the upstream's."""
+    result = await _get_running_config(keyed_params, fake_device.port)
 
     assert not result.is_error, _text(result)
     assert fake_device.commands() == ["show running-config | no-more"]
+    assert len(result.content) == 1, _text(result)
     expected = RUNNING_CONFIG.read_text()
     for s in RUNNING_CONFIG_SECRETS:
-        expected = expected.replace(s, _upstream_hash(s))
+        assert _upstream_token(s, UPSTREAM_OBFUSCATION_KEY) != _unkeyed_hash(s)
+        expected = expected.replace(s, _upstream_token(s, UPSTREAM_OBFUSCATION_KEY))
     assert _text(result).strip() == expected.strip()
     changed = [a for a, b in zip(RUNNING_CONFIG.read_text().splitlines(), _text(result).splitlines(), strict=True) if a != b]
     assert len(changed) == len(RUNNING_CONFIG_SECRETS) == 4
+
+
+@pytest.mark.asyncio
+async def test_running_config_ephemeral_key_through_proxy(proxy_server_params: dict, fake_device: FakeDevice) -> None:
+    """The upstream's default since v1.7.0, no key configured: a random key
+    for the run. The four credentials become four distinct `[h:...]` tokens,
+    none of them the v1.6.6 unkeyed hash, and the upstream appends its notice
+    as a second content block, which fathomgate forwards as it is (M0)."""
+    init, result = await _get_running_config_with_init(proxy_server_params, fake_device.port)
+
+    assert not result.is_error, _text(result)
+    assert fake_device.commands() == ["show running-config | no-more"]
+    # The upstream also sets MCP `instructions` for this case
+    # (EphemeralKeyInstructions); fathomgate does not relay an upstream's
+    # instructions to the agent, so none of that text reaches it here.
+    assert not init.instructions or "netdev-ssh-mcp" not in init.instructions, init.instructions
+    assert len(result.content) == 2, _text(result)
+    config, notice = result.content[0].text, result.content[1].text
+    assert notice.startswith(UPSTREAM_EPHEMERAL_NOTICE), notice
+    for s in RUNNING_CONFIG_SECRETS:
+        assert s not in config, s
+        assert _unkeyed_hash(s) not in config, s
+    tokens = UPSTREAM_TOKEN.findall(config)
+    assert len(tokens) == len(set(tokens)) == len(RUNNING_CONFIG_SECRETS) == 4
+    changed = [a for a, b in zip(RUNNING_CONFIG.read_text().splitlines(), config.splitlines(), strict=True) if a != b]
+    assert len(changed) == 4
 
 
 @pytest.mark.asyncio
@@ -225,6 +294,46 @@ async def test_upstream_tool_error_passes_through(proxy_server_params: dict, fak
 
     assert result.is_error
     assert "must start with 'show'" in _text(result)
+    assert fake_device.commands() == []
+
+
+# Since v1.7.1 (GHSA-h47r-329w-6p9h, internal/netdev/command_safety.go at
+# 6fc6ab0) the upstream refuses a second command smuggled into
+# run_show_command and output pipes that write files. Up to v1.7.0 it checked
+# only the `show` prefix and sent the whole string in one exec request.
+# Each refusal substring is the upstream's own text (checkOperationalCommand
+# in command_safety.go at 6fc6ab0), so a case cannot pass on an unrelated error.
+@pytest.mark.parametrize(
+    ("command", "refusal"),
+    [
+        ("show version\nreload", "command must be a single line without control characters"),
+        ("show version\r\nconfigure terminal", "command must be a single line without control characters"),
+        ("show version ; reload", "command must be a single command without ';'"),
+        ("show version | redirect flash:FAKE.txt", "pipe '| redirect' is not allowed"),
+        ("show version | tee flash:FAKE.txt", "pipe '| tee' is not allowed"),
+        ("show version > flash:FAKE.txt", "command must not use redirection ('<' or '>')"),
+    ],
+    ids=["lf", "crlf", "semicolon", "pipe-redirect", "pipe-tee", "redirect"],
+)
+@pytest.mark.asyncio
+async def test_upstream_refuses_command_injection(proxy_server_params: dict, fake_device: FakeDevice, command: str, refusal: str) -> None:
+    """The upstream's refusal comes back as a tool error and nothing reaches
+    the device. In M0 fathomgate forwards the call; the refusal is the
+    upstream's, not a `deny`. From M1, fathomgate classifies the command
+    itself and must not rely on this check (profiles/netdev-ssh-mcp.yaml)."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    async with stdio_client(StdioServerParameters(**proxy_server_params)) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                f"{SERVER}.run_show_command",
+                {"host": "127.0.0.1", "port": fake_device.port, "device_type": "eos", "command": command},
+            )
+
+    assert result.is_error, _text(result)
+    assert refusal in _text(result), _text(result)
     assert fake_device.commands() == []
 
 

@@ -22,8 +22,8 @@ tests/
 cd tests
 uv run --extra dev pytest unit -q            # tier 1
 uv run python -m policy_lint ../policies/examples/prod-approval.yaml
-# tier 2: needs bin/fathomgate (make build) and netdev-ssh-mcp v1.6.6, either the
-# release binary or `go install github.com/krisiasty/netdev-ssh-mcp@v1.6.6`
+# tier 2: needs bin/fathomgate (make build) and netdev-ssh-mcp v1.7.1, either the
+# release binary or `go install github.com/krisiasty/netdev-ssh-mcp@v1.7.1`
 FATHOMGATE_UPSTREAM=/abs/path/to/netdev-ssh-mcp uv run --extra integration pytest integration -m "tier2 and netdev_ssh_mcp" -v
 # tier 2 against upa/mcp-netmiko-server: install.sh (git, uv) prints the three
 # FATHOMGATE_UPA_* variables the tests read
@@ -53,14 +53,21 @@ a mock.
 ## Status
 
 - Tier 1: live (`unit/`, plus the Go suites).
-- Tier 2: live for netdev-ssh-mcp v1.6.6 (CI job `client-smoke`, no Docker).
-  `integration/test_passthrough.py` covers matrix row 1 (prefixed `tools/list`
-  and read-only `show version` and `get_config` calls through to the fake
-  device; the row 15 `get_config` redaction case is a strict xfail until M2);
-  `integration/test_launcher_path.py` covers row 22 (the PATH-stripped
-  launcher). The M1 decision and audit cases are skipped until the pipeline
-  is wired. Without `FATHOMGATE_UPSTREAM` the tier 2 tests skip; CI sets
-  `FATHOMGATE_TIER2_REQUIRED=1` so they cannot skip there.
+- Tier 2: live for netdev-ssh-mcp v1.7.1 (CI job `client-smoke`, no Docker).
+  - `integration/test_passthrough.py` covers matrix row 1: prefixed
+    `tools/list`, and read-only `show version` and `get_config` calls through
+    to the fake device. The row 15 `get_config` redaction case is a strict
+    xfail until M2.
+  - The same file covers the upstream's own keyed `[h:...]` tokens, with a
+    FAKE key file and with its per-run random key, the fix for
+    [GHSA-8g43-jrf3-q9vq](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-8g43-jrf3-q9vq).
+  - It also covers the upstream's refusal of injected commands, the fix for
+    [GHSA-h47r-329w-6p9h](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h).
+  - `integration/test_launcher_path.py` covers row 22 (the PATH-stripped
+    launcher).
+  - The M1 decision and audit cases are skipped until the pipeline is wired.
+  - Without `FATHOMGATE_UPSTREAM` the tier 2 tests skip; CI sets
+    `FATHOMGATE_TIER2_REQUIRED=1` so they cannot skip there.
 - Tier 2: live for upa/mcp-netmiko-server at commit `96e8ff3` (CI job
   `tier2-upa`, no Docker). `integration/test_upa_netmiko.py` covers the
   2025-era half of matrix row 2. With mcp 1.30.0 (hash-pinned
