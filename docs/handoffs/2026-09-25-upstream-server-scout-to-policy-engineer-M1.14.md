@@ -44,9 +44,15 @@ So `show version,reload` is one command on all three, and no device CLI here tre
 ## Hazards for security-reviewer (eos-mcp v1.3.0, all [src])
 
 1. Any `hostname` gets the `[DEFAULT]` eAPI credentials, over HTTPS with `verify=False` by default and a process-wide TLS context lowered to `SECLEVEL=0` and TLS 1.0 (`eapi.py:17-27`). An agent can send the fleet's credentials to a host it names. Behind fathomgate, `default:unknown_target` is the control (checked: `get_version hostname=evil.example` gives `deny`).
-2. `config_path` on every tool reads a file the agent chooses. A parse error echoes that file's first line (reproduced locally with configparser), and the file supplies the credentials for that call.
+2. `config_path` on every tool is a local file read, critical once policy is enforced (security review P1). configparser quotes the first line of a file with no section header, every malformed line after a `[section]` line, and all of `/proc/<ppid>/environ`, which holds `FATHOMGATE_LISTEN_TOKEN` and the `--upstream-env-pass` credentials. The file also supplies the credentials for that call. Interim control until M1-35: a `deny` rule for `servers: [eos-mcp]` first in the policy, or run eos-mcp sandboxed.
 3. `push_config` `dry_run=True` is not a sandbox. `config_lines` are unfiltered inside one eAPI call, so `end` plus later lines may run outside the session (uncertain on a device). `session_name` and `commit_timer` are interpolated unchecked. For network-safety-engineer, the upstream hooks are `dry_run` (default true), `commit_timer` (default 300 s), `confirm_config_session` and `abort_config_session`.
 4. `daily_brief` with no selector runs on the whole fleet while fathomgate sees zero targets.
+
+## Security review round 1 (PR #158)
+
+- P1: hazard 2 is reworded in the profile header and brief 02 §1.5, with the interim operator control and `verify = true` per host.
+- P2: five rows added to `docs/security/threat-model.md`: `config_path` (M1-35, new), free-form hostname credentials (M1-34, M1-18, M1-37 new), zero-target fleet run (M1-18), `push_config` session escape (M1-36 new), and leading `-` (accepted for M1, M2). M1-35, M1-36 and M1-37 are not on the board yet; the orchestrator adds them, because this PR does not edit `docs/milestones/`.
+- The M3 requirement is in the profile and the threat model: a fathomgate `dry_run` driver never uses the upstream's `push_config` `dry_run=True`.
 
 ## Reproduce green
 
