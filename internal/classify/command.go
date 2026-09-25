@@ -4,6 +4,7 @@ package classify
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -21,13 +22,6 @@ var (
 	// exports files, so it is not a read.
 	allowPrefix = regexp.MustCompile(`^(?:show|get|display|monitor\s+(?:interface|traffic)|ping|traceroute|tracepath)(?:\s|$)`)
 
-	// configRead matches commands that dump configuration and therefore
-	// belong to READ_CONFIG even though they start with an allowed verb.
-	// Keywords are matched by stem because vendor CLIs accept unambiguous
-	// abbreviations ("show run", "show start", "show conf"). Matching too
-	// much here only makes a call READ_CONFIG, which is the stricter read.
-	configRead = regexp.MustCompile(`^(?:show|display|get)\s+(?:run\S*|star\S*|conf\S*|arch\S*|tech\S*|full-conf\S*|current-conf\S*|saved-conf\S*|derived-conf\S*|session-conf\S*|checkpoint\S*|candidate\S*|system\s+(?:conf\S*|admin|interface|ha))(?:\s|$)`)
-
 	// blocklist matches state-changing verbs anywhere in the command,
 	// bounded by whitespace so "reset-reason" or "no-shutdown" inside a
 	// hyphenated keyword does not trip it. It includes the abbreviations
@@ -43,13 +37,77 @@ var (
 	// there too; this keeps them failing if that list ever grows.
 	blocklistStart = regexp.MustCompile(`^(?:configure|config|conf|edit|set|delete|no|commit|rollback|load|save|write|wr|copy|erase|format|reload|rel|relo|request|restart|shutdown|clear|reset|debug|undebug|monitor\s+start|install|boot|zeroize|reboot|halt|power|activate|deactivate|license|crypto|archive|exec|start|bash|python|guestshell|tclsh|run|enable|feature|dockerd|scp|tftp|ssh|ftp|telnet|execute|diagnose|file|test)(?:\s|$)`)
 
-	// shellMeta rejects pipes, redirects, chaining and substitution. A pipe
-	// on a network CLI is usually harmless, but it is also how "show | ..."
-	// smuggles unexpected output filters and on Linux-backed servers it is
-	// a shell. The fallback refuses it; profiles for servers that filter
-	// commands themselves can classify those tools as READ_OPERATIONAL.
-	shellMeta = regexp.MustCompile("[|<>;&`]|\\$\\(")
+	// shellMeta rejects pipes, redirects, chaining, substitution, quoting
+	// and escapes. A pipe on a network CLI is usually harmless, but it is
+	// also how "show | ..." smuggles unexpected output filters, and on
+	// Linux-backed servers the line reaches a shell. Quotes, backslashes,
+	// braces and $ are refused because a shell turns them into something
+	// the checks below never saw ("-f" and a backslash-escaped -f become
+	// -f, {-f,1.1.1.1} expands, $'...' and ${IFS} are rewritten).
+	shellMeta = regexp.MustCompile(`[|<>;&"'{}$` + "`" + `\x5c]`)
 )
+
+// configKeywords are the second words of show, display and get that dump
+// configuration. A second word is a config read when it is a prefix of one
+// of these (vendor CLIs accept any unambiguous abbreviation: "show ru",
+// "show tec") or one of these is a prefix of it ("show running-config-x",
+// "show config-sessions"). Matching too much only makes a call
+// READ_CONFIG, the stricter read class.
+var configKeywords = []string{
+	"running-config", "startup-config", "configuration", "config",
+	"tech-support", "derived-config", "archive", "full-configuration",
+	"current-configuration", "saved-configuration", "session-config",
+	"checkpoint", "candidate",
+}
+
+// systemConfigKeywords are the third words after "system" (or any prefix of
+// it, "show sys rol 1") that dump configuration: Junos show system rollback
+// and show system configuration, FortiOS get system admin, interface, ha.
+var systemConfigKeywords = []string{
+	"rollback", "configuration", "admin", "interface", "ha",
+}
+
+// prefixRelated reports whether w is a prefix of k or k is a prefix of w.
+func prefixRelated(w, k string) bool {
+	return strings.HasPrefix(k, w) || strings.HasPrefix(w, k)
+}
+
+func matchesAny(w string, keywords []string) bool {
+	for _, k := range keywords {
+		if prefixRelated(w, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// isConfigRead reports whether normalised fields dump configuration. A bare
+// show, display or get is a config read: FortiOS "show" with no argument
+// prints the whole configuration.
+func isConfigRead(fields []string) bool {
+	switch fields[0] {
+	case "show", "display", "get":
+	default:
+		return false
+	}
+	if len(fields) == 1 {
+		return true
+	}
+	if matchesAny(fields[1], configKeywords) {
+		return true
+	}
+	return len(fields) > 2 && isAbbrevOf(fields[1], "system") && matchesAny(fields[2], systemConfigKeywords)
+}
+
+// isAbbrevOf reports whether w is an abbreviation of keyword k: a non-empty
+// prefix of it, as a vendor CLI would accept.
+func isAbbrevOf(w, k string) bool {
+	return w != "" && strings.HasPrefix(k, w)
+}
+
+// maxCommandLen caps the command the downgrade will inspect. Longer
+// commands stay EXEC_ARBITRARY; no read needs more.
+const maxCommandLen = 1024
 
 // Check identifiers name the first check a command failed. They appear in
 // Result.Reason and are stable so audit consumers can match on them.
@@ -61,6 +119,8 @@ const (
 	checkLeadingDash = "leading-dash"
 	checkBlocklist   = "blocklist"
 	checkAllowPrefix = "allow-prefix"
+	checkTooLong     = "too-long"
+	checkNoCount     = "monitor-no-count"
 )
 
 // ClassifyCommand classifies a single free-form CLI command. It returns
@@ -81,6 +141,9 @@ func ClassifyCommand(cmd string) Class {
 // tftp: flash:"). Only space and tab count as whitespace, and a command
 // must be printable ASCII, so a look-alike character cannot hide a verb.
 func classifyCommand(cmd string) (Class, string) {
+	if len(cmd) > maxCommandLen {
+		return ExecArbitrary, checkTooLong
+	}
 	raw := strings.Trim(cmd, " \t")
 	for i := 0; i < len(raw); i++ {
 		b := raw[i]
@@ -111,8 +174,12 @@ func classifyCommand(cmd string) (Class, string) {
 	if blocklistStart.MatchString(c) || blocklist.MatchString(c) {
 		return ExecArbitrary, checkBlocklist
 	}
-	if configRead.MatchString(c) {
+	if isConfigRead(fields) {
 		return ReadConfig, ""
+	}
+	// Junos "monitor traffic" without "count" runs until interrupted.
+	if fields[0] == "monitor" && len(fields) > 1 && fields[1] == "traffic" && !slices.Contains(fields, "count") {
+		return ExecArbitrary, checkNoCount
 	}
 	if allowPrefix.MatchString(c) {
 		return ReadOperational, ""

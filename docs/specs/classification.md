@@ -39,7 +39,11 @@ There is no eighth class. A new kind of operation is mapped to one of these; a n
 | `capability_table` | Step 1 through a capability table. | no, M1-17 |
 | `annotation_raise` | Step 3 raised the class. | no, M1-18 (ADR 0026, proposed) |
 
-What the code does not do yet: step 2 has no fallback classifier (section 3), so a tool missing from the profile is `EXEC_ARBITRARY` and is never downgraded; step 3 has no annotation input; step 6 is M3 (section 7). Each is stricter than the design, never looser.
+What the code does not do yet: step 2 has no fallback classifier (section 3), so a tool missing from the profile is `EXEC_ARBITRARY` and is never downgraded; step 3 has no annotation input; step 6 is M3 (section 7). Those three are stricter than the design.
+
+The code is looser than the design in one place: it does not know the vendor, so a FortiOS `show` whose second word is not a config keyword (`show vpn ipsec phase1-interface`, `show user local`, both carrying `ENC` secrets) is `READ_OPERATIONAL` where the design's FortiOS allow-list makes it `EXEC_ARBITRARY`. The same holds on every vendor for operational commands that print secrets (IOS and NX-OS `show snmp community`, `show key chain`, `show crypto isakmp key`). This is accepted and open until the vendor reaches `Classify`, which needs a decision record. Until then the mitigation depends on M2: redaction MUST run on every tool result, whatever the class and whether or not a rule carries the `redact` obligation (invariant 4), not only on `READ_CONFIG` calls.
+
+`Result.Reason` never contains agent-supplied text: a failed command is named by its 1-based index and the check (`command 2 failed the read allow-list (blocklist)`), and an unknown tool is "tool not in profile" (the tool name is in the structured request). The `never-downgrade` token (section 8) is matched case-insensitively.
 
 ## 3. Fallback classifier
 
@@ -76,7 +80,7 @@ Not implemented yet: `Classify` has no annotation input. The input arrives with 
 
 ## 5. `EXEC_ARBITRARY` downgrade
 
-Applied per command in `commands[]`. Every command MUST pass every check, or the class stays `EXEC_ARBITRARY`. A single failing command in a batch fails the whole call; `Result.Reason` (and, from M1-18, the audit event) names the first failing command, quoted with control characters escaped and cut to 80 bytes, and the check.
+Applied per command in `commands[]`. Every command MUST pass every check, or the class stays `EXEC_ARBITRARY`. A single failing command in a batch fails the whole call; `Result.Reason` (and, from M1-18, the audit event) names the first failing command by its index, never its text, and the check.
 
 The checks are vendor-agnostic. The device vendor is not known when a call is classified (roles and vendors are resolved afterwards, per target, and one call can fan out to several vendors), so the code applies one list: the union of the strongest filters the surveyed servers ship, conservative enough to be right on every vendor. The per-vendor tables in sections 5.6 and 6.1 are the design for when the vendor reaches `Classify`, which is an interface change and needs a decision record.
 
@@ -84,19 +88,24 @@ Checks run in this order; the first failure names the check.
 
 | Check id | Fails when |
 | --- | --- |
+| `too-long` | The command is longer than 1024 bytes. No read needs more. |
 | `control-character` | The command, after trimming leading and trailing spaces and tabs, contains any byte below `0x20` other than tab, or `0x7f`: newline, carriage return, vertical tab, form feed, NUL, Ctrl-C, Ctrl-Z, escape. A second line would otherwise vanish into a space while the device still runs it. |
 | `non-ascii` | Any byte is `0x80` or above: no-break space, line separator, zero-width space, fullwidth look-alikes. |
-| `empty` | Nothing is left after trimming; also an empty `commands[]`. |
-| `shell-meta` | The command contains `\|`, `<`, `>`, `;`, `&`, a backtick or `$(` (section 5.4). |
+| `empty` | Nothing is left after trimming; also an empty `commands[]`, and an empty or whitespace-only element of it. |
+| `shell-meta` | The command contains `\|`, `<`, `>`, `;`, `&`, a backtick, `"`, `'`, a backslash, `{`, `}` or `$` (section 5.4). |
 | `leading-dash` | Any word after the first starts with `-`: an option to whatever parses the line (`ping -f`, `traceroute --help`). Network CLIs take none on read commands; on a server that runs ping or traceroute on its own host it is option injection. |
 | `blocklist` | Section 5.3 matches. |
+| `monitor-no-count` | Junos `monitor traffic` without `count`, which runs until interrupted (section 5.6). |
 | `allow-prefix` | Section 5.2 does not match. |
+
+A command that passes every check and reads configuration (section 6) is `READ_CONFIG`; otherwise it is `READ_OPERATIONAL`.
 
 ### 5.1 Normalise the command
 
 - Check the raw command for `control-character` and `non-ascii` first, so whitespace collapsing cannot hide a line break. netmiko sends an embedded line break to the device, which runs each line, and other drivers are not assumed to be safer; the security review of PR #150 showed `show clock\nconf t\nhostname pwned\nend` allowed as `READ_OPERATIONAL` before this check.
 - Space and tab are the only whitespace. A tab is horizontal whitespace: on an interactive CLI it at most completes the current word, and over eAPI or NETCONF it is a separator, so it cannot start a second command. Tabs are collapsed like spaces, which is why `show<TAB>running-config` is `READ_CONFIG`. Newline, carriage return, vertical tab, form feed, the C0 and C1 controls, NEL (U+0085) and the Unicode line and paragraph separators (U+2028, U+2029) are not whitespace; they fail.
-- Trim; collapse internal spaces and tabs to one space; lower-case for matching. The original is forwarded unchanged (apart from trimming), so `show  running-config` and `show<TAB>running-config` match as `show running-config`.
+- Normalisation trims each command of spaces and tabs only, so a line break at either end (`show version` followed by a newline) is kept and fails, and it keeps empty and whitespace-only elements of `commands[]`, which fail `empty` instead of vanishing from the batch.
+- Collapse internal spaces and tabs to one space; lower-case for matching. The original is forwarded unchanged (apart from trimming), so `show  running-config` and `show<TAB>running-config` match as `show running-config`.
 - No output filter is stripped: every pipe fails in section 5.4.
 
 ### 5.2 Allow-prefix list
@@ -127,13 +136,17 @@ The anywhere list matches a verb in any position, bounded by whitespace or the e
 
 `write-file` is the Junos `monitor traffic` option that writes a capture to disk.
 
+The lists fail closed, and some reads fail with them. Known and accepted (security review of PR #152): `show debug`, Junos `show system commit`, `show system rollback` spelled in full, `show configuration commit list` and any show argument that is a blocklisted word stay `EXEC_ARBITRARY`.
+
 ### 5.4 Pipe and redirect ban
 
-Every `|`, `<`, `>`, `;`, `&`, backtick and `$(` fails, including the output filters section 5.6 would allow (`| json`, `| no-more`, `| section bgp`, `| display set`). This is stricter than the design; an agent that needs a filter uses a typed tool or asks for the unfiltered command.
+Every `|`, `<`, `>`, `;`, `&` and backtick fails, including the output filters section 5.6 would allow (`| json`, `| no-more`, `| section bgp`, `| display set`). This is stricter than the design; an agent that needs a filter uses a typed tool or asks for the unfiltered command.
+
+`"`, `'`, backslash, `{`, `}` and `$` fail too. On a server whose command reaches a shell on its own host, they rebuild what the leading-dash check looks for: `ping 1.1.1.1 "-f"`, `'-f'` and a backslash-escaped `-f` become `-f`, `ping {-f,1.1.1.1}` is brace-expanded, and `$'...'`, `$HOME` and `${IFS}` are rewritten. The cost is that an IOS `show ip bgp regexp _65000$` stays `EXEC_ARBITRARY`.
 
 ### 5.5 Result
 
-If every command passes, the class becomes `READ_OPERATIONAL` with `class_source: downgrade`. Section 6 then runs; a match makes the call `READ_CONFIG` with `class_source: reclassify`. A tool whose profile notes carry `never-downgrade` skips the downgrade (section 8).
+If every command passes, the class becomes `READ_OPERATIONAL` with `class_source: downgrade`. Section 6 then runs; a match makes the call `READ_CONFIG` with `class_source: reclassify`. A tool whose profile notes carry `never-downgrade`, in any case, skips the downgrade (section 8).
 
 ### 5.6 Planned: per-vendor tables
 
@@ -184,13 +197,13 @@ Junos `show configuration | compare rollback 1` is an output filter and passes h
 
 A free-form command that reads configuration is `READ_CONFIG`, so mandatory redaction applies and policies that allow `READ_OPERATIONAL` but not `READ_CONFIG` behave correctly. Applied to `READ_OPERATIONAL` calls with `commands[]` and to downgraded calls; `class_source: reclassify`. It runs after the blocklist, so `show configure` stays `EXEC_ARBITRARY`.
 
-Implemented as one vendor-agnostic RE2 on the normalised command. The second word is matched by stem, because vendor CLIs accept unambiguous abbreviations (`show run`, `show start`, `show conf`); matching too much only makes a read `READ_CONFIG`, the stricter read class:
+Implemented vendor-agnostically on the normalised words (`isConfigRead` in `internal/classify/command.go`). Vendor CLIs accept any unambiguous abbreviation (`show ru`, `show tec`, Junos `show sys rol 1`), so keywords are matched by prefix in both directions: a word matches a keyword when it is a prefix of the keyword or the keyword is a prefix of it. Matching too much only makes a read `READ_CONFIG`, the stricter read class. A command with first word `show`, `display` or `get` is `READ_CONFIG` when:
 
-```
-^(?:show|display|get)\s+(?:run\S*|star\S*|conf\S*|arch\S*|tech\S*|full-conf\S*|current-conf\S*|saved-conf\S*|derived-conf\S*|session-conf\S*|checkpoint\S*|candidate\S*|system\s+(?:conf\S*|admin|interface|ha))(?:\s|$)
-```
+1. it has no second word: a bare FortiOS `show` prints the whole configuration; or
+2. its second word matches one of `running-config`, `startup-config`, `configuration`, `config`, `tech-support`, `derived-config`, `archive`, `full-configuration`, `current-configuration`, `saved-configuration`, `session-config`, `checkpoint`, `candidate`; or
+3. its second word is a prefix of `system` (`sys`, `system`) and its third word matches one of `rollback`, `configuration`, `admin`, `interface`, `ha`.
 
-This covers the "all" rows below, `show tech-support`, EOS `session-config`, NX-OS `checkpoint`, PAN-OS `show config running` and `candidate`, Huawei `display current-configuration` and `saved-configuration`, and FortiOS `get system admin|interface|ha` (and `show system interface`, whichever vendor). Not covered, and stricter as a result: Junos `show system rollback` and NX-OS `show diff rollback-patch` hit the blocklist (`rollback`), and `file show /config/` and `more flash:` fail the allow-prefix list; all stay `EXEC_ARBITRARY`. FortiOS `show` in general is not `READ_CONFIG` until the vendor reaches `Classify`.
+This covers the "all" rows below, `show tech-support`, Junos `show system rollback` in short form (`show sys rol 1`, the previous configuration with its `$9$` secrets; spelled in full, `rollback` hits the blocklist and the call stays `EXEC_ARBITRARY`), EOS `session-config` and `config-sessions`, NX-OS `checkpoint`, PAN-OS `show config running` and `candidate`, Huawei `display current-configuration` and `saved-configuration`, and FortiOS `get system admin|interface|ha` (and `show system interface`, whichever vendor). Short second words over-match on purpose: `show c`, `show a` and `show s` are `READ_CONFIG`. Not covered, and stricter as a result: NX-OS `show diff rollback-patch` hits the blocklist, and `file show /config/` and `more flash:` fail the allow-prefix list; all stay `EXEC_ARBITRARY`. FortiOS `show` with another second word is not `READ_CONFIG` until the vendor reaches `Classify` (section 2).
 
 ### 6.1 Planned: per-vendor patterns
 
@@ -227,11 +240,11 @@ These stay `EXEC_ARBITRARY` regardless of command text, because the execution co
 - Palo-MCP `op` utility with raw XML, and XPath execution
 - Any tool with `notes` containing `never-downgrade` in its profile
 
-The mechanism is the last item: `Classify` skips the downgrade for an `EXEC_ARBITRARY` tool whose profile notes contain `never-downgrade`, and the class source stays `profile`. Of the tools above, only junos `execute_junos_pfe_command` has a shipped profile, and it carries the token; the others MUST carry it when their profiles land.
+The mechanism is the last item: `Classify` skips the downgrade for an `EXEC_ARBITRARY` tool whose profile notes contain `never-downgrade` (matched case-insensitively, so `Never-Downgrade` counts), and the class source stays `profile`. Of the tools above, only junos `execute_junos_pfe_command` has a shipped profile, and it carries the token; the others MUST carry it when their profiles land.
 
 ## 9. Worked examples
 
-What the code does today. Rows marked † differ from the vendor-aware design; the note under the table gives the design's answer and why the code is stricter or equal.
+What the code does today. Rows marked † differ from the vendor-aware design; the note under the table gives the design's answer. All are stricter than the design except the FortiOS row.
 
 | Server, tool | Vendor | Arguments | Profile class | After downgrade | After redirect | Final | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -266,11 +279,11 @@ Design answers for the † rows:
 
 - The four pipe rows: the design allows output filters (section 5.6) and gives `READ_OPERATIONAL` (downgrade) or `READ_CONFIG` (reclassify). The code refuses every pipe, so they stay `EXEC_ARBITRARY`.
 - `render_and_apply_j2_template` with `apply_config: false` and `push_config` without `dry_run`: the design gives `READ_CONFIG` (source `dry-run`) through section 7, which is M3.
-- FortiOS `show system interface`: the design gives `EXEC_ARBITRARY`, because on FortiOS `show` prints configuration and is not on the FortiOS allow-list; the correct path is `get system interface` or a typed config tool. The code does not know the vendor, lets `show` through, and the `system interface` stem makes the call `READ_CONFIG`, so redaction is still mandatory. It is not a write either way.
+- FortiOS `show system interface`: the design gives `EXEC_ARBITRARY`, because on FortiOS `show` prints configuration and is not on the FortiOS allow-list; the correct path is `get system interface` or a typed config tool. The code does not know the vendor and lets `show` through. For this command the `system interface` keywords make the call `READ_CONFIG`, but most FortiOS `show` commands (`show vpn ipsec phase1-interface`, `show user local`) come out `READ_OPERATIONAL`. That is looser than the design, which is accepted and open until the vendor reaches `Classify`. Until then, M2 redaction on every result, whatever the class, is the mitigation (section 2). None of these commands is a write.
 - `frobnicate`: the design runs the section 3 fallback classifier and downgrades to `READ_OPERATIONAL` with `profile_gap`. The code has no fallback classifier; a tool missing from the profile is `EXEC_ARBITRARY`.
 
 ## 10. Test expectations
 
-Tier 1 table tests in `internal/classify` cover every row in section 9 except the two Meraki rows, which arrive with capability tables (M1-17): `classify_test.go` (`TestWorkedExamples`, `TestExitCriterion3` for M1 exit criterion 3 and test-matrix rows 3 and 5, the allow-prefix, blocklist and config-read tables with one positive and one negative case per entry, and the chaining and injection forms the downgrade never accepts) and `security_test.go` (the multi-line injection regressions from the security review of PR #150, with every line-break variant, through every free-form tool). Each vendor allow-list and blocklist entry of sections 5.6 and 6.1 gets its cases when the vendor tables are implemented.
+Tier 1 table tests in `internal/classify` cover every row in section 9 except the two Meraki rows, which arrive with capability tables (M1-17): `classify_test.go` (`TestWorkedExamples`, `TestExitCriterion3` for M1 exit criterion 3 and test-matrix rows 3 and 5, the allow-prefix, blocklist and config-read tables with one positive and one negative case per entry, and the chaining and injection forms the downgrade never accepts) and `security_test.go` (the multi-line injection regressions from the security review of PR #150, with every line-break variant, through every free-form tool; the short-form config dumps of the PR #152 review; shell-quoted option injection; the 1024-byte cap; `monitor traffic` without `count`). Each vendor allow-list and blocklist entry of sections 5.6 and 6.1 gets its cases when the vendor tables are implemented.
 
 There is no `classify/rules.yaml`. `tools/policy-lint` validates the policy schema only; it does not classify commands, so there is no second implementation to keep in step, and the Go regexes in `internal/classify/command.go` are the only copy. If a Python consumer of the command rules appears, `fathomgate` should export them from the Go source rather than load a hand-kept file (M1-24 reconciles this section).

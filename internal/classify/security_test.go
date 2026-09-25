@@ -113,9 +113,58 @@ func TestConfigDumpAbbreviations(t *testing.T) {
 		"show conf", "show config", "show configuration",
 		"show start", "show startup", "show startup-config",
 		"show tech", "show tech-support", "show tech-support detail",
+		// Second round of the same review: still READ_OPERATIONAL before
+		// the keyword test was inverted. show sys rol 1 is Junos show
+		// system rollback 1, the previous configuration with its $9$
+		// secrets.
+		"show sys rol 1", "show tec", "show ru", "show derived",
+		// A bare show prints the whole configuration on FortiOS.
+		"show", "get", "display",
 	} {
 		if c := ClassifyCommand(in); c != ReadConfig {
 			t.Errorf("%q: %s, want READ_CONFIG", in, c)
 		}
+	}
+}
+
+// TestShellQuotedOptionInjection: quoting, escapes, braces and $ let a shell
+// on the server host rebuild a leading-dash option the leading-dash check
+// never saw. Each is refused as shell-meta.
+func TestShellQuotedOptionInjection(t *testing.T) {
+	for _, in := range []string{
+		`ping 1.1.1.1 "-f"`,
+		`ping 1.1.1.1 '-f'`,
+		`ping 1.1.1.1 \-f`,
+		`ping {-f,1.1.1.1}`,
+		`ping 1.1.1.1 $'\x2df'`,
+		`ping $HOME`,
+		`ping${IFS}-f${IFS}1.1.1.1`,
+		`show ip bgp regexp _65000$`,
+	} {
+		if c, check := classifyCommand(in); c != ExecArbitrary || check != checkShellMeta {
+			t.Errorf("%q: %s (%s), want EXEC_ARBITRARY (shell-meta)", in, c, check)
+		}
+	}
+}
+
+// TestCommandLengthCap: a command over 1024 bytes is never downgraded.
+func TestCommandLengthCap(t *testing.T) {
+	ok := "show " + strings.Repeat("x", maxCommandLen-len("show "))
+	if c, check := classifyCommand(ok); c != ReadOperational {
+		t.Errorf("1024 bytes: %s (%s), want READ_OPERATIONAL", c, check)
+	}
+	if c, check := classifyCommand(ok + "x"); c != ExecArbitrary || check != checkTooLong {
+		t.Errorf("1025 bytes: %s (%s), want EXEC_ARBITRARY (too-long)", c, check)
+	}
+}
+
+// TestMonitorTrafficNeedsCount: Junos monitor traffic without count runs
+// until interrupted (classification.md 5.6).
+func TestMonitorTrafficNeedsCount(t *testing.T) {
+	if c, check := classifyCommand("monitor traffic interface ge-0/0/0"); c != ExecArbitrary || check != checkNoCount {
+		t.Errorf("no count: %s (%s), want EXEC_ARBITRARY (monitor-no-count)", c, check)
+	}
+	if c := ClassifyCommand("monitor traffic interface ge-0/0/0 count 10"); c != ReadOperational {
+		t.Errorf("with count: %s", c)
 	}
 }

@@ -13,6 +13,15 @@
 - Tests: `classify_test.go` covers every section 9 row except Meraki, exit criterion 3, and one positive and one negative per allow-list, blocklist and config-read entry, plus chaining and injection. `security_test.go` has the PR #150 inputs × 12 line-break variants through 5 free-form tools, plus the flattened forms.
 - Docs: `docs/specs/classification.md` sections 2, 3, 4, 5, 6, 8, 9 and 10 now describe the code, and the vendor tables are marked planned. The `never-downgrade` row is in `profile-schema.md`, and CHANGELOG has Security and Added entries.
 
+## Fix round 1 (security and Go reviews of PR #152)
+
+- `never-downgrade` is matched case-insensitively (Go blocker). Test: `Never-Downgrade.` and `NEVER-DOWNGRADE` in `TestNeverDowngrade`.
+- Config reads use a two-way prefix test (`isConfigRead`), so `show sys rol 1`, `show tec`, `show ru` and `show derived` are covered, and so are a bare `show`, `get` and `display`. `show system rollback` in full still hits the blocklist and stays `EXEC_ARBITRARY`. **Before test-matrix row 5 (or any Junos row that relies on this) is validated, check on vJunos that `show sys rol 1` is accepted through the `<command>` RPC that junos-mcp-server uses.**
+- FortiOS `show` and other vendors' secret-printing operational commands are recorded as looser than the design (classification.md sections 2 and 9, threat model: accepted, open until the vendor reaches `Classify`). The mitigation depends on M2 redaction running for every class.
+- `Normalize` trims commands of space and tab only and keeps empty elements. `shellMeta` also refuses `"`, `'`, backslash, `{`, `}` and `$`. Commands over 1024 bytes fail as `too-long`, and `monitor traffic` without `count` fails as `monitor-no-count`.
+- `Reason` never quotes input: `command N failed the read allow-list (<check>)` and `tool not in profile`. This answers my earlier question.
+- `Source` gains `String`, `ParseSource` and `Sources`, with a round-trip test, and audit-event-schema lists `annotation_raise`. There are four threat-model rows. classification.md lists the accepted false positives (`show debug`, `show system commit`).
+
 ## Look at this first
 
 - `classifyCommand` in `internal/classify/command.go`, then `TestDowngradeNeverAccepts` and `security_test.go`.

@@ -189,8 +189,8 @@ func TestExitCriterion3(t *testing.T) {
 			if r.Class != ExecArbitrary {
 				t.Fatalf("got %s", r.Class)
 			}
-			if !strings.Contains(r.Reason, `"reload"`) || !strings.Contains(r.Reason, checkBlocklist) {
-				t.Fatalf("reason %q should name the command and the check", r.Reason)
+			if r.Reason != "command 1 failed the read allow-list (blocklist)" {
+				t.Fatalf("reason %q should name the command by index and the check", r.Reason)
 			}
 		})
 		for _, cmd := range configDumps {
@@ -220,7 +220,11 @@ func TestClassSource(t *testing.T) {
 		{"read to config read", "run_show_command", map[string]any{"host": "a", "command": "show run"}, ReadConfig, SourceReclassify, "reads configuration"},
 		{"read escalated to exec", "run_show_command", map[string]any{"host": "a", "command": "show version\nreload"}, ExecArbitrary, SourceReclassify, checkControl},
 		{"exec kept, no command", "send_command_parallel", map[string]any{"devices": "a"}, ExecArbitrary, SourceProfile, "no command"},
-		{"exec kept, second command named", "run_commands_batch", map[string]any{"hostnames": "a", "commands": []any{"show version", "write erase"}}, ExecArbitrary, SourceProfile, `command 2 "write erase" failed the read allow-list (blocklist)`},
+		{"exec kept, second command named", "run_commands_batch", map[string]any{"hostnames": "a", "commands": []any{"show version", "write erase"}}, ExecArbitrary, SourceProfile, "command 2 failed the read allow-list (blocklist)"},
+		{"exec kept, empty element", "run_commands_batch", map[string]any{"hostnames": "a", "commands": []any{"show version", "\n"}}, ExecArbitrary, SourceProfile, "command 2 failed the read allow-list (control-character)"},
+		{"exec kept, whitespace-only element", "run_commands_batch", map[string]any{"hostnames": "a", "commands": []any{"show version", " \t "}}, ExecArbitrary, SourceProfile, "command 2 failed the read allow-list (empty)"},
+		{"trailing newline kept", "run_show_command", map[string]any{"host": "a", "command": "show version\n"}, ExecArbitrary, SourceReclassify, "(control-character)"},
+		{"spaces trimmed", "run_show_command", map[string]any{"host": "a", "command": " show version "}, ReadOperational, SourceProfile, ""},
 		{"write kept", "send_config", map[string]any{"device": "a", "config_commands": "hostname x"}, WriteConfig, SourceProfile, ""},
 		{"fallback, unknown tool", "mystery", map[string]any{"command": "show version"}, ExecArbitrary, SourceFallback, "not in profile"},
 	}
@@ -230,7 +234,7 @@ func TestClassSource(t *testing.T) {
 			if r.Class != tc.want || r.ClassSource != tc.source {
 				t.Fatalf("got %s (%s), want %s (%s)", r.Class, r.ClassSource, tc.want, tc.source)
 			}
-			if tc.reason == "" && r.Reason != "" || !strings.Contains(r.Reason, tc.reason) {
+			if (tc.reason == "" && r.Reason != "") || !strings.Contains(r.Reason, tc.reason) {
 				t.Fatalf("reason %q, want it to contain %q", r.Reason, tc.reason)
 			}
 		})
@@ -240,14 +244,57 @@ func TestClassSource(t *testing.T) {
 	}
 }
 
-func TestFailReasonEscapesAndCaps(t *testing.T) {
-	long := "show version\x1b[2J" + strings.Repeat("x", 200)
-	r := failReason([]string{long}, 0, checkControl)
-	if strings.ContainsRune(r, 0x1b) {
-		t.Fatalf("reason carries a raw escape: %q", r)
+// TestReasonNeverQuotesInput: Reason may reach the agent (M1-18 deny text)
+// and the audit line, so it carries no agent-supplied text: neither the
+// command nor the tool name.
+func TestReasonNeverQuotesInput(t *testing.T) {
+	p := mustProfile(t)
+	const marker = "zz-marker-zz"
+	for _, r := range []Result{
+		Classify(p, "run_show_command", map[string]any{"host": "a", "command": "reload " + marker}),
+		Classify(p, "send_command_parallel", map[string]any{"devices": "a", "command": "show version\n" + marker}),
+		Classify(p, "run_commands_batch", map[string]any{"hostnames": "a", "commands": []any{"show version", marker}}),
+		Classify(p, marker, map[string]any{"command": "show version"}),
+	} {
+		if strings.Contains(r.Reason, marker) || strings.Contains(r.Reason, "reload") {
+			t.Errorf("reason quotes input: %q", r.Reason)
+		}
+		if r.Reason == "" {
+			t.Errorf("reason empty for %s", r.Class)
+		}
 	}
-	if len(r) > 160 {
-		t.Fatalf("reason not capped: %d bytes", len(r))
+	if got := failReason(1, checkBlocklist); got != "command 2 failed the read allow-list (blocklist)" {
+		t.Errorf("failReason = %q", got)
+	}
+}
+
+// TestSourceRoundTrip pins the six class_source spellings of
+// audit-event-schema.md and rejects anything else.
+func TestSourceRoundTrip(t *testing.T) {
+	want := map[Source]string{
+		SourceProfile:         "profile",
+		SourceCapabilityTable: "capability_table",
+		SourceFallback:        "fallback",
+		SourceAnnotationRaise: "annotation_raise",
+		SourceDowngrade:       "downgrade",
+		SourceReclassify:      "reclassify",
+	}
+	if len(Sources()) != len(want) {
+		t.Fatalf("Sources() has %d, want %d", len(Sources()), len(want))
+	}
+	for _, s := range Sources() {
+		if s.String() != want[s] {
+			t.Errorf("%v.String() = %q, want %q", s, s.String(), want[s])
+		}
+		got, err := ParseSource(want[s])
+		if err != nil || got != s {
+			t.Errorf("ParseSource(%q) = %q, %v", want[s], got, err)
+		}
+	}
+	for _, bad := range []string{"", "Profile", "PROFILE", "dry-run", "capability-table", "annotation"} {
+		if _, err := ParseSource(bad); err == nil {
+			t.Errorf("ParseSource(%q) accepted", bad)
+		}
 	}
 }
 
@@ -266,6 +313,14 @@ tools:
     class: EXEC_ARBITRARY
     command_params: [command]
     notes: Plain CLI; never downgraded in practice (no token).
+  shell:
+    class: EXEC_ARBITRARY
+    command_params: [command]
+    notes: Never-Downgrade. shell
+  upper:
+    class: EXEC_ARBITRARY
+    command_params: [command]
+    notes: Lab-node exec, NEVER-DOWNGRADE.
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -273,6 +328,11 @@ tools:
 	args := map[string]any{"command": "show jnh 0 exceptions"}
 	if r := Classify(p, "pfe", args); r.Class != ExecArbitrary || r.ClassSource != SourceProfile {
 		t.Fatalf("pfe: %s (%s)", r.Class, r.ClassSource)
+	}
+	for _, tool := range []string{"shell", "upper"} {
+		if r := Classify(p, tool, args); r.Class != ExecArbitrary || r.ClassSource != SourceProfile {
+			t.Fatalf("%s: capitalised token must still hold: %s (%s)", tool, r.Class, r.ClassSource)
+		}
 	}
 	if r := Classify(p, "cli", args); r.Class != ReadOperational || r.ClassSource != SourceDowngrade {
 		t.Fatalf("cli: %s (%s)", r.Class, r.ClassSource)
@@ -331,7 +391,7 @@ func TestBlocklist(t *testing.T) {
 		{"write mem", "show interfaces write mem", "show interfaces write-mem"},
 		{"write memory", "show interfaces write memory", "show interfaces write-memory"},
 		{"write erase", "show interfaces write erase", "show interfaces write-erase"},
-		{"write-file", "monitor traffic interface ge-0/0/0 write-file /var/tmp/x", "monitor traffic interface ge-0/0/0 write-files"},
+		{"write-file", "monitor traffic interface ge-0/0/0 write-file /var/tmp/x", "monitor traffic interface ge-0/0/0 write-files count 10"},
 		{"copy running", "show copy running", "show interfaces copy-running"},
 		{"reload", "show reload", "show interfaces reload-state"},
 		{"reboot", "show reboot", "show interfaces reboot-state"},
@@ -410,32 +470,41 @@ func TestBlocklistStart(t *testing.T) {
 }
 
 // TestConfigRead has one positive and one negative case per config-read
-// stem (section 6 as implemented). Negatives put the same word where it is
-// not the thing shown.
+// keyword (section 6 as implemented). Negatives put the same word where it
+// is not the thing shown, or show something that is not configuration.
 func TestConfigRead(t *testing.T) {
 	cases := []struct {
 		entry, pos, neg string
 	}{
 		{"run", "show run", "show interfaces run"},
+		{"ru", "show ru", "show interfaces ru"},
 		{"running-config", "show running-config interface Gi1", "show interfaces running-config"},
 		{"star", "show start", "show ip route static"},
 		{"startup-config", "show startup-config", "show interfaces startup-config"},
 		{"conf", "show conf", "show bgp neighbor conf"},
 		{"configuration", "show configuration interfaces", "show interfaces configuration"},
 		{"config (panos)", "show config running", "show interfaces config"},
+		{"config-sessions (keyword is a prefix)", "show config-sessions", "show interfaces config-sessions"},
 		{"arch", "show archive config differences", "show ip arp"},
-		{"tech", "show tech-support", "show interfaces tech"},
+		{"tec", "show tec", "show interfaces tech"},
+		{"tech-support", "show tech-support", "show interfaces tech-support"},
 		{"full-conf", "show full-configuration", "show interfaces full"},
-		{"current-conf", "display current-configuration", "display current"},
-		{"saved-conf", "display saved-configuration", "display saved"},
-		{"derived-conf", "show derived-config", "show derived"},
-		{"session-conf", "show session-config", "show session"},
+		{"current", "display current", "display version"},
+		{"current-configuration", "display current-configuration", "display interface brief"},
+		{"saved", "display saved-configuration", "display clock"},
+		{"derived", "show derived", "show interfaces derived"},
+		{"session-config", "show session-config", "show interfaces session-config"},
 		{"checkpoint", "show checkpoint summary", "show interfaces checkpoint"},
 		{"candidate", "show candidate", "show interfaces candidate"},
-		{"system conf", "show system configuration", "show system info"},
+		{"bare show", "show", "show version"},
+		{"bare get", "get", "get system status"},
+		{"bare display", "display", "display version"},
+		{"system configuration", "show system configuration", "show system info"},
+		{"sys rol", "show sys rol 1", "show sys uptime"},
+		{"system rollb (full word rollback is on the blocklist)", "show system rollb 1", "show system users"},
 		{"system admin", "get system admin", "get system status"},
 		{"system interface", "show system interface", "show system information"},
-		{"system ha", "get system ha status", "get system hardware"},
+		{"system ha", "get system ha status", "get system performance status"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.entry, func(t *testing.T) {
