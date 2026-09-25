@@ -331,3 +331,342 @@ func TestJSONStringCheckBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// configWriteTools are the WRITE_CONFIG tools of the shipped profiles whose
+// config payload is CLI lines (dialectCLI, classification.md section 11).
+var configWriteTools = []struct {
+	server, tool, target, param string
+}{
+	{"eos-mcp", "push_config", "hostname", "config_lines"},
+	{"upa", "set_config_commands_and_commit_or_save", "name", "commands"},
+	{"ntunes-netmiko-mcp-server", "send_config", "device", "config_commands"},
+	{"ntunes-netmiko-mcp-server", "send_config_parallel", "devices", "config_commands"},
+}
+
+// TestSecurityConfigSessionEscape is the finding of the security review of
+// PR #158 (M1-36): eos-mcp push_config sends each config_lines element in
+// the same eAPI call as "configure session <name>", so ["end", "reload now"]
+// or ["end", "configure", "hostname x"] run outside the session; netmiko
+// send_config_set (upa, ntunes) leaves configuration mode on "end" the same
+// way. push_config config_lines=["end"] was allowed under lab-open by
+// lab-writes-free. Each payload must make the call EXEC_ARBITRARY
+// (reclassify) through every CLI config tool, and the reason must name the
+// line by number, never quote it.
+func TestSecurityConfigSessionEscape(t *testing.T) {
+	profiles := repoProfiles(t)
+	cases := []struct {
+		name  string
+		lines any
+		want  string // reason substring
+	}{
+		{"end then reload", []any{"end", "reload now"}, "config element 1 line 1 failed the config payload check (escape-word)"},
+		{"end then configure outside the session", []any{"end", "configure", "hostname x"}, "element 1 line 1"},
+		{"end alone", []any{"end"}, "(escape-word)"},
+		{"exit after a harmless line", []any{"hostname x", "exit", "reload"}, "config element 2 line 1"},
+		{"commit inside the session skips the timer", []any{"hostname x", "commit"}, "element 2 line 1"},
+		{"abort ends the session", []any{"abort", "hostname x"}, "element 1 line 1"},
+		{"second session", []any{"configure session other", "hostname x"}, "element 1 line 1"},
+		{"configure terminal", []any{"configure terminal", "hostname x"}, "element 1 line 1"},
+		{"abbreviated conf t", []any{"conf t"}, "(escape-word)"},
+		{"do from config mode", []any{"do reload"}, "(escape-word)"},
+		{"exec verb in config mode (EOS)", []any{"reload now"}, "(escape-word)"},
+		{"write memory", []any{"hostname x", "wr"}, "element 2 line 1"},
+		{"copy", []any{"copy running-config startup-config"}, "(escape-word)"},
+		{"bash", []any{"bash sudo reboot"}, "(escape-word)"},
+		{"show in a write", []any{"hostname x", "show running-config"}, "element 2 line 1"},
+		{"multi-line element", []any{"hostname x\nend\nreload now"}, "config element 1 line 2"},
+		{"CRLF element", []any{"hostname x\r\nend"}, "config element 1 line 2"},
+		{"CR element", []any{"hostname x\rend"}, "config element 1 line 2"},
+		{"upper case", []any{"END"}, "(escape-word)"},
+		{"indented", []any{" \t end"}, "(escape-word)"},
+		{"punctuation after the verb", []any{"end!"}, "(escape-word)"},
+		{"ctrl-z ends config mode", []any{"hostname x\x1a"}, "(control-character)"},
+		{"vertical tab", []any{"hostname x\vend"}, "(control-character)"},
+		{"NEL", []any{"hostname x\u0085end"}, "(non-ascii)"},
+		{"line separator", []any{"hostname x end"}, "(non-ascii)"},
+		{"fullwidth look-alike", []any{"ｅnd"}, "(non-ascii)"},
+		{"quoted verb", []any{`"end"`}, "(leading-symbol)"},
+		{"json-looking element", []any{`["end"]`}, "(leading-symbol)"},
+		{"string, not a list", "end", "(escape-word)"},
+		// Security review of PR #170, H1: NX-OS runs ";"-separated commands.
+		{"NX-OS separator", []any{"hostname x ; end ; reload", "y"}, "config element 1 line 1 failed the config payload check (separator)"},
+		{"NX-OS separator, no spaces", "hostname x;end", "(separator)"},
+		// Round 2, R2-M1: a comment does not hide a separator from NX-OS.
+		{"separator after a comment", []any{"! x ; reload"}, "(separator)"},
+		{"separator glued to a comment", []any{"!;reload"}, "(separator)"},
+		// Round 2, R2-H1: a login autocommand is exec delayed to the next
+		// session, and upa, ntunes and netdev-ssh-mcp open one per call.
+		{"vty autocommand", []any{"line vty 0 15", " autocommand reload"}, "config element 2 line 1 failed the config payload check (exec-config)"},
+		{"username autocommand", []any{"username netops autocommand reload"}, "(exec-config)"},
+		{"abbreviated autocommand", []any{"line vty 0 4", " autoc reload"}, "(exec-config)"},
+		{"quoted autocommand", []any{"username netops privilege 15 \"autocommand\" reload"}, "(exec-config)"},
+		// H2: an alias defines an exec word for a later call.
+		{"IOS alias", []any{"alias configure hn do reload"}, "(escape-word)"},
+		{"EOS alias", []any{"alias hn reload now"}, "(escape-word)"},
+		{"NX-OS cli alias", []any{"cli alias name hn reload"}, "(escape-word)"},
+		// H3: configuration that schedules execution.
+		{"IOS EEM applet", []any{"event manager applet X", " event timer countdown time 5", " action 1 cli command \"reload\""}, "element 1 line 1"},
+		{"IOS kron", []any{"kron policy-list P", " cli write memory"}, "element 1 line 1"},
+		{"EOS event-handler", []any{"event-handler H", " action bash reboot"}, "element 1 line 1"},
+		{"EOS schedule", []any{"schedule s interval 1 max-log-files 1 command bash reboot"}, "(escape-word)"},
+		{"EOS daemon", []any{"daemon d", " command /mnt/flash/x"}, "element 1 line 1"},
+		{"NX-OS scheduler", []any{"scheduler job name j"}, "(escape-word)"},
+		{"command line", []any{"command reload"}, "(escape-word)"},
+		// M1: more exec verbs and mode changes.
+		{"ping", []any{"ping 192.0.2.1"}, "(escape-word)"},
+		{"traceroute", []any{"traceroute 192.0.2.1"}, "(escape-word)"},
+		{"clock set", []any{"clock set 10:00:00 1 Jan 2020"}, "(escape-word)"},
+		{"send", []any{"send * hello"}, "(escape-word)"},
+		{"watch", []any{"watch show clock"}, "(escape-word)"},
+		{"logout", []any{"logout"}, "(escape-word)"},
+		{"terminal", []any{"terminal length 0"}, "(escape-word)"},
+		{"agent", []any{"agent Bgp terminate"}, "(escape-word)"},
+		{"Huawei return", []any{"return"}, "(escape-word)"},
+		{"Huawei system-view", []any{"system-view"}, "(escape-word)"},
+		{"IOS-XR admin", []any{"admin"}, "(escape-word)"},
+		// Note 1: size caps.
+		{"line too long", []any{"description " + strings.Repeat("x", maxConfigLineLen)}, "(too-long)"},
+		{"payload too long", []any{strings.Repeat("hostname x\n", maxConfigPayloadLen/11+1)}, "config payload failed the config payload check (too-long)"},
+	}
+	for _, tt := range configWriteTools {
+		p := profiles[tt.server]
+		if p == nil {
+			t.Fatalf("no profile %s", tt.server)
+		}
+		for _, c := range cases {
+			t.Run(tt.server+"/"+tt.tool+"/"+c.name, func(t *testing.T) {
+				r := Classify(p, tt.tool, map[string]any{tt.target: "lab-sw-01", tt.param: c.lines})
+				if r.Class != ExecArbitrary || r.ClassSource != SourceReclassify {
+					t.Fatalf("%s (%s), want EXEC_ARBITRARY (reclassify); reason %q", r.Class, r.ClassSource, r.Reason)
+				}
+				if !strings.Contains(r.Reason, c.want) {
+					t.Fatalf("reason %q, want it to contain %q", r.Reason, c.want)
+				}
+				for _, l := range []string{"reload", "hostname", "configure", "end\"", "show"} {
+					if strings.Contains(r.Reason, l) {
+						t.Fatalf("reason %q quotes the payload", r.Reason)
+					}
+				}
+			})
+		}
+	}
+}
+
+// TestSecurityConfigEscapeWords: every escape word, and every abbreviation
+// of it, fails dialectCLI as the first word of a line.
+func TestSecurityConfigEscapeWords(t *testing.T) {
+	for _, w := range cliEscapeWords {
+		for i := 1; i <= len(w); i++ {
+			for _, line := range []string{w[:i], w[:i] + " x", strings.ToUpper(w[:i]) + "\tx"} {
+				if c := checkCLIConfigLine(line); c != checkEscapeWord {
+					t.Errorf("%q: check %q, want escape-word", line, c)
+				}
+			}
+		}
+	}
+	for _, line := range []string{
+		"sh run", "rel", "relo", "wr mem", "en", "conf", "config", "run bash", "start shell",
+		"request system reboot", "tclsh", "guestshell run bash", "python3 -c x", "zerotouch cancel",
+		"ssh 192.0.2.1", "delete flash:startup-config", "load override /var/tmp/x", "save /var/tmp/x",
+		"rollback 1", "quit", "clear ip bgp *", "enable secret FAKEsecret",
+		"alias hn reload", "cli alias name hn reload", "event manager applet X", "event-handler H",
+		"sched", "scheduler job name j", "kron occurrence o in 1 recurring", "daemon d", "command x",
+		"clock set 10:00:00 1 Jan 2020", "ping 192.0.2.1", "sys", "adm", "ret",
+	} {
+		if c := checkCLIConfigLine(line); c != checkEscapeWord {
+			t.Errorf("%q: check %q, want escape-word", line, c)
+		}
+	}
+}
+
+// TestConfigLinesThatStayWrites: ordinary configuration, including words
+// that start like an escape word, stays WRITE_CONFIG through every CLI
+// config tool. These are the negative cases for the list.
+func TestConfigLinesThatStayWrites(t *testing.T) {
+	profiles := repoProfiles(t)
+	lines := []any{
+		"hostname lab-sw-01", "interface Ethernet1", " description uplink to spine", "no shutdown", "shutdown",
+		"ip address 10.0.0.1/31", "router bgp 65000", " neighbor 10.0.0.2 remote-as 65001",
+		" address-family ipv4", "  exit-address-family", "username admin secret FAKEsecret",
+		"ntp server 192.0.2.1", "logging host 192.0.2.5", " load-interval 30", "spanning-tree mode mstp",
+		"vlan 10", " name users", " 10 permit ip any any", "ip as-path access-list A permit _65000$",
+		"route-map RM permit 10", " set community 65000:1", " match ip address prefix-list P",
+		"switchport mode trunk", "boot system flash:EOS.swi", "default interface Ethernet2",
+		// Persistence and lock-out by configuration stays WRITE_CONFIG (held
+		// on prod, allowed on lab by design; threat model).
+		"username backdoor privilege 15 nopassword", "aaa authorization exec default none",
+		// "auto" words shorter than the autocommand abbreviation, and a
+		// longer word that is not a prefix of it, stay writes.
+		" auto-cost reference-bandwidth 100000", " speed auto", " switchport mode auto", " autocommand-options nohangup",
+		"management api http-commands", "monitor session 1 source Ethernet1", "exec-timeout 5 0",
+		"control-plane", "errdisable recovery cause bpduguard", "event-monitor", "crypto key generate rsa",
+		"! a comment", "!", "  ! reload in a comment is a comment", "", "   ", "\t",
+	}
+	for _, l := range lines {
+		if c := checkCLIConfigLine(l.(string)); c != "" {
+			t.Errorf("%q: check %q, want pass", l, c)
+		}
+	}
+	for _, tt := range configWriteTools {
+		r := Classify(profiles[tt.server], tt.tool, map[string]any{tt.target: "lab-sw-01", tt.param: lines})
+		if r.Class != WriteConfig || r.ClassSource != SourceProfile || r.Reason != "" {
+			t.Errorf("%s.%s: %s (%s), want WRITE_CONFIG (profile); reason %q", tt.server, tt.tool, r.Class, r.ClassSource, r.Reason)
+		}
+	}
+}
+
+// TestSecurityJunosLoadConfig: junos-mcp-server load_and_commit_config
+// loads config_text through PyEZ Config.load in config_format (default
+// "set", lower-cased by the handler, jmcp.py:1658, 1683-1685 at 75fe90a).
+// A set payload may only hold configuration statements; text and xml are
+// configuration data and are checked for control and non-ASCII bytes only.
+func TestSecurityJunosLoadConfig(t *testing.T) {
+	junos := repoProfiles(t)["junos-mcp-server"]
+	curly := "system {\n    host-name x;\n    commit {\n        persist-groups-inheritance;\n    }\n    syslog {\n        file messages {\n            any notice;\n        }\n    }\n}\ninterfaces {\n    ge-0/0/0 {\n        disable;\n    }\n}\ndelete: protocols ospf;\n"
+	cases := []struct {
+		name   string
+		args   map[string]any
+		want   Class
+		reason string
+	}{
+		{"set default", map[string]any{"config_text": "set system host-name x"}, WriteConfig, ""},
+		{"set explicit, mixed statements", map[string]any{"config_format": "set", "config_text": "# comment\nset system host-name x\r\ndelete interfaces ge-0/0/0 unit 0\n\ndeactivate protocols ospf\nactivate protocols bgp\nedit system\nset domain-name example.net\ntop\n"}, WriteConfig, ""},
+		{"set upper-case format", map[string]any{"config_format": "SET", "config_text": "set system host-name x"}, WriteConfig, ""},
+		{"run from load set", map[string]any{"config_text": "set system host-name x\nrun request system reboot"}, ExecArbitrary, "config element 1 line 2 failed the config payload check (set-verb)"},
+		{"commit from load set", map[string]any{"config_text": "commit"}, ExecArbitrary, "(set-verb)"},
+		{"rollback", map[string]any{"config_text": "rollback 1"}, ExecArbitrary, "(set-verb)"},
+		{"load override", map[string]any{"config_text": "load override /var/tmp/x.conf"}, ExecArbitrary, "(set-verb)"},
+		{"save", map[string]any{"config_text": "save /var/tmp/x.conf"}, ExecArbitrary, "(set-verb)"},
+		{"exit", map[string]any{"config_text": "exit"}, ExecArbitrary, "(set-verb)"},
+		{"quit", map[string]any{"config_text": "quit"}, ExecArbitrary, "(set-verb)"},
+		{"request", map[string]any{"config_text": "request system reboot"}, ExecArbitrary, "(set-verb)"},
+		{"start shell", map[string]any{"config_text": "start shell"}, ExecArbitrary, "(set-verb)"},
+		{"abbreviation", map[string]any{"config_text": "se system host-name x"}, ExecArbitrary, "(set-verb)"},
+		{"glued separator", map[string]any{"config_text": "set;run show version"}, ExecArbitrary, "(set-verb)"},
+		{"curly text sent as set", map[string]any{"config_text": curly}, ExecArbitrary, "(set-verb)"},
+		{"edit header text sent as set", map[string]any{"config_text": "[edit system]\nhost-name x;"}, ExecArbitrary, "(set-verb)"},
+		{"set with control byte", map[string]any{"config_text": "set system host-name x\x1b"}, ExecArbitrary, "(control-character)"},
+		{"set with non-ascii", map[string]any{"config_text": "set interfaces ge-0/0/0 description café"}, ExecArbitrary, "(non-ascii)"},
+		{"text data", map[string]any{"config_format": "text", "config_text": curly}, WriteConfig, ""},
+		{"text data upper-case", map[string]any{"config_format": "TEXT", "config_text": curly}, WriteConfig, ""},
+		{"text data with run is still data", map[string]any{"config_format": "text", "config_text": "run request system reboot;"}, WriteConfig, ""},
+		{"xml data", map[string]any{"config_format": "xml", "config_text": "<configuration>\n  <system><host-name>x</host-name></system>\n</configuration>"}, WriteConfig, ""},
+		{"text data with control byte", map[string]any{"config_format": "text", "config_text": "system {\n host-name x;\x00\n}"}, ExecArbitrary, "(control-character)"},
+		{"text data with non-ascii", map[string]any{"config_format": "text", "config_text": "system { host-name café; }"}, ExecArbitrary, "(non-ascii)"},
+		{"format with a space is not text", map[string]any{"config_format": " text", "config_text": curly}, ExecArbitrary, "(set-verb)"},
+		{"non-ascii format is not text", map[string]any{"config_format": "tеxt", "config_text": curly}, ExecArbitrary, "(set-verb)"},
+		{"non-string format is not text", map[string]any{"config_format": []any{"text"}, "config_text": curly}, ExecArbitrary, "(set-verb)"},
+		// Security review of PR #170, M2: top and up run the rest as a command.
+		{"top with a command", map[string]any{"config_text": "top run request system reboot"}, ExecArbitrary, "(set-verb)"},
+		{"up with a command", map[string]any{"config_text": "up 1 run request system reboot"}, ExecArbitrary, "(set-verb)"},
+		{"up with a word", map[string]any{"config_text": "up run"}, ExecArbitrary, "(set-verb)"},
+		{"bare top and up", map[string]any{"config_text": "edit interfaces ge-0/0/0\nset description x\nup\nup 2\ntop\nset system host-name x"}, WriteConfig, ""},
+		// H3: Junos configuration that runs something.
+		{"set event-options", map[string]any{"config_text": "set event-options policy P events ui_commit then execute-commands commands \"request system reboot\""}, ExecArbitrary, "(exec-config)"},
+		{"set system scripts", map[string]any{"config_text": "set system scripts op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		{"relative scripts after edit", map[string]any{"config_text": "edit system\nset scripts commit file x.slax"}, ExecArbitrary, "config element 1 line 2 failed the config payload check (exec-config)"},
+		{"edit event-options", map[string]any{"config_text": "edit event-options"}, ExecArbitrary, "(exec-config)"},
+		{"abbreviated event-options", map[string]any{"config_text": "set event-o policy P then execute-commands commands x"}, ExecArbitrary, "(exec-config)"},
+		{"set system extensions", map[string]any{"config_text": "set system extensions providers p"}, ExecArbitrary, "(exec-config)"},
+		{"quoted hierarchy", map[string]any{"config_text": "set system \"scripts\" op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		// Round 2, R2-L1: any punctuation at either end of a word is trimmed.
+		{"backslash after hierarchy", map[string]any{"config_text": "set event-options\\ x"}, ExecArbitrary, "(exec-config)"},
+		{"punctuation around hierarchy", map[string]any{"config_text": "set system (scripts) op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		// Accepted cost (spec 11.3): a one-letter word abbreviates a hierarchy.
+		{"one-letter description", map[string]any{"config_text": "set interfaces ge-0/0/0 description e"}, ExecArbitrary, "(exec-config)"},
+		{"one-letter policy-statement", map[string]any{"config_text": "set policy-options policy-statement s term t then accept"}, ExecArbitrary, "(exec-config)"},
+		{"text event-options", map[string]any{"config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}, ExecArbitrary, "(exec-config)"},
+		{"text scripts, mixed case", map[string]any{"config_format": "text", "config_text": "system {\n Scripts { op { file x.slax; } }\n}"}, ExecArbitrary, "(exec-config)"},
+		{"xml extensions", map[string]any{"config_format": "xml", "config_text": "<configuration><system><extensions/></system></configuration>"}, ExecArbitrary, "(exec-config)"},
+		// L2: no DTD or entity declarations in xml.
+		{"xml doctype", map[string]any{"config_format": "xml", "config_text": "<!DOCTYPE c [<!ENTITY x SYSTEM \"file:///etc/passwd\">]>\n<configuration><system><host-name>&x;</host-name></system></configuration>"}, ExecArbitrary, "config element 1 line 1 failed the config payload check (dtd)"},
+		// Persistence stays WRITE_CONFIG (threat model).
+		{"super-user login", map[string]any{"config_text": "set system login user backdoor class super-user authentication plain-text-password-value FAKEpw"}, WriteConfig, ""},
+		// Note 1: line cap in set.
+		{"set line too long", map[string]any{"config_text": "set system host-name " + strings.Repeat("x", maxConfigLineLen)}, ExecArbitrary, "(too-long)"},
+		{"text line has no line cap", map[string]any{"config_format": "text", "config_text": "system { host-name " + strings.Repeat("x", maxConfigLineLen) + "; }"}, WriteConfig, ""},
+		{"text payload cap", map[string]any{"config_format": "text", "config_text": strings.Repeat("x", maxConfigPayloadLen+1)}, ExecArbitrary, "config payload failed the config payload check (too-long)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.args["router_name"] = "core-rtr-01"
+			for _, tool := range []string{"load_and_commit_config", "junos-mcp-server.load_and_commit_config"} {
+				r := Classify(junos, tool, c.args)
+				if r.Class != c.want {
+					t.Fatalf("%s: %s (%s), want %s; reason %q", tool, r.Class, r.ClassSource, c.want, r.Reason)
+				}
+				wantSource := SourceProfile
+				if c.want == ExecArbitrary {
+					wantSource = SourceReclassify
+				}
+				if r.ClassSource != wantSource || !strings.Contains(r.Reason, c.reason) || (c.reason == "" && r.Reason != "") {
+					t.Fatalf("%s: source %s reason %q, want %s and %q", tool, r.ClassSource, r.Reason, wantSource, c.reason)
+				}
+			}
+		})
+	}
+}
+
+// TestConfigDialectDefaultsToUnion: a profile the dialect table does not
+// list gets the CLI union, the stricter rules, even for a Junos payload.
+// The table keys on the profile's server, which the gate checks against
+// the --server name.
+func TestConfigDialectDefaultsToUnion(t *testing.T) {
+	p, err := ParseProfile([]byte(`
+server: my-junos
+tools:
+  load_and_commit_config:
+    class: WRITE_CONFIG
+    target_params: [router_name]
+    config_params: [config_text]
+    args: [config_format]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []map[string]any{
+		{"router_name": "r1", "config_text": "delete interfaces ge-0/0/0 unit 0"},
+		{"router_name": "r1", "config_format": "text", "config_text": "system {\n commit { persist-groups-inheritance; }\n}"},
+	} {
+		if r := Classify(p, "load_and_commit_config", in); r.Class != ExecArbitrary || !strings.Contains(r.Reason, checkEscapeWord) {
+			t.Errorf("%v: %s, reason %q; want EXEC_ARBITRARY (escape-word)", in, r.Class, r.Reason)
+		}
+	}
+	if r := Classify(p, "load_and_commit_config", map[string]any{"router_name": "r1", "config_text": "set system host-name x"}); r.Class != WriteConfig {
+		t.Errorf("set line: %s, reason %q", r.Class, r.Reason)
+	}
+}
+
+// TestSecurityConfigEscapeAsJSONString: FastMCP json.loads a string sent
+// for a list[str] parameter (eos-mcp config_lines, upa commands, ntunes
+// config_commands), so a string holding a JSON array reaches the upstream
+// as its elements. CheckArguments reports a valid JSON array as malformed
+// (M1-35); the config check makes the call EXEC_ARBITRARY on its own too,
+// since no CLI config line starts with [ or {. A JSON object string passes
+// CheckArguments for a config argument, but decodes to a dict, which the
+// upstream's list[str] validation refuses.
+func TestSecurityConfigEscapeAsJSONString(t *testing.T) {
+	profiles := repoProfiles(t)
+	for _, tt := range configWriteTools {
+		for _, s := range []string{`["end", "reload now"]`, ` ["hostname x", "end"]`, `{"0": "end"}`, `["end", NaN]`} {
+			r := Classify(profiles[tt.server], tt.tool, map[string]any{tt.target: "lab-sw-01", tt.param: s})
+			if r.Class != ExecArbitrary || !strings.Contains(r.Reason, checkLeadingSymbol) {
+				t.Errorf("%s.%s %q: %s, reason %q; want EXEC_ARBITRARY (leading-symbol)", tt.server, tt.tool, s, r.Class, r.Reason)
+			}
+			if json.Valid([]byte(s)) && strings.HasPrefix(strings.TrimSpace(s), "[") && r.ArgumentsOK() {
+				t.Errorf("%s.%s %q: want MalformedArgs", tt.server, tt.tool, s)
+			}
+		}
+	}
+}
+
+// TestConfigCheckSkipsExecTools: a tool already EXEC_ARBITRARY keeps its
+// profile class and source; there is nothing to raise (junos
+// render_and_apply_j2_template, never-downgrade).
+func TestConfigCheckSkipsExecTools(t *testing.T) {
+	junos := repoProfiles(t)["junos-mcp-server"]
+	r := Classify(junos, "render_and_apply_j2_template", map[string]any{"router_name": "r1", "template_content": "end\nreload"})
+	if r.Class != ExecArbitrary || r.ClassSource != SourceProfile {
+		t.Fatalf("%s (%s)", r.Class, r.ClassSource)
+	}
+}

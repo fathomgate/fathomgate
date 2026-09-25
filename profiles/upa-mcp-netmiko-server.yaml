@@ -115,4 +115,6 @@ tools:
       confirm timer), then save_config() where implemented, in one call. No
       dry-run, no diff, no rollback, no confirm step; refused only under
       --disable-config. Fathomgate's dry_run, diff and timed_rollback
-      obligations cannot be met through this tool (M3).
+      obligations cannot be met through this tool (M3). A line that leaves
+      config mode (end, exit, ...) or runs an exec command makes the call
+      EXEC_ARBITRARY (M1-36, classification.md section 11, CLI union list).
