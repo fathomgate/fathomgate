@@ -194,43 +194,125 @@ func TestEvaluateTraceCoversEveryRuleUntilMatch(t *testing.T) {
 }
 
 func TestUnknownTargetDefaults(t *testing.T) {
+	// One allow rule per class, so a request that reaches the rules is
+	// allowed by the rule named after its class.
 	base := `
 version: 1
 rules:
-  - id: reads
+  - id: read-op
     match: { class: [READ_OPERATIONAL] }
     effect: allow
-  - id: writes
+  - id: read-config
+    match: { class: [READ_CONFIG] }
+    effect: allow
+  - id: write-config
     match: { class: [WRITE_CONFIG] }
     effect: allow
+  - id: exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: allow
+  - id: inventory
+    match: { class: [INVENTORY_READ] }
+    effect: allow
+  - id: lab
+    match: { class: [LAB_LIFECYCLE] }
+    effect: allow
+  - id: local
+    match: { class: [LOCAL_ADMIN] }
+    effect: allow
 `
-	unknown := Target{Name: "ghost"}
-	t.Run("unset denies writes and lets reads through", func(t *testing.T) {
+	ruleFor := map[classify.Class]string{
+		classify.ReadOperational: "read-op",
+		classify.ReadConfig:      "read-config",
+		classify.WriteConfig:     "write-config",
+		classify.ExecArbitrary:   "exec",
+		classify.InventoryRead:   "inventory",
+		classify.LabLifecycle:    "lab",
+		classify.LocalAdmin:      "local",
+	}
+	withDefault := func(v string) string {
+		return strings.Replace(base, "rules:", "defaults: { unknown_target: "+v+" }\nrules:", 1)
+	}
+	ghost := Target{Name: "core-x.attacker.example"}
+	mixed := []Target{known("core-rtr-01", "core"), ghost}
+
+	// ADR 0032: an unset unknown_target denies every class, exactly as an
+	// explicit deny does; only an explicit allow lets the rules decide.
+	for _, tc := range []struct {
+		name  string
+		src   string
+		allow bool
+	}{
+		{"unset", base, false},
+		{"deny", withDefault("deny"), false},
+		{"allow", withDefault("allow"), true},
+	} {
+		p := mustParse(t, tc.src)
+		for _, c := range classify.All() {
+			for _, targets := range [][]Target{{ghost}, mixed} {
+				d := Evaluate(p, Request{Class: c, Targets: targets})
+				if tc.allow {
+					if d.Effect != Allow || d.RuleID != ruleFor[c] {
+						t.Errorf("%s %s %d targets: got %s/%s, want allow/%s", tc.name, c, len(targets), d.Effect, d.RuleID, ruleFor[c])
+					}
+					if d.Trace[0].RuleID != RuleUnknownTarget || d.Trace[0].Matched {
+						t.Errorf("%s %s: trace should note the unknown target, unmatched: %+v", tc.name, c, d.Trace[0])
+					}
+					continue
+				}
+				if d.Effect != Deny || d.RuleID != RuleUnknownTarget {
+					t.Errorf("%s %s %d targets: got %s/%s, want deny/%s", tc.name, c, len(targets), d.Effect, d.RuleID, RuleUnknownTarget)
+				}
+				if len(d.Trace) != 1 || !d.Trace[0].Matched {
+					t.Errorf("%s %s: rules must not run after the unknown-target deny: %+v", tc.name, c, d.Trace)
+				}
+			}
+		}
+	}
+
+	t.Run("unset is filled in as deny at load", func(t *testing.T) {
+		if got := mustParse(t, base).Defaults.UnknownTarget; got != Deny {
+			t.Fatalf("Parse left unknown_target %q, want deny", got)
+		}
+		if got := mustParse(t, withDefault("allow")).Defaults.UnknownTarget; got != Allow {
+			t.Fatalf("Parse changed an explicit allow to %q", got)
+		}
+	})
+
+	t.Run("a policy built without Parse fails closed", func(t *testing.T) {
 		p := mustParse(t, base)
-		if d := Evaluate(p, Request{Class: classify.WriteConfig, Targets: []Target{unknown}}); d.Effect != Deny || d.RuleID != RuleUnknownTarget {
-			t.Fatalf("write: %s/%s", d.Effect, d.RuleID)
-		}
-		if d := Evaluate(p, Request{Class: classify.ExecArbitrary, Targets: []Target{unknown}}); d.Effect != Deny {
-			t.Fatalf("exec: %s/%s", d.Effect, d.RuleID)
-		}
-		d := Evaluate(p, Request{Class: classify.ReadOperational, Targets: []Target{unknown}})
-		if d.Effect != Allow || d.RuleID != "reads" {
-			t.Fatalf("read: %s/%s", d.Effect, d.RuleID)
-		}
-		if d.Trace[0].RuleID != RuleUnknownTarget || d.Trace[0].Matched {
-			t.Fatalf("read trace should note the unknown target: %+v", d.Trace[0])
+		for _, v := range []Effect{"", Hold, "bogus"} {
+			p.Defaults.UnknownTarget = v
+			if d := Evaluate(p, Request{Class: classify.ReadOperational, Targets: []Target{ghost}}); d.Effect != Deny || d.RuleID != RuleUnknownTarget {
+				t.Errorf("unknown_target %q: got %s/%s, want deny", v, d.Effect, d.RuleID)
+			}
 		}
 	})
-	t.Run("allow lets rules decide for writes", func(t *testing.T) {
-		p := mustParse(t, strings.Replace(base, "rules:", "defaults: { unknown_target: allow }\nrules:", 1))
-		if d := Evaluate(p, Request{Class: classify.WriteConfig, Targets: []Target{unknown}}); d.Effect != Allow || d.RuleID != "writes" {
-			t.Fatalf("write: %s/%s", d.Effect, d.RuleID)
+
+	// unknown_target applies only to named targets. A request with no
+	// targets (INVENTORY_READ listing the upstream's devices, LOCAL_ADMIN)
+	// has nothing unknown, so the rules decide and the trace has no
+	// default:unknown_target entry. A zero-target call to a tool that
+	// takes a target is refused before Evaluate by the normaliser (M1-18).
+	t.Run("targetless requests go to the rules", func(t *testing.T) {
+		p := mustParse(t, base)
+		for _, c := range classify.All() {
+			d := Evaluate(p, Request{Class: c})
+			if d.Effect != Allow || d.RuleID != ruleFor[c] {
+				t.Errorf("%s with no targets: got %s/%s, want allow/%s", c, d.Effect, d.RuleID, ruleFor[c])
+			}
+			for _, e := range d.Trace {
+				if e.RuleID == RuleUnknownTarget {
+					t.Errorf("%s with no targets: unexpected trace entry %+v", c, e)
+				}
+			}
 		}
 	})
-	t.Run("deny denies reads", func(t *testing.T) {
-		p := mustParse(t, strings.Replace(base, "rules:", "defaults: { unknown_target: deny }\nrules:", 1))
-		if d := Evaluate(p, Request{Class: classify.ReadOperational, Targets: []Target{unknown}}); d.Effect != Deny || d.RuleID != RuleUnknownTarget {
-			t.Fatalf("read: %s/%s", d.Effect, d.RuleID)
+
+	t.Run("known targets are unaffected", func(t *testing.T) {
+		d := Evaluate(mustParse(t, base), Request{Class: classify.ReadConfig, Targets: []Target{known("core-rtr-01", "core")}})
+		if d.Effect != Allow || d.RuleID != "read-config" {
+			t.Fatalf("got %s/%s", d.Effect, d.RuleID)
 		}
 	})
 }

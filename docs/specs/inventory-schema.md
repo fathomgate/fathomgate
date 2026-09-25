@@ -135,8 +135,8 @@ Platform mapping to `vendor`: NetBox `platform.slug` or `manufacturer.slug` are 
 ## 7. Unknown-target semantics
 
 - A target is unknown when no provider resolved its name. The policy request carries it as `known: false`.
-- `Evaluate` step 1 ([policy-schema.md](policy-schema.md#4-evaluation-order)): with `defaults.unknown_target: deny`, any unknown target denies the call for every class. With `unknown_target` unset, `WRITE_CONFIG` and `EXEC_ARBITRARY` are denied and every other class continues to the rules. With `allow`, the rules decide for every class.
-- An unknown target has no role, so it never matches a `device_roles` rule, and a read to it is allowed only by a rule that matches on class alone (such as `reads-anywhere`). Operators who want reads to unknown targets denied set `unknown_target: deny`.
+- `Evaluate` step 1 ([policy-schema.md](policy-schema.md#4-evaluation-order)): with `defaults.unknown_target: deny`, any unknown target denies the call for every class. With `unknown_target` unset the same happens: every class is denied ([ADR 0032](../adr/0032-unset-unknown-target-denies-every-class.md)). With `allow`, the rules decide for every class. A request that names no target has no unknown target and is not affected.
+- An unknown target has no role, so it never matches a `device_roles` rule. Under `unknown_target: allow`, a read to it is allowed only by a rule that matches on class alone (such as `reads-anywhere`); that setting sends the upstream's device credentials to any host the agent names on upstreams such as eos-mcp and netdev-ssh-mcp, so use it only where that is acceptable.
 - The audit event lists the target in `targets[]` with an empty entry in `roles[]`; an `unknown_target` flag is planned (M4).
 - A free-form `host` value that is an IP address is looked up as a name first; if no provider matches, it is `unknown`. There is no implicit IP-to-name resolution through DNS, because DNS is not a source of truth.
 
