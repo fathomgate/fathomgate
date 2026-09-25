@@ -25,6 +25,8 @@ Comments at the top of the file record the research brief section the tool names
 | `group_params` | list of string | no | Argument names holding group or tag selectors (`tags`). Each value is emitted as an `@name` token for the inventory to expand. |
 | `command_params` | list of string | no | Argument names holding operational commands, as a string or an array (`command`, `commands`). |
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
+| `args` | list of string | **yes** (`[]` when empty) | Every other argument the tool accepts ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)). The argument list is closed: an argument named in none of the five `*_params` lists and not in `args` is denied ([section 2.2](#22-closed-argument-list)). Values are not inspected. |
+| `refused_args` | list of string | no | Arguments the upstream accepts that the profile deliberately leaves unnamed (eos-mcp `config_path`). No run-time effect beyond being unnamed; the coverage tests use it to tell a reviewed refusal from a parameter the upstream added later. |
 | `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. |
 
 ### 2.1 Normalisation rules
@@ -41,6 +43,17 @@ Implemented in `Normalize(profile, tool, args)`:
 A tool with a `command_params` or `config_params` but no target source (eos-mcp `run_command_batch` with only `hostnames` and `tags` selectors, both optional upstream) can arrive with zero targets. What zero targets means for policy is decided by the policy's `device_roles` and `device_tags` matchers, which do not match a request with no targets.
 
 At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily_brief` with neither `hostnames` nor `tags` runs on every device in the upstream's own `config.ini` (`eos_mcp/server.py:476-478`). There, zero targets means the whole fleet.
+
+### 2.2 Closed argument list
+
+Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A tool's named set is `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args` together. `CheckArguments(profile, tool, args)` returns, sorted:
+
+- `unnamed`: every top-level argument key not in the named set. A key is sent whatever its value: `""` and `null` count. Matching is exact and case-sensitive. For a tool not in the profile, every key is unnamed.
+- `malformed`: every named target, command or config argument whose value is not a string or an array of strings (`null` is absent). Values of `args` arguments are not inspected, whatever their JSON type; only top-level keys are checked, so an argument whose object value has keys that change the upstream's behaviour must stay unnamed.
+
+`Classify` copies both into `Result.UnnamedArgs` and `Result.MalformedArgs` without changing the class; `Result.ArgumentsOK()` is true when both are empty. The gate denies a call whose arguments are not OK with rule `default:bad_arguments`, before `Evaluate`, and never forwards a stripped copy. The reason the agent sees names no argument: `an argument is not named in the server profile for this tool`, or `a target, command or config argument is not a string or a list of strings` when only a type is wrong. `fathomgate policy eval --profile` prints the same deny, with the argument names in the trace. With no profile for the server (fallback classifier), nothing is checked.
+
+Optional arguments need nothing extra: named means allowed whether present or absent. When an upstream adds a parameter, calls that send it are denied until the profile names it or lists it in `refused_args`; `TestRepoProfileArguments` holds each upstream's parameter set per tool, read from source, and fails until the profile covers it exactly.
 
 ## 3. Planned fields (not yet parsed)
 
@@ -60,7 +73,7 @@ These are in the plan and in the research but the strict loader rejects them tod
 
 ## 4. Example: netdev-ssh-mcp
 
-`profiles/netdev-ssh-mcp.yaml` as it exists on disk. Tool names and parameters are from [research brief 02, section 1.1](../research/02-network-mcp-servers.md), read from `main.go`.
+`profiles/netdev-ssh-mcp.yaml` as it exists on disk, without its header comments. Tool names and parameters are from [research brief 02, section 1.1](../research/02-network-mcp-servers.md), re-read from the input structs at v1.7.1. `username` is refused because it picks the device account the server's credentials log in as ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)).
 
 ```yaml
 server: netdev-ssh-mcp
@@ -70,22 +83,32 @@ tools:
   get_config:
     class: READ_CONFIG
     target_params: [host]
+    args: [port, config_type, device_type]
+    refused_args: [username]
     notes: config_type running|startup; output is obfuscated server-side, redacted again by the proxy.
   run_show_command:
     class: READ_OPERATIONAL
     target_params: [host]
     command_params: [command]
-    notes: Server enforces a show/get prefix; the proxy re-checks and escalates config dumps to READ_CONFIG.
+    args: [port, device_type]
+    refused_args: [username]
+    notes: Server (v1.7.1) accepts one show/get command with allow-listed pipes; the proxy re-checks and escalates config dumps to READ_CONFIG.
   run_ping:
     class: READ_OPERATIONAL
     target_params: [host]
-    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands.
+    args: [destination, port, count, timeout, source, vrf, size, outgoing_interface, device_type]
+    refused_args: [username]
+    notes: destination, count, timeout, source, vrf, size, outgoing_interface are typed args, not commands (string args character-checked upstream since v1.7.1). A leading '-' passes the upstream check; class kept, see the header (M1-14).
   run_traceroute:
     class: READ_OPERATIONAL
     target_params: [host]
+    args: [destination, port, max_hops, timeout, probe, source, vrf, outgoing_interface, device_type]
+    refused_args: [username]
+    notes: Same argument check and leading '-' note as run_ping.
   trust_host_key:
     class: LOCAL_ADMIN
     target_params: [host]
+    args: [port, confirm, replace_existing]
     notes: Writes known_hosts on the MCP server host, not on the device. Two-step confirm flow.
 ```
 
@@ -93,7 +116,7 @@ Because `host` is free-form and the server has no inventory, every target goes t
 
 ## 5. Example: junos-mcp-server
 
-`profiles/junos-mcp-server.yaml` as it exists on disk. Tool names and `inputSchema` are from [research brief 02, section 1.7](../research/02-network-mcp-servers.md), read from `jmcp.py` `list_tools()`.
+`profiles/junos-mcp-server.yaml` as it exists on disk, without its header comments. Tool names and `inputSchema` are from [research brief 02, section 1.7](../research/02-network-mcp-servers.md), read from `jmcp.py` `list_tools()` (arguments at main `75fe90a`; the profile is not pinned to a release yet).
 
 ```yaml
 server: junos-mcp-server
@@ -104,40 +127,49 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [timeout]
     notes: Server applies block.cmd regexes; proxy downgrades to READ_OPERATIONAL/READ_CONFIG when the command passes the allow-list.
   execute_junos_pfe_command:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [target, timeout]
     notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]
     command_params: [command]
+    args: [timeout]
     notes: Fleet-wide; targets_count rules apply.
   get_junos_config:
     class: READ_CONFIG
     target_params: [router_name]
+    args: []
   junos_config_diff:
     class: READ_CONFIG
     target_params: [router_name]
+    args: [version]
     notes: version 1-49 selects the rollback to diff against.
   gather_device_facts:
     class: READ_OPERATIONAL
     target_params: [router_name]
+    args: [timeout]
   get_router_list:
     class: INVENTORY_READ
+    args: []
     notes: Seeds the proxy's target allow-list at startup (M1).
   load_and_commit_config:
     class: WRITE_CONFIG
     target_params: [router_name]
     config_params: [config_text]
+    args: [config_format, commit_comment]
     notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed.
   render_and_apply_j2_template:
     class: WRITE_CONFIG
     target_params: [router_name]
     targets_params: [router_names]
     config_params: [template_content, vars_content]
+    args: [apply_config, dry_run, commit_comment, config_format, timeout]
     notes: Render-only unless apply_config=true; dry_run=true is commit-check + rollback. Classified WRITE_CONFIG conservatively; M1 may relax when apply_config is false.
 ```
 
@@ -145,7 +177,7 @@ tools:
 
 ## 6. Other shipped profiles
 
-The rows show the normalisation keys that differ. Full files are in `profiles/`.
+The rows show the normalisation keys that differ. Full files, with each tool's `args` and `refused_args`, are in `profiles/`. The refused arguments are eos-mcp `config_path` on every tool and `session_name` on `push_config`, `confirm_config_session` and `abort_config_session`, and ntunes `send_config` `enter_config_mode` ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 6).
 
 | Server | Tool | class | target_params | targets_params | group_params | command_params | config_params |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -184,9 +216,10 @@ Profiles for Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Mer
 - `server` is non-empty;
 - `tools` is non-empty;
 - every tool's `class` is a known class;
+- every tool has `args` (`[]` when empty); no argument name is empty or has surrounding whitespace; no name appears twice across `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args`; no `refused_args` entry is named or listed twice ([section 2.2](#22-closed-argument-list));
 - `server` is unique across the directory.
 
-`internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. A tier 2 test that compares each profile against the real upstream's `tools/list` is planned ([test-strategy.md](../testing/test-strategy.md)).
+`internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. `TestRepoProfileArguments` there holds every parameter each upstream accepts per tool, read from the source commit in the profile's header, and requires the named set plus `refused_args` to equal it exactly, with the `refused_args` lists pinned. A tier 2 test that compares each profile against the real upstream's `tools/list` (tool names, and each tool's `inputSchema.properties` against the named set plus `refused_args`) is planned ([test-strategy.md](../testing/test-strategy.md)).
 
 ## 8. Proxy config (M0)
 
