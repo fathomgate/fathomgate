@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="448" viewBox="0 0 512 448" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">Fathomgate | Single-color teal gateway icon</title>
+<desc id="desc">Single-color teal gateway icon. Manually reconstructed as editable vector paths from the owner-supplied approved concept. Transparent background; no embedded bitmap, external font, or linked asset.</desc>
+
+<g transform="translate(0 14)"><g id="sonar-boundaries">
+<path id="boundary-1" d="M67.206,341 A218,218 0 1 1 444.794,341 L441.329,339 A214,214 0 1 0 70.671,339 Z" fill="#00D4C7"/>
+<path id="boundary-2" d="M97.396,305.958 A175,175 0 1 1 414.604,305.958 L410.979,304.268 A171,171 0 1 0 101.021,304.268 Z" fill="#00D4C7"/>
+<path id="boundary-3" d="M122.066,208.384 A136,136 0 0 1 389.934,208.384 L385.502,209.165 A131.5,131.5 0 0 0 126.498,209.165 Z" fill="#00D4C7"/>
+</g>
+<g id="gateway">
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 L162 329 L60 405 L115 405 L194 341 L194 232 C194 200.132 218.044 173.902 249 170.396 Z" fill="#00D4C7"/>
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 L162 329 L60 405 L115 405 L194 341 L194 232 C194 200.132 218.044 173.902 249 170.396 Z" transform="translate(512 0) scale(-1 1)" fill="#00D4C7"/>
+</g>
+<g id="gate-panels">
+<path d="M111 244 L150 221 L150 317 L111 340 Z" fill="#00D4C7"/>
+<path d="M111 244 L150 221 L150 317 L111 340 Z" transform="translate(512 0) scale(-1 1)" fill="#00D4C7"/>
+</g>
+<path id="navigation-star" d="M256 245 C259.7 261.9 260.1 264.6 276 269 C260.1 273.4 259.7 276.1 256 293 C252.3 276.1 251.9 273.4 236 269 C251.9 264.6 252.3 261.9 256 245 Z" fill="#00D4C7"/>
+<g id="passage-steps">
+<path d="M233.5 313 H278.5 L282.5 317 H229.5 Z" fill="#00D4C7"/>
+<path d="M223.5 325 H288.5 L294.5 331 H217.5 Z" fill="#00D4C7"/>
+<path d="M206.5 343 H305.5 L313.5 351 H198.5 Z" fill="#00D4C7"/>
+<path d="M184.5 365 H327.5 L338.5 376 H173.5 Z" fill="#00D4C7"/>
+<path d="M158 391 H354 L368 405 H144 Z" fill="#00D4C7"/>
+</g></g>
+</svg>
