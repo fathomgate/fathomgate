@@ -27,7 +27,7 @@ func TestRepoProfiles(t *testing.T) {
 			"execute_junos_command_batch": ExecArbitrary, "get_junos_config": ReadConfig,
 			"junos_config_diff": ReadConfig, "gather_device_facts": ReadOperational,
 			"get_router_list": InventoryRead, "load_and_commit_config": WriteConfig,
-			"render_and_apply_j2_template": WriteConfig,
+			"render_and_apply_j2_template": ExecArbitrary,
 		},
 		"ntunes-netmiko-mcp-server": {
 			"send_command": ExecArbitrary, "send_command_parallel": ExecArbitrary,
@@ -98,12 +98,15 @@ func TestRepoProfiles(t *testing.T) {
 // upstreamParams is every parameter each shipped profile's upstream accepts,
 // per tool, read from its source (ADR 0033; the commit is in each profile's
 // header): netdev-ssh-mcp v1.7.1 struct tags, upa 96e8ff3 main.py, eos-mcp
-// v1.3.0 server.py signatures, junos-mcp-server 75fe90a jmcp.py inputSchema,
-// ntunes 4cc59d6 tools/*.py signatures. Each must be named in the profile or
-// listed in refused_args, and nothing else may be. When an upstream version
-// adds a parameter, update this table from its source first: the test then
-// fails until the profile names or refuses it. Tier 2 makes the same check
-// against the upstream's tools/list.
+// v1.3.0 server.py signatures, junos-mcp-server 75fe90a jmcp.py inputSchema
+// plus every arguments.get() in its handlers, ntunes 4cc59d6 tools/*.py
+// signatures. Each must be named in the profile or listed in refused_args,
+// and nothing else may be. When an upstream version adds a parameter,
+// update this table from its source first: the test then fails until the
+// profile names or refuses it. Read the handler code, not only the declared
+// schema: a server whose handlers read the arguments dict directly (junos
+// load_and_commit_config reads an undocumented config key) accepts keys its
+// schema never lists, and a tools/list comparison (tier 2) cannot see them.
 var upstreamParams = map[string]map[string][]string{
 	"netdev-ssh-mcp": {
 		"get_config":       {"host", "username", "port", "config_type", "device_type"},
@@ -145,7 +148,7 @@ var upstreamParams = map[string]map[string][]string{
 		"render_and_apply_j2_template": {"router_name", "router_names", "template_content", "vars_content", "apply_config", "dry_run", "commit_comment", "config_format", "timeout"},
 		"gather_device_facts":          {"router_name", "timeout"},
 		"get_router_list":              {},
-		"load_and_commit_config":       {"router_name", "config_text", "config_format", "commit_comment"},
+		"load_and_commit_config":       {"router_name", "config_text", "config_format", "commit_comment", "timeout", "config"},
 	},
 	"ntunes-netmiko-mcp-server": {
 		"send_command":           {"device", "command", "use_textfsm", "read_timeout"},
@@ -184,6 +187,9 @@ var wantRefused = map[string]map[string][]string{
 	},
 	"ntunes-netmiko-mcp-server": {
 		"send_config": {"enter_config_mode"},
+	},
+	"junos-mcp-server": {
+		"load_and_commit_config": {"config"},
 	},
 }
 

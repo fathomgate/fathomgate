@@ -236,6 +236,11 @@ const (
 	RuleMaxDevices    = "default:session.max_devices"
 	RuleMaxPending    = "default:session.max_pending"
 	RuleNoMatch       = "default:no-match"
+	// RuleBadArguments is produced by the gate (and shown by policy eval)
+	// for arguments it cannot accept: not a JSON object, or failing the
+	// profile's closed argument list (ADR 0026 step 1, ADR 0033). Evaluate
+	// never returns it.
+	RuleBadArguments = "default:bad_arguments"
 )
 
 // KnownObligations is the vocabulary the proxy understands. Validate rejects

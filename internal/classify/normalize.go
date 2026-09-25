@@ -3,6 +3,7 @@
 package classify
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -178,7 +179,9 @@ func (r Result) ArgumentsOK() bool {
 // unnamed. malformed holds the named target, command and config arguments
 // whose value is neither a string nor an array of strings (a number, a
 // boolean, an object, or an array holding anything but strings); null counts
-// as absent. Arguments in args are not inspected: any JSON value passes.
+// as absent. A string the upstream could itself parse as JSON is malformed
+// too (upstreamMayParseJSON). Arguments in args are not inspected: any JSON
+// value passes.
 //
 // With no profile (the fallback classifier, ADR 0027) nothing is checked
 // and both are nil. Both results are sorted, so the output does not depend
@@ -194,9 +197,24 @@ func CheckArguments(profile *Profile, tool string, args map[string]any) (unnamed
 		}
 	}
 	if known {
-		for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams} {
-			for _, name := range l {
-				if v, ok := args[name]; ok && !stringOrStrings(v) {
+		lists := []struct {
+			names  []string
+			config bool
+		}{
+			{spec.TargetParams, false}, {spec.TargetsParams, false}, {spec.GroupParams, false},
+			{spec.CommandParams, false}, {spec.ConfigParams, true},
+		}
+		for _, l := range lists {
+			for _, name := range l.names {
+				v, ok := args[name]
+				if !ok {
+					continue
+				}
+				if !stringOrStrings(v) {
+					malformed = append(malformed, name)
+					continue
+				}
+				if s, isString := v.(string); isString && upstreamMayParseJSON(s, l.config) {
 					malformed = append(malformed, name)
 				}
 			}
@@ -205,6 +223,38 @@ func CheckArguments(profile *Profile, tool string, args map[string]any) (unnamed
 	sort.Strings(unnamed)
 	sort.Strings(malformed)
 	return unnamed, malformed
+}
+
+// upstreamMayParseJSON reports whether a string value of a mapped argument
+// could reach the upstream as something other than that string. Python
+// FastMCP (mcp 1.x, func_metadata.pre_parse_json) runs json.loads on any
+// string sent for a parameter not annotated plain str, so
+// hostnames: "[\"core-rtr-01\"]" arrives as a list and hostnames: "null" as
+// None (eos-mcp daily_brief then runs on every device), while fathomgate
+// would read one opaque target or command (security review of PR #161, H1).
+//
+// After TrimSpace, a value is refused when it is valid JSON starting with
+// [, n, t or f (an array, null, true, false). For target, group and command
+// arguments a leading [ or { is refused whether or not Go finds it valid,
+// since no hostname, tag or command starts with either and Python's json
+// accepts more (NaN, Infinity). A config payload may be a JSON object
+// (junos config_text) or Junos text starting "[edit ...]", so there only
+// valid JSON arrays and literals are refused.
+func upstreamMayParseJSON(s string, config bool) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	switch t[0] {
+	case '[', '{':
+		if !config {
+			return true
+		}
+		return t[0] == '[' && json.Valid([]byte(t))
+	case 'n', 't', 'f':
+		return json.Valid([]byte(t))
+	}
+	return false
 }
 
 // stringOrStrings reports whether v is null, a string, or an array whose

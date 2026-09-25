@@ -228,12 +228,6 @@ func describeTarget(t policy.Target) string {
 	return t.Name + " (" + strings.Join(parts, ", ") + ")"
 }
 
-// parseArgs turns --arg k=v flags into a tool argument map. Values containing
-// commas become arrays, mirroring what an agent would send.
-// ruleBadArguments is the reserved rule id the gate uses for arguments it
-// cannot accept (ADR 0026, ADR 0033). Evaluate never produces it.
-const ruleBadArguments = "default:bad_arguments"
-
 // argumentDecision returns the deny the gate gives a call whose arguments
 // fail the profile's closed argument list, or nil when they pass. The reason
 // is fixed text: the agent-facing reason never quotes an argument name. The
@@ -255,9 +249,9 @@ func argumentDecision(res classify.Result) *policy.Decision {
 	}
 	return &policy.Decision{
 		Effect: policy.Deny,
-		RuleID: ruleBadArguments,
+		RuleID: policy.RuleBadArguments,
 		Reason: reason,
-		Trace:  []policy.TraceEntry{{RuleID: ruleBadArguments, Matched: true, Note: strings.Join(notes, "; ")}},
+		Trace:  []policy.TraceEntry{{RuleID: policy.RuleBadArguments, Matched: true, Note: strings.Join(notes, "; ")}},
 	}
 }
 
@@ -269,6 +263,8 @@ func quoteAll(in []string) []string {
 	return out
 }
 
+// parseArgs turns --arg k=v flags into a tool argument map. Values containing
+// commas become arrays, mirroring what an agent would send.
 func parseArgs(kv []string) map[string]any {
 	out := make(map[string]any, len(kv))
 	for _, pair := range kv {

@@ -103,10 +103,11 @@ func TestWorkedExamples(t *testing.T) {
 			map[string]any{"router_name": "core-rtr-01", "command": "request system reboot"}, ExecArbitrary, SourceProfile},
 		{"junos execute_junos_pfe_command never downgraded", "junos-mcp-server", "execute_junos_pfe_command",
 			map[string]any{"router_name": "core-rtr-01", "command": "show jnh 0 exceptions"}, ExecArbitrary, SourceProfile},
-		// Spec: READ_CONFIG through dry-run reclassification (section 7,
-		// planned for M3). Code: the profile class.
+		// EXEC_ARBITRARY since M1-35: the upstream renders the agent's
+		// Jinja2 unsandboxed whatever apply_config says (PR #161 H2), so
+		// the M3 dry-run reclassification must not apply to this tool.
 		{"junos render_and_apply_j2_template apply_config false", "junos-mcp-server", "render_and_apply_j2_template",
-			map[string]any{"router_name": "core-rtr-01", "template_content": "x", "apply_config": false}, WriteConfig, SourceProfile},
+			map[string]any{"router_name": "core-rtr-01", "template_content": "x", "apply_config": false}, ExecArbitrary, SourceProfile},
 		{"junos load_and_commit_config", "junos-mcp-server", "load_and_commit_config",
 			map[string]any{"router_name": "core-rtr-01", "config_text": "set system host-name x"}, WriteConfig, SourceProfile},
 		// Spec: READ_CONFIG (dry_run defaults to true, section 7, M3).

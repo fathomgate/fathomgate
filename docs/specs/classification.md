@@ -226,7 +226,7 @@ Planned (M3; the profile fields are not parsed yet, see [profile-schema.md](prof
 - `dry_run_param` is present in the arguments and true, or absent and `dry_run_default` is true; and
 - `apply_param`, if defined, is absent or false.
 
-Examples: eos-mcp `push_config` with no `dry_run` argument (default true) is `READ_CONFIG`; junos `render_and_apply_j2_template` with `apply_config: false` is `READ_CONFIG`; ntunes `send_config` with `dry_run: true` is `READ_CONFIG`.
+Examples: eos-mcp `push_config` with no `dry_run` argument (default true) is `READ_CONFIG`; ntunes `send_config` with `dry_run: true` is `READ_CONFIG`.
 
 The audit event carries `dry_run_requested: true`. The proxy also uses these parameters to satisfy the `dry_run` obligation on a later real write.
 
@@ -261,7 +261,7 @@ What the code does today. Rows marked † differ from the vendor-aware design; t
 | junos `execute_junos_command` † | junos | `show configuration \| display set` | EXEC_ARBITRARY | fail: `shell-meta` | | EXEC_ARBITRARY | profile |
 | junos `execute_junos_command` | junos | `request system reboot` | EXEC_ARBITRARY | fail: `blocklist` | | EXEC_ARBITRARY | profile |
 | junos `execute_junos_pfe_command` | junos | `show jnh 0 exceptions` | EXEC_ARBITRARY | never downgraded | | EXEC_ARBITRARY | profile |
-| junos `render_and_apply_j2_template` † | junos | `apply_config: false` | WRITE_CONFIG | n/a | | WRITE_CONFIG | profile |
+| junos `render_and_apply_j2_template` | junos | `apply_config: false` | EXEC_ARBITRARY | never downgraded (unsandboxed Jinja2, M1-35) | | EXEC_ARBITRARY | profile |
 | junos `load_and_commit_config` | junos | any | WRITE_CONFIG | n/a | | WRITE_CONFIG | profile |
 | eos `push_config` † | eos | no `dry_run` given | WRITE_CONFIG | n/a | | WRITE_CONFIG | profile |
 | eos `push_config` | eos | `dry_run: false` | WRITE_CONFIG | n/a | | WRITE_CONFIG | profile |
@@ -278,7 +278,7 @@ What the code does today. Rows marked † differ from the vendor-aware design; t
 Design answers for the † rows:
 
 - The four pipe rows: the design allows output filters (section 5.6) and gives `READ_OPERATIONAL` (downgrade) or `READ_CONFIG` (reclassify). The code refuses every pipe, so they stay `EXEC_ARBITRARY`.
-- `render_and_apply_j2_template` with `apply_config: false` and `push_config` without `dry_run`: the design gives `READ_CONFIG` (source `dry-run`) through section 7, which is M3.
+- `push_config` without `dry_run`: the design gives `READ_CONFIG` (source `dry-run`) through section 7, which is M3. junos `render_and_apply_j2_template` is no longer a dry-run candidate: the upstream renders the agent's `template_content` in an unsandboxed Jinja2 environment before it reads `apply_config` (`jmcp.py:1369-1375` at `75fe90a`), so a template runs Python on the MCP host. Its profile class is `EXEC_ARBITRARY` with `never-downgrade` (M1-35, security review of PR #161).
 - FortiOS `show system interface`: the design gives `EXEC_ARBITRARY`, because on FortiOS `show` prints configuration and is not on the FortiOS allow-list; the correct path is `get system interface` or a typed config tool. The code does not know the vendor and lets `show` through. For this command the `system interface` keywords make the call `READ_CONFIG`, but most FortiOS `show` commands (`show vpn ipsec phase1-interface`, `show user local`) come out `READ_OPERATIONAL`. That is looser than the design, which is accepted and open until the vendor reaches `Classify`. Until then, M2 redaction on every result, whatever the class, is the mitigation (section 2). None of these commands is a write.
 - `frobnicate`: the design runs the section 3 fallback classifier and downgrades to `READ_OPERATIONAL` with `profile_gap`. The code has no fallback classifier; a tool missing from the profile is `EXEC_ARBITRARY`.
 
