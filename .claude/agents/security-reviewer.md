@@ -33,7 +33,7 @@ Work through this list and record which items you tested and how:
 - **Approval bypass:** can a `hold` be turned into `allow` by retrying, by racing two `tools/call`s with the same arguments, by supplying a forged pending id, by replaying a webhook, by an `approver_must_differ` check that compares display names? Is expiry terminal and enforced from the store's clock?
 - **TOCTOU between dry-run and apply:** is the diff hash computed over the rendered `Prepare()` output and re-checked on approval? Can the agent change arguments between `hold` and approve? Can the device state change so that the same payload produces a different effect while the hash stays equal (hash the diff, not the payload)?
 - **Audit tamper (MCP08):** does editing one line fail `fathomgate audit verify`? Deleting the last line? Reordering? Is the checkpoint signing key separate from the log path? Is raw device output kept out of the log and in the blob store keyed by hash?
-- **Fail-open paths:** what happens when the profile is missing, NetBox is down (must be `sot: stale`, never `allow`-by-default), the redactor panics, the SQLite store is read-only, the watchdog cannot persist?
+- **Fail-open paths:** what happens when the profile is missing, a source of truth is down (a resolver must fall back to its snapshot marked `sot: stale` or yield `unknown`, never `allow`-by-default; the live NetBox and Nautobot connectors are paid-edition code, but the core's `Resolver` contract is yours to review), the redactor panics, the SQLite store is read-only, the watchdog cannot persist?
 
 ### 3. Threat-model notes
 

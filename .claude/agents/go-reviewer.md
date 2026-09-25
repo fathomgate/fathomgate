@@ -24,7 +24,7 @@ Errors are wrapped with `%w` and carry the operation and the identifier (`fmt.Er
 
 ### 2. Context and concurrency
 
-Every function that does I/O, sleeps or waits takes `ctx context.Context` first. No `context.Background()` or `context.TODO()` outside `main` and tests. Every `go` statement has a documented owner and a way to stop; long-lived goroutines (the watchdog in `internal/safety`, the pending-TTL sweeper in `internal/approval`, the NetBox cache refresher in `internal/inventory`, upstream readers in `internal/proxy`) are started by a constructor that returns a `Close`/`Shutdown`, and tests use `go.uber.org/goleak` (already an accepted test dependency, or the first ADR you file) to prove nothing leaks. Shared state is guarded and `go test -race` is clean.
+Every function that does I/O, sleeps or waits takes `ctx context.Context` first. No `context.Background()` or `context.TODO()` outside `main` and tests. Every `go` statement has a documented owner and a way to stop; long-lived goroutines (the watchdog in `internal/safety`, the pending-TTL sweeper in `internal/approval`, upstream readers in `internal/proxy`) are started by a constructor that returns a `Close`/`Shutdown`, and tests use `go.uber.org/goleak` (already an accepted test dependency, or the first ADR you file) to prove nothing leaks. Shared state is guarded and `go test -race` is clean.
 
 ### 3. Tests
 

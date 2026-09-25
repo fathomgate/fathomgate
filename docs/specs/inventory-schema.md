@@ -129,32 +129,12 @@ The core keeps what makes any connector behave the same:
 
 `internal/inventory/netbox.go` is a stub in the core. It satisfies `Resolver` and resolves nothing, so a chain that includes it fails closed. It stays until the paid resolver exists, then leaves the core.
 
-### 6.1 Live connector (paid edition)
+### 6.1 Rules for a live connector
 
-The rest of this section describes the paid edition's connector, so that its records and its `sot: stale` marking match the core's. The core does not read the `sot` block.
+A resolver registered at order 4, such as the paid edition's connector, follows two rules so that its records and decisions read the same as the core's:
 
-```yaml
-sot:
-  kind: netbox           # or nautobot
-  url: https://netbox.example.net
-  token_env: NETBOX_TOKEN
-  cache_ttl: 5m
-  snapshot: ./inventory.snapshot.yaml
-  stale_max_age: 0       # 0 = unlimited (open question in PLAN.md)
-  filters:
-    status: active
-```
-
-| Field | Meaning |
-| --- | --- |
-| `kind` | `netbox` uses `/api/dcim/devices/?name=`; `nautobot` uses `/api/dcim/devices/?name=`. Both return `role`, `site` (or `location`), `tags[]`, `status`, `platform`. |
-| `cache_ttl` | Per-target positive and negative cache. |
-| `snapshot` | Written by `fathomgate inventory sync`, which pages through every device and writes the static-file format with `source: snapshot`. |
-| `stale_max_age` | If non-zero and the snapshot is older, resolution from it fails and the target is `unknown`. |
-
-Lookup order inside the connector: cache, then live REST, then snapshot. A live failure (connection error, 5xx, timeout) is logged once per `cache_ttl` and the snapshot is used. Every record from the snapshot has `stale: true`, and every decision that used one carries `sot: stale` in its audit event. A 404 from a live lookup is a definitive `unknown` and is not overridden by the snapshot.
-
-Platform mapping to `vendor`: NetBox `platform.slug` or `manufacturer.slug` are matched case-insensitively against `ios|iosxe|ios-xe|nxos|nx-os|eos|junos|panos|pan-os|fortios|srlinux|sr-linux|iosxr|ios-xr`. Anything else is `other`.
+1. **`source`.** A record from a live lookup carries `source: netbox` or `source: nautobot`. A record served from the connector's snapshot carries `source: snapshot`.
+2. **Stale fallback.** When the live source is unreachable, the resolver may serve the last snapshot. Every record from it has `stale: true`, and every decision that used one carries `sot: stale` in its audit event. A definitive not-found from a live lookup is `unknown` and is not overridden by the snapshot. With no usable snapshot the target is `unknown`.
 
 ## 7. Unknown-target semantics
 
@@ -186,6 +166,6 @@ In M1 there is no upstream inventory provider, so only the first two rows apply,
 | Command | Effect |
 | --- | --- |
 | `fathomgate inventory import <csv> [--out file]` | Section 3.1 |
-| `fathomgate inventory sync` | Paid edition (section 6.1): writes the snapshot from the live source of truth |
+| `fathomgate inventory sync` | Paid edition: writes the snapshot from the live source of truth |
 | `fathomgate inventory resolve <name>...` | Prints the record and which provider supplied each field; the debugging tool for "why was this denied as unknown" |
 | `fathomgate inventory lint <file>` | Validates the static file |
