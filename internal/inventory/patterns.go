@@ -41,13 +41,19 @@ func NewPatterns(ps []Pattern) (*Patterns, error) {
 		if p.Role == "" && p.Site == "" && len(p.Tags) == 0 {
 			return nil, fmt.Errorf("inventory: roles[%d] %q: sets no role, site or tags", i, p.Match)
 		}
-		re, err := regexp.Compile("(?i)" + p.Match)
+		re, err := compilePattern(p.Match)
 		if err != nil {
 			return nil, fmt.Errorf("inventory: roles[%d]: %w", i, err)
 		}
 		out.compiled = append(out.compiled, compiledPattern{re: re, p: p})
 	}
 	return out, nil
+}
+
+// compilePattern compiles a roles: match the one way Resolve and
+// PatternWarnings test it: case-insensitively.
+func compilePattern(match string) (*regexp.Regexp, error) {
+	return regexp.Compile("(?i)" + match)
 }
 
 // Resolve implements Resolver.

@@ -182,6 +182,10 @@ class FakeDevice:
     def commands(self) -> list[str]:
         return [line.split("\t", 1)[1] for line in self.log.read_text(encoding="utf-8").splitlines() if "\t" in line]
 
+    def sessions(self) -> int:
+        """SSH connections the device has accepted, authenticated or not."""
+        return len((self.log.parent / "sessions.log").read_text(encoding="utf-8").splitlines())
+
 
 @pytest.fixture
 def fake_device(tmp_path: Path):

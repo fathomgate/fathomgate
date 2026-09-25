@@ -117,9 +117,17 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	var env, pass stringList
 	fs.Var(&env, "upstream-env", "`KEY=VALUE` added to the upstream's environment, for non-secrets: the value is on fathomgate's command line (repeatable)")
 	fs.Var(&pass, "upstream-env-pass", "variable `NAME` copied from fathomgate's own environment to the upstream's, for secrets: no value on the command line (repeatable)")
-	fs.StringVar(&cfg.pipeline.policy, "policy", "", "policy `file` that decides every call before it is forwarded (one file); this or --no-policy is required")
-	fs.StringVar(&cfg.pipeline.inventory, "inventory", "", "static inventory `file` (inventory.yaml) naming the devices the policy knows; without it every target is unknown. Only with --policy")
-	fs.StringVar(&cfg.pipeline.profiles, "profiles", "", "`dir`ectory of profile YAML files that replaces the embedded profiles (no merge). Only with --policy")
+	once := []struct {
+		name string
+		flag *onceFlag
+	}{
+		{"policy", &onceFlag{value: &cfg.pipeline.policy}},
+		{"inventory", &onceFlag{value: &cfg.pipeline.inventory}},
+		{"profiles", &onceFlag{value: &cfg.pipeline.profiles}},
+	}
+	fs.Var(once[0].flag, "policy", "policy `file` that decides every call before it is forwarded (one file); this or --no-policy is required")
+	fs.Var(once[1].flag, "inventory", "static inventory `file` (inventory.yaml) naming the devices the policy knows; without it every target is unknown. Only with --policy")
+	fs.Var(once[2].flag, "profiles", "`dir`ectory of <server>.yaml profiles that replaces the embedded profiles (no merge). Only with --policy")
 	fs.BoolVar(&cfg.pipeline.noPolicy, "no-policy", false, "forward every call to the upstream unchecked (the v0.1.0 pass-through); this or --policy is required")
 	fs.String("audit", "", "refused: the signed audit chain arrives in M4; until then --policy logs every decision to stderr")
 	var listen string
@@ -137,6 +145,11 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return cfg, err
+		}
+		for _, o := range once {
+			if o.flag.repeated {
+				return cfg, fmt.Errorf("--%s is given more than once; give it once", o.name)
+			}
 		}
 		return cfg, parseFlagError(fs, args)
 	}

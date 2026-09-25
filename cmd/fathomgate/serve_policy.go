@@ -15,11 +15,15 @@ import (
 	"strings"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/configfile"
 	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
 	"github.com/fathomgate/fathomgate/profiles"
 )
+
+// maxConfigFile caps the policy, the inventory and each profile file.
+const maxConfigFile = 16 << 20
 
 // pipelineFlags are the serve flags that configure the M1 pipeline (ADR
 // 0027): exactly one of policy and noPolicy; inventory and profiles only
@@ -29,8 +33,36 @@ type pipelineFlags struct {
 	noPolicy                    bool
 }
 
-// check enforces the combinations of ADR 0027. Messages name flags only;
-// the paths are not secret, but none is needed to fix the command line.
+// onceFlag is a string flag that may be given once. A second occurrence
+// is a usage error rather than the flag package's last-one-wins, so
+// `--policy a.yaml ... --policy b.yaml` never enforces a file the operator
+// did not mean (security review of PR #171, L1).
+type onceFlag struct {
+	value    *string
+	repeated bool
+}
+
+func (o *onceFlag) String() string {
+	if o == nil || o.value == nil {
+		return ""
+	}
+	return *o.value
+}
+
+func (o *onceFlag) Set(s string) error {
+	if o.set() {
+		o.repeated = true
+		return errors.New("given more than once")
+	}
+	*o.value = s
+	return nil
+}
+
+// set reports whether the flag already has a value. An explicit empty
+// value counts as unset, as the combination checks treat it.
+func (o *onceFlag) set() bool { return *o.value != "" }
+
+// check enforces the combinations of ADR 0027. Messages name flags only.
 func (pf pipelineFlags) check() error {
 	var extra []string
 	if pf.inventory != "" {
@@ -43,11 +75,11 @@ func (pf pipelineFlags) check() error {
 	case pf.policy != "" && pf.noPolicy:
 		return errors.New("--policy and --no-policy cannot be used together: --policy decides every call, --no-policy forwards every call unchecked")
 	case pf.noPolicy && len(extra) > 0:
-		return fmt.Errorf("%s only configure a policy; --no-policy forwards every call unchecked, so leave them out or use --policy <file>", strings.Join(extra, " and "))
+		return fmt.Errorf("%s: only with --policy <file>; --no-policy forwards every call unchecked, so leave them out or use --policy <file> instead of --no-policy", strings.Join(extra, " and "))
 	case pf.noPolicy:
 		return nil
 	case pf.policy == "" && len(extra) > 0:
-		return fmt.Errorf("%s only work with --policy <file>", strings.Join(extra, " and "))
+		return fmt.Errorf("%s: only with --policy <file>", strings.Join(extra, " and "))
 	case pf.policy == "":
 		return errors.New("--policy <file> or --no-policy is required: --policy decides every call before it reaches the upstream; --no-policy forwards every call unchecked, as v0.1.0 did")
 	}
@@ -69,51 +101,74 @@ type warnLine struct {
 	attrs []any
 }
 
-// noPolicyValue is the start-up line's policy attribute with --no-policy.
-const noPolicyValue = "none (--no-policy: every call is forwarded)"
-
-// unknownTargetAllowWarning is policy-lint's warning for an explicit
-// `unknown_target: allow` (ADR 0032 point 7), word for word, so an
-// operator who sees it in both places knows it is the same finding.
-const unknownTargetAllowWarning = "unknown_target: allow lets the rules decide for hosts no inventory resolves; " +
-	"upstreams such as eos-mcp and netdev-ssh-mcp then send device credentials " +
-	"to any host the agent names (ADR 0032)"
-
-// obligationOrder is the vocabulary's order, used to list a policy's
-// obligations in the start-up warnings.
-var obligationOrder = []string{"dry_run", "diff", "timed_rollback", "redact", "canary_first", "require_ticket", "notify"}
+// Start-up texts (ADR 0027 and its notes; profile-schema 8.3).
+const (
+	noPolicyValue   = "none (--no-policy: every call is forwarded)"
+	noPolicyWarning = "--no-policy: every call is forwarded to the upstream unchecked; nothing is classified, decided or logged as a decision; use --policy <file> in front of real devices"
+	// unknownTargetAllowLint is policy-lint's warning for an explicit
+	// `unknown_target: allow` (ADR 0032 point 7), word for word, so an
+	// operator who sees it in both places knows it is the same finding;
+	// serve adds what to do.
+	unknownTargetAllowLint = "unknown_target: allow lets the rules decide for hosts no inventory resolves; " +
+		"upstreams such as eos-mcp and netdev-ssh-mcp then send device credentials " +
+		"to any host the agent names (ADR 0032)"
+	unknownTargetAllowWarning = unknownTargetAllowLint + "; set unknown_target: deny and list the hosts in --inventory"
+	noInventoryValue          = "none (every target is unknown)"
+	noInventoryWarning        = "no --inventory: every target is unknown, so this policy denies every call that names a device (rule default:unknown_target); add --inventory <file>"
+	noProfileValue            = "none (every call with arguments is denied)"
+	noProfileWarning          = "no profile for this server: every call that carries arguments is denied (rule default:bad_arguments); use a --server key that fathomgate version lists, or add a profile with --profiles <dir>"
+	cannotMeetWarning         = "obligation cannot be met until M3: a call these rules allow cannot run, and the agent is told why; remove the obligation from these rules to run such calls now"
+	carriedWarning            = "obligation not enforced yet: a call these rules allow is forwarded without it"
+	holdWarning               = `calls these rules hold are not run yet: approvals arrive in M3; until then the agent gets "fathomgate held …: needs approval"`
+)
 
 // carriedUntil names the milestone that enforces each obligation M1
-// carries on a forwarded call without enforcing it (ADR 0026 decision 1).
-var carriedUntil = map[string]string{"redact": "M2", "canary_first": "M4", "require_ticket": "M4", "notify": "M4"}
+// carries on a forwarded call without enforcing it (ADR 0026 decision 1;
+// internal/gate forwardable). cannotMeet are the obligations whose allow
+// is not run in M1. Every policy.KnownObligations entry is in exactly one
+// (TestObligationsPartitioned).
+var (
+	carriedUntil = map[string]string{"redact": "M2", "canary_first": "M4", "require_ticket": "M4", "notify": "M4"}
+	cannotMeet   = []string{"dry_run", "diff", "timed_rollback"}
+)
 
 // loadPipeline loads and checks everything the flags name, before anything
 // is bound or spawned (ADR 0027). Any error is a usage error: serve exits 2
-// and starts no upstream. server is the --server name, to say whether it
-// has a profile.
+// and starts no upstream. server is the --server name.
 func loadPipeline(pf pipelineFlags, server string) (*pipeline, error) {
 	if pf.noPolicy {
 		return &pipeline{
 			attrs: []any{"policy", noPolicyValue},
-			warns: []warnLine{{msg: "--no-policy: every call is forwarded to the upstream unchecked; nothing is classified, decided or logged as a decision"}},
+			warns: []warnLine{{msg: noPolicyWarning}},
 		}, nil
 	}
-	pol, err := policy.Load(pf.policy)
+	b, err := configfile.Read(pf.policy, "the policy file "+pf.policy, maxConfigFile)
 	if err != nil {
 		return nil, fmt.Errorf("--policy: %w", err)
+	}
+	pol, err := policy.Parse(b)
+	if err != nil {
+		return nil, fmt.Errorf("--policy: %s: %w", pf.policy, err)
 	}
 	pl := &pipeline{attrs: []any{"policy", pf.policy, "rules", len(pol.Rules)}}
 
 	var resolver inventory.Resolver
 	if pf.inventory == "" {
-		pl.attrs = append(pl.attrs, "inventory", "none (every target is unknown)")
+		pl.attrs = append(pl.attrs, "inventory", noInventoryValue)
+		if pol.Defaults.UnknownTarget != policy.Allow {
+			pl.warns = append(pl.warns, warnLine{msg: noInventoryWarning, attrs: []any{"policy", pf.policy}})
+		}
 	} else {
 		if strings.EqualFold(filepath.Ext(pf.inventory), ".csv") {
 			return nil, errors.New("--inventory takes an inventory.yaml; convert a CSV first with fathomgate inventory import --csv <file> --out inventory.yaml")
 		}
-		f, err := inventory.LoadFile(pf.inventory)
+		b, err := configfile.Read(pf.inventory, "the inventory file "+pf.inventory, maxConfigFile)
 		if err != nil {
 			return nil, fmt.Errorf("--inventory: %w", err)
+		}
+		f, err := inventory.ParseFile(b)
+		if err != nil {
+			return nil, fmt.Errorf("--inventory: %s: %w", pf.inventory, err)
 		}
 		chain, err := f.Chain()
 		if err != nil {
@@ -140,16 +195,26 @@ func loadPipeline(pf pipelineFlags, server string) (*pipeline, error) {
 			return nil, fmt.Errorf("--profiles: %w", err)
 		}
 	}
-	byServer := make(map[string]*classify.Profile, len(set))
+	byServer := make(map[string]*classify.Profile, len(set)+1)
+	keys := make([]string, 0, len(set))
 	for _, p := range set {
 		byServer[p.profile.Server] = p.profile
+		keys = append(keys, p.profile.Server)
 	}
-	_, hasProfile := byServer[server]
-	pl.attrs = append(pl.attrs, "profiles", source, "profile", profileAttr(set, server))
-	if !hasProfile {
+	if _, ok := byServer[server]; ok {
+		pl.attrs = append(pl.attrs, "profiles", source, "profile", server+".yaml")
+	} else {
+		// A server with no profile gets an empty one, so every tool is a
+		// tool the profile does not list: a call that carries any argument
+		// is default:bad_arguments, and one without is EXEC_ARBITRARY for
+		// the rules (ADR 0027 note of 2026-09-25, fail closed as ADR 0032
+		// and ADR 0033 do). Without this, the fallback classifier would
+		// find no target and skip the unknown-target default.
+		byServer[server] = &classify.Profile{Server: server, Tools: map[string]classify.ToolSpec{}}
+		pl.attrs = append(pl.attrs, "profiles", source, "profile", noProfileValue)
 		pl.warns = append(pl.warns, warnLine{
-			msg:   "no profile for this server: its calls take the fallback classifier, and their arguments are not checked",
-			attrs: []any{"server", server, "profiles", source},
+			msg:   noProfileWarning,
+			attrs: []any{"server", server, "profiles", source, "servers_with_a_profile", strings.Join(keys, ",")},
 		})
 	}
 
@@ -162,23 +227,12 @@ func loadPipeline(pf pipelineFlags, server string) (*pipeline, error) {
 	return pl, nil
 }
 
-// profileAttr is the start-up line's profile attribute: the file that
-// classifies server's tools, or "none (fallback classifier)".
-func profileAttr(set []profileFile, server string) string {
-	for _, p := range set {
-		if p.profile.Server == server {
-			return p.name
-		}
-	}
-	return "none (fallback classifier)"
-}
-
 // policyWarnings are the start-up Warn lines a loaded policy earns: an
-// explicit unknown_target: allow (ADR 0032 point 7), each obligation M1
-// does not enforce with the rules that use it (ADR 0027), and the rules
-// whose hold is not run before approvals exist (ADR 0026 decision 3).
-// Policy.Parse fills an unset unknown_target in as deny, so allow here was
-// written by the operator.
+// explicit unknown_target: allow (ADR 0032 point 7), each obligation on an
+// allow rule that M1 does not enforce or cannot meet, with the rules that
+// use it (ADR 0027), and the hold rules, which are not run before
+// approvals exist (ADR 0026 decision 3). Policy.Parse fills an unset
+// unknown_target in as deny, so allow here was written by the operator.
 func policyWarnings(pol *policy.Policy, file string) []warnLine {
 	var out []warnLine
 	if pol.Defaults.UnknownTarget == policy.Allow {
@@ -201,28 +255,22 @@ func policyWarnings(pol *policy.Policy, file string) []warnLine {
 			}
 		}
 	}
-	for _, o := range obligationOrder {
+	for _, o := range policy.KnownObligations {
 		rules := rulesUsing[o]
 		if len(rules) == 0 {
 			continue
 		}
 		if until, ok := carriedUntil[o]; ok {
 			out = append(out, warnLine{
-				msg:   "obligation not enforced yet: a call these rules allow is forwarded without it",
+				msg:   carriedWarning,
 				attrs: []any{"obligation", o, "rules", strings.Join(rules, ","), "enforced_from", until},
 			})
 			continue
 		}
-		out = append(out, warnLine{
-			msg:   "obligation cannot be met yet: a call these rules allow is not run, and the agent is told why",
-			attrs: []any{"obligation", o, "rules", strings.Join(rules, ",")},
-		})
+		out = append(out, warnLine{msg: cannotMeetWarning, attrs: []any{"obligation", o, "rules", strings.Join(rules, ",")}})
 	}
 	if len(holds) > 0 {
-		out = append(out, warnLine{
-			msg:   "hold is not run yet: approvals arrive in M3, and until then the agent is told the call needs approval",
-			attrs: []any{"rules", strings.Join(holds, ",")},
-		})
+		out = append(out, warnLine{msg: holdWarning, attrs: []any{"rules", strings.Join(holds, ",")}})
 	}
 	return out
 }
@@ -236,32 +284,30 @@ func (pl *pipeline) logWarnings(logger *slog.Logger) {
 
 // profileFile is one parsed profile and where it came from.
 type profileFile struct {
-	name    string // file name, without a directory
+	name    string // file name, without a directory: <server>.yaml
 	sum     [sha256.Size]byte
 	profile *classify.Profile
 }
 
 // embeddedProfiles parses the profiles built into the binary.
 func embeddedProfiles() ([]profileFile, error) {
-	return loadProfiles(profiles.FS, "")
+	fsys := profiles.FS()
+	return loadProfiles(fsys, "", func(name string) ([]byte, error) { return fs.ReadFile(fsys, name) })
 }
 
-// loadProfileDir parses every *.yaml file in dir, the --profiles set. dir
-// must be a directory holding at least one profile: an empty set would
-// silently put every server on the fallback classifier.
+// loadProfileDir parses the --profiles set: every *.yaml file at the top
+// of dir. The directory and every profile file pass the configfile
+// integrity checks. A subdirectory or a *.yml file is refused rather than
+// skipped (it would look loaded), and a directory with no profile is an
+// error: an empty set would deny every call that carries arguments.
 func loadProfileDir(dir string) ([]profileFile, error) {
-	st, err := os.Stat(dir)
-	if err != nil {
-		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			err = pe.Err // the operating system's call name is noise here
-		}
-		return nil, fmt.Errorf("%s: %w", dir, err)
+	if err := configfile.CheckDir(dir, "the profiles directory "+dir); err != nil {
+		return nil, err
 	}
-	if !st.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", dir)
-	}
-	set, err := loadProfiles(os.DirFS(dir), dir)
+	set, err := loadProfiles(os.DirFS(dir), dir, func(name string) ([]byte, error) {
+		p := filepath.Join(dir, name)
+		return configfile.Read(p, "the profile "+p, maxConfigFile)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -271,32 +317,47 @@ func loadProfileDir(dir string) ([]profileFile, error) {
 	return set, nil
 }
 
-// loadProfiles parses every *.yaml file at the top of fsys, in name order,
-// as classify.LoadProfileDir does: strict decoding and Validate, and two
-// files for one server key are an error. dir prefixes file names in errors.
-func loadProfiles(fsys fs.FS, dir string) ([]profileFile, error) {
-	names, err := fs.Glob(fsys, "*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	slices.Sort(names)
-	out := make([]profileFile, 0, len(names))
-	seen := map[string]string{}
-	for _, name := range names {
-		shown := name
-		if dir != "" {
-			shown = filepath.Join(dir, name)
+// loadProfiles parses every *.yaml file at the top of fsys, in name order:
+// strict decoding and Validate (classify.ParseProfile). Each file must be
+// named after its server key (<server>.yaml), so the file that classified
+// a tool is never in doubt. dir prefixes file names in errors; read reads
+// one file by name.
+func loadProfiles(fsys fs.FS, dir string, read func(name string) ([]byte, error)) ([]profileFile, error) {
+	shown := func(name string) string {
+		if dir == "" {
+			return name
 		}
-		b, err := fs.ReadFile(fsys, name)
+		return filepath.Join(dir, name)
+	}
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", shown("."), err)
+	}
+	out := make([]profileFile, 0, len(entries))
+	seen := map[string]string{}
+	for _, e := range entries { // ReadDir sorts by name
+		name := e.Name()
+		switch {
+		case e.IsDir():
+			return nil, fmt.Errorf("%s is a directory; profiles are read from the top level only, so move it out", shown(name))
+		case strings.HasSuffix(name, ".yml"):
+			return nil, fmt.Errorf("%s: profiles are named <server>.yaml; rename it", shown(name))
+		case !strings.HasSuffix(name, ".yaml"):
+			continue // LICENSE, README and the like
+		}
+		b, err := read(name)
 		if err != nil {
 			return nil, err
 		}
 		p, err := classify.ParseProfile(b)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", shown, err)
+			return nil, fmt.Errorf("%s: %w", shown(name), err)
+		}
+		if want := p.Server + ".yaml"; name != want {
+			return nil, fmt.Errorf("%s defines server %q; a profile file is named after its server key, %s", shown(name), p.Server, want)
 		}
 		if first, dup := seen[p.Server]; dup {
-			return nil, fmt.Errorf("%s and %s both define server %q", first, name, p.Server)
+			return nil, fmt.Errorf("%s and %s both define server %q", shown(first), shown(name), p.Server)
 		}
 		seen[p.Server] = name
 		out = append(out, profileFile{name: name, sum: sha256.Sum256(b), profile: p})
@@ -319,7 +380,11 @@ func embeddedProfileLines() ([]string, error) {
 	}
 	lines := make([]string, 0, len(set))
 	for _, p := range set {
-		lines = append(lines, fmt.Sprintf("  %-*s  %2d tools  sha256:%s  %s", width, p.profile.Server, len(p.profile.Tools), hex.EncodeToString(p.sum[:6]), p.name))
+		tools := "tools"
+		if len(p.profile.Tools) == 1 {
+			tools = "tool "
+		}
+		lines = append(lines, fmt.Sprintf("  %-*s  %2d %s  sha256:%s  %s", width, p.profile.Server, len(p.profile.Tools), tools, hex.EncodeToString(p.sum[:6]), p.name))
 	}
 	return lines, nil
 }

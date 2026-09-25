@@ -9,14 +9,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"github.com/fathomgate/fathomgate/internal/yamlstrict"
 )
 
 // Parse decodes a policy from YAML and validates it. Unknown keys are
 // errors so a misspelt matcher cannot silently match everything.
 func Parse(b []byte) (*Policy, error) {
 	var p Policy
-	if err := yaml.UnmarshalWithOptions(b, &p, yaml.Strict()); err != nil {
+	if err := yamlstrict.Unmarshal(b, &p); err != nil {
 		return nil, fmt.Errorf("policy: parse: %w", err)
 	}
 	if err := p.Validate(); err != nil {

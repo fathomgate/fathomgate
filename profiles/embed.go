@@ -6,10 +6,17 @@
 // never merges with it.
 package profiles
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
-// FS holds every profiles/*.yaml file of the source tree the binary was
-// built from, at the top level of the file system.
+// files holds every profiles/*.yaml file of the source tree the binary was
+// built from, at the top level.
 //
 //go:embed *.yaml
-var FS embed.FS
+var files embed.FS
+
+// FS returns the embedded profiles, read-only, at the top level of the
+// file system.
+func FS() fs.FS { return files }

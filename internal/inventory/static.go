@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/fathomgate/fathomgate/internal/yamlstrict"
 )
 
 // File is the schema of inventory.yaml. It carries both the static device
@@ -68,7 +69,7 @@ func (s *StaticFile) Targets() []Target {
 // ParseFile decodes inventory.yaml.
 func ParseFile(b []byte) (*File, error) {
 	var f File
-	if err := yaml.UnmarshalWithOptions(b, &f, yaml.Strict()); err != nil {
+	if err := yamlstrict.Unmarshal(b, &f); err != nil {
 		return nil, fmt.Errorf("inventory: parse: %w", err)
 	}
 	return &f, nil
@@ -111,9 +112,11 @@ func (f *File) Chain() (Chain, error) {
 }
 
 // PatternWarnings returns one line for each hostname pattern under roles:
-// that matches no device listed under devices:, in file order, worded as
-// ADR 0031 decision 5 fixes it: `inventory: roles[<i>] "<match>": matches
-// no listed device`. Such a pattern resolves nothing (a pattern never makes
+// that matches no device listed under devices:, in file order (ADR 0031
+// decision 5; the wording, with what to do, is design review's, PR #171):
+// `inventory: roles[<i>] "<match>" matches no listed device and makes
+// nothing known (ADR 0031); list the device under devices`. Such a pattern
+// resolves nothing (a pattern never makes
 // a target known on its own), so an operator who wrote it probably
 // expected something it does not do. It is a warning at load, never an
 // error, so a stale pattern never stops `fathomgate serve`. A pattern that
@@ -124,7 +127,7 @@ func (f *File) PatternWarnings() []string {
 		if p.Match == "" {
 			continue
 		}
-		re, err := regexp.Compile("(?i)" + p.Match)
+		re, err := compilePattern(p.Match)
 		if err != nil {
 			continue
 		}
@@ -136,7 +139,7 @@ func (f *File) PatternWarnings() []string {
 			}
 		}
 		if !hit {
-			out = append(out, fmt.Sprintf("inventory: roles[%d] %q: matches no listed device", i, p.Match))
+			out = append(out, fmt.Sprintf("inventory: roles[%d] %q matches no listed device and makes nothing known (ADR 0031); list the device under devices", i, p.Match))
 		}
 	}
 	return out

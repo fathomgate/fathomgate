@@ -17,6 +17,7 @@ func repoPath(parts ...string) string {
 }
 
 func TestRunDispatch(t *testing.T) {
+	readOnly := copyRepoFile(t, configDir(t), "policies", "examples", "read-only.yaml")
 	cases := []struct {
 		name string
 		args []string
@@ -33,7 +34,7 @@ func TestRunDispatch(t *testing.T) {
 		{"serve refuses audit until M4", []string{"serve", "--audit", "a.jsonl"}, exitUsage},
 		{"serve bad upstream env", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "x", "--upstream-env", "NOEQUALS"}, exitUsage},
 		{"serve upstream missing", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "fathomgate-no-such-upstream-binary", "--no-policy"}, exitFail},
-		{"serve upstream missing with policy", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "fathomgate-no-such-upstream-binary", "--policy", repoPath("policies", "examples", "read-only.yaml")}, exitFail},
+		{"serve upstream missing with policy", []string{"serve", "--server", "netdev-ssh-mcp", "--upstream", "fathomgate-no-such-upstream-binary", "--policy", readOnly}, exitFail},
 		{"serve bad server name", []string{"serve", "--server", "net.dev", "--upstream", "fathomgate-no-such-upstream-binary"}, exitUsage},
 		{"serve positional smuggles policy", []string{"serve", "--server", "s", "--upstream", "x", "extra", "--policy", "p.yaml"}, exitUsage},
 		{"policy no sub", []string{"policy"}, exitUsage},

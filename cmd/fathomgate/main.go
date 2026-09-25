@@ -100,7 +100,7 @@ func printVersion(w io.Writer) int {
 		fmt.Fprintf(os.Stderr, "fathomgate: embedded profiles: %v\n", err)
 		return exitFail
 	}
-	_, _ = fmt.Fprintln(w, "embedded profiles (serve --profiles DIR replaces them):")
+	_, _ = fmt.Fprintln(w, "embedded profiles (serve --profiles <dir> replaces them):")
 	for _, l := range lines {
 		_, _ = fmt.Fprintln(w, l)
 	}

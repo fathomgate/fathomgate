@@ -266,8 +266,8 @@ func TestPatternWarnings(t *testing.T) {
 	}
 	got := f.PatternWarnings()
 	want := []string{
-		`inventory: roles[1] "^fw-": matches no listed device`,
-		`inventory: roles[3] "^border-|^edge-": matches no listed device`,
+		`inventory: roles[1] "^fw-" matches no listed device and makes nothing known (ADR 0031); list the device under devices`,
+		`inventory: roles[3] "^border-|^edge-" matches no listed device and makes nothing known (ADR 0031); list the device under devices`,
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("PatternWarnings() = %q, want %q", got, want)

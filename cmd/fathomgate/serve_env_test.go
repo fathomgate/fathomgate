@@ -211,6 +211,9 @@ func TestMain(m *testing.M) {
 	case "netdev":
 		runNetdevUpstream()
 		return
+	case "fathomgate":
+		runFathomgateChild()
+		return
 	}
 	code := m.Run()
 	if code == 0 {
