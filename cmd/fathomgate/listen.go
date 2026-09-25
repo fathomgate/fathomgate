@@ -102,8 +102,18 @@ func parseListenAddr(s string) (listenAddr, error) {
 	return listenAddr{host: ip, port: uint16(p)}, nil
 }
 
-// listenFunc is net.Listen; tests inject failures.
+// listenFunc is listenTCP; tests inject failures.
 type listenFunc func(network, address string) (net.Listener, error)
+
+// listenTCP is the listenFunc serve binds with: net.Listen, with bindControl
+// run on the socket before bind. On Windows that sets SO_EXCLUSIVEADDRUSE
+// (listen_windows.go; ADR 0029, M1-27); elsewhere bindControl is nil and
+// listenTCP is net.Listen (listen_unix.go says why). A bind that cannot set
+// the option fails, so fathomgate does not start on a socket without it.
+func listenTCP(network, address string) (net.Listener, error) {
+	lc := net.ListenConfig{Control: bindControl}
+	return lc.Listen(context.Background(), network, address)
+}
 
 // bindAttempts bounds how many ports bindLoopback tries for port 0 when the
 // other family's loopback is taken on the port the OS picked.
@@ -119,27 +129,99 @@ const bindAttempts = 8
 // listens on a alone. Any other failure, in use above all, is an error and
 // leaves nothing bound; for port 0 the OS is first asked for another port,
 // up to bindAttempts times. The listeners come back in bind order, a first.
-func bindLoopback(a listenAddr, listen listenFunc, logger *slog.Logger) ([]net.Listener, error) {
+//
+// Then hold (holdWildcards in serve; nil holds nothing) takes the port on
+// the wildcard addresses, without listening (M1-27; on Windows only, see
+// listen_windows.go). What it holds is closed with the listeners: each one
+// bindLoopback returns closes it on Close. A failure there, whatever holds
+// the wildcard, is an error too, retried on another port for port 0.
+func bindLoopback(a listenAddr, listen listenFunc, hold holdFunc, logger *slog.Logger) ([]net.Listener, error) {
+	for attempt := 1; ; attempt++ {
+		lns, port, err := bindLoopbackFamilies(a, listen, logger)
+		if err != nil || hold == nil {
+			return lns, err
+		}
+		held, err := hold(port)
+		if err == nil {
+			return withHeld(lns, held), nil
+		}
+		for _, l := range lns {
+			_ = l.Close()
+		}
+		if a.port == 0 && attempt < bindAttempts {
+			continue
+		}
+		return nil, fmt.Errorf("%w; fathomgate refuses to start, because whatever holds it would receive the agents' connections, and their tokens, once fathomgate stops. Stop that program or use another port", err)
+	}
+}
+
+// holdFunc holds a port on the wildcard addresses for as long as the
+// listeners live; see holdWildcards.
+type holdFunc func(port uint16) (io.Closer, error)
+
+// withHeld makes every listener in lns close held (once) when it is
+// closed. A nil held changes nothing.
+func withHeld(lns []net.Listener, held io.Closer) []net.Listener {
+	if held == nil {
+		return lns
+	}
+	c := &closeOnce{c: held}
+	out := make([]net.Listener, len(lns))
+	for i, l := range lns {
+		out[i] = &heldListener{Listener: l, held: c}
+	}
+	return out
+}
+
+// heldListener is a listener that also closes what bindLoopback holds
+// beside it (the Windows wildcard sockets) when it is closed. The first
+// listener closed releases them: every path that closes one listener closes
+// them all. Callers must not type-assert bindLoopback's listeners to
+// *net.TCPListener: on Windows they are *heldListener.
+type heldListener struct {
+	net.Listener
+	held *closeOnce
+}
+
+// Close closes the listener, then what is held beside it.
+func (l *heldListener) Close() error {
+	err := l.Listener.Close()
+	l.held.close()
+	return err
+}
+
+// closeOnce closes c the first time close is called.
+type closeOnce struct {
+	once sync.Once
+	c    io.Closer
+}
+
+func (o *closeOnce) close() { o.once.Do(func() { _ = o.c.Close() }) }
+
+// bindLoopbackFamilies is one attempt of bindLoopback without the wildcard
+// hold; it retries only for the other family.
+func bindLoopbackFamilies(a listenAddr, listen listenFunc, logger *slog.Logger) ([]net.Listener, uint16, error) {
 	for attempt := 1; ; attempt++ {
 		first, err := listen("tcp", netip.AddrPortFrom(a.host, a.port).String())
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		// The port comes from the bound address; a listener that cannot say
 		// which port it holds is refused rather than guessed at.
 		ta, ok := first.Addr().(*net.TCPAddr)
 		if !ok || ta.Port <= 0 || ta.Port > 65535 {
 			_ = first.Close()
-			return nil, fmt.Errorf("cannot tell which port %s was bound on (%v)", netip.AddrPortFrom(a.host, a.port), first.Addr())
+			return nil, 0, fmt.Errorf("cannot tell which port %s was bound on (%v)", netip.AddrPortFrom(a.host, a.port), first.Addr())
 		}
-		other := netip.AddrPortFrom(a.other(), uint16(ta.Port)).String()
+		port := uint16(ta.Port)
+		other := netip.AddrPortFrom(a.other(), port).String()
 		second, err := listen("tcp", other)
 		switch {
 		case err == nil:
-			return []net.Listener{first, second}, nil
+			return []net.Listener{first, second}, port, nil
 		case loopbackFamilyMissing(err):
 			logger.Warn("this host has no loopback address of the other family; listening on one address only", "missing", other, "error", err)
-			return []net.Listener{first}, nil
+			return []net.Listener{first}, port, nil
 		}
 		_ = first.Close()
 		if a.port == 0 && attempt < bindAttempts {
@@ -151,7 +233,7 @@ func bindLoopback(a listenAddr, listen listenFunc, logger *slog.Logger) ([]net.L
 		if errors.As(err, &oe) && oe.Err != nil {
 			cause = oe.Err
 		}
-		return nil, fmt.Errorf("%s, the other loopback address on the same port, cannot be bound (%w); fathomgate refuses to start, because a client that resolves localhost to that address would send its token to whatever holds it. Stop that program or use another port", other, cause)
+		return nil, 0, fmt.Errorf("%s, the other loopback address on the same port, cannot be bound (%w); fathomgate refuses to start, because a client that resolves localhost to that address would send its token to whatever holds it. Stop that program or use another port", other, cause)
 	}
 }
 
