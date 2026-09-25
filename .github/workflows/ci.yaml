@@ -41,6 +41,21 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go test -race -count=1 ./...
+      # M1-23: the PRD's overhead budget (classify plus evaluate under 5 ms
+      # at p99) at 1x, without -race and with no other package running
+      # (-p 1), so the numbers in the log are the ones
+      # docs/testing/test-strategy.md records for a hosted runner.
+      - name: gate overhead budget (M1-23)
+        run: |
+          go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/ | tee overhead.log
+          missing=0
+          for t in TestDecideOverhead TestDispatchOverhead; do
+            if ! grep -qF -- "--- PASS: $t (" overhead.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       # Proof in the log that the H1 regression tests ran and passed.
       - name: H1 loopback tests ran
         run: |
