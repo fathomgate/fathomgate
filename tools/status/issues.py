@@ -7,6 +7,13 @@ Usage:
   python tools/status/issues.py --apply          # make the changes (CI: issue-hygiene.yaml)
   python tools/status/issues.py --summary FILE   # also append the report as Markdown (job summary)
   python tools/status/issues.py --repo OWNER/NAME
+  python tools/status/issues.py --apply --max-close 20  # a deliberate batch of closures
+  python tools/status/issues.py --apply --since SHA     # close only tasks whose state changed since SHA
+
+Exit status: 0 done; 1 a GitHub call failed part-way (the report says how far
+it got); 2 bad input (a board is invalid, a task id is on two boards, or a
+label the plan needs is not defined in .github/labels.yml), nothing changed;
+3 more closures than --max-close, so labels were set but nothing was closed.
 
 The board is the source of truth (docs/handoffs/README.md). For every task on
 every board, the issues whose title starts with the task id get:
@@ -26,8 +33,23 @@ tasks; tasks with more than one issue; task-id issues opened by someone who
 is not an owner, member or collaborator (never touched, so an outside issue
 titled like a task cannot be relabelled or closed by the job); and open issues
 of any kind with no activity in 30 days. An issue without a task-id prefix is
-only ever read for the 30-day report. A missing label that .github/labels.yml
-defines is created first.
+only ever read for the 30-day report.
+
+Title convention: an issue whose title starts with a task id (`M1-22 ...`,
+`T0.14: ...`) and whose author is an owner, member or collaborator is managed
+as that task's issue, and is closed with the task. Name any other issue about
+a task differently, for example `Follow-up to M1-22: ...`.
+
+Labels: every label the plan sets must be defined in .github/labels.yml, or
+the run exits 2 before changing anything; a defined label the repository
+lacks is created first.
+
+Safety caps: if the plan would close more than --max-close issues (default
+5), the run sets labels, closes nothing, lists the closures it held back and
+exits 3; run it again by hand with a higher --max-close for a real batch. With
+--since SHA (the push-triggered run passes the push's `before`), only tasks
+whose state differs from the boards at SHA are closed; other closures wait
+for the weekly run and are listed.
 
 Running it twice changes nothing the second time: labels are compared with
 what the issue has, and only open issues are closed and commented on.
@@ -52,6 +74,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import unicodedata
 import urllib.parse
 
 try:
@@ -84,7 +107,10 @@ STALE_DAYS = 30
 # "Merged in PR #14", "Merged in #20": the merging PR, preferred over other mentions.
 MERGED_PR_RE = re.compile(r"\bmerged\s+(?:in|as|via|by)\s+(?:PR\s+)?#(\d+)", re.IGNORECASE)
 PR_RE = re.compile(r"\bPR\s+#(\d+)")
-CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# Unicode categories removed from untrusted titles before they are printed:
+# controls, format characters (bidi overrides, zero-width), line and paragraph separators.
+STRIP_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
+DEFAULT_MAX_CLOSE = 5
 
 
 @dataclasses.dataclass(frozen=True)
@@ -133,6 +159,11 @@ class Plan:
     untrusted: list[Issue]
     human_owner: list[tuple[Issue, Task]]
     stale: list[Issue]
+    undefined_labels: list[str] = dataclasses.field(default_factory=list)
+    withheld: list[Change] = dataclasses.field(default_factory=list)  # over --max-close
+    deferred: list[Change] = dataclasses.field(default_factory=list)  # unchanged since --since
+    done: list[str] = dataclasses.field(default_factory=list)
+    error: str | None = None
 
 
 # ---------------------------------------------------------------- inputs
@@ -148,8 +179,14 @@ def load_tasks(milestones: pathlib.Path | None = None) -> list[Task]:
         for e in render.validate(data):
             errs.append(f"{path.name}: {e}")
         boards.append((path, data))
+    seen: dict[str, str] = {}
+    for path, data in boards:
+        for t in data.get("tasks", []):
+            if t.get("id") in seen and seen[t["id"]] != path.name:
+                errs.append(f"{path.name}: task {t['id']} is also on {seen[t['id']]}; a task id may be on one board only")
+            seen.setdefault(t.get("id"), path.name)
     if errs:
-        raise SystemExit("\n".join(errs))
+        raise BoardError("\n".join(errs))
     by_id = {t["id"]: t for _, d in boards for t in d.get("tasks", [])}
     out = []
     for path, data in boards:
@@ -159,6 +196,32 @@ def load_tasks(milestones: pathlib.Path | None = None) -> list[Task]:
                 id=t["id"], title=t["title"], milestone=ms, owner=str(t["owner"]),
                 state=render.effective_state(t, by_id), notes=str(t.get("notes") or ""),
                 board=f"docs/milestones/{path.name}"))
+    return out
+
+
+class BoardError(Exception):
+    """A board cannot be read as the source of truth; nothing is changed."""
+
+
+def states_at(rev: str) -> dict[str, str]:
+    """Effective state of every task on the boards as they were at git revision rev."""
+    def git(*a: str) -> str:
+        r = subprocess.run(["git", *a], capture_output=True, text=True, encoding=ENCODING, check=False, cwd=ROOT)
+        if r.returncode != 0:
+            raise BoardError(f"git {' '.join(a)}: {r.stderr.strip()}")
+        return r.stdout
+    tasks = []
+    for name in git("ls-tree", "--name-only", rev, "--", "docs/milestones/").splitlines():
+        if name.endswith(".yaml"):
+            data = yaml.safe_load(git("show", f"{rev}:{name}")) or {}
+            tasks += [t for t in data.get("tasks", []) if isinstance(t, dict) and "id" in t]
+    by_id = {t["id"]: t for t in tasks}
+    out = {}
+    for t in tasks:
+        try:
+            out[t["id"]] = render.effective_state(t, by_id)
+        except KeyError:
+            out[t["id"]] = t.get("state")
     return out
 
 
@@ -276,7 +339,8 @@ def wanted_labels(t: Task, have: tuple[str, ...], agents: set[str]) -> tuple[lis
 
 
 def plan(repo: str, tasks: list[Task], issues: list[Issue], repo_labels: set[str],
-         label_defs: dict[str, dict], now: dt.datetime) -> Plan:
+         label_defs: dict[str, dict], now: dt.datetime, max_close: int = DEFAULT_MAX_CLOSE,
+         since: dict[str, str] | None = None) -> Plan:
     agents = {n.split(":", 1)[1] for n in label_defs if n.startswith("agent:")}
     by_task: dict[str, list[Issue]] = {}
     untrusted: list[Issue] = []
@@ -292,6 +356,8 @@ def plan(repo: str, tasks: list[Task], issues: list[Issue], repo_labels: set[str
     board = {t.id: t for t in tasks}
     changes: list[Change] = []
     needed: set[str] = set()
+    wanted_all: set[str] = set()
+    deferred: list[Change] = []
     missing, closed_active, dups, human = [], [], [], []
     for t in tasks:
         mine = by_task.get(t.id, [])
@@ -307,10 +373,15 @@ def plan(repo: str, tasks: list[Task], issues: list[Issue], repo_labels: set[str
                 human.append((i, t))
             add, remove = wanted_labels(t, i.labels, agents)
             needed.update(add)
+            wanted_all.update({f"state:{t.state}", f"milestone:{t.milestone}"}
+                              | ({f"agent:{t.owner}"} if t.owner in agents else set()))
             c = Change(issue=i, task=t, add=add, remove=remove)
             if i.state == "open" and not active:
                 c.close_reason = CLOSING[t.state]
                 c.comment = close_comment(t)
+                if since is not None and since.get(t.id) == t.state:
+                    deferred.append(dataclasses.replace(c))
+                    c.close_reason = c.comment = None
             elif i.state == "closed" and active:
                 closed_active.append((i, t))
             if c.add or c.remove or c.close_reason:
@@ -318,46 +389,62 @@ def plan(repo: str, tasks: list[Task], issues: list[Issue], repo_labels: set[str
 
     unknown = [i for tid, lst in sorted(by_task.items()) if tid not in board for i in lst if i.state == "open"]
     unknown += [i for i in untrusted if i.state == "open" and task_id(i.title) not in board]
+    withheld: list[Change] = []
+    closing = [c for c in changes if c.close_reason]
+    if len(closing) > max_close:
+        for c in closing:
+            withheld.append(dataclasses.replace(c))
+            c.close_reason = c.comment = None
+    changes = [c for c in changes if c.add or c.remove or c.close_reason]
     cutoff = now - dt.timedelta(days=STALE_DAYS)
     stale = [i for i in sorted(issues, key=lambda i: i.number) if i.state == "open" and i.updated_at < cutoff]
     return Plan(repo=repo, tasks=len(tasks), issues=len(issues),
                 create_labels=sorted(needed - repo_labels), changes=changes,
                 unknown_task=sorted(unknown, key=lambda i: i.number), missing_issue=missing,
                 closed_active=closed_active, duplicates=dups, untrusted=untrusted,
-                human_owner=human, stale=stale)
+                human_owner=human, stale=stale,
+                undefined_labels=sorted(wanted_all - set(label_defs)),
+                withheld=withheld, deferred=deferred)
 
 
 def apply(p: Plan, gh: GitHub, label_defs: dict[str, dict]) -> None:
+    """Make the plan's changes, recording each finished step in p.done."""
+    if p.undefined_labels:
+        raise BoardError("labels not defined in .github/labels.yml: " + ", ".join(p.undefined_labels))
     for name in p.create_labels:
-        d = label_defs.get(name, {})
+        d = label_defs[name]
         gh.create_label(name, str(d.get("color", "ededed")), str(d.get("description", "")))
+        p.done.append(f"created label {name}")
     for c in p.changes:
         n = c.issue.number
         if c.add:
             gh.add_labels(n, c.add)
+            p.done.append(f"#{n} added {', '.join(c.add)}")
         for label in c.remove:
             gh.remove_label(n, label)
+            p.done.append(f"#{n} removed {label}")
         if c.close_reason:
             # Close first: if the comment then fails, a re-run finds the issue
             # closed and does not comment twice.
             gh.close(n, c.close_reason)
+            p.done.append(f"#{n} closed as {c.close_reason.replace('_', ' ')}")
             gh.comment(n, c.comment)
+            p.done.append(f"#{n} commented")
 
 
 # ---------------------------------------------------------------- output
 
 
 def clean(title: str) -> str:
-    """An issue title is untrusted: no control characters in logs or the summary."""
-    return CONTROL_RE.sub(" ", title)
+    """An issue title is untrusted: drop Unicode Cc, Cf, Zl and Zp characters before printing it."""
+    return "".join(ch for ch in title if unicodedata.category(ch) not in STRIP_CATEGORIES)
 
 
 def md(title: str) -> str:
-    """Escape an untrusted title for a Markdown table cell or list item."""
+    """An untrusted title as a Markdown code span, so nothing in it renders or links."""
     s = clean(title)
-    for ch in "\\`*_[]<>|#!":
-        s = s.replace(ch, "\\" + ch)
-    return s
+    fence = "`" * (max((len(r) for r in re.findall(r"`+", s)), default=0) + 1)
+    return f"{fence} {s} {fence}"
 
 
 def change_line(c: Change) -> str:
@@ -398,12 +485,31 @@ def report_text(p: Plan, applied: bool) -> str:
             lines.append(f"    comment: {c.comment}")
     if not p.changes:
         lines.append("  none")
+    lines += held_back_text(p)
+    if p.undefined_labels:
+        lines.append("Labels not defined in .github/labels.yml (nothing changed, exit 2): " + ", ".join(p.undefined_labels))
+    if p.error:
+        lines.append(f"Apply stopped after {len(p.done)} steps: {clean(p.error)}")
+        lines += [f"  done: {d}" for d in p.done]
     lines.append("")
     lines.append("Drift report:")
     for head, items in drift_sections(p, clean):
         lines.append(f"  {head} ({len(items)}):")
         lines += [f"    {x}" for x in items] or ["    none"]
     return "\n".join(lines) + "\n"
+
+
+def held_back_text(p: Plan) -> list[str]:
+    lines = []
+    if p.withheld:
+        lines.append(f"Closures held back: {len(p.withheld)} is more than --max-close; nothing closed (exit 3):")
+        lines += [f"  #{c.issue.number} {c.task.id} ({c.task.state}): close as {c.close_reason.replace('_', ' ')}"
+                  for c in p.withheld]
+    if p.deferred:
+        lines.append(f"Closures left for the weekly run ({len(p.deferred)}; state unchanged since --since):")
+        lines += [f"  #{c.issue.number} {c.task.id} ({c.task.state}): close as {c.close_reason.replace('_', ' ')}"
+                  for c in p.deferred]
+    return lines
 
 
 def report_markdown(p: Plan, applied: bool) -> str:
@@ -413,6 +519,14 @@ def report_markdown(p: Plan, applied: bool) -> str:
              f"{len(p.changes)} issue changes, {len(p.create_labels)} labels created.", ""]
     if p.changes:
         lines += ["### Changes", ""] + [f"- {change_line(c)}" for c in p.changes] + [""]
+    held = held_back_text(p)
+    if held:
+        lines += ["### Closures not made", "", "```"] + held + ["```", ""]
+    if p.undefined_labels:
+        lines += ["### Stopped", "", "Labels not defined in `.github/labels.yml`, nothing changed: "
+                  + ", ".join(f"`{n}`" for n in p.undefined_labels), ""]
+    if p.error:
+        lines += ["### Apply stopped", "", f"After {len(p.done)} steps:", "", "```", clean(p.error)] + p.done + ["```", ""]
     lines += ["### Drift", ""]
     for head, items in drift_sections(p, md):
         lines.append(f"**{head}** ({len(items)})")
@@ -427,23 +541,41 @@ def main(argv: list[str], gh_factory=GitHub, now: dt.datetime | None = None) -> 
     ap.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
     ap.add_argument("--repo", help="OWNER/NAME (default: $GITHUB_REPOSITORY, else gh repo view)")
     ap.add_argument("--summary", help="append the report as Markdown to this file ($GITHUB_STEP_SUMMARY)")
+    ap.add_argument("--max-close", type=int, default=DEFAULT_MAX_CLOSE,
+                    help=f"close nothing if more than this many issues would close (default {DEFAULT_MAX_CLOSE})")
+    ap.add_argument("--since", metavar="REV",
+                    help="close only tasks whose state changed since this git revision (push runs)")
     args = ap.parse_args(argv)
+    if args.max_close < 0:
+        ap.error("--max-close must be 0 or more")
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding=ENCODING, errors="replace")
 
-    tasks = load_tasks()
+    try:
+        tasks = load_tasks()
+        since = states_at(args.since) if args.since else None
+    except BoardError as e:
+        sys.stderr.write(f"tools/status/issues.py: {e}\n")
+        return 2
     label_defs = load_label_defs()
     gh = gh_factory(resolve_repo(args.repo))
     p = plan(gh.repo, tasks, gh.list_issues(), gh.list_labels(), label_defs,
-             now or dt.datetime.now(dt.timezone.utc))
-    if args.apply:
-        apply(p, gh, label_defs)
-    sys.stdout.write(report_text(p, args.apply))
-    if args.summary:
-        with open(args.summary, "a", encoding=ENCODING, newline="\n") as f:
-            f.write(report_markdown(p, args.apply))
-    return 0
+             now or dt.datetime.now(dt.timezone.utc), max_close=args.max_close, since=since)
+    rc = 2 if p.undefined_labels else 3 if p.withheld else 0
+    try:
+        if args.apply and not p.undefined_labels:
+            apply(p, gh, label_defs)
+    except Exception as e:  # report how far it got, then fail
+        p.error = f"{type(e).__name__}: {e}"
+        rc = 1
+    finally:
+        # Written even when a call fails part-way, so the job summary says what changed.
+        sys.stdout.write(report_text(p, args.apply))
+        if args.summary:
+            with open(args.summary, "a", encoding=ENCODING, newline="\n") as f:
+                f.write(report_markdown(p, args.apply))
+    return rc
 
 
 if __name__ == "__main__":

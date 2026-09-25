@@ -156,6 +156,7 @@ def live_issues():
         issue(8, "Share a sample config", ["help wanted"], updated=NOW - dt.timedelta(days=45)),
         issue(9, "M1-02 Spoofed by an outsider", [], assoc="NONE"),
         issue(10, "M1-0x is not a task id prefix", []),
+        issue(12, "T0.2 Contributor copy", ["state:open"], assoc="CONTRIBUTOR"),
         issue(11, "T0.1 Merged task (old copy)", ["milestone:M0", "state:merged", "agent:mcp-protocol-engineer"],
               state="closed", updated=NOW - dt.timedelta(days=90)),
     ]
@@ -167,8 +168,12 @@ def fake(issues=None, labels=None):
                       if labels is None else labels)
 
 
-def make_plan(gh):
-    return ig.plan(gh.repo, ig.load_tasks(), gh.list_issues(), gh.list_labels(), ig.load_label_defs(), NOW)
+def make_plan(gh, **kw):
+    return ig.plan(gh.repo, ig.load_tasks(), gh.list_issues(), gh.list_labels(), ig.load_label_defs(), NOW, **kw)
+
+
+def run(gh, *argv):
+    return ig.main(["--repo", "o/r", *argv], gh_factory=lambda r: gh, now=NOW)
 
 
 def change(p, n):
@@ -229,10 +234,11 @@ def test_untrusted_and_unprefixed_issues_untouched(repo):
     gh = fake()
     p = make_plan(gh)
     touched = {c.issue.number for c in p.changes}
-    assert 9 not in touched and 7 not in touched and 8 not in touched and 10 not in touched
-    assert [i.number for i in p.untrusted] == [9]
+    assert touched.isdisjoint({7, 8, 9, 10, 12})
+    assert [(i.number, i.author_association) for i in p.untrusted] == [(9, "NONE"), (12, "CONTRIBUTOR")]
     ig.apply(p, gh, ig.load_label_defs())
-    assert all(call[1] not in (7, 8, 9, 10) for call in gh.calls if call[0] != "create_label")
+    assert all(call[1] not in (7, 8, 9, 10, 12) for call in gh.calls if call[0] != "create_label")
+    assert gh.issues[12].state == "open" and gh.issues[12].labels == ("state:open",)
 
 
 def test_drift_report(repo):
@@ -263,7 +269,7 @@ def test_closed_issue_labels_are_still_corrected(repo):
 def test_dry_run_changes_nothing(repo, capsys):
     gh = fake()
     before = dict(gh.issues)
-    assert ig.main([], gh_factory=lambda r: gh, now=NOW) == 0
+    assert run(gh) == 0
     assert gh.calls == [] and gh.issues == before
     out = capsys.readouterr().out
     assert "dry run" in out and "#1 T0.1 (merged): add state:merged; remove state:in review; close as completed" in out
@@ -272,7 +278,7 @@ def test_dry_run_changes_nothing(repo, capsys):
 def test_apply_is_idempotent(repo, tmp_path, capsys):
     gh = fake()
     summary = tmp_path / "summary.md"
-    assert ig.main(["--apply", "--repo", "o/r", "--summary", str(summary)], gh_factory=lambda r: gh, now=NOW) == 0
+    assert run(gh, "--apply", "--summary", str(summary)) == 0
     first = list(gh.calls)
     assert ("create_label", "agent:orchestrator", "123456") in first
     assert ("close", 2, "not_planned") in first
@@ -286,17 +292,103 @@ def test_apply_is_idempotent(repo, tmp_path, capsys):
     assert md.startswith("## Issue hygiene (applied)") and "### Drift" in md
 
     gh.calls.clear()
-    assert ig.main(["--apply", "--repo", "o/r"], gh_factory=lambda r: gh, now=NOW) == 0
+    assert run(gh, "--apply") == 0
     assert gh.calls == []
     assert len(gh.comments[1]) == 1
     assert "Issue changes (0):" in capsys.readouterr().out
 
 
-def test_untrusted_title_is_escaped():
-    t = "M1-99 ::add-mask::x\r\n| <img src=x> [a](b)"
-    assert "\n" not in ig.clean(t) and "\r" not in ig.clean(t)
+def test_untrusted_title_is_cleaned_and_fenced():
+    t = "M1-99 ::add-mask::x\r\n\u2028\u2029\u202e\u200b\x1b[31m | <img src=x> [a](https://e/) ``x``"
+    c = ig.clean(t)
+    for ch in "\r\n\u2028\u2029\u202e\u200b\x1b":
+        assert ch not in c
+    assert c.startswith("M1-99 ::add-mask::x[31m")
     m = ig.md(t)
-    assert "\\|" in m and "\\<img" in m and "\\[a\\]" in m
+    # a code span fenced longer than any backtick run in the title, so nothing renders or links
+    assert m.startswith("``` ") and m.endswith(" ```") and "<img src=x>" in m
+    assert ig.md("plain") == "` plain `"
+
+
+def closing_issues(k):
+    """k open issues of merged tasks, on a board of their own."""
+    return [issue(100 + n, f"T0.1 Merged task copy {n}", ["milestone:M0", "state:merged", "agent:mcp-protocol-engineer"])
+            for n in range(k)]
+
+
+def test_max_close_holds_back_every_closure(repo, tmp_path, capsys):
+    gh = fake(live_issues() + closing_issues(4))  # 3 + 4 = 7 closures > 5
+    summary = tmp_path / "summary.md"
+    assert run(gh, "--apply", "--summary", str(summary)) == 3
+    assert not any(c[0] in ("close", "comment") for c in gh.calls)
+    assert ("add", 3, ("state:blocked",)) in gh.calls  # labels are still set
+    out = capsys.readouterr().out
+    assert "Closures held back: 7 is more than --max-close" in out
+    assert "### Closures not made" in summary.read_text(encoding="utf-8")
+    # a deliberate batch
+    gh.calls.clear()
+    assert run(gh, "--apply", "--max-close", "7") == 0
+    assert sum(c[0] == "close" for c in gh.calls) == 7
+
+
+def test_max_close_counts_only_closures(repo):
+    p = make_plan(fake(), max_close=3)
+    assert p.withheld == [] and sum(bool(c.close_reason) for c in p.changes) == 3
+    p = make_plan(fake(), max_close=2)
+    assert [c.issue.number for c in p.withheld] == [1, 2, 5]
+    assert all(c.close_reason is None for c in p.changes)
+    assert change(p, 1).add == ["state:merged"]
+
+
+def test_since_closes_only_tasks_that_changed(repo):
+    # T0.1 was already merged before the push; T0.2 and M1-03 changed in it
+    p = make_plan(fake(), since={"T0.1": "merged", "T0.2": "in progress"})
+    assert [c.issue.number for c in p.deferred] == [1]
+    assert change(p, 1).close_reason is None and change(p, 1).add == ["state:merged"]
+    assert change(p, 2).close_reason == "not_planned"
+    assert change(p, 5).close_reason == "completed"  # not on the old boards: new task
+    assert "Closures left for the weekly run (1" in ig.report_text(p, applied=False)
+
+
+def test_undefined_label_stops_before_any_change(repo, capsys):
+    (repo / "labels.yml").write_text('- name: "milestone:M0"\n  color: "123456"\n', encoding="utf-8")
+    gh = fake()
+    assert run(gh, "--apply") == 2
+    assert gh.calls == []
+    assert "Labels not defined in .github/labels.yml" in capsys.readouterr().out
+
+
+def test_task_on_two_boards_is_refused(repo, capsys):
+    (repo / "docs" / "milestones" / "M2.yaml").write_text(
+        "milestone: M2\ntitle: x\ntasks:\n  - id: T0.1\n    title: again\n    package: x\n"
+        "    owner: docs-writer\n    state: open\n", encoding="utf-8")
+    with pytest.raises(ig.BoardError, match="T0.1 is also on M0.yaml"):
+        ig.load_tasks()
+    gh = fake()
+    assert run(gh, "--apply") == 2
+    assert gh.calls == []
+
+
+def test_partial_failure_still_reports(repo, tmp_path, capsys):
+    gh = fake()
+
+    def boom(n, reason):
+        raise RuntimeError("gh api: HTTP 502")
+    gh.close = boom
+    summary = tmp_path / "summary.md"
+    assert run(gh, "--apply", "--summary", str(summary)) == 1
+    out = capsys.readouterr().out
+    assert "Apply stopped after" in out and "HTTP 502" in out and "done: created label agent:orchestrator" in out
+    md = summary.read_text(encoding="utf-8")
+    assert "### Apply stopped" in md and "### Drift" in md
+
+
+def test_states_at_reads_the_boards_at_a_revision():
+    states = ig.states_at("HEAD")
+    assert states["T0.1"] == "merged"
+    assert set(states) >= {t.id for t in ig.load_tasks() if t.board.endswith("M0.yaml")}
+    with pytest.raises(ig.BoardError):
+        ig.states_at("0" * 40)
 
 
 def test_live_board_loads():

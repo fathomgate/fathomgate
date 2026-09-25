@@ -47,7 +47,7 @@ The board is mirrored to GitHub Issues so notifications and the Projects view wo
 
 If the YAML and the issue disagree, the YAML wins and the issue is corrected.
 
-Issue state follows the board automatically: `.github/workflows/issue-hygiene.yaml` runs `tools/status/issues.py --apply` on every push to `main` that changes `docs/milestones/`, and weekly, so the `state:`, `milestone:` and `agent:` labels match the YAML and the issue of a merged, validated or dropped task is closed; `python tools/status/issues.py` alone is the dry run and prints the drift report.
+Issue state follows the board automatically: `.github/workflows/issue-hygiene.yaml` runs `tools/status/issues.py --apply` on every push to `main` that changes `docs/milestones/`, and weekly, so the `state:`, `milestone:` and `agent:` labels match the YAML and the issue of a merged, validated or dropped task is closed; `python tools/status/issues.py` alone is the dry run and prints the drift report. An issue titled `<task-id> …` by an owner, member or collaborator is managed as that task's issue and closes with it, so title any other issue about a task differently (`Follow-up to M1-22: …`). A run that would close more than five issues closes none and fails; start the workflow by hand with a higher `max_close` for a deliberate batch.
 
 ## Why files and not a tracker
 
