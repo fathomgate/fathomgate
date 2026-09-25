@@ -99,7 +99,7 @@ func TestBindLoopbackHoldsBothFamilies(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lns, err := bindLoopback(a, net.Listen, discardLogger())
+			lns, err := bindLoopback(a, listenTCP, discardLogger())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +151,7 @@ func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lns, err := bindLoopback(a, net.Listen, discardLogger())
+			lns, err := bindLoopback(a, listenTCP, discardLogger())
 			if err == nil {
 				for _, l := range lns {
 					_ = l.Close()

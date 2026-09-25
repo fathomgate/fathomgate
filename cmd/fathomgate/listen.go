@@ -102,8 +102,18 @@ func parseListenAddr(s string) (listenAddr, error) {
 	return listenAddr{host: ip, port: uint16(p)}, nil
 }
 
-// listenFunc is net.Listen; tests inject failures.
+// listenFunc is listenTCP; tests inject failures.
 type listenFunc func(network, address string) (net.Listener, error)
+
+// listenTCP is the listenFunc serve binds with: net.Listen, with bindControl
+// run on the socket before bind. On Windows that sets SO_EXCLUSIVEADDRUSE
+// (listen_windows.go; ADR 0029, M1-27); elsewhere bindControl is nil and
+// listenTCP is net.Listen (listen_unix.go says why). A bind that cannot set
+// the option fails, so fathomgate does not start on a socket without it.
+func listenTCP(network, address string) (net.Listener, error) {
+	lc := net.ListenConfig{Control: bindControl}
+	return lc.Listen(context.Background(), network, address)
+}
 
 // bindAttempts bounds how many ports bindLoopback tries for port 0 when the
 // other family's loopback is taken on the port the OS picked.

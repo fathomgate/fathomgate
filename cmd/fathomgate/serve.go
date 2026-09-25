@@ -390,7 +390,7 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitUsage
 		}
-		lns, err = bindLoopback(*cfg.listen, net.Listen, logger)
+		lns, err = bindLoopback(*cfg.listen, listenTCP, logger)
 		if err != nil {
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitFail

@@ -44,12 +44,13 @@ jobs:
       # Proof in the log that the H1 regression tests ran and passed.
       - name: H1 loopback tests ran
         run: |
-          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' ./cmd/fathomgate/ | tee h1.log
+          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken|TestBindLoopbackRefusesWildcardLinux' ./cmd/fathomgate/ | tee h1.log
           missing=0
           for t in \
             TestBindLoopbackHoldsBothFamilies \
             TestBindLoopbackRefusesTakenOtherFamily \
-            TestServeListenOtherFamilyTaken; do
+            TestServeListenOtherFamilyTaken \
+            TestBindLoopbackRefusesWildcardLinux; do
             if ! grep -qF -- "--- PASS: $t (" h1.log; then
               echo "::error::$t did not print --- PASS"
               missing=1
@@ -248,12 +249,14 @@ jobs:
       - run: go test -count=1 ./...
       - name: H1 loopback tests ran
         run: |
-          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' ./cmd/fathomgate/ | tee h1.log
+          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken|TestBindLoopbackExclusiveWindows|TestBindControlFailsClosedWindows' ./cmd/fathomgate/ | tee h1.log
           missing=0
           for t in \
             TestBindLoopbackHoldsBothFamilies \
             TestBindLoopbackRefusesTakenOtherFamily \
-            TestServeListenOtherFamilyTaken; do
+            TestServeListenOtherFamilyTaken \
+            TestBindLoopbackExclusiveWindows \
+            TestBindControlFailsClosedWindows; do
             if ! grep -qF -- "--- PASS: $t (" h1.log; then
               echo "::error::$t did not print --- PASS"
               missing=1
