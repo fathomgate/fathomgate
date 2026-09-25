@@ -41,6 +41,25 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go test -race -count=1 ./...
+      # M1-23: the PRD's overhead budget (classify plus evaluate under 5 ms
+      # at p99) at 1x, without -race and with no other package running
+      # (-p 1). FATHOMGATE_OVERHEAD_STRICT=1 also enforces each worst case's
+      # p50 (internal/gate/gatetest), which a full parallel run only logs.
+      # The numbers in docs/testing/test-strategy.md come from this log.
+      - name: gate overhead budget (M1-23)
+        env:
+          FATHOMGATE_OVERHEAD_STRICT: "1"
+        run: |
+          set -o pipefail
+          go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/ | tee overhead.log
+          missing=0
+          for t in TestDecideOverhead TestDispatchOverhead; do
+            if ! grep -qF -- "--- PASS: $t (" overhead.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       # Proof in the log that the H1 regression tests ran and passed.
       - name: H1 loopback tests ran
         run: |
@@ -278,6 +297,24 @@ jobs:
           echo "Go in use is $got, the go.mod toolchain"
       - run: go vet ./...
       - run: go test -count=1 ./...
+      # M1-23: the PRD's overhead budget (classify plus evaluate under 5 ms
+      # at p99) at 1x, without -race and with no other package running
+      # (-p 1). FATHOMGATE_OVERHEAD_STRICT=1 also enforces each worst case's
+      # p50 (internal/gate/gatetest), which a full parallel run only logs.
+      - name: gate overhead budget (M1-23)
+        env:
+          FATHOMGATE_OVERHEAD_STRICT: "1"
+        run: |
+          set -o pipefail
+          go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/ | tee overhead.log
+          missing=0
+          for t in TestDecideOverhead TestDispatchOverhead; do
+            if ! grep -qF -- "--- PASS: $t (" overhead.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - name: H1 loopback tests ran
         run: |
           go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken|TestBindLoopbackExclusiveWindows|TestBindControlFailsClosedWindows|TestBindLoopbackRefusesHeldWildcardWindows|TestServeListenWildcardHeldWindows|TestHoldWildcardsNotInherited|TestHeldSocketsCloseReleasesWindows|TestBindLoopbackHoldInjected' ./cmd/fathomgate/ | tee h1.log
@@ -366,6 +403,24 @@ jobs:
       - run: go vet ./...
       - run: go test -count=1 ./...
       - run: go test -race -count=1 ./internal/proxy/
+      # M1-23: the PRD's overhead budget (classify plus evaluate under 5 ms
+      # at p99) at 1x, without -race and with no other package running
+      # (-p 1). FATHOMGATE_OVERHEAD_STRICT=1 also enforces each worst case's
+      # p50 (internal/gate/gatetest), which a full parallel run only logs.
+      - name: gate overhead budget (M1-23)
+        env:
+          FATHOMGATE_OVERHEAD_STRICT: "1"
+        run: |
+          set -o pipefail
+          go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/ | tee overhead.log
+          missing=0
+          for t in TestDecideOverhead TestDispatchOverhead; do
+            if ! grep -qF -- "--- PASS: $t (" overhead.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - name: ACL, token file, audit file and H1 tests ran on macOS
         run: |
           go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|LoadKey|KeyLoaders|NewWriter|Writer|TestRead|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
