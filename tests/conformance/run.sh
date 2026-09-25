@@ -16,6 +16,16 @@
 #   fathomgate         shim -> fathomgate serve --listen -> upstream (stdio)  current
 #   control-up2025     shim -> everything-server -http                       2025
 #   fathomgate-up2025  shim -> fathomgate serve --listen -> upstream (stdio)  2025
+#   fathomgate-policy  shim -> fathomgate serve --listen --policy            current
+#                      --profiles -> upstream (stdio)
+#
+# Every fathomgate leg but fathomgate-policy runs --no-policy (the
+# pass-through, ADR 0027). fathomgate-policy (M1-28) loads policy/policy.yaml
+# with policy/profiles/conf.yaml, a test profile for the fixture, copied to
+# an owner-only temporary directory as serve requires. After the suite it
+# checks fathomgate's log: the deny of test_error_handling by conf-no-exec
+# (the suite scored that deny as a tool error), the narrowed inputSchema of
+# test_x_mcp_header, and no other deny.
 #
 #   upstream  current  go-sdk conformance/everything-server at the go.mod
 #                      version; negotiates 2026-07-28 with fathomgate. On a
@@ -58,7 +68,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <control|fathomgate|control-up2025|fathomgate-up2025> <2025-11-25|2026-07-28>" >&2
+  echo "usage: $0 <control|fathomgate|control-up2025|fathomgate-up2025|fathomgate-policy> <2025-11-25|2026-07-28>" >&2
   exit 2
 }
 [ $# -eq 2 ] || usage
@@ -70,11 +80,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 
 # Leg: which chain, which upstream.
+gate=none
 case "$leg" in
   control) chain=direct upstream=current ;;
   fathomgate) chain=fathomgate upstream=current ;;
   control-up2025) chain=direct upstream=2025 ;;
   fathomgate-up2025) chain=fathomgate upstream=2025 ;;
+  fathomgate-policy) chain=fathomgate upstream=current gate=policy ;;
   *) usage ;;
 esac
 if [ "$chain" = direct ] && [ "$upstream" = 2025 ] && [ "$rev" = 2026-07-28 ]; then
@@ -118,6 +130,34 @@ if [ "$chain" = fathomgate ]; then
   token=$("$python" -c 'import secrets; print("FAKE-conformance-" + secrets.token_hex(16))')
 fi
 
+# The policy leg's files: serve refuses a policy or profile that anyone but
+# its owner (and administrators) may change (ADR 0027), and a checkout's
+# modes vary, so they are copied to a fresh directory only the owner can
+# write. --no-policy on every other fathomgate leg: the suite checks the
+# protocol through the pass-through, so those baselines do not change with a
+# policy.
+gate_dir=
+gate_args=(--no-policy)
+if [ "$gate" = policy ]; then
+  gate_dir=$(mktemp -d)
+  chmod 700 "$gate_dir"
+  mkdir "$gate_dir/profiles"
+  chmod 700 "$gate_dir/profiles"
+  cp "$here/policy/policy.yaml" "$gate_dir/policy.yaml"
+  cp "$here/policy/profiles/conf.yaml" "$gate_dir/profiles/conf.yaml"
+  chmod 600 "$gate_dir/policy.yaml" "$gate_dir/profiles/conf.yaml"
+  # Windows (Git Bash): chmod does not change the ACL; give the user alone
+  # full control, as install.md step 1 does.
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      for p in "$gate_dir" "$gate_dir/profiles" "$gate_dir/policy.yaml" "$gate_dir/profiles/conf.yaml"; do
+        MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$p")" /inheritance:r /grant:r "$USERNAME:F" >/dev/null
+      done
+      ;;
+  esac
+  gate_args=(--policy "$gate_dir/policy.yaml" --profiles "$gate_dir/profiles")
+fi
+
 chain_pid=
 shim_pid=
 # stop_pid PID: SIGTERM, up to 10 s for it to exit, then SIGKILL.
@@ -139,7 +179,12 @@ stop_chain() {
   shim_pid=
   chain_pid=
 }
-trap stop_chain EXIT
+# shellcheck disable=SC2329 # invoked by the EXIT trap
+cleanup() {
+  stop_chain
+  if [ -n "$gate_dir" ]; then rm -rf "$gate_dir"; fi
+}
+trap cleanup EXIT
 
 # wait_line FILE PATTERN PID: print the first `<key>=<value>` match of
 # PATTERN in FILE once it appears; fail if PID exits or 15 s pass.
@@ -172,10 +217,9 @@ start_chain() {
   if [ "$chain" = fathomgate ]; then
     # The server name "conf" is the tool prefix fathomgate applies; the shim
     # puts it on the suite's unprefixed tools/call names (and nowhere else).
-    # --no-policy: the suite checks the protocol, through the pass-through
-    # (ADR 0027), so the baselines do not change with the policy.
+    # gate_args: --no-policy, or the policy leg's --policy and --profiles.
     FATHOMGATE_LISTEN_TOKEN=$token "$fathomgate" serve --listen 127.0.0.1:0 \
-      --server conf --upstream "$fixture" --no-policy </dev/null >"$chain_log" 2>&1 &
+      --server conf --upstream "$fixture" "${gate_args[@]}" </dev/null >"$chain_log" 2>&1 &
     chain_pid=$!
     # One `listening url=` line per loopback family, the address asked for
     # first (ADR 0023); the shim targets that one.
@@ -228,6 +272,32 @@ if [ "$status" -ne 0 ]; then
 fi
 # Stop the chain before reading its log, so every line is flushed.
 stop_chain
+
+# The policy leg's own checks on fathomgate's log (M1-28). The suite has
+# already scored the deny of test_error_handling as a tool error
+# (tools-call-error) and read the narrowed schema of test_x_mcp_header
+# (http-custom-header-server-validation); these make sure that is what it
+# scored: the gate decided the call, and narrowed exactly that tool.
+if [ "$gate" = policy ]; then
+  log=$out/chain.log
+  gate_ok=1
+  policy_fail() {
+    echo "conformance: $leg $rev: $1 (chain log $log)" >&2
+    gate_ok=0
+    status=1
+  }
+  grep -q 'msg=decision server=conf tool=test_error_handling class=EXEC_ARBITRARY class_source=profile .* decision=deny rule_id=conf-no-exec .* forwarded=false' "$log" ||
+    policy_fail "no decision line denying test_error_handling by conf-no-exec"
+  others=$(grep 'msg=decision ' "$log" | grep -v 'tool=test_error_handling ' | grep -v ' decision=allow rule_id=conf-reads ' || true)
+  [ -z "$others" ] || policy_fail "a decision other than allow by conf-reads for a tool the profile allows: $(printf '%s' "$others" | head -3)"
+  grep 'msg=decision ' "$log" | grep -q ' decision=allow rule_id=conf-reads ' ||
+    policy_fail "no call was allowed by conf-reads"
+  narrowed=$(grep -c 'msg="advertising only the arguments the profile names"' "$log" || true)
+  grep -q 'msg="advertising only the arguments the profile names" server=conf tool=test_x_mcp_header dropped=\[level\]' "$log" ||
+    policy_fail "test_x_mcp_header was not advertised without level"
+  [ "$narrowed" = 1 ] || policy_fail "$narrowed tools advertised with dropped arguments; want 1 (test_x_mcp_header)"
+  [ "$gate_ok" = 0 ] || echo "== conformance $leg $rev: gate checks passed (deny by conf-no-exec, allows by conf-reads, test_x_mcp_header narrowed)"
+fi
 
 # Fresh-process scenarios (2025-11-25 fathomgate legs). In the run above one
 # fathomgate serves every scenario, so the session cap and the orphan rule

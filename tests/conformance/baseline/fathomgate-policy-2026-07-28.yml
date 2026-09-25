@@ -1,0 +1,77 @@
+# Expected failures: fathomgate-policy leg (shim -> fathomgate serve --listen
+# --policy policy/policy.yaml --profiles policy/profiles -> go-sdk
+# everything-server over stdio), --requirements 2026-07-28 (stateless agent).
+# M1-28. Format and exit rules: tests/conformance/README.md. An entry that
+# starts passing fails the run, so a fix must delete its entry in the same PR.
+#
+# The same chain as the fathomgate leg with the gate loaded, so every entry
+# of fathomgate-2026-07-28.yml is here for the same reason, except one that
+# passes under the gate (removed; see "Changed by the gate"), and seven
+# checks the gate adds (the last group). Nothing else differs: the tool
+# results, content types, errors, progress, the HTTP checks and the
+# custom-header checks score as on the pass-through, with every call decided
+# by the gate. The scenario that scores a tool error (tools-call-error) now
+# scores fathomgate's deny of test_error_handling (rule conf-no-exec), and
+# passes. run.sh checks the decision lines.
+server:
+  # Undeclared capabilities (T0.3), as on the fathomgate leg.
+  - completion-complete:completion-complete
+  - prompts-list:prompts-list
+  - prompts-get-simple:prompts-get-simple
+  - prompts-get-with-args:prompts-get-with-args
+  - prompts-get-embedded-resource:prompts-get-embedded-resource
+  - prompts-get-with-image:prompts-get-with-image
+  - resources-list:resources-list
+  - resources-read-text:resources-read-text
+  - resources-read-binary:resources-read-binary
+  - resources-templates-read:resources-templates-read
+  - caching:sep-2549-prompts-list-caching-hints
+  - caching:sep-2549-resources-list-caching-hints
+  - caching:sep-2549-resources-templates-list-caching-hints
+  - input-required-result-non-tool-request:sep-2322-non-tool-incomplete
+  - sep-2164-resource-not-found:sep-2164-error-code
+  - sep-2164-resource-not-found:sep-2164-data-uri
+  # ADR 0008 and T0.3 (sampling and roots refused), as on the fathomgate leg.
+  # Under the gate these calls are refused before that point too (last
+  # group), for the same result.
+  - input-required-result-basic-sampling:sep-2322-sampling-incomplete
+  - input-required-result-basic-list-roots:sep-2322-list-roots-incomplete
+  - input-required-result-multiple-input-requests:sep-2322-multiple-inputs-incomplete
+  - input-required-result-capability-check:sep-2322-respect-client-capabilities
+  # Pairing and prefix (ADR 0012, T0.32), as on the fathomgate leg.
+  - server-stateless:sep-2575-server-rejects-undeclared-capability
+  - server-stateless:sep-2575-missing-capability-http-400
+  # ADR 0016 Origin rule, as on the fathomgate leg.
+  - dns-rebinding-protection:localhost-host-valid-accepted
+  #
+  # Changed by the gate: input-required-result-ignore-extra-params
+  # (sep-2322-ignore-unexpected-params) is on the fathomgate leg's list and
+  # passes here. The check wants the call to complete; with a policy
+  # loaded the upstream's form elicitation is refused (next group), so the
+  # call completes with fathomgate's refusal as its result, which is what
+  # the check looks for. It passes for that reason, not because fathomgate
+  # forwarded the stray inputResponses (it still does not; profile-schema
+  # section 8.2).
+  #
+  # Added by the gate. ADR 0014 (Notes after acceptance), ADR 0026 and ADR
+  # 0033 N1; profile-schema section 8.2, last row: with a policy loaded,
+  # fathomgate does not relay an upstream prompt during a call to a tool
+  # whose server has a profile, because it cannot check the answer against
+  # the profile's closed argument list. The call completes with isError and
+  # the text `fathomgate refused an input request (input_required) from
+  # upstream conf during <tool>: a policy is enforced and fathomgate cannot
+  # check an answer against the server profile, so upstream prompts are not
+  # relayed`, where the suite wants an input_required result carrying the
+  # fixture's form elicitation. By design (owner: mcp-protocol-engineer, if
+  # an ADR ever lets a checked answer through, M3 approvals).
+  - input-required-result-basic-elicitation:sep-2322-elicitation-incomplete
+  - input-required-result-request-state:sep-2322-request-state-incomplete
+  - input-required-result-multi-round:sep-2322-multi-round-r1
+  - input-required-result-result-type:sep-2322-result-type-included
+  - input-required-result-tampered-state:sep-2322-reject-tampered-state
+  # The same decision, SHOULD-level (WARNING, which a baseline run counts).
+  # missing-input-response wants the upstream to ask again; validate-input
+  # sends null inputResponses and wants a JSON-RPC error. Both get the
+  # complete refusal above, because the first round never reached the agent.
+  - input-required-result-missing-input-response:sep-2322-missing-response-rerequests
+  - input-required-result-validate-input:sep-2322-error-on-protocol-error

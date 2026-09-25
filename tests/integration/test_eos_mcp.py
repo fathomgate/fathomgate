@@ -26,10 +26,11 @@ Two modes:
   connections.log proves a denied call opened no TCP connection to it, so
   eos-mcp never connected, and its commands.log that nothing ran.
 
-This is the eos-mcp half of matrix row 4 in CI. It does not mark row 4
-`passing`: that is M1-28, which runs upa and eos-mcp together and records
-run ids. What the fake device cannot prove (EOS's own configure-session
-semantics) is listed in tests/fixtures/device/README.md.
+This is the eos-mcp half of matrix row 4 in CI; M1-28 runs the run_command
+case under read-only.yaml and prod-approval.yaml, and the upa half in
+test_upa_netmiko.py, and records the run ids in docs/testing/test-matrix.md.
+What the fake device cannot prove (EOS's own configure-session semantics) is
+listed in tests/fixtures/device/README.md.
 
 Everything the upstream returns is data: compared, never acted on.
 """
@@ -287,8 +288,12 @@ async def test_passthrough_unlisted_localhost_reaches_device(
 
 
 @pytest.mark.asyncio
-async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path) -> None:
-    """Row 4 (eos-mcp half) and the unknown-target default, over stdio.
+@pytest.mark.parametrize("policy", ["read-only.yaml", "prod-approval.yaml"])
+async def test_policy_read_only_run_command(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path, policy: str
+) -> None:
+    """Row 4 (eos-mcp half) and the unknown-target default, over stdio,
+    under read-only.yaml and prod-approval.yaml (M1-28).
 
     `show version` and `show ip bgp summary` via run_command: allow, rule
     reads-anywhere, downgraded from EXEC_ARBITRARY to READ_OPERATIONAL by
@@ -303,7 +308,7 @@ async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_ins
     reach the fake at all (it listens on loopback only), so for it the
     evidence is the exact tool error and the decision line with
     forwarded=false, not the device log."""
-    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path, policy))
     tool = "run_command"
     async with _Session(serve) as session:
         allowed = await session.call_tool(f"{EOS_SERVER}.{tool}", {"hostname": DEVICE, "command": "show version"})

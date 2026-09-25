@@ -79,7 +79,19 @@ a mock.
     CTRL_BREAK_EVENT on Windows) and checks that the token never reached
     its stderr. It runs on Windows too; on a host with no IPv6 loopback
     the `[::1]` half skips locally and fails in CI.
-  - The M1 decision and audit cases are skipped until the pipeline is wired.
+  - `integration/test_policy_gate.py` covers matrix rows 3 and 6 through
+    `fathomgate serve --policy` with the embedded profiles and an inventory
+    listing only `127.0.0.1` (M1-28): `show ip bgp summary` allowed by
+    `reads-anywhere` and run once, and `reload` denied by `no-exec`, under
+    read-only.yaml and prod-approval.yaml; `localhost` and `10.99.99.99`
+    denied by `default:unknown_target` for READ_OPERATIONAL, READ_CONFIG,
+    EXEC_ARBITRARY and LOCAL_ADMIN under both and under a policy with
+    `unknown_target` unset whose rules allow every class (ADR 0032). Each
+    decision is asserted as the exact tool error and as the `decision` line
+    on stderr; a `--no-policy` control shows `localhost` does reach the
+    device when nothing denies it.
+  - The two audit-event cases in `test_passthrough.py` stay skipped until
+    `--audit` lands in M4.
   - Without `FATHOMGATE_UPSTREAM` the tier 2 tests skip; CI sets
     `FATHOMGATE_TIER2_REQUIRED=1` so they cannot skip there.
 - Tier 2: live for upa/mcp-netmiko-server at commit `96e8ff3` (CI job
@@ -91,7 +103,14 @@ a mock.
   netmiko. With the upstream's own `uv.lock` (mcp 1.6.0), which never
   answers `server/discover`, fathomgate restarts it once and connects with
   `initialize` only, at 2024-11-05 (ADR 0018; test-matrix.md row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
-  at 2026-07-28 stateless).
+  at 2026-07-28 stateless). Through `--policy` (M1-28, row 4's upa half):
+  `send_command_and_get_output` with `show version` and `show ip bgp
+  summary` downgraded to READ_OPERATIONAL and allowed by `reads-anywhere`,
+  `reload` denied by `no-exec` with no SSH session, under read-only.yaml
+  and prod-approval.yaml; `set_config_commands_and_commit_or_save` with
+  `["end", "reload now"]` denied as EXEC_ARBITRARY and a plain line as
+  WRITE_CONFIG; a device name not in the inventory denied by
+  `default:unknown_target` for a read, a write and exec.
 - Tier 2: live for shigechika/eos-mcp 1.3.0 (the PyPI wheel; every
   artifact in `requirements.txt` hash-checked, including the pyeapi 1.0.4
   sdist, which is built with the setuptools pinned and hashed in
@@ -106,7 +125,8 @@ a mock.
     `dry_run` left at true still sends `end` and `reload now` in the same
     eAPI call as `configure session mcp-push`; `verify = true` in its
     config.ini does not stop it talking to a self-signed impostor.
-  - `--policy` read-only.yaml with the embedded profile: `show version`
+  - `--policy` read-only.yaml with the embedded profile (the run_command
+    case also under prod-approval.yaml, M1-28): `show version`
     and `show ip bgp summary` allowed by `reads-anywhere` (READ_OPERATIONAL,
     downgraded by the command) and run; `reload` denied
     by `no-exec`; `localhost` and `10.99.99.99` denied by
@@ -119,5 +139,6 @@ a mock.
     denies config reads. Each denial is the exact tool error and decision
     line; for every denied call that would otherwise reach the loopback
     fake, its connection log shows eos-mcp never connected.
-  - This is the eos-mcp half of matrix row 4 in CI; M1-28 closes the row.
+  - This is the eos-mcp half of matrix row 4 in CI; with the upa half it
+    closes the row (M1-28, test-matrix.md run notes).
 - Tier 3: workflow skeleton only.

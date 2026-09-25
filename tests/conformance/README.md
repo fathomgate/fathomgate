@@ -62,6 +62,48 @@ shim.
 | `fathomgate` | suite → shim → `fathomgate serve --listen 127.0.0.1:0 --server conf` → upstream over stdio | current | The client-facing side of the real binary, its HTTP listener included: Host and Origin checks, bearer token, era dispatch, go-sdk's sessions, GET stream and DELETE, and the 2026 status mapping. A failure here that the control leg does not have is fathomgate's. |
 | `control-up2025` | suite → shim → `everything-server -http` | 2025 | The 2025 fixture passes every scored 2025-11-25 scenario on its own (empty baseline). No 2026-07-28 run: a 2025-only server cannot answer a stateless agent with nothing in between, so `run.sh` prints `skipped` and exits 0. |
 | `fathomgate-up2025` | suite → shim → `fathomgate serve --listen …` → upstream over stdio | 2025 | Both agent eras through fathomgate to a stateful upstream. |
+| `fathomgate-policy` | suite → shim → `fathomgate serve --listen … --policy … --profiles …` → upstream over stdio | current | The same chain as `fathomgate` with the gate loaded (M1-28): every tool call is decided, the deny tool error and the narrowed `inputSchema` meet the suite. See "The policy leg" below. |
+
+Every fathomgate leg except `fathomgate-policy` runs `--no-policy`, the
+pass-through (ADR 0027), so its baseline measures the protocol and not a
+policy.
+
+### The policy leg
+
+`policy/profiles/conf.yaml` is a test profile for the current fixture
+(go-sdk v1.8.0's everything-server; its header cites the source), and
+`policy/policy.yaml` allows `READ_OPERATIONAL` by rule `conf-reads` and
+denies `EXEC_ARBITRARY` by `conf-no-exec`. `run.sh` copies both to a fresh
+directory only the owner can write (on Windows, `icacls` as in install.md
+step 1), because `serve` refuses a policy or profile others may change. The
+profile lists every fixture tool, so none falls to the unlisted-tool
+refusal, and makes two choices that put the gate in front of the suite:
+
+- `test_error_handling` is `EXEC_ARBITRARY`, so `tools-call-error` scores
+  fathomgate's deny (`isError`, one text block: `fathomgate denied
+  conf.test_error_handling: rule conf-no-exec (class EXEC_ARBITRARY): ...`)
+  as a tool error. It passes in both revisions.
+- `test_x_mcp_header` names `region` and leaves `level` unnamed, so the tool
+  is advertised narrowed (ADR 0033 section 4: `properties` `{region}`,
+  `additionalProperties: false`). The 2026-07-28 scenario
+  `http-custom-header-server-validation` reads that schema from `tools/list`
+  and passes all its checks through the gate.
+
+After the suite, `run.sh` checks `chain.log`: a decision line denying
+`test_error_handling` by `conf-no-exec` with `forwarded=false`, every other
+decision `allow` by `conf-reads` (so no call the suite makes falls to
+`default:bad_arguments`), at least one such allow, and exactly one
+`advertising only the arguments the profile names` line, for
+`test_x_mcp_header` with `dropped=[level]`. Any miss fails the leg.
+
+What the gate changes in the score is in the two
+`baseline/fathomgate-policy-*.yml` files: nothing on 2025-11-25; on
+2026-07-28 the MRTR scenarios whose tool asks the agent for input fail,
+because with a policy loaded fathomgate does not relay an upstream prompt
+(profile-schema section 8.2, last row), and one check that fails on the
+`fathomgate` leg passes. The leg runs against the current upstream only: the
+2025 upstream's fresh-process elicitation runs must pass, which a gated
+chain never can.
 
 On a fathomgate leg `run.sh` generates a fresh token
 (`FAKE-conformance-` and 32 random hex digits), passes it to fathomgate in
