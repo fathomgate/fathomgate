@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; chose open core, Apache-2.0 and DCO on 2026-09-24); proposed by docs-writer. The boundary table and the contested rows below are recommendations for the maintainer to accept or change. Reviewers: security-reviewer (boundary rule, extension invariants), release-engineer (LICENSE, NOTICE, artefacts), policy-engineer and network-safety-engineer (the core/commercial split of their packages), mcp-protocol-engineer (MRTR approval, `Proxy.dispatch`)
-- Amended: 2026-09-25, the approval console row is settled as commercial (see *Amendments*)
+- Console row superseded by: [ADR 0025](0025-split-the-console.md) (see *Amendments*)
 
 ## Context
 
@@ -181,11 +181,11 @@ The commercial repository stays private and keeps self-hosted CI. The security r
 
 ## Amendments
 
-This section records the maintainer's settlement of contested rows this record left open, and factual corrections (GOVERNANCE.md). The decision, the boundary rule and the rows already marked Core do not change.
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
 
 | Date | What changed | Why |
 | --- | --- | --- |
-| 2026-09-25 | **Approval console settled: commercial.** The M5 row "Approval console and audit viewer (R29)" is **Commercial** (the paid edition, enterprise or hosted), no longer a candidate or contested. It is settled on the condition in the *Approval console* contested row, which now binds the core: the core CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind because the console is absent (added to M3 as R35 in PRD.md; the command that shows it is specified in [approval-protocol 6.1](../specs/approval-protocol.md) by the M3 approval record). Everything that decides or proves stays in the core, unchanged: `fathomgate approve` and `fathomgate deny`, the generic HMAC-signed webhook, the audit chain and `fathomgate audit verify`, every `ChangeSafety` driver and the proxy-owned rollback watchdog (R30), and the optional OPA backend (R31). The console is built in the commercial repository on the open tokens and components in `design/`, sees redacted output only (extension invariant 4) and reads the audit chain without writing it (invariant 5). M5 in ROADMAP.md, PLAN.md and PRD.md is rescoped to the drivers, the watchdog and the OPA backend; PLAN.md's `console/` directory is removed from the repo layout | Maintainer decision, Josh Scott, 2026-09-25. It adopts this record's own recommendation for the row, so the boundary rule and the decision are unchanged; *Negative* ("M5's console ... If accepted, `ROADMAP.md`, `PRD.md` and `PLAN.md` are updated") is carried out in the same pull request |
+| 2026-09-25 | Pointer: the *Approval console* contested row and the M5 row "Approval console and audit viewer (R29)" are superseded by [ADR 0025](0025-split-the-console.md) (accepted 2026-09-25). A local console for one operator on one machine is core, in M5 (R29); the team console (SSO, RBAC, multi-approver, fleet view, central policy, retention and search, SIEM export) is in the paid edition. The row's condition is kept: the core CLI shows the diff, the rule trace and the rule for every pending record (PRD R35). *Negative*'s "M5's console" item is carried out in ROADMAP.md, PLAN.md and PRD.md by the same pull request. The boundary rule and every other row are unchanged | Maintainer decision, Josh Scott, 2026-09-25. It departs from the row's recommendation (whole console commercial), so it is its own record rather than an amendment here |
 
 ## References
 

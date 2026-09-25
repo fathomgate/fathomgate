@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott
+- Amended by: [ADR 0025](0025-split-the-console.md) (pointer; see *Amendments*)
 
 ## Context
 
@@ -48,6 +49,14 @@ Components are prefixed `ng-`: decision badge, command-class chip (outline only)
 | A new design system | Cost with no benefit; the states are the only new thing. |
 | Off-the-shelf component library | Would not carry the decision vocabulary or the two-theme contrast guarantees. |
 | No console, CLI only | Approval with a diff is a visual task; M5 adds the console while keeping the CLI complete. |
+
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: "the M5 approval console and audit viewer" in *Context* and *Consequences* is split by [ADR 0025](0025-split-the-console.md) (accepted 2026-09-25). The local console, for one operator on one machine, ships in the core at M5 from `design/tokens.css` and `design/policy.css`; the team console in the paid edition builds on the same tokens and components. The design system, the policy layer and the voice rules decided here are unchanged, and the components are prefixed `fg-` since [ADR 0019](0019-rename-to-fathomgate.md) | ADR 0025 changes who ships the console this record designs for, not the design |
 
 ## References
 

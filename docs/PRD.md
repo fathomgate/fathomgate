@@ -50,7 +50,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Proxy overhead per call | Under 5 ms at p99 for classify plus evaluate, measured in tier 1 |
 | Install | `mcp.json` with the binary path works in Claude Code and one other client with no ENOENT |
 
-### M5 (more vendors and watchdog)
+### M5 (local console and watchdog drivers)
 
 | Metric | Target |
 | --- | --- |
@@ -59,6 +59,8 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Redaction | Every annotated line in the fixture corpus caught; zero gitleaks findings on sampled tier 2 output |
 | Audit | Any single edited line fails `fathomgate audit verify` |
 | Review from the CLI | The CLI shows the diff, the rule trace and the rule for every pending record, in tier 2 |
+| Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
+| Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
 | Time from `hold` to approver notification | Under 5 seconds via webhook |
 
 ## 6. Requirements
@@ -95,13 +97,14 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R26 | Hash-chained JSONL with Ed25519 checkpoints and `audit verify` | P0 | M4 | [audit-event-schema](specs/audit-event-schema.md) |
 | R27 | OCSF `API Activity` and CEF exporters | P1 | M4 | [audit-event-schema](specs/audit-event-schema.md) |
 | R28 | Session counters, fan-out caps, canary-first rule, maintenance windows | P0 | M4 | [policy-schema](specs/policy-schema.md) |
-| R29 | Approval console and audit viewer using the Fathom policy layer. Commercial edition, not core: moved out of M5 by the [ADR 0020 amendment of 2026-09-25](adr/0020-open-core-apache-2.md#amendments); R35 keeps approval complete without it | Was P0 | Commercial edition (was M5) | [ADR 0009](adr/0009-fathom-design-system-policy-layer.md), [ADR 0020](adr/0020-open-core-apache-2.md#amendments) |
+| R29 | Local console for one operator on one machine, using the Fathom policy layer: served by the binary, loopback only, off by default, no accounts; live activity (decision, class, target, rule), held requests with diff, rule trace and rule, approve and deny as the local OS user (never enough alone for `approver_must_differ`), audit timeline for the local log with its verify status. Until 2026-09-25 R29 was the whole approval console and audit viewer; [ADR 0025](adr/0025-split-the-console.md) split it | P0 | M5 | [ADR 0009](adr/0009-fathom-design-system-policy-layer.md), [ADR 0025](adr/0025-split-the-console.md); the local console ADR (ADR 0024, proposed) |
 | R30 | IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy watchdog | P0 | M5 | [change-safety-drivers](specs/change-safety-drivers.md) |
 | R31 | Optional OPA backend mapping onto `Decision` | P2 | M5 | [ADR 0003](adr/0003-yaml-policy-dsl-with-obligations.md) |
 | R32 | Block and audit upstream `sampling/createMessage` | P1 | M2 | [ADR 0008](adr/0008-dual-era-mcp-support.md) |
 | R33 | Policy reload on SIGHUP without dropping connections; failed reload keeps the old policy | P1 | M1 | [policy-schema](specs/policy-schema.md) |
 | R34 | Python `tools/policy-lint` sharing the YAML schema and classifier tables | P1 | M1 | [CONTRIBUTING](../CONTRIBUTING.md) |
-| R35 | The CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind without a console | P0 | M3 | [approval-protocol](specs/approval-protocol.md), [ADR 0020](adr/0020-open-core-apache-2.md#amendments) |
+| R35 | The CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind without a console | P0 | M3 | [approval-protocol](specs/approval-protocol.md), [ADR 0025](adr/0025-split-the-console.md) |
+| R36 | Team console: SSO, roles and RBAC, multi-approver and N-of-M approvals, fleet view across many instances, central policy management, long-term retention and search, SIEM export | n/a | Paid edition, not core | [ADR 0025](adr/0025-split-the-console.md) |
 
 ## 7. Open questions
 

@@ -8,12 +8,12 @@ Fathom reference: the tokens in [`tokens.css`](tokens.css); open [`preview.html`
 
 | File | What it is | Consumed by |
 | --- | --- | --- |
-| `tokens.css` | Fathom semantic tokens (Midnight Zone dark, Chart Room light) plus the Fathomgate policy tokens | Console (commercial edition), docs site, README screenshots |
-| `policy.css` | The `fg-*` components: decision badge, class chip, redacted token, diff view, approval card, TTL bar, blast-radius meter, audit timeline, rule trace | Console (commercial edition) |
+| `tokens.css` | Fathom semantic tokens (Midnight Zone dark, Chart Room light) plus the Fathomgate policy tokens | Local console, team console (paid edition), docs site, README screenshots |
+| `policy.css` | The `fg-*` components: decision badge, class chip, redacted token, diff view, approval card, TTL bar, blast-radius meter, audit timeline, rule trace | Local console, team console (paid edition) |
 | `preview.html` | One approval-console screen rendered in both themes, using only the two files above | Design review, contributor onboarding |
 | `brand/` | The logo: the gateway mark, wordmark and lockups as transparent SVGs, in dark, light and one-colour versions (see Brand below) | README, docs site, console, release pages |
 
-The approval console and audit viewer is Fathomgate's one UI. It is built in the commercial edition on these same open tokens and components ([ADR 0020](../docs/adr/0020-open-core-apache-2.md#amendments), amendment of 2026-09-25); the design system and its specs stay here. The open core's interface is the CLI and the audit log, which must show everything the console shows. They are text; their conventions are in the Voice section because words are the interface there too.
+The local console, for one operator on one machine, is the UI the core ships (milestone M5), built from these files. The team console in the paid edition builds on the same open tokens and components ([ADR 0025](../docs/adr/0025-split-the-console.md)); the design system and its specs stay here. The CLI and the audit log must show everything the local console shows. They are text; their conventions are in the Voice section because words are the interface there too.
 
 ## Brand
 
