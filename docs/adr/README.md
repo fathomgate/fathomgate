@@ -28,5 +28,6 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0018](0018-bound-server-discover-then-initialize-only.md) | Bound go-sdk's `server/discover` probe, then restart the upstream and connect with `initialize` only | accepted | 2026-09-24 |
 | [0019](0019-rename-to-fathomgate.md) | Rename the product from NetGuard to Fathomgate | accepted | 2026-09-24 |
 | [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted | 2026-09-24 |
+| [0021](0021-kill-the-upstream-process-tree.md) | Kill the upstream's whole process tree: a process group on Unix, a Job Object on Windows | proposed | 2026-09-24 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.
