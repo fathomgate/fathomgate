@@ -131,6 +131,10 @@ type Proxy struct {
 	testHookKeyWaiting func()
 	closeOnce          sync.Once
 	closeErr           error
+	// exited is closed, once (exitedOnce), when the first upstream session
+	// ends on its own rather than through Close (UpstreamExited).
+	exited     chan struct{}
+	exitedOnce sync.Once
 }
 
 // route maps one agent-facing tool name to its upstream and unprefixed name.
@@ -214,6 +218,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		progressWait: progressFinalWait,
 		upstreams:    make(map[string]*upstream, len(upstreams)),
 		routes:       make(map[string]route),
+		exited:       make(chan struct{}),
 		server: mcp.NewServer(impl, &mcp.ServerOptions{
 			Logger: slog.New(minLevel{logger.Handler(), slog.LevelWarn}),
 			// Tools only. The tool list is fixed at startup, so no
@@ -308,6 +313,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		up.err = cs.Wait()
 		if !up.closing.Load() {
 			p.logger.Error("upstream exited; its tools now return errors", "server", up.name, "error", up.err)
+			p.exitedOnce.Do(func() { close(p.exited) })
 		}
 	}()
 	return up, nil
@@ -903,6 +909,15 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	}
 }
 
+// UpstreamExited returns a channel that is closed when an upstream session
+// ends on its own: the process exited or hung up, or the session failed. An
+// upstream ended by [Proxy.Close], or one that failed during [New], does not
+// close it. After it is closed, that upstream's tools answer with the tool
+// error "upstream <server> is not running". `fathomgate serve --listen`
+// waits on it to stop the listener and exit 1, so a supervisor restarts the
+// proxy instead of it answering for a dead upstream (ADR 0016).
+func (p *Proxy) UpstreamExited() <-chan struct{} { return p.exited }
+
 // localKey is the attribution key Run gave ss, or "" when ss is not a
 // session Run is serving. While a Run is connecting, a session it has not
 // recorded yet may be that Run's, so localKey waits for it, and returns ""
@@ -1021,7 +1036,16 @@ func (c call) binding() stateBinding {
 // never forwarded.
 func (p *Proxy) handler(r route) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		c, ignored := newCall(r, req)
+		c, ignored := newCall(ctx, r, req)
+		if c.transport == transportHTTP && c.principal == "" {
+			// Every request the listener serves is authenticated, and go-sdk
+			// copies its principal into the request. A call over HTTP with
+			// none means that copy is missing (a go-sdk change), and binding
+			// it would give it a principal no listener request has: refuse
+			// it before anything is keyed or forwarded (transportOf).
+			p.logger.Error("call refused: it arrived over the HTTP listener with no principal", "server", r.up.name, "tool", r.tool)
+			return toolError(fmt.Sprintf("fathomgate refused %s: the request arrived over the HTTP listener without an authenticated principal", prefixName(r.up.name, r.tool))), nil
+		}
 		c.sessionKey = p.agentSessionKey(ctx, c)
 		if ignored > 0 {
 			p.logger.Debug("ignoring inputResponses sent without a requestState", "server", r.up.name, "tool", r.tool, "responses", ignored)
@@ -1049,9 +1073,10 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 // pipeline and audit included) can read or act on them as answers
 // (invariant 6: nothing the agent supplies stands in for a human). The call
 // then goes up as a first call and an upstream that needs input asks again.
-// It returns how many answers it cleared.
-func newCall(r route, req *mcp.CallToolRequest) (call, int) {
-	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req), transport: transportOf(req), principal: principalOf(req)}
+// It returns how many answers it cleared. ctx is the tool handler's, for
+// the listener's mark (transportOf).
+func newCall(ctx context.Context, r route, req *mcp.CallToolRequest) (call, int) {
+	c := call{up: r.up, tool: r.tool, agent: agentOf(req), progressToken: agentProgressToken(req), transport: transportOf(ctx, req), principal: principalOf(req)}
 	ignored := 0
 	if req.Params != nil {
 		c.arguments = req.Params.Arguments
