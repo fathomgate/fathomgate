@@ -29,6 +29,13 @@ jobs:
           # No module or build cache in the release job: a poisoned cache
           # from another workflow must not reach a published binary.
           cache: false
+      # The release page text is written in the release PR from the
+      # CHANGELOG.md section (.claude/commands/release.md), not generated from
+      # commit subjects. A tag without it stops here, before anything is built.
+      - name: Release notes for this tag exist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: test -s "docs/releases/${TAG}.md"
       # A release is built with the go.mod toolchain or not at all.
       - name: Go in use is the go.mod toolchain
         run: make toolchain-check
@@ -51,7 +58,10 @@ jobs:
           # Pinned, same as snapshot.yaml: the release uses the GoReleaser
           # that the last snapshot run exercised.
           version: v2.18.2
-          args: release --clean
+          # The release page text is docs/releases/<tag>.md (see the
+          # "Release notes for this tag exist" step); .goreleaser.yaml
+          # `release.footer` is appended to it.
+          args: release --clean --release-notes docs/releases/${{ github.ref_name }}.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional: set in repo secrets once fathomgate/homebrew-tap exists.
