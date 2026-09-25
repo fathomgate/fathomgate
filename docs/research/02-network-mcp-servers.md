@@ -129,7 +129,7 @@ Several exist; the two most substantive are `upa/mcp-netmiko-server` (most stars
 | Install | `git clone` + `uv run`; no PyPI package; no Dockerfile (repo root at `96e8ff3` holds `.gitignore`, `README.md`, `main.py`, `pyproject.toml`, `test/`, `uv.lock`) |
 | Stars / license | 35 stars, 9 forks; **no licence**: no `LICENSE` file, GitHub API `license: null` (checked 2026-09-25) |
 | Last activity | No releases or tags. Latest commit `96e8ff321cc839eeb525474736439ddc2ebc795c`, 2026-09-25 still HEAD, dated 2025-05-30 |
-| Pinned commit | `96e8ff3`, `main.py` sha256 `07e55298409e91dea62e2f245fad37be75e71a0dd8df9027f97ba0c7cca7babb`; tier 2 runs it (T0.34); profile `profiles/upa-mcp-netmiko-server.yaml`, server key `upa` (M1.13) |
+| Pinned commit | `96e8ff3`, `main.py` sha256 `07e55298409e91dea62e2f245fad37be75e71a0dd8df9027f97ba0c7cca7babb`; tier 2 runs it (T0.34); profile `profiles/upa.yaml`, server key `upa` (M1.13) |
 
 Tools **[src]**:
 

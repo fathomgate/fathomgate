@@ -32,7 +32,7 @@ Map `host | hostname | name | device | router_name | target | firewall` to `targ
 
 ### 4. Profiles from real source in `profiles/`
 
-Author one YAML per upstream from research brief 02 (`docs/research/02-network-mcp-servers.md`) and, before merging, from the server's actual source (`main.go`, `main.py`, `jmcp.py`, `eos_mcp/server.py`, `src/netmiko_mcp/tools/*.py`). The first set: `netdev-ssh-mcp.yaml`, `upa-mcp-netmiko-server.yaml`, `eos-mcp.yaml`, `junos-mcp-server.yaml`, `ntunes-netmiko-mcp-server.yaml`, then `mcp-telecom.yaml`, `palo-mcp.yaml`, `mcfortigate.yaml`, `netbox-mcp-server.yaml`, `cisco-meraki-mcp-official.yaml`. Every tool the server exposes has a row; a missing row is a build failure in `make policy-lint`. Accept drafts from the Upstream Server Scout and verify each class against source before you sign it.
+Author one YAML per upstream from research brief 02 (`docs/research/02-network-mcp-servers.md`) and, before merging, from the server's actual source (`main.go`, `main.py`, `jmcp.py`, `eos_mcp/server.py`, `src/netmiko_mcp/tools/*.py`). The first set: `netdev-ssh-mcp.yaml`, `upa.yaml` (upa/mcp-netmiko-server; a profile file is named `<server>.yaml`), `eos-mcp.yaml`, `junos-mcp-server.yaml`, `ntunes-netmiko-mcp-server.yaml`, then `mcp-telecom.yaml`, `palo-mcp.yaml`, `mcfortigate.yaml`, `netbox-mcp-server.yaml`, `cisco-meraki-mcp-official.yaml`. Every tool the server exposes has a row; a missing row is a build failure in `make policy-lint`. Accept drafts from the Upstream Server Scout and verify each class against source before you sign it.
 
 ### 5. Test suites and contributor tooling
 
