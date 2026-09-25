@@ -28,12 +28,79 @@ What it does not do yet: enable mode, config mode, and the
 change-safety sequences (`commit confirmed`, `configure session`,
 `checkpoint`, ...). Those land with the M3 drivers.
 
+## Fake eAPI device (`fake_eapi.py`, M1-22)
+
+The eAPI counterpart, for shigechika/eos-mcp, which talks to EOS over
+pyeapi and HTTPS rather than SSH. See the module docstring for its command
+line.
+
+- `POST /command-api`, JSON-RPC method `runCmds`, HTTP Basic auth: username
+  `admin`, password from `FAKE_EAPI_PASSWORD` (default `FAKE-eapi-pass`).
+  A wrong pair gets 401 and runs nothing.
+- The server is the standard library (`http.server`, `ssl`, `json`). The
+  throwaway self-signed certificate and key are generated at start with
+  `cryptography`, already in the `integration` extra through asyncssh,
+  into the state directory. No key is ever committed.
+- `--host` accepts loopback address literals only and refuses any other
+  address or a name. The tier 2 fixture passes `--also-ipv6-loopback`, so
+  the device also listens on `[::1]:443` where the host has it, and
+  `localhost` reaches it whichever address resolves first. Where another
+  program holds `[::1]:443` (seen on one Windows host), the `localhost`
+  control case skips, or fails under `FATHOMGATE_TIER2_REQUIRED=1`.
+- It listens on `127.0.0.1:443`. eos-mcp 1.3.0 passes no port to
+  `pyeapi.connect`, so pyeapi 1.0.4 uses 443 for HTTPS. On Linux the
+  runner user needs `sysctl net.ipv4.ip_unprivileged_port_start=443` (the
+  CI job `tier2-eos-mcp` sets it); Windows and macOS let any user bind it.
+  If the bind fails, it prints `BIND-FAILED` and exits 3, and the tier 2
+  fixture skips, or fails under `FATHOMGATE_TIER2_REQUIRED=1`.
+- `format: text` answers from `transcripts/eos/<name>.txt` (the same
+  lookup as `fake_ssh.py`); `format: json` from
+  `transcripts/eos/eapi/<name>.json`. An unknown command stops the request
+  with eAPI's error shape (code 1002, `CLI command <i> of <n> '<cmd>'
+  failed: invalid command`); the rest of the list does not run.
+- Logs, in the state directory: `connections.log` (one line per TCP
+  accept, before TLS and authentication, then the TLS SNI), `requests.log`
+  (one JSON object per `runCmds` request: the whole `cmds` list, the
+  format), and `commands.log` (`<user>\t<command>`, as `fake_ssh.py`
+  writes it). No new line in `connections.log` means eos-mcp never
+  connected.
+
+### What the fake eAPI device cannot prove
+
+It speaks eAPI's envelope and nothing of EOS's CLI. Its configure sessions
+are a sketch so that eos-mcp's session tools get well-formed answers:
+lines after `configure session <name>` are recorded and answered `{}`,
+`show session-config diffs` echoes them with `+`, and `abort`, `commit`,
+`commit timer`, `end` leave the session. None of this is evidence for
+how EOS behaves. These need cEOS (M1-28 and M3, tier 3):
+
+- Whether config lines after `end` in one `runCmds` call run outside the
+  session, so that push_config's `["end", "reload now"]` would reload the
+  switch even with `dry_run=True`. The tier 2 case shows only that eos-mcp
+  sends those lines in one call with `configure session mcp-push` before
+  `abort`, and that fathomgate denies the call before it leaves. That
+  `reload now` is refused by the fake is not EOS behaviour.
+- `clock set`, `watch` and `terminal` from configuration mode, and an
+  alias (`alias hn reload now`, then `hn`) inside a session.
+- How eAPI treats a newline inside one `cmds` element.
+- Configure-session semantics: that `commit timer` reverts an unconfirmed
+  session at the deadline (matrix row 20), that `configure session <name>
+  commit` confirms it, that `abort` discards it, that `show session-config
+  diffs` matches what is applied, and session-name collisions.
+- Real output: every transcript here is synthetic or a sanitised public
+  sample, so a parser that works on them may still fail on a real EOS.
+- Authentication and TLS as EOS does them (AAA, enable passwords, EOS's
+  own certificate and cipher list).
+
 ## Transcripts
 
 | File | Status |
 | --- | --- |
 | `transcripts/eos/show_version.txt` | Synthetic, shaped like EOS 4.32 `show version`; serial and build are `FAKE`. Stays synthetic until a real, publishable capture turns up (T0.26). |
 | `transcripts/eos/show_running_config.txt` | Real public sample with the credentials swapped for FAKE values (T0.26). Provenance below. |
+| `transcripts/eos/show_ip_bgp_summary.txt` | Synthetic (M1-22): documentation addresses (`192.0.2.0/24`, `198.51.100.0/24`), private ASNs, `FAKE-` peer descriptions. |
+| `transcripts/eos/show_tech_support.txt` | Synthetic (M1-22), a few sections shaped like EOS `show tech-support`, with a sanitised running-config section and no secret. For eos-mcp `collect_tech_support`. M2 must add a FAKE secret line to it (annotated with its pattern id in the matching redaction fixture), so the `collect_tech_support` tier 2 case also proves redaction; today it proves only the class. |
+| `transcripts/eos/eapi/show_version.json`, `show_hostname.json` | Synthetic (M1-22), the key names eos-mcp reads from EOS's JSON (`modelName`, `version`, `serialNumber`, `hostname`, ...); serial and build are `FAKE`. For eAPI `format: json`. |
 
 Transcripts follow the fixture rule: every credential, serial or other
 identifier that could be real carries `FAKE`. Only public documentation
