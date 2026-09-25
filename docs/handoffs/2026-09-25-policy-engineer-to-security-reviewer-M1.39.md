@@ -43,3 +43,20 @@ go test -run '^$' -fuzz FuzzShellMeta -fuzztime 30s ./internal/classify/
 
 - Is 256 targets per call right, given that no shipped policy allows more than 50 devices a session? Or should the cap follow the loaded policy's `max_devices` when it is lower?
 - Should the start-anchored `blocklistStart` and `allowPrefix` regexps also move to word checks? They are anchored and cost little now, so I left them as they are.
+
+## Round 2 (security and Go reviews of PR #185, both approving)
+
+- Security 1: `countValues` has a `[]string` case (per element, commas split as for strings, via `countString`). `TestCountValues` covers it directly and through `overCaps`.
+- Security 2: `internal/classify/command_diff_test.go` holds `oldClassifyCommand`, a frozen `classifyCommand` on the pre-M1-39 expressions. `TestClassifyCommandMatchesOld` (permanent tier 1) and `FuzzClassifyCommandMatchesOld` compare class and check id. The corpus is every string literal of the package's test files, parsed from source, each also as `show <s>` and `show x <s> y`, plus the review's hand cases. Fuzzed locally for 90 s (13.4M execs), no difference.
+- Security 3: profile-schema 2.4 now reads "one per element" (a non-string element counts as one).
+- Security 4: `docs/security/threat-model.md` covers the M1-39 changes. The multi-line injection row names `blocked` and the equivalence and differential tests. The shell-quoted row names `hasShellMeta` and its tests. The session counters row adds the single `Decide` through `Counted` and `TestCountedTargets`, `TestGateDecidesOnce` and `TestTouchedCap`. There is a new row, "Per-call amplification, decision DoS", mitigated by `overCaps`.
+- Go 5: `TestGateDecidesOnce` guards the spy's records with a mutex.
+- Go 6: `in.Counted = nil` is gone from `decideLocked`. The comment now says what guarantees safety: `safeDecide` calls `Decide` synchronously under the key's lock, and the `seam.CallInfo.Counted` godoc says a gate must not keep it.
+- Nits:
+  - `caps_test.go` uses `t.Run`, `t.Context()` and `slices.Repeat`.
+  - The `maxCommandsPerCall` comment matches profile-schema 2.4.
+  - `TestCommandWidthIsCommandCap` ties `gatetest.CommandWidth` to `maxCommandLen`.
+  - The fuzzers have godoc.
+  - `t.Parallel` is on both equivalence tests.
+  - The `countValues` comment notes the depth bound.
+- The ADR 0026 M1-39 note is unchanged; it gets its acceptance line only when the maintainer accepts it.
