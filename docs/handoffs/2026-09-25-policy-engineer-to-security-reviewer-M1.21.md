@@ -3,7 +3,7 @@
 - **Task:** M1-21 — Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval
 - **From → To:** policy-engineer → security-reviewer
 - **State now:** in review. This PR does not edit `docs/milestones/` or `docs/adr/` (the board row and ADR 0026 as accepted are on PR #153's branch).
-- **Branch / PR:** `feat/policy-m1-cases` · PR link in the PR description (opened with this note)
+- **Branch / PR:** `feat/policy-m1-cases` · [PR #154](https://github.com/fathomgate/fathomgate/pull/154)
 - **Date:** 2026-09-25
 
 ## Done
