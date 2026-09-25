@@ -36,8 +36,21 @@ STATUS = ROOT / "STATUS.md"
 ENCODING = "utf-8"
 
 STATES = ["open", "blocked", "in progress", "in review", "merged", "validated", "dropped"]
-# <date>-<from-slug>-to-<to-slug>-<task-id>.md ; slugs may contain hyphens, the task id may not.
+# <date>-<from-slug>-to-<to-slug>-<task-id>[-round<n>].md ; slugs may contain hyphens.
+# A task id written with a hyphen (M1-06, the board's form) is tried first; only
+# a -round<n> suffix may follow it. Otherwise the task id is the last hyphen-free
+# part (M1.06, T0.51), which is how every note before M1-31 is named (a dot-form
+# name with a suffix keeps rendering the suffix as its task, as it always has).
+HANDOFF_HYPHEN_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})-(.+?)-to-(.+)-([MT]\d+-\d+)(?:-round\d+)?\.md$"
+)
 HANDOFF_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+?)-to-(.+)-([^-]+)\.md$")
+
+
+def parse_handoff_name(name: str) -> tuple[str, str, str, str] | None:
+    """(date, from, to, task) from a handoff file name, or None if it is not one."""
+    m = HANDOFF_HYPHEN_RE.match(name) or HANDOFF_RE.match(name)
+    return m.groups() if m else None
 
 
 def load_current() -> tuple[str, dict]:
@@ -79,10 +92,10 @@ def latest_handoffs(n: int = 5) -> list[tuple[str, str, str, str, str]]:
     if not HANDOFFS.exists():
         return out
     for p in sorted(HANDOFFS.glob("*.md"), reverse=True):
-        m = HANDOFF_RE.match(p.name)
-        if not m:
+        parsed = parse_handoff_name(p.name)
+        if not parsed:
             continue
-        date, frm, to, task = m.groups()
+        date, frm, to, task = parsed
         first = ""
         for line in p.read_text(encoding=ENCODING).splitlines():
             if line.startswith("# "):
