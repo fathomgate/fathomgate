@@ -4,7 +4,7 @@
 - **From → To:** policy-engineer → security-reviewer (go-reviewer is the second reviewer)
 - **State now:** in review. This PR does not edit `docs/milestones/M1.yaml` or ADR 0028; the orchestrator moves the task.
 - **Branch / PR:** `fix/audit-key-custody` · [PR #155](https://github.com/fathomgate/fathomgate/pull/155)
-- **Date:** 2026-09-25
+- **Date:** 2026-09-25 (fix round the same day)
 
 ## Done
 
@@ -15,17 +15,31 @@
 - Tests: `key_load_test.go` (all OSes), `key_load_unix_test.go`, `key_load_darwin_test.go`, `key_load_windows_test.go`, `internal/secretfile/*_test.go`, `TestKeyRoundTrip` and `TestAuditVerifyAndKeygen` updated. CI proof lists in `ci.yaml` (Windows elevated, macOS) name the new tests.
 - Docs: `docs/specs/audit-event-schema.md` section 5 and 6, SECURITY.md (row and two bullets), threat model (two rows appended, row 38 file names, MCP08 mapping), ARCHITECTURE.md helper paragraph, CHANGELOG Unreleased Security.
 
+## Fix round (security: approve with lows; Go: request changes)
+
+- Merged `origin/main`, `STATUS.md` re-rendered with `tools/status/render.py`.
+- L1 / Go 3: `LoadPublicKey` refuses with `ErrPrivateKey` any file containing `PRIVATE KEY` (`bytes.Contains`, before decoding). `onePEMBlock` needs `-----BEGIN ` exactly once, only white space before it and after the END line. Tests: private block before and after, leading private-key text, corrupted private block before the public block, bare base64 before it, text after it, a malformed block.
+- L2 / Go 8: `openPublicKey` (`key_unix.go` `O_NONBLOCK`; `key_windows.go` SQOS) and a regular-file check on the open file. `TestKeyLoadersRefuseFIFO`, `TestLoadPublicKeyRefusesDirectory`.
+- L3: `secretfile_windows.go` `CreateFile` adds `SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION`.
+- `Read` refuses `limit <= 0` (`TestReadLimit`). N2: owner refusal names `icacls <file> /setowner "%USERNAME%"`.
+- Go 5: `refusal.Unwrap() []error` returns `ErrUnsafe` and the cause (ACL or DACL read errors); `TestRefusalUnwrap`.
+- Go 6: `key_load_test.go` is `unix || windows`. Optional `t.Parallel` added to the new cross-platform tests.
+- Go 7 / N3: the macOS proof list adds `TestLoadKeyUnixRefusesDirectory`, `TestReadHardLink`, `TestReadFIFO` and `TestKeyLoadersRefuseFIFO` (new `TestReadFIFO`). The Linux job builds the `internal/audit` test binary as the runner user and runs `-test.run OtherOwner` under `sudo`, requiring `--- PASS` for `TestNewWriterRefusesOtherOwner` and `TestLoadKeyUnixRefusesOtherOwner`. No root-owned file lands in the Go caches.
+- Go 4: `CLAUDE.md` toolchain line and repo map, and a dated ADR 0011 amendment row. The `x/sys/windows` importers are `internal/audit`, `internal/secretfile`, `internal/proxy` and `cmd/fathomgate` (`listen_windows.go`, Winsock codes).
+- Threat model rows: L1, L2 and L3 mitigated; L4 (NFSv4 ACLs outside macOS) and N1 (parent directories) accepted. SECURITY.md, the spec and CHANGELOG match.
+
 ## Look at this first
 
 - `internal/secretfile/secretfile_windows.go` `check` and `secretfile_unix.go` `check`: the only place the rules live now.
-- `internal/audit/key.go` `LoadPublicKey`: `strings.Contains(block.Type, "PRIVATE KEY")` is the trust-anchor refusal.
+- `internal/audit/key.go` `LoadPublicKey` and `onePEMBlock`: the trust-anchor refusal and the one-block rule.
+- `.github/workflows/ci.yaml` "other-owner tests ran as root": the only `sudo` in CI.
 
 ## Deliberately unfinished
 
 - `openExistingLog` keeps its own checks: it opens read-write, has no mode check (it resets the mode after the chain verifies) and uses `errUnsafeLog`. Folding it into `secretfile` would change that contract; not needed for ADR 0028.
 - The redaction key (`redact --key-file`, `FATHOMGATE_REDACT_KEY`) is unchanged: M2, per ADR 0028 decision 4.
 - Not run locally: the Unix and macOS tests (no Linux or macOS host here; cross-vetted and linted for linux, darwin and freebsd), `-race` (no C compiler). The Windows symlink and other-owner tests skipped locally (unelevated); the elevated CI job runs them with `FATHOMGATE_REQUIRE_PRIVILEGED_TESTS=1`.
-- `CLAUDE.md` says `cmd/fathomgate` imports `x/sys/windows` "for the `--listen-token-file` DACL check"; that check is now in `internal/secretfile` (cmd still imports it for Winsock codes). Left for the orchestrator.
+- The SQOS flags are not tested against a live named-pipe server; they are pinned by review.
 
 ## Reproduce green
 
@@ -43,5 +57,4 @@ FATHOMGATE_REQUIRE_PRIVILEGED_TESTS=1 go test -count=1 -v -run Windows ./interna
 
 ## Questions for the receiver
 
-- Is `strings.Contains(block.Type, "PRIVATE KEY")` wide enough, given that any non-`PUBLIC KEY` type is refused anyway (only the message differs)?
-- Should `LoadPublicKey` open with `O_NOFOLLOW` too? ADR 0028 says the public key needs no owner check, so it does not.
+- Is running the test binary under `sudo` in the Linux job acceptable as the answer to N3, or should it stay a recorded skip?
