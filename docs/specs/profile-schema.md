@@ -40,6 +40,8 @@ Implemented in `Normalize(profile, tool, args)`:
 
 A tool with a `command_params` or `config_params` but no target source (eos-mcp `run_command_batch` with only `hostnames` and `tags` selectors, both optional upstream) can arrive with zero targets. What zero targets means for policy is decided by the policy's `device_roles` and `device_tags` matchers, which do not match a request with no targets.
 
+At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily_brief` with neither `hostnames` nor `tags` runs on every device in the upstream's own `config.ini` (`eos_mcp/server.py:476-478`). There, zero targets means the whole fleet.
+
 ## 3. Planned fields (not yet parsed)
 
 These are in the plan and in the research but the strict loader rejects them today. Put the information in `notes` until the field lands.
@@ -160,9 +162,9 @@ The rows show the normalisation keys that differ. Full files are in `profiles/`.
 | `eos-mcp` | `run_command_batch` | `EXEC_ARBITRARY` | | `[hostnames]` | `[tags]` | `[command]` | |
 | `eos-mcp` | `run_commands_batch` | `EXEC_ARBITRARY` | | `[hostnames]` | `[tags]` | `[commands]` | |
 | `eos-mcp` | `get_router_list` | `INVENTORY_READ` | | | `[tags]` | | |
-| `eos-mcp` | `get_device_facts`, `get_version`, `collect_tech_support` | `READ_OPERATIONAL` | `[hostname]` | | | | |
+| `eos-mcp` | `get_device_facts`, `get_version` | `READ_OPERATIONAL` | `[hostname]` | | | | |
 | `eos-mcp` | `get_device_facts_batch`, `daily_brief` | `READ_OPERATIONAL` | | `[hostnames]` | `[tags]` | | |
-| `eos-mcp` | `get_config`, `get_config_diff`, `list_config_sessions` | `READ_CONFIG` | `[hostname]` | | | | |
+| `eos-mcp` | `get_config`, `get_config_diff`, `list_config_sessions`, `collect_tech_support` | `READ_CONFIG` | `[hostname]` | | | | |
 | `eos-mcp` | `push_config` | `WRITE_CONFIG` | `[hostname]` | | | | `[config_lines]` |
 | `eos-mcp` | `confirm_config_session`, `abort_config_session` | `WRITE_CONFIG` | `[hostname]` | | | | |
 | `eos-mcp` | `health_check` | `LOCAL_ADMIN` | | | | | |
