@@ -29,14 +29,14 @@ Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && p
 Two tier 1 tests hold the PRD's M1 metric, *under 5 ms at p99 for classify plus evaluate*. Both use the repo profiles, `prod-approval.yaml` and `inventory.example.yaml`, and time every call on its own after a warm-up. The corpus is in `internal/gate/gatetest`, and each case must first get its expected decision word and rule id, so a change that turns a costly path into a cheap early refusal fails instead of making the numbers look better.
 
 - `TestDecideOverhead` (`internal/gate`) times `Gate.Decide` alone.
-- `TestDispatchOverhead` (`internal/proxy`) times `Proxy.decideAndRespond`, the decision stage the proxy runs before it forwards or refuses a call: the 64 KiB argument cap, the counter lock and counters, `Decide` (run twice when a target is already counted), re-encoding the arguments, the decision line and the tool error. The counters are those of one stdio agent in steady state. As a cross-check it sends every call end to end through an agent session to a gated proxy and to a pass-through proxy over the same no-op upstreams, and logs the paired difference.
+- `TestDispatchOverhead` (`internal/proxy`) times `Proxy.decideAndRespond`, the decision stage the proxy runs before it forwards or refuses a call: the 64 KiB argument cap, the counter lock and counters, `Decide` (once per call since M1-39), re-encoding the arguments, the decision line and the tool error. The counters are those of one stdio agent in steady state. As a cross-check it sends every call end to end through an agent session to a gated proxy and to a pass-through proxy over the same no-op upstreams, and logs the paired difference.
 
 What fails the run:
 
 | Corpus | Check | Limit | Enforced in |
 | --- | --- | --- | --- |
 | Typical: the 12 calls of `gatetest.Typical` (typed reads, downgraded exec, config dumps, `no-exec`, holds, unknown and malformed targets, fan-out, group selectors) | p99 of 24,000 calls | 5 ms | Every run |
-| Worst: arguments within 1 KiB of the 64 KiB cap (1,900 show commands, one multi-line command, a multi-line config string, config lines, 3,300 targets, a batch over every known target) and, in the proxy, one byte over the cap | p50 of each case, 200 calls | 5 ms. A case in `gatetest.KnownOverBudget` passes while over it. It fails once its p50 drops under 4 ms (0.8 of the limit, `gatetest.StaleFactor`), so its entry comes out; between 4 and 5 ms it is logged | Only with `FATHOMGATE_OVERHEAD_STRICT=1` |
+| Worst: arguments within 1 KiB of the 64 KiB cap, at the gate's per-call caps (64 show commands of 1 KiB, one multi-line command, a multi-line config string, config lines, 256 targets of 250 bytes, 64 commands of 1 KiB to every known target), the same 64 KiB as 1,900 short commands and 3,300 short targets (refused by the caps), and, in the proxy, one byte over the cap | p50 of each case, 200 calls | 5 ms. A case in `gatetest.KnownOverBudget` (empty since M1-39) passes while over it. It fails once its p50 drops under 4 ms (0.8 of the limit, `gatetest.StaleFactor`), so its entry comes out; between 4 and 5 ms it is logged | Only with `FATHOMGATE_OVERHEAD_STRICT=1` |
 | End to end, typical, gated minus pass-through | p50 | 5 ms | Every run |
 
 `FATHOMGATE_OVERHEAD_STRICT=1` is set only in the `gate overhead budget (M1-23)` steps of the Linux, Windows and macOS CI jobs. Those steps run the two tests alone, with `-p 1 -v` and without `-race`. In a full `go test ./...`, other packages' tests share the CPU, so a worst case's p50 of a few milliseconds is not the gate's alone. There, and under `-race`, each worst case is checked only for its decision word and rule id, not timed, and no worst case is sent end to end. The go-reviewer's round on PR #183 caught `TestDecideOverhead` failing 1 run in 3 that way, with the 3,300-target case at a p50 of 5.74 ms.
@@ -64,10 +64,30 @@ GitHub-hosted `ubuntu-latest` (4 vCPU, go1.26.8, no `-race`, `-p 1`), [PR #183 r
 
 Maintainer's workstation (Windows 11, Ryzen 7 7700X, 16 threads, go1.26.8, no `-race`, other builds running). The clock here moves in steps of about 0.5 ms, so any time under that reads 0 s. Typical corpus: p99 under one clock step for `Decide` and 0.5 to 1.0 ms for the proxy stage. `BenchmarkDecide` gives a mean of 5.1 µs a call. Worst-case p50s are about half the Linux runner's: 5.5 ms for 1,900 show commands (known), 1.0 ms for config lines and 2.0 to 3.0 ms for 3,300 targets. In the proxy stage they are 12.5 ms, 2.0 ms and 5.6 to 6.0 ms (known). Worst-case p99s reach 8 to 18 ms because of the collector pauses described above.
 
-Findings, both in `KnownOverBudget` and neither loosened:
+Findings of M1-23, both fixed in M1-39 (below) and removed from `KnownOverBudget`, which is now empty:
 
 1. **Command classification costs about 3 µs a command** (policy-engineer, `internal/classify`). `classifyCommand` checks each command against the read allow-list with backtracking regular expressions, which takes about 70% of the CPU. The 1,900 show commands that fit in 64 KiB take 5 to 10 ms in `Decide`. Nothing caps the number of commands in a call below the 64 KiB argument cap.
 2. **The proxy runs `Decide` twice when a target is already counted** (mcp-protocol-engineer, `internal/proxy`). `decideLocked` runs the gate again with a lower `devices_touched`, which repeats parsing, classification and resolution. Every worst case costs about twice as much in the proxy as in `Decide`, and 3,300 targets go over the budget only because of this.
+
+### After M1-39, 2026-09-25
+
+M1-39 fixed both findings. The gate refuses a call with more than 64 commands or 256 targets before it classifies anything ([profile-schema section 2.4](../specs/profile-schema.md#24-per-call-caps)). The blocklist and shell-metacharacter checks run as a word-set lookup and a byte loop instead of unanchored regular expressions, checked against the old expressions by `FuzzBlocklistWords` and `FuzzShellMeta`; a 1 KiB command went from 61 µs to 5.5 µs (`BenchmarkClassifyCommand`). The proxy runs `Decide` once: the gate takes already-counted targets off `devices_touched` through `seam.CallInfo.Counted` (ADR 0026 notes). The worst cases now sit at the caps, since nothing larger reaches classification, and two more cases fill 64 KiB with short commands and names to time the refusal. `KnownOverBudget` is empty.
+
+Maintainer's workstation, as above (no `-race`, `-p 1`, `FATHOMGATE_OVERHEAD_STRICT=1`; 0 s means under one 0.5 ms clock step). Before is the M1-23 corpus on the M1-23 code; after is the M1-39 corpus, at the default `GOMAXPROCS` of 16 and, for the p99, at 4:
+
+| Case | `Decide` before, p50 / p99 | `Decide` after, p50 / p99 (p99 at `GOMAXPROCS=4`) | Proxy stage before, p50 / p99 | Proxy stage after, p50 / p99 (p99 at `GOMAXPROCS=4`) |
+| --- | --- | --- | --- | --- |
+| Typical corpus | 0 s / 0.51 ms | 0 s / 0 s | 0 s / 0.53 ms | 0 s / 0 s |
+| Show commands: 1,900 short before, 64 of 1 KiB after | 7.7 ms / 9.9 ms | 1.0 ms / 1.5 ms (1.5 ms) | 15.0 ms / 26.7 ms | 1.0 ms / 12.3 ms (2.0 ms) |
+| One 64 KiB multi-line command | 0.51 ms / 4.1 ms | 0 s / 1.5 ms (1.5 ms) | 1.0 ms / 7.8 ms | 0 s / 3.0 ms (1.5 ms) |
+| 64 KiB config string | 0.52 ms / 4.2 ms | 1.0 ms / 7.0 ms (1.5 ms) | 1.6 ms / 11.6 ms | 1.0 ms / 11.0 ms (1.5 ms) |
+| 64 KiB config lines | 1.0 ms / 8.1 ms | 1.0 ms / 9.3 ms (2.0 ms) | 2.1 ms / 12.7 ms | 1.0 ms / 13.0 ms (1.6 ms) |
+| Targets: 3,300 short before, 256 of 250 bytes after | 2.6 ms / 16.4 ms | 0 s / 1.5 ms (1.5 ms) | 5.8 ms / 28.7 ms | 1.0 ms / 12.5 ms (2.1 ms) |
+| Batch to every known target: 64 KiB of short commands before, 64 of 1 KiB after | 8.3 ms / 21.5 ms | 1.0 ms / 9.3 ms (1.9 ms) | 18.0 ms / 38.4 ms | 1.0 ms / 12.0 ms (1.5 ms) |
+| 1,900 short commands, refused by the cap | | 0 s / 2.0 ms (1.2 ms) | | 0 s / 12.5 ms (1.5 ms) |
+| 3,300 short targets, refused by the cap | | 0 s / 12.5 ms (1.8 ms) | | 0.50 ms / 10.2 ms (1.7 ms) |
+
+Every worst-case p50 is now about 1 ms or less, in `Decide` and in the proxy stage. The p99s at 16 threads are still over 5 ms on this machine, and they are not the call's cost. With `GOGC=off`, every worst case's p99 is 1.5 to 2.0 ms. With the collector on and `GOMAXPROCS` at 2 or 4 it is 1.2 to 2.1 ms. At `GOMAXPROCS` 8 or 16, a collection cycle stalls the timed call for 10 to 13 ms on Windows, although the cycle itself takes under 1 ms (`GODEBUG=gctrace=1`). Even the refusal of 3,300 short targets, which does no more than parse and count, shows it. Each worst case now allocates 0.4 to 1.0 MB, against 0.4 to 3.4 MB before; that makes collections less frequent, but not rare enough to move a p99 of 200 samples. The Linux runner showed p99 close to p50 before M1-39.
 
 ## Tier 2: what it proves
 

@@ -19,6 +19,11 @@ const (
 	reasonBadTarget = "a target is not a hostname or IP address"
 	reasonNoTarget  = "this tool needs at least one target named explicitly"
 	reasonGroup     = "selecting devices by tag or group is not supported yet; name each target"
+	// reasonTooManyCommands and reasonTooManyTargets name the per-call
+	// caps (maxCommandsPerCall, maxTargetsPerCall), which are fathomgate's
+	// constants, not anything the call sent.
+	reasonTooManyCommands = "a call may carry at most 64 commands; split it into smaller calls"
+	reasonTooManyTargets  = "a call may name at most 256 targets; split it into smaller calls"
 )
 
 // The fixed reasons for the other default: rules, which replace Evaluate's
