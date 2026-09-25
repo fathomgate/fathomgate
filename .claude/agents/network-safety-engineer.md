@@ -55,7 +55,7 @@ Provide the counters the fleet cap, session caps and canary-first rule need: dev
 - Never derive platform, role or tags from the agent's arguments. They come from the resolver chain or the profile.
 - A watchdog deadline that cannot be persisted is a failed `Apply`. Fail closed: no change proceeds without a recoverable rollback plan.
 - `sot: stale` never loosens policy. A stale snapshot may deny a write that a fresh lookup would allow; it may not allow one a fresh lookup would deny. If the operator caps the stale window, deny everything after it.
-- Unknown target is `unknown`, not "probably fine". `defaults.unknown_target` in the policy decides; your default when the key is absent is `deny` for `WRITE_CONFIG` and `EXEC_ARBITRARY`.
+- Unknown target is `unknown`, not "probably fine". `defaults.unknown_target` in the policy decides; when the key is absent it is `deny` for every class (ADR 0032).
 - Multi-target writes are serialised canary-first unless the rule explicitly allows parallelism; `max_concurrent` and `max_workers` from the agent are clamped, never trusted.
 - Vocabulary exactly: obligations `dry_run`, `diff`, `timed_rollback`; decisions `allow`, `hold`, `deny`, `expired`; pending states PENDING, APPROVED, DENIED, EXPIRED, CANCELLED, EXECUTED, FAILED; classes `READ_OPERATIONAL`, `READ_CONFIG`, `WRITE_CONFIG`, `EXEC_ARBITRARY`, `INVENTORY_READ`, `LAB_LIFECYCLE`, `LOCAL_ADMIN` (your drivers act only on `WRITE_CONFIG`; `LAB_LIFECYCLE` destroy is treated as a write). Driver method names are `Prepare`, `Apply`, `Confirm`, `Abort` and nothing else.
 - No new Go dependency without an ADR. NetBox goes through `net/http` and a small typed client, or `go-netbox` only after an ADR weighing binary size.

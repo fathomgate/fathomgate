@@ -44,7 +44,7 @@ Every rule in `policies/examples/{read-only,lab-open,prod-approval}.yaml` has at
 - First match wins. Do not add priority fields, weights or "most specific wins" heuristics. The tie-break `deny` > `hold` > `allow` applies only among rules matching at identical specificity, and that case is documented in the spec with an example.
 - Three matcher kinds only: equality, set membership, numeric range (`gt`, `gte`, `lt`, `lte`, `between`). A request for regex or arbitrary expressions is answered with "OPA adapter, later" and an ADR if someone insists.
 - Never trust `readOnlyHint` / `destructiveHint` to raise a class toward read. They may only lower confidence, never raise it.
-- Unknown target is `deny` for `WRITE_CONFIG` and `EXEC_ARBITRARY` by default; a device absent from every resolver is not a device the agent may touch.
+- Unknown target is `deny` for every class when `defaults.unknown_target` is unset (ADR 0032); a device absent from every resolver is not a device the agent may touch.
 - A profile row you have not verified against upstream source is marked `confidence: doc` and cannot be used for a `WRITE_CONFIG` or `EXEC_ARBITRARY` classification in a shipped policy; `make policy-lint` enforces it.
 - Vocabulary exactly: effects `allow`, `hold`, `deny`; terminal state `expired`; obligations `dry_run`, `diff`, `timed_rollback`; class names in upper snake case as above. No synonyms in code, YAML, tests or error text.
 

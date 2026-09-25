@@ -89,8 +89,10 @@ type Policy struct {
 // Defaults are the policy-wide settings.
 type Defaults struct {
 	// UnknownTarget is the effect for requests naming a device no provider
-	// resolved: "deny", "allow" (let rules decide) or empty (deny writes,
-	// let rules decide for reads).
+	// resolved: "deny", or "allow" (let the rules decide). Empty means deny
+	// for every class (ADR 0032); Parse fills it in, and Evaluate denies
+	// on anything but "allow". It never applies to a request that names no
+	// target.
 	UnknownTarget Effect `yaml:"unknown_target,omitempty" json:"unknown_target,omitempty"`
 	// Session caps per-session blast radius.
 	Session SessionLimits `yaml:"session,omitempty" json:"session"`

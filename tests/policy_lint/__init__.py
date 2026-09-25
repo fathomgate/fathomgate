@@ -13,6 +13,6 @@ Usage::
 It checks shape only. Behaviour is asserted with ``fathomgate policy test``.
 """
 
-from .lint import Finding, lint_file, lint_policy, main
+from .lint import Finding, lint_file, lint_policy, main, warn_file, warn_policy
 
-__all__ = ["Finding", "lint_file", "lint_policy", "main"]
+__all__ = ["Finding", "lint_file", "lint_policy", "main", "warn_file", "warn_policy"]

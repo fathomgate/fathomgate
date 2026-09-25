@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott
+- Amended by: [ADR 0032](0032-unset-unknown-target-denies-every-class.md) (2026-09-25; an unset `defaults.unknown_target` denies every class, not only `WRITE_CONFIG` and `EXEC_ARBITRARY`; see *Amendments*)
 
 ## Context
 
@@ -52,6 +53,14 @@ The normative schema is [inventory-schema.md](../specs/inventory-schema.md).
 | NetBox required | Excludes most of the target users; makes availability a policy input. |
 | Inventory only inside the policy file | Mixes data and rules; a spreadsheet import has no natural home. |
 | Ask the upstream server for everything | Only some servers expose inventory, and a free-form `host` server exposes none. |
+
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: the sentence "Default policy for unknown targets denies `WRITE_CONFIG` and `EXEC_ARBITRARY` and allows reads" in *Decision* is superseded by [ADR 0032](0032-unset-unknown-target-denies-every-class.md) (accepted 2026-09-25). A policy that leaves `defaults.unknown_target` unset now denies every class for an unknown target, as `unknown_target: deny` does; `unknown_target: allow` still lets the rules decide. The provider chain, the `unknown` state and the stale-snapshot handling decided here are unchanged | The security reviews of PR #154 and PR #158: eos-mcp and netdev-ssh-mcp send the operator's device credentials to any host the agent names, so a read to an unknown host is as dangerous as a write (board task M1-37) |
 
 ## References
 
