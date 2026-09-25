@@ -1,0 +1,6 @@
+BGP summary information for VRF default
+Router identifier 192.0.2.1, local AS number 64512
+Neighbor Status Codes: m - Under maintenance
+  Description              Neighbor     V AS           MsgRcvd   MsgSent  InQ OutQ  Up/Down State   PfxRcd PfxAcc
+  FAKE-peer-a              198.51.100.1 4 64513           1204      1198    0    0 1d02h   Estab   12     12
+  FAKE-peer-b              198.51.100.5 4 64514            987       990    0    0 1d02h   Estab   8      8

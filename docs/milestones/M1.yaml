@@ -229,18 +229,18 @@ relo
     package: tests/integration
     owner: test-engineer
     reviewers: [upstream-server-scout, release-engineer]
-    state: open
+    state: in review
     matrix: [4]
-    notes: 'eos-mcp is an M1 validates_against server with no tier 2 job yet. Pin eos-mcp (sha256 or commit) as client-smoke pins netdev-ssh-mcp; fake eAPI endpoint with canned FAKE responses for show version, show ip bgp summary, and a recorder that proves reload never arrives. Pass-through first (M0 behaviour) so it is green before the gate lands.'
+    notes: 'eos-mcp is an M1 validates_against server with no tier 2 job yet. Pin eos-mcp (sha256 or commit) as client-smoke pins netdev-ssh-mcp; fake eAPI endpoint with canned FAKE responses for show version, show ip bgp summary, and a recorder that proves reload never arrives. Pass-through first (M0 behaviour) so it is green before the gate lands. 2026-09-25: tests/fixtures/device/fake_eapi.py and tests/integration/test_eos_mcp.py, CI job tier2-eos-mcp (eos-mcp 1.3.0 wheel hash-pinned, modules checked against bffb893); --no-policy smoke and --policy read-only (no-exec, default:unknown_target, default:bad_arguments for config_path, push_config end/reload now as EXEC_ARBITRARY, collect_tech_support READ_CONFIG). Found: verify = true in eos-mcp config.ini is not enforced (pyeapi 1.0.4 drops it). Row 4 stays planned for M1-28. Round 2 (security review of PR #182): the pyeapi sdist builds with a hashed setuptools (build-constraints.txt, checked in CI by check-build-constraints.sh); a --no-policy localhost control; fake_eapi.py loopback-only; profile hazards 1-2, brief 02 and the threat model no longer offer verify = true as a mitigation; upstream issue drafted in the handoff, not filed.'
   - id: M1-23
     title: Classify plus evaluate overhead under 5 ms at p99, measured in tier 1
     package: internal/gate
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: in review
     blocked_by: [M1-18]
     matrix: []
-    notes: 'PRD M1 success metric. Go benchmark over the gate with the shipped profiles and prod-approval, reporting p99 over a fixed corpus of calls (reads, downgraded exec, writes, unknown targets); fail the test above 5 ms on the CI runner.'
+    notes: 'PRD M1 success metric. Go benchmark over the gate with the shipped profiles and prod-approval, reporting p99 over a fixed corpus of calls (reads, downgraded exec, writes, unknown targets); fail the test above 5 ms on the CI runner. PR #183 2026-09-25: TestDecideOverhead (internal/gate) and TestDispatchOverhead (internal/proxy, decision stage plus an end-to-end cross-check against a pass-through proxy) over the corpus in internal/gate/gatetest; typical p99 33 us (gate) and 131 us (proxy stage) on ubuntu-latest, 5 ms limit (10x under -race), Linux CI step at 1x with -p 1. Worst cases at the 64 KiB cap fail at p50; two findings are in gatetest.KnownOverBudget: 1,900 commands take 10 ms in classify (backtracking regexps, policy-engineer) and the proxy runs Decide twice when a target is already counted (21 ms; 3,300 targets 9 ms; mcp-protocol-engineer). Numbers in docs/testing/test-strategy.md.'
   - id: M1-24
     title: Reconcile the M1 test-matrix rows and specs with the code and PLAN
     package: docs
