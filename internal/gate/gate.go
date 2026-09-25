@@ -185,8 +185,8 @@ func (g *Gate) resolve(name string) policy.Target {
 	if g.inventory == nil {
 		return policy.Target{Name: name}
 	}
-	t, ok := g.inventory.Resolve(name)
-	if !ok || t.Name != name {
+	t, ok := inventory.Known(g.inventory, name)
+	if !ok {
 		return policy.Target{Name: name}
 	}
 	return policy.Target{Name: name, Role: t.Role, Tags: slices.Clone(t.Tags), Site: t.Site, Known: true}

@@ -274,6 +274,16 @@ func TestRepoExampleInventory(t *testing.T) {
 			if w := f.PatternWarnings(); len(w) != 0 {
 				t.Fatalf("example pattern matches no listed device: %q", w)
 			}
+			// An example pattern sets only a site or a tag no rule
+			// unlocks writes on (security review of PR #184, L3): a copied
+			// example must not hand out lab or a write-unlocking role.
+			for i, p := range f.Roles {
+				if p.Role != "" || slices.ContainsFunc(p.Tags, func(tag string) bool {
+					return tag == "lab" || tag == "canary" || tag == "change-frozen"
+				}) {
+					t.Errorf("example roles[%d] %q sets role %q tags %v", i, p.Match, p.Role, p.Tags)
+				}
+			}
 			chain, err := f.Chain()
 			if err != nil {
 				t.Fatal(err)

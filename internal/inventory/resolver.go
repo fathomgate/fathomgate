@@ -58,8 +58,12 @@ type Resolver interface {
 
 // Enricher adds attributes to a device a name authority has listed. It never
 // makes a name known on its own. listed is the name as the authority stores
-// it; ok is false when the enricher has nothing for it. Hostname patterns
-// are the only enricher (ADR 0031 decision 1).
+// it; ok is false when the enricher has nothing for it.
+//
+// Hostname patterns (*Patterns) are the only enricher (ADR 0031 decision 1),
+// and Chain.Resolve records every field or tag any enricher supplies with the
+// source "pattern". A second kind of enricher needs its own source label, and
+// an ADR, before it is added.
 type Enricher interface {
 	Attributes(listed string) (attrs Target, ok bool)
 }
@@ -69,8 +73,12 @@ type Enricher interface {
 // authority listed.
 type Chain struct {
 	// Authorities are tried in order. The first to list the name supplies
-	// every field it sets; a later authority that also lists it fills a
-	// field still empty and adds its tags.
+	// its name, its tags and every field it sets. A later authority that
+	// lists the same device (same name, case-insensitively) only fills a
+	// role, site or status still empty; it never adds tags, because later
+	// authorities include, from M2, an upstream's own device list, which is
+	// untrusted data (invariant 7), and a tag such as lab unlocks writes.
+	// A record whose name is not the name looked up is ignored.
 	Authorities []Resolver
 	// Enrichers run after an authority has hit, in order, and fill a field
 	// still empty and add their tags. They never run for an unlisted name.
@@ -78,7 +86,9 @@ type Chain struct {
 }
 
 // Resolve implements Resolver. A name no authority lists is unknown,
-// whatever an enricher would say about it.
+// whatever an enricher would say about it. Resolve matches as its
+// authorities do (case-insensitively for the static file); use Known for the
+// exact-name rule the gate applies.
 func (c Chain) Resolve(name string) (Target, bool) {
 	var (
 		out Target
@@ -90,7 +100,9 @@ func (c Chain) Resolve(name string) (Target, bool) {
 			continue
 		}
 		t, ok := r.Resolve(name)
-		if !ok {
+		// A record for another device is not an answer for this name
+		// (an authority that returns one is buggy or hostile).
+		if !ok || normalize(t.Name) != normalize(name) {
 			continue
 		}
 		label := t.Source
@@ -99,13 +111,15 @@ func (c Chain) Resolve(name string) (Target, bool) {
 			// by position so provenance never claims one.
 			label = "resolver[" + strconv.Itoa(i) + "]"
 		}
+		out.Stale = out.Stale || t.Stale
 		if !hit {
 			hit = true
 			out.Name, out.Source = t.Name, label
 			src.Name = label
+			merge(&out, &src, t, label, true)
+			continue
 		}
-		out.Stale = out.Stale || t.Stale
-		merge(&out, &src, t, label)
+		merge(&out, &src, t, label, false)
 	}
 	if !hit {
 		return Target{}, false
@@ -116,16 +130,33 @@ func (c Chain) Resolve(name string) (Target, bool) {
 		}
 		if t, ok := e.Attributes(out.Name); ok {
 			t.Status = "" // an enricher never sets device status
-			merge(&out, &src, t, SourcePattern)
+			merge(&out, &src, t, SourcePattern, true)
 		}
 	}
 	out.Sources = &src
 	return out, true
 }
 
-// merge fills the fields of out that are still empty from t and adds t's
-// tags that out lacks, recording label as their source.
-func merge(out *Target, src *Sources, t Target, label string) {
+// Known resolves name through r and reports it known only when the record
+// carries exactly the string looked up, case included: the rule internal/gate
+// applies to every target, and policy eval and inventory resolve with it
+// (inventory-schema section 7). A case variant or a record for another name
+// is unknown and yields a zero Target.
+func Known(r Resolver, name string) (Target, bool) {
+	if r == nil {
+		return Target{}, false
+	}
+	t, ok := r.Resolve(name)
+	if !ok || t.Name != name {
+		return Target{}, false
+	}
+	return t, true
+}
+
+// merge fills the role, site and status of out that are still empty from t,
+// recording label as their source, and, when tags is true, adds t's tags that
+// out lacks.
+func merge(out *Target, src *Sources, t Target, label string, tags bool) {
 	if out.Role == "" && t.Role != "" {
 		out.Role, src.Role = t.Role, label
 	}
@@ -134,6 +165,9 @@ func merge(out *Target, src *Sources, t Target, label string) {
 	}
 	if out.Status == "" && t.Status != "" {
 		out.Status, src.Status = t.Status, label
+	}
+	if !tags {
+		return
 	}
 	for _, tag := range t.Tags {
 		if slices.Contains(out.Tags, tag) {

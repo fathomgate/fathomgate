@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -39,6 +40,12 @@ func NewStatic(targets []Target) (*StaticFile, error) {
 		}
 		if _, dup := s.byName[key]; dup {
 			return nil, fmt.Errorf("inventory: duplicate device %q", t.Name)
+		}
+		// Status is device status. "pattern" was the pre-ADR 0031 marker
+		// for a pattern-only hit; a record that claims it is refused so no
+		// reader can mistake a listed device for one (review of PR #184, N3).
+		if normalize(t.Status) == SourcePattern {
+			return nil, fmt.Errorf("inventory: device %q: status pattern is not a device status", t.Name)
 		}
 		s.byName[key] = t
 	}
@@ -151,6 +158,79 @@ func (f *File) PatternWarnings() []string {
 		}
 		if !hit {
 			out = append(out, fmt.Sprintf("inventory: roles[%d] %q matches no listed device and makes nothing known (ADR 0031); list the device under devices", i, p.Match))
+		}
+	}
+	return out
+}
+
+// PatternEffects returns one line for each listed device and each pattern
+// under roles: that changes it, in file order, saying what the pattern adds
+// (security review of PR #184, L3). A role or tag a pattern gives counts for
+// write rules (ADR 0031), so `fathomgate inventory lint` shows every one.
+// Where the device's own record sets a role, a line says so, because a
+// pattern that adds a tag such as lab to a device the operator listed as
+// core is the misclassification to look for:
+//
+//	inventory: devices[3] "lab-core-01": roles[1] "^lab-" adds tag lab; the device's own record says role core
+//
+// A pattern whose role or site differs from the device's own is reported as
+// not applied. Patterns that do not compile are skipped; Chain reports them.
+func (f *File) PatternEffects() []string {
+	type compiled struct {
+		re *regexp.Regexp
+		p  Pattern
+	}
+	var ps []compiled
+	for _, p := range f.Roles {
+		re, err := compilePattern(p.Match)
+		if err != nil || p.Match == "" {
+			ps = append(ps, compiled{})
+			continue
+		}
+		ps = append(ps, compiled{re: re, p: p})
+	}
+	var out []string
+	for j, d := range f.Devices {
+		role, site, tags := d.Role, d.Site, slices.Clone(d.Tags)
+		for i, c := range ps {
+			if c.re == nil || !c.re.MatchString(d.Name) {
+				continue
+			}
+			var effects []string
+			conflict := false
+			switch {
+			case c.p.Role == "":
+			case role == "":
+				role = c.p.Role
+				effects = append(effects, "sets role "+c.p.Role)
+			case role != c.p.Role:
+				effects = append(effects, "role "+c.p.Role+" not applied")
+				conflict = conflict || d.Role != ""
+			}
+			switch {
+			case c.p.Site == "":
+			case site == "":
+				site = c.p.Site
+				effects = append(effects, "sets site "+c.p.Site)
+			case site != c.p.Site:
+				effects = append(effects, "site "+c.p.Site+" not applied")
+			}
+			for _, tag := range c.p.Tags {
+				if slices.Contains(tags, tag) {
+					continue
+				}
+				tags = append(tags, tag)
+				effects = append(effects, "adds tag "+tag)
+				conflict = conflict || d.Role != ""
+			}
+			if len(effects) == 0 {
+				continue
+			}
+			line := fmt.Sprintf("inventory: devices[%d] %q: roles[%d] %q %s", j, d.Name, i, c.p.Match, strings.Join(effects, ", "))
+			if conflict {
+				line += "; the device's own record says role " + d.Role
+			}
+			out = append(out, line)
 		}
 	}
 	return out

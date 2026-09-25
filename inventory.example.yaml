@@ -85,17 +85,19 @@ devices:
 # role and tags it gives count for every rule, write rules included: "^lab-"
 # with tags: [lab] makes a listed "lab-core-01" writable under lab-open even
 # if it is really a core router. Patterns are case-insensitive and not
-# anchored at the end unless you add "$"; anchor them as tightly as you can.
+# anchored at the end unless you add "$"; anchor them as tightly as you can,
+# and put a role or a tag that unlocks writes (lab-open's lab, prod-approval's
+# core and border roles) on the device itself rather than in a pattern.
 # `fathomgate inventory lint` fails on a pattern that matches no listed
-# device, and `fathomgate serve` warns about one.
+# device (`fathomgate serve` warns about one), and warns for every role, site
+# or tag a pattern adds to a listed device, so you can check each one.
 #
-# The shape, commented out (each matches devices listed above):
+# The shape, commented out. Each pattern matches devices listed above and
+# sets only a site or a tag no example policy matches on:
 # roles:
-#   - match: "^core-|^border-"
-#     role: core
-#   - match: "^lab-"
-#     tags: [lab]
-#   - match: "^fw-"
-#     role: firewall
+#   - match: "^(core|border)-rtr-[0-9]{2}$"
+#     tags: [backbone]
 #   - match: "^dc-(spine|leaf)-[0-9]{2}$"
-#     tags: [fabric]
+#     site: dfw1
+#   - match: "^lab-[a-z]+-[0-9]{2}$"
+#     site: lab

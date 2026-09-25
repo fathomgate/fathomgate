@@ -183,6 +183,16 @@ const maxNameLen = 253
 // ':' must be an IPv6 address without a zone.
 // Everything else is refused: '@' (user@host to an SSH client), whitespace,
 // control characters, brackets, '%', '/', non-ASCII bytes.
+// ValidTargetName reports whether the gate accepts s as a target name. A
+// name it refuses is denied with default:bad_arguments before resolution, so
+// fathomgate policy eval applies the same check to --target, and fathomgate
+// inventory lint flags a listed device with such a name as unreachable.
+func ValidTargetName(s string) bool { return validTargetName(s) }
+
+// ReasonBadTarget is the reason the gate gives when ValidTargetName refuses
+// a target.
+const ReasonBadTarget = reasonBadTarget
+
 func validTargetName(s string) bool {
 	if s == "" || len(s) > maxNameLen {
 		return false

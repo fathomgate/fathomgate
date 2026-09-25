@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -363,6 +364,14 @@ func TestAttackerHostNames(t *testing.T) {
 		"":                             policy.RuleBadArguments,
 		"10.0.0.1":                     "default:unknown_target",
 		"2001:db8::1":                  "default:unknown_target",
+		// The security review of PR #184's probes: strings.ToLower folds
+		// the Kelvin sign to k, so the static file would find a listed
+		// kvm-01; the gate refuses the name before it gets there.
+		"Kvm-01":     policy.RuleBadArguments, // Kelvin sign
+		"lab-ѕw-01":  policy.RuleBadArguments, // Cyrillic dze
+		"lab-sw-01​": policy.RuleBadArguments, // zero-width space
+		"lab-sw-01.": policy.RuleBadArguments, // trailing dot
+		" lab-sw-01": policy.RuleBadArguments, // leading space
 	}
 	type tool struct{ pol, server, tool, target, class string }
 	tools := []tool{
@@ -412,6 +421,7 @@ func TestPatternEnrichesListedDevice(t *testing.T) {
 	f.Devices = append(f.Devices,
 		inventory.Target{Name: "lab-sw-09", Role: "access"}, // no tags
 		inventory.Target{Name: "core-rtr-09", Site: "dfw1"}, // no role
+		inventory.Target{Name: "kvm-01", Tags: []string{"lab"}},
 	)
 	f.Roles = append(f.Roles, attackerPatterns...)
 	chain, err := f.Chain()
@@ -436,8 +446,16 @@ func TestPatternEnrichesListedDevice(t *testing.T) {
 	lab := gateFor("lab-open")
 	check(t, "lab-open lab-sw-09", lab.Decide(context.Background(), push("lab-sw-09")),
 		want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
-	for _, name := range []string{"lab-ghost-99", "LAB-sw-09", "lab-sw-09.attacker.example", "lab-leaf-01.evil"} {
+	for _, name := range []string{"lab-ghost-99", "LAB-sw-09", "lab-sw-09.attacker.example", "lab-leaf-01.evil", "KVM-01"} {
 		check(t, "lab-open "+name, lab.Decide(context.Background(), push(name)), unknown("WRITE_CONFIG"))
+	}
+	// The review of PR #184's probes against listed devices: each is
+	// refused as a bad argument, never resolved to the listed name.
+	check(t, "lab-open kvm-01", lab.Decide(context.Background(), push("kvm-01")),
+		want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
+	for _, name := range []string{"Kvm-01", "lab-ѕw-09", "lab-sw-09​", "lab-sw-09.", " lab-sw-09"} {
+		check(t, "lab-open probe "+strconv.QuoteToASCII(name), lab.Decide(context.Background(), push(name)),
+			want{effect: "deny", rule: policy.RuleBadArguments, class: "WRITE_CONFIG"})
 	}
 
 	prod := gateFor("prod-approval")
