@@ -240,22 +240,22 @@ func (f enricherFunc) Attributes(n string) (Target, bool) { return f(n) }
 // TestKnown: the exact-name rule of inventory-schema section 7 (security
 // review of PR #184, L2). The static file matches case-insensitively, and
 // strings.ToLower folds the Kelvin sign to k, so Resolve finds kvm-01 for
-// "Kvm-01"; Known does not. The reviewer's gate probes are kept here.
+// "\u212avm-01"; Known does not. The reviewer's gate probes are kept here.
 func TestKnown(t *testing.T) {
 	t.Parallel()
 	c := mustChain(t, &File{
 		Devices: []Target{{Name: "kvm-01", Role: "core"}, {Name: "lab-sw-09"}, {Name: "core-rtr-01", Role: "core"}},
 		Roles:   attackerPatterns,
 	})
-	if _, ok := c.Resolve("Kvm-01"); !ok {
+	if _, ok := c.Resolve("\u212avm-01"); !ok {
 		t.Fatal("precondition: the static file no longer folds the Kelvin sign; revisit this test")
 	}
 	for _, n := range []string{
-		"Kvm-01",           // Kelvin sign K
+		"\u212avm-01",      // Kelvin sign K
 		"KVM-01",           // case variant
-		"lab-ѕw-09",        // Cyrillic dze
-		"lab-sw-09​",       // zero-width space
-		"​lab-sw-09",       // leading zero-width space
+		"lab-\u0455w-09",   // Cyrillic dze
+		"lab-sw-09\u200b",  // zero-width space
+		"\u200blab-sw-09",  // leading zero-width space
 		"lab-sw-09.",       // trailing dot
 		" lab-sw-09",       // leading space
 		"lab-sw-09 ",       // trailing space
@@ -382,9 +382,9 @@ func FuzzPatternsNeverResolveUnlisted(f *testing.F) {
 	f.Add("lab-sw-01 ", "lab", "sw")
 	f.Add("lab-sw-01\x00", "\\x00", "^lab-sw-01$")
 	// The security review's gate probes (PR #184).
-	f.Add("Kvm-01", "^k", "vm")
-	f.Add("lab-ѕw-01", "^lab-", "")
-	f.Add("lab-sw-01​", "^lab-", "")
+	f.Add("\u212avm-01", "^k", "vm")
+	f.Add("lab-\u0455w-01", "^lab-", "")
+	f.Add("lab-sw-01\u200b", "^lab-", "")
 	f.Add("lab-sw-01.", "^lab-", "")
 	f.Add(" lab-sw-01", "lab", "")
 	listed := []Target{

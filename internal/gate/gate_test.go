@@ -367,11 +367,11 @@ func TestAttackerHostNames(t *testing.T) {
 		// The security review of PR #184's probes: strings.ToLower folds
 		// the Kelvin sign to k, so the static file would find a listed
 		// kvm-01; the gate refuses the name before it gets there.
-		"Kvm-01":     policy.RuleBadArguments, // Kelvin sign
-		"lab-ѕw-01":  policy.RuleBadArguments, // Cyrillic dze
-		"lab-sw-01​": policy.RuleBadArguments, // zero-width space
-		"lab-sw-01.": policy.RuleBadArguments, // trailing dot
-		" lab-sw-01": policy.RuleBadArguments, // leading space
+		"\u212avm-01":     policy.RuleBadArguments, // Kelvin sign
+		"lab-\u0455w-01":  policy.RuleBadArguments, // Cyrillic dze
+		"lab-sw-01\u200b": policy.RuleBadArguments, // zero-width space
+		"lab-sw-01.":      policy.RuleBadArguments, // trailing dot
+		" lab-sw-01":      policy.RuleBadArguments, // leading space
 	}
 	type tool struct{ pol, server, tool, target, class string }
 	tools := []tool{
@@ -453,7 +453,7 @@ func TestPatternEnrichesListedDevice(t *testing.T) {
 	// refused as a bad argument, never resolved to the listed name.
 	check(t, "lab-open kvm-01", lab.Decide(context.Background(), push("kvm-01")),
 		want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
-	for _, name := range []string{"Kvm-01", "lab-ѕw-09", "lab-sw-09​", "lab-sw-09.", " lab-sw-09"} {
+	for _, name := range []string{"\u212avm-01", "lab-\u0455w-09", "lab-sw-09\u200b", "lab-sw-09.", " lab-sw-09"} {
 		check(t, "lab-open probe "+strconv.QuoteToASCII(name), lab.Decide(context.Background(), push(name)),
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "WRITE_CONFIG"})
 	}
