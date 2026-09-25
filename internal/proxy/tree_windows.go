@@ -7,6 +7,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -17,10 +18,16 @@ import (
 )
 
 // procTree is the upstream's Job Object (ADR 0021): unnamed, not inheritable,
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, and no breakaway limit, so no
-// descendant can leave it and the kernel ends the tree when the last handle
-// closes, including when fathomgate itself dies. One job per process, so the
-// ADR 0018 restart ends the first process's tree and nothing else.
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, and no breakaway limit, so every
+// process the upstream starts the ordinary way is in it, and the kernel ends
+// the tree when the last handle closes, including when fathomgate itself
+// dies. It is not a sandbox: any descendant can start a process outside the
+// job by naming a same-user process outside the job, fathomgate included, as
+// its parent (PROC_THREAD_ATTRIBUTE_PARENT_PROCESS), or through a service
+// (WMI, the Task Scheduler); and one that can open fathomgate with
+// PROCESS_DUP_HANDLE can duplicate the job handle and keep the job alive past
+// kill-on-close (ADR 0021 amendment, 2026-09-25). One job per process, so
+// the ADR 0018 restart ends the first process's tree and nothing else.
 type procTree struct {
 	mu   sync.Mutex
 	job  windows.Handle // 0 once closed
@@ -35,8 +42,8 @@ func prepareTree(cmd *exec.Cmd) {
 
 // attachTree puts a started cmd in a new job and, if prepareTree started it
 // suspended, resumes it. On error the job is closed and the process has not
-// been resumed; the caller must kill it.
-func attachTree(cmd *exec.Cmd) (_ *procTree, err error) {
+// been resumed; the caller must kill it. The logger is not used on Windows.
+func attachTree(cmd *exec.Cmd, _ *slog.Logger) (_ *procTree, err error) {
 	if cmd.Process == nil {
 		return &procTree{}, nil
 	}
@@ -67,6 +74,9 @@ func attachTree(cmd *exec.Cmd) (_ *procTree, err error) {
 	defer func() { _ = windows.CloseHandle(h) }()
 	if err := windows.AssignProcessToJobObject(job, h); err != nil {
 		return nil, fmt.Errorf("assign upstream process to its job object: %w", err)
+	}
+	if err := injectedFault(); err != nil {
+		return nil, err
 	}
 	if suspended {
 		if err := resumeProcess(pid); err != nil {

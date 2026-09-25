@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix || windows
+
 package proxy
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +76,7 @@ func grandchildren(t *testing.T, stderr *syncBuffer, n int) []int {
 // startBehindLauncher starts a proxy on the launcher fixture in front of a
 // go-sdk fake ("1", which answers server/discover, so there is no
 // restart), and returns it with a watch on the grandchild.
-func startBehindLauncher(t *testing.T, onEOF string) (*Proxy, *commandBuilds, procWatch) {
+func startBehindLauncher(t *testing.T, onEOF string) (*Proxy, *commandBuilds, *procWatch) {
 	t.Helper()
 	stderr := newSyncBuffer()
 	b := &commandBuilds{cmd: launcherCommand(t, "1", onEOF, stderr)}
@@ -210,6 +217,44 @@ func TestTreeExitWatcherSweeps(t *testing.T) {
 		t.Fatal("the exit watcher never saw the launcher exit")
 	}
 	gc.waitGone(t, goneWithin, "the launcher's child after the launcher exited")
+}
+
+// TestTreeAttachFailsClosed (L2 in the security review of PR #111): when
+// the tree cannot be attached, Connect fails with the ADR 0021 error, the
+// process is killed and reaped, and on Windows, where it starts suspended,
+// it never ran. Not parallel: attachFault is package-wide, and parallel
+// tests start only once every serial test has returned.
+func TestTreeAttachFailsClosed(t *testing.T) {
+	fault := errors.New("FAKE attach failure")
+	attachFault.Store(&fault)
+	t.Cleanup(func() { attachFault.Store(nil) })
+	marker := filepath.Join(t.TempDir(), "ran")
+	b := &commandBuilds{cmd: Command{
+		Path: testExecutable(t),
+		Args: []string{"-test.run=^$"},
+		Env:  []string{fakeUpstreamEnv + "=marker", markerEnv + "=" + marker, childRaceEnv},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}}, Options{})
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded although the process tree could not be attached")
+	}
+	if !errors.Is(err, fault) || !strings.Contains(err.Error(), "proxy: upstream process tree (ADR 0021): ") {
+		t.Errorf("error %q: want the ADR 0021 error wrapping the fault", err)
+	}
+	built := b.get()
+	if len(built) != 1 {
+		t.Fatalf("processes started: %d, want 1 (no restart after a tree failure)", len(built))
+	}
+	if built[0].Command.Process == nil || built[0].Command.ProcessState == nil {
+		t.Fatal("the process was not started and reaped")
+	}
+	_, statErr := os.Stat(marker)
+	if startsSuspended && !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("the process ran before its tree was attached (marker: %v)", statErr)
+	}
 }
 
 // TestCommandTransportPreparesTree: Command.Transport starts the upstream

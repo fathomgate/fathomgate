@@ -2,7 +2,10 @@
 
 package proxy
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 // The upstream's process tree (ADR 0021). A stdio upstream is started in a
 // process group of its own on Unix and in a Job Object of its own on
@@ -12,8 +15,10 @@ import "time"
 //
 //   - prepareTree(cmd) sets cmd.SysProcAttr before the start: Setpgid on
 //     Unix, CREATE_SUSPENDED on Windows. Command.Transport calls it.
-//   - attachTree(cmd) runs after the start and before anything is written to
-//     the upstream (trackedTransport.Connect). On Unix it records the group;
+//   - attachTree(cmd, logger) runs after the start and before anything is
+//     written to the upstream (trackedTransport.Connect); logger receives
+//     the one warn line a Unix tree logs when it may not signal its group
+//     (EPERM: a setuid launcher). On Unix it records the group;
 //     on Windows it creates the job, assigns the process to it and resumes
 //     it. An error means the process must not run: the caller kills it and
 //     the attempt fails.
@@ -23,7 +28,9 @@ import "time"
 //     to the group on Unix; on Windows, where go-sdk kills the leader at that
 //     point instead, it is kill.
 //   - sweep runs once, after the leader has been reaped: SIGTERM to the
-//     group, up to grace for it to empty, then SIGKILL (Unix); kill (Windows).
+//     group, up to grace for it to empty, then SIGKILL (Unix); if the group
+//     has already been sent SIGKILL, only SIGKILL again, with no grace;
+//     kill (Windows).
 //     After it the tree is never signalled again, so a reused process group
 //     ID cannot be hit by a later kill.
 //
@@ -33,11 +40,30 @@ import "time"
 // treeSignalLag is how long after go-sdk's own shutdown signal to the leader
 // the group gets the same signal (mirrorShutdown). go-sdk's pipeRWC.Close
 // signals the leader when terminateDuration has passed since it closed stdin,
-// and gives up with "os: process already finished" if the leader has already
-// been reaped by then. Signalling the group, leader included, at the same
-// instant could get the leader reaped just before go-sdk's own signal, and
-// turn a clean shutdown into that error. The lag keeps go-sdk's signal first.
+// and gives up if the leader has already been reaped by then. Signalling the
+// group, leader included, at the same instant could get the leader reaped
+// just before go-sdk's own signal. The lag keeps go-sdk's signal first, but
+// only as a best effort: two independent timers, with no ordering guarantee,
+// so a go-sdk goroutine delayed by more than the lag can still lose. Then
+// go-sdk's close returns "os: process already finished" instead of the
+// process's exit status, without waiting for it, and the last lines of the
+// upstream's stderr that exec had not yet copied are lost. The tree is still
+// ended.
 const treeSignalLag = 250 * time.Millisecond
+
+// attachFault, when a test sets it, makes attachTree fail with its error
+// after the process has been put in its tree and before it is resumed, so
+// the fail-closed path (ADR 0021) can be tested. Nothing outside tests sets
+// it.
+var attachFault atomic.Pointer[error]
+
+// injectedFault returns the error a test has set in attachFault, or nil.
+func injectedFault() error {
+	if e := attachFault.Load(); e != nil {
+		return *e
+	}
+	return nil
+}
 
 // mirrorShutdown schedules the tree's share of go-sdk's shutdown sequence,
 // counted from now, which is when the connection's Close starts and go-sdk

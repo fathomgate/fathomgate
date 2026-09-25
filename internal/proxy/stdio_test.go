@@ -12,10 +12,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -51,6 +49,10 @@ const (
 	fakeLingerEnv   = "FATHOMGATE_TEST_LINGER"
 	launcherExitArg = "FAKE-launcher-exit"
 	launcherPIDLine = "fake launcher: child pid "
+	// markerEnv names a file the "marker" mode creates as the first thing
+	// it does, then it exits once its stdin closes: proof that the process
+	// ran (ADR 0021, the suspended start and the fail-closed tests).
+	markerEnv = "FATHOMGATE_TEST_MARKER"
 )
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
@@ -59,6 +61,13 @@ const (
 const childRaceEnv = "GORACE=atexit_sleep_ms=0"
 
 func TestMain(m *testing.M) {
+	if os.Getenv(fakeUpstreamEnv) == "marker" {
+		if err := os.WriteFile(os.Getenv(markerEnv), []byte("ran\n"), 0o600); err != nil {
+			os.Exit(1)
+		}
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	}
 	if os.Getenv(fakeUpstreamEnv) == "launcher" {
 		// First, before anything else runs: the child must be started at
 		// the launcher's first instruction (ADR 0021, the Windows race).
@@ -66,7 +75,7 @@ func TestMain(m *testing.M) {
 		return
 	}
 	if os.Getenv(fakeLingerEnv) == "1" {
-		signal.Ignore(syscall.SIGTERM)
+		ignoreSIGTERM()
 	}
 	switch os.Getenv(fakeUpstreamEnv) {
 	case "1":
@@ -231,7 +240,7 @@ func runLauncher() {
 		fmt.Fprintln(os.Stderr, "fake launcher:", err)
 		os.Exit(1)
 	}
-	signal.Ignore(syscall.SIGTERM)
+	ignoreSIGTERM()
 	fmt.Fprintf(os.Stderr, "%s%d\n", launcherPIDLine, child.Process.Pid)
 	go func() { _, _ = io.Copy(os.Stdout, out) }()
 	r := bufio.NewReader(os.Stdin)

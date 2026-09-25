@@ -5,6 +5,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"os/exec"
 	"time"
 )
@@ -15,7 +16,12 @@ type procTree struct{}
 
 func prepareTree(*exec.Cmd) {}
 
-func attachTree(*exec.Cmd) (*procTree, error) { return &procTree{}, nil }
+func attachTree(*exec.Cmd, *slog.Logger) (*procTree, error) {
+	if err := injectedFault(); err != nil {
+		return nil, err
+	}
+	return &procTree{}, nil
+}
 
 func (*procTree) kill() {}
 

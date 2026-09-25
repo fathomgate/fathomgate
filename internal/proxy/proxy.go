@@ -298,7 +298,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		defer t.Stop()
 		expired = ch
 	}
-	cs, tt, err := p.connect(ctx, client, u, &trackedTransport{Transport: first}, expired)
+	cs, tt, err := p.connect(ctx, client, u, &trackedTransport{Transport: first, logger: p.logger.With("server", u.Server)}, expired)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func (p *Proxy) connect(ctx context.Context, client *mcp.Client, u Upstream, fir
 	if t == nil {
 		return nil, nil, fmt.Errorf("proxy: server %q: NewTransport returned no transport for the restart", u.Server)
 	}
-	second := &trackedTransport{Transport: t}
+	second := &trackedTransport{Transport: t, logger: first.logger}
 	cs, _, err = connectAttempt(ctx, client, second, &mcp.ClientSessionOptions{ProtocolVersion: restartProtocolVersion}, nil)
 	if err != nil {
 		exit := second.kill(graceFor(ctx))
@@ -463,6 +463,7 @@ func withExit(err error, exit string) error {
 // is reported.
 type trackedTransport struct {
 	mcp.Transport
+	logger *slog.Logger // with the server name; for the process tree's warning (ADR 0021)
 
 	// Orders are kept as flags set under mu, not compared timestamps: on
 	// Windows time.Now can return the same value for two events.
@@ -521,7 +522,7 @@ func (t *trackedTransport) Connect(ctx context.Context) (mcp.Connection, error) 
 		proc = ct.Command.Process // set by Start inside Connect, on this goroutine
 		// go-sdk has started the process and written nothing to it yet. On
 		// Windows it is still suspended: it runs only once it is in its job.
-		tree, err = attachTree(ct.Command)
+		tree, err = attachTree(ct.Command, t.logger)
 		if err != nil {
 			// Fail closed: an upstream never runs outside its tree.
 			if proc != nil {
