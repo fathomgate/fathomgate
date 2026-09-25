@@ -304,9 +304,10 @@ func TestKeyRoundTrip(t *testing.T) {
 	if err != nil || !bytes.Equal(lp, pub) {
 		t.Fatalf("public key round trip: %v", err)
 	}
-	fromPriv, err := LoadPublicKey(kp)
-	if err != nil || !bytes.Equal(fromPriv, pub) {
-		t.Fatalf("public from private: %v", err)
+	// ADR 0028: the verifier never derives the public key from the
+	// signing key.
+	if _, err := LoadPublicKey(kp); !errors.Is(err, ErrPrivateKey) {
+		t.Fatalf("LoadPublicKey of the private key: err = %v, want ErrPrivateKey", err)
 	}
 	if _, err := LoadKey(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("missing key should error")
