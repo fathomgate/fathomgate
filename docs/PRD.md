@@ -60,7 +60,6 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Audit | Any single edited line fails `fathomgate audit verify` |
 | Review from the CLI | The CLI shows the diff, the rule trace and the rule for every pending record, in tier 2 |
 | Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
-| Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
 | Time from `hold` to approver notification | Under 5 seconds via webhook |
 
 ## 6. Requirements
