@@ -297,11 +297,13 @@ In M0 this has three limits, on purpose:
   treat it like a device password.
 - fathomgate still checks nothing. Use it against lab devices only.
 
-**1. Make a token file that only you can read.** On macOS or Linux:
+**1. Make a token file for each client, that only you can read.** Name
+the file after the client that will use it. Here that is Claude Code. On
+macOS or Linux:
 
 ```sh
 mkdir -p ~/.config/fathomgate
-(umask 077; openssl rand -hex 32 > ~/.config/fathomgate/agent.token)
+(umask 077; openssl rand -hex 32 > ~/.config/fathomgate/claude-code.token)
 ```
 
 On Windows, in PowerShell (not as administrator, because a file an
@@ -312,8 +314,8 @@ fathomgate refuses a token file that does not belong to you):
 $bytes = New-Object byte[] 32
 [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
 $token = -join ($bytes | ForEach-Object { $_.ToString('x2') })
-Set-Content -NoNewline -Path "$HOME\fathomgate-agent.token" -Value $token
-icacls "$HOME\fathomgate-agent.token" /inheritance:r /grant:r "${env:USERNAME}:F"
+Set-Content -NoNewline -Path "$HOME\fathomgate-claude-code.token" -Value $token
+icacls "$HOME\fathomgate-claude-code.token" /inheritance:r /grant:r "${env:USERNAME}:F"
 ```
 
 fathomgate refuses to start if other users could read or change the file,
@@ -325,7 +327,7 @@ the sections above, plus `--listen` and the token file:
 
 ```sh
 fathomgate serve --listen 127.0.0.1:8931 \
-  --listen-token-file me=$HOME/.config/fathomgate/agent.token \
+  --listen-token-file claude-code=$HOME/.config/fathomgate/claude-code.token \
   --server netdev-ssh-mcp \
   --upstream /Users/you/go/bin/netdev-ssh-mcp \
   --upstream-env DEVICE_USERNAME=netops \
@@ -335,8 +337,8 @@ fathomgate serve --listen 127.0.0.1:8931 \
 It prints one `listening` line for each address it listens on:
 
 ```text
-level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
-level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
+time=... level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
+time=... level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=claude-code upstream_env_pass=SSH_AUTH_SOCK policy="none (M0 pass-through: every call is forwarded)"
 ```
 
 Port `0` picks a free port, and the lines then show which one. If another
@@ -344,10 +346,17 @@ program already holds the port on either address, Fathomgate stops with
 status 1 and names the address: stop that program or pick another port. On
 a computer without IPv6 it prints a warning and one `listening` line.
 
-`me` is a name for the token: it
-appears in fathomgate's log so that you can tell clients apart. Give each
-client its own token by repeating `--listen-token-file` with another name.
-The name is only a label. It does not prove which person is using it.
+`claude-code` is a name for the token. It appears in Fathomgate's log so
+that you can tell clients apart. Give each client its own token file and
+name by repeating `--listen-token-file`, for example
+`--listen-token-file cursor=$HOME/.config/fathomgate/cursor.token`. The
+name is only a label. It does not prove which person is using it.
+
+Fathomgate reads the token files once, when it starts. To take a token
+away from a client, remove its `--listen-token-file` entry (or put a new
+token in its file) and restart Fathomgate. Deleting the file while
+Fathomgate runs changes nothing: the old token keeps working until the
+restart. That is one more reason to give each client its own file.
 
 If your system hands secrets to programs in environment variables instead
 of files, put the token in `FATHOMGATE_LISTEN_TOKEN` and leave out
@@ -359,9 +368,115 @@ line into the client config, for example `http://127.0.0.1:8931/mcp`,
 rather than typing `localhost`: an address written out means the client
 connects where Fathomgate listens and nowhere else. The client connects to
 it as a Streamable HTTP (sometimes just "HTTP") MCP server, and sends the
-header `Authorization: Bearer <token>` with every request. Browser-based clients cannot connect: fathomgate refuses every
-request that comes from a web page. Tested client settings for Claude Code
-and others will be added here.
+header `Authorization: Bearer <token>` with every request. Browser-based
+clients cannot connect: Fathomgate refuses every request that comes from a
+web page.
+
+For Claude Code, add the server once, with the URL from your `listening`
+line. If you already added `netdev` over stdio earlier on this page, remove
+it first with `claude mcp remove netdev`, or use another name.
+
+```sh
+claude mcp add --transport http netdev http://127.0.0.1:8931/mcp \
+  --header 'Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}'
+```
+
+Keep the single quotes. They stop your shell from filling in the variable,
+so Claude Code saves the text `${CLAUDE_FATHOMGATE_TOKEN}`, not the token,
+and fills in the value from its own environment each time it connects.
+`claude mcp get netdev` then shows `Authorization: Bearer
+${CLAUDE_FATHOMGATE_TOKEN}`, not the token.
+
+Then start Claude Code with the token in its environment, and in nothing
+else's:
+
+```sh
+CLAUDE_FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/claude-code.token)" claude
+```
+
+That sets the variable for that one `claude` process. Your shell does not
+keep it. On Windows, open a PowerShell window that you use only to start
+Claude Code, and run:
+
+```powershell
+$env:CLAUDE_FATHOMGATE_TOKEN = Get-Content "$HOME\fathomgate-claude-code.token"
+claude
+```
+
+Close that window when you are done with Claude Code.
+
+Keep the token out of everywhere else:
+
+- Never put the variable in `~/.zshrc`, `~/.bashrc`, your PowerShell
+  `$PROFILE` or `setx`, and never `export` it in a shell you use for other
+  work. A variable set there reaches every program you start, and
+  everything Claude Code starts inherits it: its Bash tool, hooks and
+  stdio MCP servers.
+- Claude Code fills `${CLAUDE_FATHOMGATE_TOKEN}` into any server entry that
+  names it. A project's `.mcp.json` that names it would send your token to
+  whatever `url` that file gives. Approve a project's MCP servers only after
+  you have read their `url` and `headers`.
+- Pick the variable name with care. `CLAUDE_FATHOMGATE_TOKEN` is only a
+  name; Fathomgate never reads it. Any name of your own works, with two
+  exceptions:
+  - Don't use `FATHOMGATE_LISTEN_TOKEN`. That is the variable Fathomgate
+    reads its own token from. If it is set where you start
+    `fathomgate serve --listen-token-file ...`, Fathomgate exits with
+    status 2 and says both are set.
+  - Don't use a credential variable that Claude Code never sends to a
+    remote server, such as `ANTHROPIC_API_KEY`. Claude Code sends an empty
+    `Bearer` instead, Fathomgate answers 401, and Claude Code gives no
+    warning about the variable
+    ([Claude Code's MCP docs](https://code.claude.com/docs/en/mcp#credential-variables-that-read-as-empty)).
+- Use `--scope local` (the default) or `--scope user` for your own setup.
+  Never use `--scope project` with the token pasted into the header: that
+  writes the token itself into `.mcp.json`. If you paste the token into
+  `claude mcp add` at all, it lands in your shell history and in
+  `~/.claude.json`, and `claude mcp get netdev` prints it.
+
+Here is the same entry as JSON, for a project's `.mcp.json`
+(`--scope project`) or a file you pass with `claude --mcp-config`. It holds
+the variable's name, not the token:
+
+```json
+{
+  "mcpServers": {
+    "netdev": {
+      "type": "http",
+      "url": "http://127.0.0.1:8931/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CLAUDE_FATHOMGATE_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+A committed entry like this still sends each person's own token to that
+port on their own computer. If Fathomgate is not running there and another
+user of that computer holds the port, that program receives the token (see
+the port-squatting row in [SECURITY.md](../SECURITY.md#proxy-transport-m0-gaps)).
+Share it only with people who run Fathomgate on that port.
+
+To check it, run `/mcp` inside Claude Code, or in another terminal
+`CLAUDE_FATHOMGATE_TOKEN="$(cat ~/.config/fathomgate/claude-code.token)" claude mcp list`.
+`netdev` should show `✔ Connected`. If it shows `Failed to connect — Server
+rejected the configured Authorization header (HTTP 401)`, the token did not
+arrive. Check that Claude Code was started with `CLAUDE_FATHOMGATE_TOKEN`
+set (without it, `claude mcp list` also warns `Missing environment
+variables: CLAUDE_FATHOMGATE_TOKEN`) and that the token matches the file
+Fathomgate read when it started. The tools show up as
+`mcp__netdev__netdev-ssh-mcp_run_show_command` and so on, as over stdio.
+
+What we tested, with Claude Code 2.1.281 on Windows 11, in Git Bash: the
+`claude mcp add` command above, and `claude mcp list` and `claude mcp get`
+started with the variable as shown. We also ran a headless session with
+the JSON file through `claude --mcp-config` on both `listening` URLs. It
+listed the five tools and ran `show version` on the test device. We have
+not run the PowerShell lines in Windows PowerShell 5.1 or PowerShell 7. We
+have not tested a macOS or Linux terminal, approving a project's
+`.mcp.json`, or Cursor or any other client over HTTP. Any client that can
+send a header with each request should work the same way.
 
 **4. Stop it** with Ctrl+C (or SIGTERM). fathomgate gives calls in progress
 up to 5 seconds to finish, then stops. Press Ctrl+C a second time to stop

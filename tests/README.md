@@ -65,6 +65,15 @@ a mock.
     [GHSA-h47r-329w-6p9h](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h).
   - `integration/test_launcher_path.py` covers row 22 (the PATH-stripped
     launcher).
+  - `integration/test_http_listener.py` covers row 23: `fathomgate serve
+    --listen 127.0.0.1:0` with a FAKE bearer token (owner-only file, or
+    `FATHOMGATE_LISTEN_TOKEN`), a python-sdk client over Streamable HTTP in
+    both eras on both `listening` URLs, and raw-HTTP checks of the 401 and
+    403 refusals, including a `tools/call` without a valid token that must
+    reach no device. It stops Fathomgate as an operator does (SIGINT, or
+    CTRL_BREAK_EVENT on Windows) and checks that the token never reached
+    its stderr. It runs on Windows too; on a host with no IPv6 loopback
+    the `[::1]` half skips locally and fails in CI.
   - The M1 decision and audit cases are skipped until the pipeline is wired.
   - Without `FATHOMGATE_UPSTREAM` the tier 2 tests skip; CI sets
     `FATHOMGATE_TIER2_REQUIRED=1` so they cannot skip there.
