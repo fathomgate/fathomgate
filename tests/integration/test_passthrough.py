@@ -134,8 +134,8 @@ async def test_show_version_reaches_device_through_proxy(proxy_server_params: di
 RUNNING_CONFIG = REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt"
 RUNNING_CONFIG_SECRETS: list[str] = json.loads((REPO / "tests/fixtures/configs/eos-4.16.expect.json").read_text())["secrets"]
 
-# A FAKE obfuscation key for the upstream, handed over the way docs/install.md
-# shows: a key file, named by `--upstream-env OBFUSCATION_KEY_FILE=<path>`.
+# A FAKE obfuscation key for the upstream, handed over by the optional route
+# docs/install.md describes: a key file, `--upstream-env OBFUSCATION_KEY_FILE=<path>`.
 UPSTREAM_OBFUSCATION_KEY = "FAKE-netdev-ssh-mcp-obfuscation-key-0123456789"
 # The upstream's domain-separation label (obfuscate.go, obfuscationKeyLabel).
 UPSTREAM_OBFUSCATION_LABEL = b"netdev-ssh-mcp/obfuscation/v1"
@@ -158,17 +158,22 @@ def _unkeyed_hash(secret: str) -> str:
     return f"[h:{hashlib.sha256(secret.encode()).digest()[:6].hex()}]"
 
 
-async def _get_running_config(params: dict, port: int):
+async def _get_running_config_with_init(params: dict, port: int):
+    """The agent's initialize result and the get_config result."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     async with stdio_client(StdioServerParameters(**params)) as (read, write):
         async with ClientSession(read, write) as session:
-            await session.initialize()
-            return await session.call_tool(
+            init = await session.initialize()
+            return init, await session.call_tool(
                 f"{SERVER}.get_config",
                 {"host": "127.0.0.1", "port": port, "device_type": "eos", "config_type": "running"},
             )
+
+
+async def _get_running_config(params: dict, port: int):
+    return (await _get_running_config_with_init(params, port))[1]
 
 
 @pytest.fixture
@@ -180,7 +185,7 @@ def no_obfuscate_params(fathomgate_binary: Path, upstream_binary: Path, fake_dev
 @pytest.fixture
 def keyed_params(fathomgate_binary: Path, upstream_binary: Path, fake_device: FakeDevice, tmp_path: Path) -> dict:
     """fathomgate serve with the upstream's obfuscation keyed from a FAKE key
-    file, as docs/install.md recommends."""
+    file, the optional route in docs/install.md."""
     key_file = tmp_path / "netdev-ssh-mcp.key"
     key_file.write_text(UPSTREAM_OBFUSCATION_KEY + "\n", encoding="utf-8")
     extra = ["--upstream-env", f"OBFUSCATION_KEY_FILE={key_file}"]
@@ -214,10 +219,14 @@ async def test_running_config_ephemeral_key_through_proxy(proxy_server_params: d
     for the run. The four credentials become four distinct `[h:...]` tokens,
     none of them the v1.6.6 unkeyed hash, and the upstream appends its notice
     as a second content block, which fathomgate forwards as it is (M0)."""
-    result = await _get_running_config(proxy_server_params, fake_device.port)
+    init, result = await _get_running_config_with_init(proxy_server_params, fake_device.port)
 
     assert not result.is_error, _text(result)
     assert fake_device.commands() == ["show running-config | no-more"]
+    # The upstream also sets MCP `instructions` for this case
+    # (EphemeralKeyInstructions); fathomgate does not relay an upstream's
+    # instructions to the agent, so none of that text reaches it here.
+    assert not init.instructions or "netdev-ssh-mcp" not in init.instructions, init.instructions
     assert len(result.content) == 2, _text(result)
     config, notice = result.content[0].text, result.content[1].text
     assert notice.startswith(UPSTREAM_EPHEMERAL_NOTICE), notice
@@ -292,20 +301,22 @@ async def test_upstream_tool_error_passes_through(proxy_server_params: dict, fak
 # 6fc6ab0) the upstream refuses a second command smuggled into
 # run_show_command and output pipes that write files. Up to v1.7.0 it checked
 # only the `show` prefix and sent the whole string in one exec request.
+# Each refusal substring is the upstream's own text (checkOperationalCommand
+# in command_safety.go at 6fc6ab0), so a case cannot pass on an unrelated error.
 @pytest.mark.parametrize(
-    "command",
+    ("command", "refusal"),
     [
-        "show version\nreload",
-        "show version\r\nconfigure terminal",
-        "show version ; reload",
-        "show version | redirect flash:FAKE.txt",
-        "show version | tee flash:FAKE.txt",
-        "show version > flash:FAKE.txt",
+        ("show version\nreload", "command must be a single line without control characters"),
+        ("show version\r\nconfigure terminal", "command must be a single line without control characters"),
+        ("show version ; reload", "command must be a single command without ';'"),
+        ("show version | redirect flash:FAKE.txt", "pipe '| redirect' is not allowed"),
+        ("show version | tee flash:FAKE.txt", "pipe '| tee' is not allowed"),
+        ("show version > flash:FAKE.txt", "command must not use redirection ('<' or '>')"),
     ],
     ids=["lf", "crlf", "semicolon", "pipe-redirect", "pipe-tee", "redirect"],
 )
 @pytest.mark.asyncio
-async def test_upstream_refuses_command_injection(proxy_server_params: dict, fake_device: FakeDevice, command: str) -> None:
+async def test_upstream_refuses_command_injection(proxy_server_params: dict, fake_device: FakeDevice, command: str, refusal: str) -> None:
     """The upstream's refusal comes back as a tool error and nothing reaches
     the device. In M0 fathomgate forwards the call; the refusal is the
     upstream's, not a `deny`. From M1, fathomgate classifies the command
@@ -322,6 +333,7 @@ async def test_upstream_refuses_command_injection(proxy_server_params: dict, fak
             )
 
     assert result.is_error, _text(result)
+    assert refusal in _text(result), _text(result)
     assert fake_device.commands() == []
 
 

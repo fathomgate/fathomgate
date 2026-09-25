@@ -1,12 +1,19 @@
 # Profile for krisiasty/netdev-ssh-mcp (Go, stdio, multi-vendor SSH).
 # Source of tool names and parameters: docs/research/02-network-mcp-servers.md §1.1.
 #
-# The server is read-only by design. Since v1.7.1 it refuses run_show_command
-# input that is not a single show/get command with allow-listed pipes, and it
-# redirects config dumps to get_config and obfuscates secrets with a keyed
-# hash (see below). Its `host` parameter is free-form with no inventory, so the
-# proxy's contribution here is the host allow-list (unknown targets) and
-# defence-in-depth command checking.
+# The server is read-only by design. It redirects config dumps to get_config.
+# Since v1.7.0 it obfuscates secrets with a keyed hash, and since v1.7.1 it
+# refuses run_show_command input that is not a single show/get command with
+# allow-listed pipes (see below). Its `host` parameter is free-form with no
+# inventory, so the proxy's contribution here is the host allow-list (unknown
+# targets) and defence-in-depth command checking.
+# Gaps left at v1.7.1 [src, internal/netdev/device_type.go, command_safety.go]:
+# the get_config redirect is a plain prefix check ("show ru", "show sta"), so
+# `show  running-config` (two spaces) passes it and runs through
+# run_show_command (the output is still obfuscated); and the run_ping /
+# run_traceroute argument pattern allows a leading `-`, so a destination,
+# source, vrf or interface can start with `-`. Fathomgate's own
+# classification (M1) must cover both.
 #
 # Pinned upstream: v1.7.1 (tier 2, CI job client-smoke; T0.51, 2026-09-25).
 # Verified [src] at tag v1.7.1, commit 6fc6ab0aed1e84b8dd71b1bf1ad39cd909146623:
@@ -22,12 +29,14 @@
 #   neither, a random per-run key: the server sets MCP `instructions` (which
 #   fathomgate does not relay) and appends a second text content block, a
 #   notice, to each get_config / run_show_command result holding a token.
-#   Obfuscation fails closed if no key is set. Every pattern runs on every
+#   If the server ever reaches obfuscation with no key loaded (an internal
+#   fault, not a setting), it returns an error instead of the output. Every pattern runs on every
 #   line and type words (7, md5 7, sha512) are skipped, so all T0.29 misses
 #   are fixed: run over tests/fixtures/configs/ with trailing rule annotations
 #   stripped, 0/71 secrets left in clear (v1.6.6 as control: 20/71, the T0.29
 #   totals). As committed, 3 ios-xe lines still show in clear because
-#   end-of-line-anchored patterns meet the annotation; a device prints none.
+#   end-of-line-anchored patterns meet the annotation; a real device prints no
+#   such annotation.
 # - GHSA-h47r-329w-6p9h (fixed in v1.7.1, PR #23, commit ce2206b; reported by
 #   the upstream maintainer):
 #   https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h
@@ -42,7 +51,9 @@
 #   proxy's redactor (M2, row 15) runs on every result and must not treat a
 #   line holding an [h:...] token as clean. The command checks are defence in
 #   depth under Fathomgate's own classification (M1), which must not rely on
-#   them. Install docs: keep obfuscation on, with a key file.
+#   them. Install docs: keep obfuscation on, with the default per-run key; a
+#   key file is optional, only for tokens that must match across runs, and
+#   must be kept where the agent's tools cannot read it.
 #
 # History. Upstream secret obfuscation is NOT a redaction control (T0.29, 2026-09-23).
 # Verified [src] at tag v1.6.6, commit be3e36342b0c71007ce416a435dfdfecc966ea13:
@@ -72,7 +83,8 @@
 #   eos-4.16 0/4, fortios 0/6. No upstream unit tests cover obfuscation.
 # - Install docs recommend leaving obfuscation ON in M0 (defence in depth
 #   while Fathomgate does not redact). Revisit once M2 redaction ships.
-#   (Fixed upstream in v1.7.0 and v1.7.1; see the section above.)
+#   (The T0.29 findings are fixed upstream in v1.7.0, GHSA-8g43-jrf3-q9vq;
+#   see the section above.)
 server: netdev-ssh-mcp
 source: https://github.com/krisiasty/netdev-ssh-mcp
 description: Read-only multi-vendor SSH server (EOS, IOS/IOS-XE, NX-OS, Junos, FortiOS)
