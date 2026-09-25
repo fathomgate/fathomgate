@@ -58,7 +58,7 @@ sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443   # Linux only
 cd tests && FATHOMGATE_TIER2_REQUIRED=1 uv run --extra integration pytest integration -m "tier2 and eos_mcp" -v
 ```
 
-Local (Windows 11, `FATHOMGATE_BIN=bin/fathomgate.exe`), round 2: 10 passed, 1 skipped (the `localhost` control, `[::1]:443` held by another program here); round 1: 10 passed. With `--no-policy` substituted for the policy, the seven gate cases fail. CI: [run 36188295704](https://github.com/fathomgate/fathomgate/actions/runs/36188295704), job `tier2 eos-mcp (eAPI, --policy)` 10 passed, every job green.
+Local (Windows 11, `FATHOMGATE_BIN=bin/fathomgate.exe`), round 2: 10 passed, 1 skipped (the `localhost` control, `[::1]:443` held by another program here); round 1: 10 passed. With `--no-policy` substituted for the policy, the seven gate cases fail. CI: [run 36188295704](https://github.com/fathomgate/fathomgate/actions/runs/36188295704), job `tier2 eos-mcp (eAPI, --policy)` 10 passed, every job green. Round 2: [run 36190001536](https://github.com/fathomgate/fathomgate/actions/runs/36190001536) at `870a86b`, `check-build-constraints.sh` OK on uv 0.12.19, 11 passed (the `localhost` control ran), every job green.
 
 ## Decisions made without an ADR
 
