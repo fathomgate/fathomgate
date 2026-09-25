@@ -31,6 +31,7 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 ### Fixed
 
 - `internal/proxy` labels an upstream's era from the handshake request go-sdk had answered on the session and the version it negotiated, not from the version alone (T0.47, M1-06, N6 from the security reviews of PR #77 and #79). An upstream that answers the 2025-11-25 `initialize` request with 2026-07-28, after the ADR 0018 restart or go-sdk's own fallback, was logged `era=stateless`; it is now `protocol=2026-07-28 era=stateful`, and the call carries that era to `Proxy.dispatch` for the M1 audit event and decision log line. A sending middleware on the upstream's client records which sessions were opened with `initialize`, over any transport. Tier 1 test over a real stdio child for the restart path. Rules in `docs/specs/profile-schema.md` section 8.4.
+- An agent session evicted at the session cap (T0.57) now answers its principal 404 until go-sdk has finished closing it, as `docs/specs/profile-schema.md` section 8.5 says. The session's watcher took it out of fathomgate's table as soon as go-sdk's connection closed. go-sdk still held the id for a moment after that and answered a call on it 200 with an empty body, so a 2025-era client was not told to start a new session. Now the goroutine that closes the evicted session removes the entry, after go-sdk's close has returned. This was the macOS `-race` flake of `TestHTTPSessionCapEviction` in CI run 36160322146.
 
 ### Security
 
