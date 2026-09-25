@@ -6,6 +6,15 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ## [Unreleased]
 
+### Security
+
+- `internal/classify` no longer downgrades a multi-line command (M1-16, from the security review of PR #150). Whitespace collapsing turned line breaks into spaces, so `show clock\nconf t\nhostname pwned\nend`, `show clock\ncopy run start`, `show clock\nrelo\n\nshow clock` and `show clock\ntclsh` through a free-form tool were `READ_OPERATIONAL` and allowed by `reads-anywhere`, while netmiko sent every line to the device. A command with any control character other than tab (newline, carriage return, vertical tab, form feed, NUL, Ctrl-C, Ctrl-Z, escape, DEL) or any non-ASCII byte (NEL, U+2028, U+2029, C1 controls, no-break and zero-width spaces, look-alikes) is now `EXEC_ARBITRARY`, checked before whitespace is collapsed; tabs still collapse like spaces. So is any word after the first that starts with `-` (option injection into `ping` or `traceroute` on the server host). The blocklist gains classification.md section 5.3's start-anchored verbs and the abbreviations device CLIs accept anywhere in the line (`conf t`, `wr`, `rel`, `relo`, `copy`, `tclsh`, `bash`, `python`, `guestshell`, `start shell`, `undebug`), and `monitor` is allowed only as `monitor interface` and `monitor traffic`, with `write-file` blocked.
+- Config dumps given in short form are `READ_CONFIG`, not `READ_OPERATIONAL`: `show run`, `show start`, `show conf`, `show tech-support`, `show archive`, `show checkpoint`, `show candidate`, `show system configuration`, EOS `session-config`, Huawei `saved-configuration`, and FortiOS `get system admin|interface|ha`. The keyword is matched by stem, since CLIs accept any unambiguous abbreviation.
+
+### Added
+
+- `classify.Result.ClassSource` (M1-16): `profile`, `fallback`, `downgrade` or `reclassify`, the audit `class_source` of classification.md section 2 (`capability_table` and `annotation_raise` are declared for M1-17 and M1-18). `Result.Reason` names the first failing command, quoted and cut to 80 bytes, and the check that failed (`control-character`, `non-ascii`, `empty`, `shell-meta`, `leading-dash`, `blocklist`, `allow-prefix`). The `never-downgrade` token in a tool's profile notes keeps an `EXEC_ARBITRARY` tool from being downgraded (classification.md section 8); junos `execute_junos_pfe_command` carries it, so a PFE `show jnh 0 exceptions` stays `EXEC_ARBITRARY`. Tier 1 cases for every classification.md section 9 row but the two Meraki ones, one positive and one negative per allow-list, blocklist and config-read entry, and M1 exit criterion 3 (`show ip bgp summary` is `READ_OPERATIONAL` through netdev-ssh-mcp `run_show_command`, eos-mcp `run_command`, upa `send_command_and_get_output`, ntunes `send_command` and junos `execute_junos_command`; `reload` stays `EXEC_ARBITRARY`; `show  running-config` and tab variants are `READ_CONFIG`). classification.md now describes the vendor-agnostic rules the code runs and marks the per-vendor tables, output-filter pipes, the fallback classifier and dry-run reclassification as planned.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
