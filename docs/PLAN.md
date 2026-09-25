@@ -6,7 +6,7 @@ Build a Go, single-binary, policy-enforcing MCP proxy that sits between any AI a
 
 ## Decision summary
 
-The project is a standalone MCP proxy (stdio and Streamable HTTP on both sides) that classifies every tool call by network semantics, resolves the target device's role from NetBox or Nautobot, evaluates a YAML policy, and either forwards, denies, or holds the call for human approval. Every result passes through a secret redactor and lands in a hash-chained audit log.
+The project is a standalone MCP proxy (stdio and Streamable HTTP on both sides) that classifies every tool call by network semantics, resolves the target device's role from an inventory (a static file, or a CSV export or snapshot of NetBox or Nautobot; live NetBox and Nautobot connectors are in the paid edition), evaluates a YAML policy, and either forwards, denies, or holds the call for human approval. Every result passes through a secret redactor and lands in a hash-chained audit log.
 
 | Decision | Choice | Why |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ flowchart LR
   A[Agent / MCP client] --> P[Fathomgate proxy]
   P --> N[Normalise<br/>target + command]
   N --> C[Classify<br/>command class]
-  C --> R[Resolve role<br/>NetBox / Nautobot]
+  C --> R[Resolve role<br/>inventory chain]
   R --> E[Evaluate<br/>YAML policy]
   E -->|allow| U[Upstream MCP server]
   E -->|hold| H[Approval queue]
@@ -109,16 +109,16 @@ The normaliser maps `host | hostname | name | device | router_name | target | fi
 
 ### Device role sources
 
-A source of truth is not a requirement. Role resolution is a lookup from target hostname to `{role, site, tags, status}`, and the proxy tries a chain of providers in order, first hit wins. NetBox and Nautobot are one provider in that chain, not a dependency.
+A source of truth is not a requirement. Role resolution is a lookup from target hostname to `{role, site, tags, status}`, and the proxy tries a chain of providers in order, first hit wins. NetBox and Nautobot are one provider in that chain, not a dependency. The core loads a CSV export or a snapshot of either at no cost; the live connectors (API lookup, auto-sync, caching and freshness checks) are in the paid edition ([ADR 0034](adr/0034-source-available-under-fsl.md), *Amendments*, 2026-09-25), and plug in through the `Resolver` interface.
 
 | Order | Provider | Needs | Typical user |
 | --- | --- | --- | --- |
 | 1 | Static `inventory.yaml` (or `fathomgate inventory import devices.csv`) | Nothing | Most shops; MSP clients; anyone with a spreadsheet |
 | 2 | Optional hostname patterns under `roles:` in `inventory.yaml`, off in the shipped example. A match makes any name the agent sends a known device, so reads reach it; tags or roles that unlock writes come from devices listed by name, never from a pattern ([inventory-schema section 4](specs/inventory-schema.md#4-hostname-patterns)) | A naming convention, anchored at both ends | Networks whose every matching name is a device the agent may read |
 | 3 | The upstream server's own inventory, read through its `INVENTORY_READ` tools at startup (ntunes `devices.yaml` tags, eos-mcp tags, junos `devices.json`) | The server already configured | Anyone already running one of those servers |
-| 4 | NetBox or Nautobot REST, cached with a TTL; `fathomgate inventory sync` snapshots it into the static file | A source of truth | Shops that have one |
+| 4 | Paid edition: NetBox or Nautobot REST, cached with a TTL and synced into a snapshot. In the core, a CSV export of either loads through row 1, and a snapshot loads in the static-file format | A source of truth | Shops that have one |
 
-A target no provider resolves is `unknown`. The default policy for unknown targets is deny for every class ([ADR 0032](adr/0032-unset-unknown-target-denies-every-class.md), which replaced the earlier deny-writes-and-exec, allow-reads default); `defaults.unknown_target: allow` in the policy file lets the rules decide. When NetBox is configured but unreachable, the proxy uses the last snapshot and marks every decision made from it with `sot: stale` in the audit event, so an outage never silently loosens policy.
+A target no provider resolves is `unknown`. The default policy for unknown targets is deny for every class ([ADR 0032](adr/0032-unset-unknown-target-denies-every-class.md), which replaced the earlier deny-writes-and-exec, allow-reads default); `defaults.unknown_target: allow` in the policy file lets the rules decide. When a live source of truth is configured but unreachable, the proxy uses the last snapshot and marks every decision made from it with `sot: stale` in the audit event, so an outage never silently loosens policy.
 
 ### Policy schema
 
@@ -202,7 +202,7 @@ Six milestones, each shippable and each validated against at least one real upst
 | --- | --- | --- | --- | --- |
 | M0 Pass-through | Go proxy that spawns one stdio upstream, forwards `tools/list` and `tools/call`, prefixes tool names, speaks both protocol eras; GoReleaser binary | Official conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task; Claude Code and one other client list and call tools through it | netdev-ssh-mcp | 2 weeks |
 | M1 Classify + allow/deny | Normaliser, per-server profiles, fallback classifier, static inventory and hostname-pattern roles, YAML policy loader, `Evaluate`, `fathomgate policy test`, structured deny errors | 100 percent of surveyed tools mapped; policy test suite green; `EXEC_ARBITRARY` downgrade works on show commands | netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp `run_command` | 3 weeks |
-| M2 Role-aware policy + redaction | optional NetBox and Nautobot resolver with cache, snapshot sync and stale marking; upstream-inventory provider; redactor with vendor grammar and keyed HMAC; TOFU description pinning | Redaction catches every pattern in the vendor fixture corpus; same policy resolves roles from a static file, from NetBox, and from a stale snapshot; changed tool description quarantines the server | netdev-ssh-mcp `get_config`, junos-mcp-server `get_junos_config`, netbox-mcp-server | 3 weeks |
+| M2 Role-aware policy + redaction | the source-of-truth seam in the core: the `Resolver` interface, the snapshot format and `sot: stale` marking, with CSV import of a NetBox or Nautobot export as the free path (the live connectors are in the paid edition, [ADR 0034](adr/0034-source-available-under-fsl.md) *Amendments*); upstream-inventory provider; redactor with vendor grammar and keyed HMAC; TOFU description pinning | Redaction catches every pattern in the vendor fixture corpus; same policy resolves roles from a static file, from a CSV import of a NetBox or Nautobot export, and from a stale snapshot, with identical decisions (validation against a live NetBox or Nautobot is in the paid edition); changed tool description quarantines the server | netdev-ssh-mcp `get_config`, junos-mcp-server `get_junos_config`, netbox-mcp-server | 3 weeks |
 | M3 Dry-run, diff, approval hold | `ChangeSafety` drivers for Junos and EOS; pending queue in SQLite with TTL; CLI approve/deny, with the diff, rule trace and rule shown for every pending record; HMAC webhook; MRTR elicitation for 2026-era clients; drift guard | A `WRITE_CONFIG` call is held, the CLI shows its diff, rule trace and rule, it executes once on approval, expires on TTL, refuses on drift | junos-mcp-server `load_and_commit_config`, eos-mcp `push_config`, ntunes `send_config` | 4 weeks |
 | M4 Audit chain + blast radius | Hash-chained JSONL, signed checkpoints, `fathomgate audit verify`; session counters, fan-out caps, canary-first rule, maintenance windows. The OCSF and CEF exporters (R27) are in the paid edition ([ADR 0025](adr/0025-split-the-console.md)) | Tampered log fails verify; fleet call above cap denied; canary rule enforces ordering. No exit criterion depends on the exporters | ntunes `send_config_parallel`, eos-mcp `run_command_batch`, junos `execute_junos_command_batch` | 3 weeks |
 | M5 Local console + watchdog drivers | Local console for one operator on one machine (Fathom policy layer; served by the binary, loopback only, off by default, no accounts): live activity, held requests with diff, rule trace and rule, approve and deny as the local OS user, audit timeline with verify status; IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy-owned rollback watchdog; optional OPA backend. The team console is in the paid edition ([ADR 0025](adr/0025-split-the-console.md)); the local console's design is in the local console ADR ([ADR 0024](adr/0024-local-console-embedded-loopback-only.md), accepted) | Watchdog rolls back an unconfirmed NX-OS change on a containerlab device; the local console shows Holding, Approved and Denied calls live in both themes; an approval from it alone does not satisfy `approver_must_differ` | Palo-MCP, mcfortigate, netdev-ssh-mcp on IOS-XE and NX-OS | 5 weeks |
@@ -273,7 +273,7 @@ fathomgate/
   internal/normalize/      target and command canonicalisation, per-server profiles
   internal/classify/       command-class rules, allow-lists, meta-tool capability tables
   internal/policy/         YAML loader, Evaluate(), Decision, OPA adapter (later)
-  internal/sot/            NetBox and Nautobot resolvers with cache
+  internal/inventory/      resolver chain, static file, CSV import, snapshots, sot: stale marking (live NetBox and Nautobot connectors: paid edition)
   internal/approval/       pending store (SQLite), TTL, CLI, webhook, MRTR
   internal/safety/         ChangeSafety drivers: junos, eos, iosxe, nxos, panos, fortios
   internal/redact/         ordered vendor patterns, keyed HMAC

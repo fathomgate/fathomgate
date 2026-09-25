@@ -60,10 +60,12 @@ Fathomgate is early. The parts are built and tested on their own, but they are n
 | Working out what kind of action a request is (per-server profiles, command inspection) | Done |
 | Secret masking for Cisco IOS and NX-OS, Junos, EOS, PAN-OS and FortiOS output | Done |
 | Tamper-evident audit log | Done |
-| Device lookup from an inventory file or hostname patterns (NetBox is optional and comes later) | Done |
+| Device lookup from an inventory file, a CSV import or hostname patterns | Done |
 | **The checkpoint itself** (`fathomgate serve`) | **Passes every request through unchanged for now.** The rules are wired in during the next milestone, M1 |
 | Approvals, dry runs, automatic rollback, a local web console for one operator | Later milestones |
 | A team console: single sign-on, roles, many Fathomgate instances in one view | Part of the paid edition |
+| Loading a NetBox or Nautobot CSV export | M2, free |
+| Live NetBox and Nautobot connectors: lookup as requests arrive, auto-sync, freshness checks | Part of the paid edition |
 
 The full plan is in [ROADMAP.md](ROADMAP.md).
 
@@ -179,7 +181,7 @@ The source is public so you can read, build and audit every line that decides wh
 ```
 tool call ──▶ Normalize  work out the targets, commands and config from the server's profile
           ──▶ Classify   the profile's class, raised or lowered by inspecting the commands
-          ──▶ Resolve    the device's role: inventory.yaml → hostname patterns → NetBox; unknown stays unknown
+          ──▶ Resolve    the device's role: inventory.yaml (or a CSV import) → hostname patterns; unknown stays unknown
           ──▶ Evaluate   unknown-target default, session caps, then the rules in order; first match wins
           ──▶ allow / hold / deny, each with a rule id and a full trace
 ```
@@ -223,7 +225,7 @@ internal/classify/     classes, server profiles, working out what a request does
 internal/policy/       policy files, Evaluate, test runner
 internal/redact/       secret patterns per vendor, keyed tokens
 internal/audit/        the tamper-evident log, signing keys, verify
-internal/inventory/    device lookup: inventory file, hostname patterns, CSV import, NetBox stub
+internal/inventory/    device lookup: inventory file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
 profiles/              one YAML per upstream server
 policies/examples/     read-only, lab-open, prod-approval and their tests
 tests/                 Python companion: policy lint, tiered tests, fixture configs, conformance harness

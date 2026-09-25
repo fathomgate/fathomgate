@@ -89,7 +89,7 @@ internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
 internal/fileacl/    one question: does this open file carry a macOS extended ACL (refuse it); no-op elsewhere
 internal/secretfile/ owner-only read of a secret file (audit signing key, listen token files; redaction key in M2), ADR 0028
-internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (M2)
+internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
 internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
@@ -107,7 +107,7 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 ## Things that look wrong but are deliberate
 
 - `fathomgate serve` forwards every call with no policy, and refuses `--policy`, `--inventory`, `--profiles` and `--audit` with exit 2. M0 is pass-through only; the pipeline is wired in M1 at `Proxy.dispatch` (ADR 0012).
-- `internal/inventory/netbox.go` is a stub that satisfies `Resolver`. NetBox is optional (ADR 0007).
+- `internal/inventory/netbox.go` is a stub that satisfies `Resolver` and resolves nothing. NetBox is optional (ADR 0007), and the live NetBox and Nautobot connectors are in the paid edition (ADR 0034, *Amendments*): the stub stays until the paid resolver exists, then leaves the core. The free path is CSV import and snapshots.
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.
 - CI runs on GitHub-hosted runners. The repository is public, so no job reachable from a pull request may target a self-hosted runner (docs/ci-runners.md); the WSL runners of 2026-09-24 are retired.

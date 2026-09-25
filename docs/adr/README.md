@@ -27,7 +27,7 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0017](0017-keep-upstream-secrets-off-the-command-line.md) | Keep upstream secrets off the command line with `--upstream-env-pass` | accepted | 2026-09-23 |
 | [0018](0018-bound-server-discover-then-initialize-only.md) | Bound go-sdk's `server/discover` probe, then restart the upstream and connect with `initialize` only | accepted | 2026-09-24 |
 | [0019](0019-rename-to-fathomgate.md) | Rename the product from NetGuard to Fathomgate | accepted | 2026-09-24 |
-| [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted; licence, contributions and "stays open" superseded by [0034](0034-source-available-under-fsl.md) | 2026-09-24 |
+| [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted; licence, contributions and "stays open" superseded by [0034](0034-source-available-under-fsl.md); NetBox and Nautobot row settled in 0034's *Amendments* | 2026-09-24 |
 | [0021](0021-kill-the-upstream-process-tree.md) | Kill the upstream's whole process tree: a process group on Unix, a Job Object on Windows | accepted | 2026-09-24 |
 | [0022](0022-internal-proxy-export-surface.md) | The exported surface of `internal/proxy`, restated in one record | accepted | 2026-09-25 |
 | [0023](0023-listener-binds-both-loopback-families.md) | `serve --listen` binds both loopback families, and three smaller listener changes | accepted | 2026-09-25 |

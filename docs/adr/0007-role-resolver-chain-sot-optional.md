@@ -4,6 +4,8 @@
 - Date: 2026-09-23
 - Deciders: Josh Scott
 - Amended by: [ADR 0032](0032-unset-unknown-target-denies-every-class.md) (2026-09-25; an unset `defaults.unknown_target` denies every class, not only `WRITE_CONFIG` and `EXEC_ARBITRARY`; see *Amendments*)
+- Provider row 2 superseded by: [ADR 0031](0031-hostname-patterns-never-make-a-target-known.md) (2026-09-25; a hostname pattern never makes a target known; see *Amendments*)
+- Provider row 4 settled by: [ADR 0034](0034-source-available-under-fsl.md), *Amendments* (2026-09-25; the live NetBox and Nautobot connectors are in the paid edition; see *Amendments*)
 
 ## Context
 
@@ -61,6 +63,8 @@ This section records factual corrections and pointers (GOVERNANCE.md). It does n
 | Date | What changed | Why |
 | --- | --- | --- |
 | 2026-09-25 | Pointer: the sentence "Default policy for unknown targets denies `WRITE_CONFIG` and `EXEC_ARBITRARY` and allows reads" in *Decision* is superseded by [ADR 0032](0032-unset-unknown-target-denies-every-class.md) (accepted 2026-09-25). A policy that leaves `defaults.unknown_target` unset now denies every class for an unknown target, as `unknown_target: deny` does; `unknown_target: allow` still lets the rules decide. The provider chain, the `unknown` state and the stale-snapshot handling decided here are unchanged | The security reviews of PR #154 and PR #158: eos-mcp and netdev-ssh-mcp send the operator's device credentials to any host the agent names, so a read to an unknown host is as dangerous as a write (board task M1-37) |
+| 2026-09-25 | Pointer: provider row 2 (hostname patterns) is superseded by [ADR 0031](0031-hostname-patterns-never-make-a-target-known.md) (accepted 2026-09-25). A hostname pattern no longer makes a target known on its own; it only fills in role and site where they are empty, and adds tags, on a device a name authority lists (the static file or CSV import in M1; the M2 providers as ADR 0031 sets out). The chain order, first hit wins among name authorities, the unknown-target rule and the `sot: stale` marking are unchanged here. The default for an unset `unknown_target` is decided separately, in board task M1-37 | Security review of PR #154 (H1, H2): a pattern made any agent-chosen name that matched it a known device. Maintainer decision, Josh Scott, 2026-09-25 |
+| 2026-09-25 | Pointer: provider row 4 (NetBox or Nautobot REST) is settled by the *Amendments* of [ADR 0034](0034-source-available-under-fsl.md), which records the maintainer's decision on [ADR 0020](0020-open-core-apache-2.md)'s contested NetBox row. The live NetBox and Nautobot connectors (API lookup, auto-sync, caching and freshness checks, and `fathomgate inventory sync` from the live API) are in the paid edition. The core keeps the `Resolver` interface, the chain order, the snapshot format, `sot: stale` marking, the static file, hostname patterns and CSV import, so a team exports from NetBox or Nautobot and loads the file at no cost. `internal/inventory/netbox.go` stays a stub in the core until the paid resolver exists, then leaves. The M2 exit criterion that *Negative* cites is restated in PLAN.md: one policy resolves roles from a static file, from a CSV import of a NetBox or Nautobot export and from a stale snapshot, with identical decisions; validation against a live NetBox or Nautobot moves to the paid edition. The chain, the `unknown` state and the stale-snapshot handling decided here are unchanged | Maintainer decision, Josh Scott, 2026-09-25 |
 
 ## References
 
@@ -69,11 +73,3 @@ This section records factual corrections and pointers (GOVERNANCE.md). It does n
 - [netbox-mcp-server](https://github.com/netboxlabs/netbox-mcp-server)
 - [go-netbox](https://github.com/netbox-community/go-netbox/releases)
 - [Nautobot](https://networktocode.com/nautobot/)
-
-## Amendments
-
-This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
-
-| Date | What changed | Why |
-| --- | --- | --- |
-| 2026-09-25 | Pointer: provider row 2 (hostname patterns) is superseded by [ADR 0031](0031-hostname-patterns-never-make-a-target-known.md) (accepted 2026-09-25). A hostname pattern no longer makes a target known on its own; it only fills in role and site where they are empty, and adds tags, on a device a name authority lists (the static file or CSV import in M1; the M2 providers as ADR 0031 sets out). The chain order, first hit wins among name authorities, the unknown-target rule and the `sot: stale` marking are unchanged here. The default for an unset `unknown_target` is decided separately, in board task M1-37 | Security review of PR #154 (H1, H2): a pattern made any agent-chosen name that matched it a known device. Maintainer decision, Josh Scott, 2026-09-25 |
