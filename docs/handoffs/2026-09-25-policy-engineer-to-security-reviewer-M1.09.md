@@ -3,7 +3,7 @@
 - **Task:** M1-09 — Check the audit signing key like every other secret file, and stop audit verify trusting a private key
 - **From → To:** policy-engineer → security-reviewer (go-reviewer is the second reviewer)
 - **State now:** in review. This PR does not edit `docs/milestones/M1.yaml` or ADR 0028; the orchestrator moves the task.
-- **Branch / PR:** `fix/audit-key-custody` · PR link in the PR description (opened with this note)
+- **Branch / PR:** `fix/audit-key-custody` · [PR #155](https://github.com/fathomgate/fathomgate/pull/155)
 - **Date:** 2026-09-25
 
 ## Done
