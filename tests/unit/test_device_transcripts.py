@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 1: the fake-device transcripts and the redaction fixtures agree.
 
 `tests/fixtures/device/transcripts/eos/show_running_config.txt` is what the

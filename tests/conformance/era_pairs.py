@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Upstream prompts through fathomgate serve from a 2025-11-25 upstream (T0.19).
 
 The conformance suite reaches the "2025 agent x 2025 upstream" elicitation

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Thin launcher for tests/policy_lint so it can run from the repo root."""
 import sys
 from pathlib import Path

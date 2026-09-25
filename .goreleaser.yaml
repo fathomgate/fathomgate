@@ -36,7 +36,8 @@ archives:
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     # LICENSE, NOTICE and THIRD_PARTY_LICENSES/ (every linked module's
-    # licence text) travel with every binary (ADR 0020).
+    # licence text) travel with every binary (ADR 0020, 0034). The globs for
+    # policies/examples/ and profiles/ carry their own Apache-2.0 LICENSE files.
     files:
       - LICENSE
       - NOTICE
@@ -110,7 +111,7 @@ brews:
     directory: Formula
     homepage: https://github.com/fathomgate/fathomgate
     description: Policy-enforcing MCP proxy for network-device MCP servers
-    license: Apache-2.0
+    license: FSL-1.1-ALv2
     test: |
       system "#{bin}/fathomgate", "version"
     skip_upload: true

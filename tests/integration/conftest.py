@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 2 fixtures: spawn `fathomgate serve` in front of a real upstream, with
 the fake SSH device (tests/fixtures/device/fake_ssh.py) standing in for the
 router. Two upstreams, each pinned, each skipped on its own when not

@@ -1,54 +1,52 @@
 # Contributing to Fathomgate
 
-Thanks for being here. Fathomgate keeps AI assistants safe on real networks, and the people who know those networks best are the ones running them. You don't need to write Go to help, and most of the contributions we need most don't involve any code at all.
+Thanks for being here. Fathomgate keeps AI assistants safe on real networks, and the people who know those networks best are the ones running them. For now, the way to help is through issues: **Fathomgate does not accept code from outside contributors.** You tell us what you found or need, and the maintainer writes the code.
 
-New to the project? Read the [roadmap](ROADMAP.md) for where it's going, then pick something below. Issues labelled [`good first issue`](https://github.com/fathomgate/fathomgate/labels/good%20first%20issue) are a good place to start. If you're unsure about anything, open an issue and ask. Questions are contributions too.
+Why: Fathomgate is source-available under the [Functional Source License](LICENSE) and funded by a paid edition. Taking in outside code would need a contributor agreement first, and there isn't one yet. The decision and the path to accepting code later are in [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
 
-## Ways to help, easiest first
+New to the project? Read the [roadmap](ROADMAP.md) for where it's going, then pick something below. If you're unsure about anything, open an issue and ask. Questions are contributions too.
+
+## Ways to help
 
 ### Try it and tell us what happened
 
 Put Fathomgate in front of an MCP server in your lab ([docs/install.md](docs/install.md) shows how) and open an issue about anything that broke, confused you or surprised you. A lab built with [containerlab](https://containerlab.dev) is perfect for this. Reports from real setups shape what gets built next.
 
-### Tell Fathomgate what an MCP server's tools do
+### Tell us what an MCP server's tools do
 
-Fathomgate needs to know, for each tool an MCP server offers, whether it only reads, changes config or runs anything it's given. We call that description a **profile**. There are profiles for four servers so far in [`profiles/`](profiles/), and dozens of servers still need one.
+Fathomgate needs to know, for each tool an MCP server offers, whether it only reads, changes config or runs anything it's given. We call that description a **profile**. There are profiles for a handful of servers so far in [`profiles/`](profiles/), and dozens of servers still need one.
 
 1. Pick a server you use and open an [upstream server profile issue](https://github.com/fathomgate/fathomgate/issues/new?template=upstream_server_profile.yml).
 2. List its tools. Take the names and parameters from the server's code, not its README; the two often disagree.
 3. For each tool, say what it does: read state, read config, change config, or run arbitrary commands. If you're torn between two, pick the riskier one and say why.
-4. If you're comfortable with YAML, turn it into `profiles/<server>.yaml` using an existing profile such as [`profiles/netdev-ssh-mcp.yaml`](profiles/netdev-ssh-mcp.yaml) as a guide. If not, the issue alone is a big help, and a maintainer will turn it into a profile.
 
-The full format is in [docs/specs/profile-schema.md](docs/specs/profile-schema.md).
+The maintainer turns the issue into `profiles/<server>.yaml`. The format is in [docs/specs/profile-schema.md](docs/specs/profile-schema.md), if you want to see what your answers become. Profiles and example policies are Apache-2.0, so you can copy and share them freely.
 
 ### Report a secret that wasn't masked
 
-Fathomgate hides passwords, keys and community strings in everything that comes back from a device. Every vendor writes secrets in its own way, and we won't have seen them all. If you find one that slips through, or a config format we don't handle yet, open a [redaction gap issue](https://github.com/fathomgate/fathomgate/issues/new?template=redaction_gap.yml).
+Fathomgate hides passwords, keys and community strings in everything that comes back from a device. Every vendor writes secrets in its own way, and we won't have seen them all. If you find one that slips through, or a config format we don't handle yet, open a [redaction gap issue](https://github.com/fathomgate/fathomgate/issues/new?template=redaction_gap.yml) with a few example lines.
 
-**Never paste a real secret anywhere**: not in an issue, a commit or a test file. Replace it with a made-up value of the same shape and length, starting with `FAKE`.
+**Never paste a real secret anywhere**: not in an issue, a comment or a screenshot. Replace it with a made-up value of the same shape and length, starting with `FAKE`.
 
-To go further, add the example lines to a file in [`tests/fixtures/configs/`](tests/fixtures/configs/). Each vendor has a `.txt` config excerpt with a `## rule:` note on each secret line, and a `.expect.json` listing the secrets that must disappear. `make fixtures-check` shows whether they're all caught. The masking rules themselves live in Go, in [`internal/redact/rules.go`](internal/redact/rules.go), and are described in [docs/specs/redaction-patterns.md](docs/specs/redaction-patterns.md).
+### Describe how your team works
 
-### Share a policy for how your team works
+A policy is a YAML file of rules: who can read what, which changes need approval, what's never allowed. Examples live in [`policies/examples/`](policies/examples/) ([policy format](docs/specs/policy-schema.md)). If none of them fits how your team works, open a [feature request](https://github.com/fathomgate/fathomgate/issues/new?template=feature_request.yml) that says who the policy is for and what it should allow, hold and deny. You can check a policy of your own with `tools/policy-lint/policy-lint <file>` (Python only, no Go needed).
 
-A policy is a YAML file of rules: who can read what, which changes need approval, what's never allowed. Examples live in [`policies/examples/`](policies/examples/). To add one:
+### Point out what's confusing
 
-1. Write `policies/examples/<name>.yaml` ([policy format](docs/specs/policy-schema.md)).
-2. Write `policies/examples/<name>.test.yaml` with at least three cases: one allowed, one denied, and one for the rule you think people are most likely to misread.
-3. Check it with `tools/policy-lint/policy-lint policies/examples/<name>.yaml` (Python only, no Go needed) or `make policy-test`.
-4. In the pull request, say in one sentence who the policy is for.
+If something in the docs confused you, it'll confuse the next person too. Open an issue that quotes the passage and says what you expected. The project's words for things are in [docs/glossary.md](docs/glossary.md): a request is **allowed**, **held** or **denied**.
 
-### Improve the docs
+### Bring your platform knowledge
 
-If something in the docs confused you, it'll confuse the next person too. Fixes to wording, missing steps and clearer examples are always welcome. Please use the project's words for things ([docs/glossary.md](docs/glossary.md)). For example, a request is **allowed**, **held** or **denied**, never "blocked" or "rejected".
+Vendor drivers (safe config changes with rollback for Junos, EOS, IOS-XE and others) arrive in later stages of the [roadmap](ROADMAP.md). If you know a platform's commit and rollback commands well, read the command tables in [docs/specs/change-safety-drivers.md](docs/specs/change-safety-drivers.md) and open an issue where they're wrong or missing something.
 
-### Write Go
+## Pull requests
 
-Core changes, new features and vendor drivers are Go (1.26 or later). Before you start on anything bigger than a small fix, open an issue so we can agree on the approach. Some changes need a short design record first (see [docs/adr/](docs/adr/README.md)), and it's much nicer to find that out before you've written the code. [ARCHITECTURE.md](ARCHITECTURE.md) explains how the pieces fit, and the specs in [docs/specs/](docs/specs/) are the rules the code follows.
+Pull requests from outside contributors are closed, with thanks and a pointer to open an issue instead. Please don't take it personally: the idea in your pull request is welcome, and the issue is where it gets picked up.
 
-Vendor drivers (safe config changes with rollback for Junos, EOS, IOS-XE and others) arrive in later stages of the [roadmap](ROADMAP.md). If you know a platform's commit and rollback commands well, the command tables in [docs/specs/change-safety-drivers.md](docs/specs/change-safety-drivers.md) are where your knowledge helps most, even before any Go is written.
+## Building it yourself
 
-## Getting set up
+The source is public, so you can build, run and audit Fathomgate yourself:
 
 ```sh
 git clone https://github.com/fathomgate/fathomgate
@@ -57,31 +55,19 @@ make build        # builds bin/fathomgate
 make all          # builds, runs the Go tests and every policy test
 ```
 
-- **Python only** (policies, profiles, test fixtures): install [uv](https://docs.astral.sh/uv/), then `cd tests && uv run --extra dev pytest unit -q`. [tests/README.md](tests/README.md) has more.
+- **Python only** (policy lint, test fixtures): install [uv](https://docs.astral.sh/uv/), then `cd tests && uv run --extra dev pytest unit -q`. [tests/README.md](tests/README.md) has more.
 - **Tests against real MCP servers**: [tests/README.md](tests/README.md) explains how to run them.
 - **The official MCP conformance suite**: `make conformance`, which needs Node.js.
 
-`make help` lists everything else.
-
-## Sending a pull request
-
-- **One change per pull request.** A profile and a policy example are two pull requests.
-- **Sign off your commits** with `git commit -s`. That adds a `Signed-off-by` line, which says you wrote the change and have the right to contribute it ([Developer Certificate of Origin](https://developercertificate.org/)). The `DCO` check fails a pull request if any commit's sign-off is missing or doesn't match its author. Forgot one? You don't need to rewrite your branch: the check's details page shows the exact commit to add. A consistent pseudonym is fine.
-- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): what changed`. For example, `feat(profiles): add scrapli-mcp profile` or `docs: fix the install steps for Windows`. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`. The scope is the area you touched (`profiles`, `policies`, `redact`, `proxy`, `docs`, `tests` and so on).
-- **Fill in the [pull request template](.github/PULL_REQUEST_TEMPLATE.md).** Its short checklist catches the usual things: tests, docs, and whether a design record is needed.
-- **CI has to pass.** If it fails and you can't see why, say so in the pull request and we'll help.
-- **A maintainer replies within a week.** How decisions are made is in [GOVERNANCE.md](GOVERNANCE.md).
-
-Changing the build, the Go toolchain, dependencies or the CI workflows? [docs/maintainers.md](docs/maintainers.md) has the extra checks those need.
+`make help` lists everything else. [ARCHITECTURE.md](ARCHITECTURE.md) explains how the pieces fit, and the specs in [docs/specs/](docs/specs/) are the rules the code follows.
 
 ## Licence
 
-Fathomgate is licensed under the [Apache License 2.0](LICENSE). When you sign off a commit, you agree to license it under Apache-2.0. There's no separate contributor agreement: the project gets no more rights to your code than that licence gives, so it can't relicense your work without your consent.
+Fathomgate is licensed under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (`FSL-1.1-ALv2`). You may use, copy, modify and redistribute it for any purpose except offering a competing commercial product or service. Each version becomes Apache-2.0 two years after it is published.
 
-- New Go, Python and shell files start with an `SPDX-License-Identifier: Apache-2.0` comment. `python3 tools/licences/spdx.py --fix` adds it for you. Data files (policies, profiles, fixtures, Markdown) don't need one.
-- Code copied from another project keeps its own licence notice. Say where it came from in the pull request; its licence must be compatible with Apache-2.0.
-- If you add or remove a Go module dependency, run `make licences` and commit the result. CI checks this.
-- The name "Fathomgate" isn't covered by the code licence: see [TRADEMARKS.md](TRADEMARKS.md).
+- `policies/examples/` and `profiles/` are under the [Apache License 2.0](profiles/LICENSE).
+- `v0.1.0` and every commit before the relicensing stay Apache-2.0 ([NOTICE](NOTICE)).
+- The name "Fathomgate" isn't covered by either licence: see [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Security problems
 
@@ -89,4 +75,4 @@ If you find a way around a policy, an approval or the secret masking, **please d
 
 ## Be kind
 
-Everyone here follows the [Code of Conduct](CODE_OF_CONDUCT.md). Assume good intent, be patient with newcomers, and remember that many people are contributing in their spare time.
+Everyone here follows the [Code of Conduct](CODE_OF_CONDUCT.md). Assume good intent, and be patient with newcomers.

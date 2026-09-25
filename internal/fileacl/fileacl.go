@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package fileacl reports whether an open file carries an extended access
 // control list: access the mode bits do not show. The owner-only checks on

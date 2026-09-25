@@ -8,7 +8,7 @@ Fathomgate is maintained by a single maintainer today and is designed to grow to
 | --- | --- | --- |
 | Maintainer | Listed in `.github/CODEOWNERS` (currently `@joshscott13`) | Merge, release, accept ADRs, triage security reports, add or remove maintainers |
 | Reviewer | Named in `MAINTAINERS.md` once it exists | Approve pull requests in a named area (a vendor driver, a profile family, the Python companion); cannot merge |
-| Contributor | Anyone with a merged pull request | Open issues and pull requests, propose ADRs |
+| Contributor | Anyone who opens an issue | Report bugs and secret-masking gaps, request profiles, propose ideas and ADRs in issues. Code from outside contributors is not accepted for now ([ADR 0034](docs/adr/0034-source-available-under-fsl.md)) |
 
 Adding a maintainer requires a sustained record of merged contributions and review, a proposal by an existing maintainer, and no objection from other maintainers within 14 days. Removing one for inactivity happens after 6 months without activity and a private message; the person is listed as emeritus.
 
@@ -56,4 +56,6 @@ Everyone participating is bound by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Mai
 
 ## Licence
 
-Apache License 2.0, see [LICENSE](LICENSE), [NOTICE](NOTICE) and [ADR 0020](docs/adr/0020-open-core-apache-2.md). Contributions are accepted under the same licence with a DCO sign-off ([CONTRIBUTING.md](CONTRIBUTING.md#licence-of-contributions)). There is no CLA, so the project holds no rights to a contribution beyond Apache-2.0 and cannot relicense the core without its contributors' consent. The name is covered by [TRADEMARKS.md](TRADEMARKS.md), not by the licence.
+The [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (`FSL-1.1-ALv2`), with `policies/examples/` and `profiles/` under Apache-2.0; see [NOTICE](NOTICE) and [ADR 0034](docs/adr/0034-source-available-under-fsl.md). Each version converts to Apache-2.0 two years after it is made available. `v0.1.0` and every commit before the relicensing remain Apache-2.0 ([ADR 0020](docs/adr/0020-open-core-apache-2.md)).
+
+The project does not accept code from outside contributors for now ([CONTRIBUTING.md](CONTRIBUTING.md)). Before it ever does, it adopts a contributor licence agreement that lets the project relicense contributions, keeps DCO sign-off beside it, and records both in an ADR (ADR 0034 decision 3). The maintainer signs off his own commits (`git commit -s`). The name is covered by [TRADEMARKS.md](TRADEMARKS.md), not by the licence.

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Fake network device: an asyncssh server that answers `show` commands from
 canned transcripts, so tier 2 can run a real upstream MCP server without a
 real device.

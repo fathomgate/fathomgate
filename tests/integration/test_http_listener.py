@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 2, matrix row 23: `fathomgate serve --listen` (Streamable HTTP toward
 the agent, ADR 0016 as amended by ADR 0023) in front of the real
 krisiasty/netdev-ssh-mcp (pinned in conftest), with the fake SSH device.
