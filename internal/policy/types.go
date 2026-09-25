@@ -241,7 +241,8 @@ const (
 	// RuleBadArguments is produced by internal/gate before Evaluate, never
 	// by Evaluate: arguments that are not one JSON object, a target that is
 	// not a hostname or IP literal, a missing target, a group selector, or
-	// an argument the profile does not name (ADR 0026).
+	// arguments failing the profile's closed argument list (ADR 0026,
+	// ADR 0033). fathomgate policy eval --profile shows the last case too.
 	RuleBadArguments = "default:bad_arguments"
 )
 

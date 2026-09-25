@@ -18,6 +18,9 @@
 # Tools [src]. server.py registers exactly 17 tools with @mcp.tool() (FastMCP
 # from the official SDK, `mcp>=1.2,<2`); the argument names are the Python
 # parameter names. Every tool also takes config_path: str = "" (see hazard 2).
+# Argument list (ADR 0033): every parameter below is named in a *_params list
+# or in args, except config_path and session_name, which are in refused_args
+# and are denied when sent (hazards 2 and 3).
 #   health_check            server.py:53-109   config_path
 #   get_router_list         112-126            tags, config_path
 #   get_device_facts        129-160            hostname
@@ -88,19 +91,24 @@
 #      environment: FATHOMGATE_LISTEN_TOKEN and every --upstream-env-pass
 #      credential.
 #    It also swaps the inventory: credentials, transport and verify for that
-#    call come from a file the agent chose. The profile schema cannot refuse
-#    a parameter yet (M1-35, new: refuse parameters the profile does not
-#    name, ADR).
-#    Interim operator control until M1-35 lands: put a `deny` rule with
-#    `servers: [eos-mcp]` first in the policy, or run eos-mcp sandboxed so it
-#    can read only its own config.ini and not fathomgate's /proc entries or
-#    files. In config.ini set `verify = true` for every host (hazard 1).
+#    call come from a file the agent chose.
+#    Refused (M1-35, ADR 0033): no tool names config_path, so a call that
+#    carries it, with any value including "" and null, is denied with
+#    default:bad_arguments once the gate is wired (M1-18, M1-19); every tool
+#    lists it under refused_args. Until the gate enforces it (v0.1.0 serve
+#    forwards everything), put a `deny` rule with `servers: [eos-mcp]` first
+#    in the policy, or run eos-mcp sandboxed so it can read only its own
+#    config.ini and not fathomgate's /proc entries or files. Either way, in
+#    config.ini set `verify = true` for every host (hazard 1).
 # 3. push_config's dry_run is not a sandbox. config_lines go into the eAPI
 #    call unfiltered after "configure session <name>", so a line such as
 #    "end" followed by "configure" or an exec command would run outside the
 #    session before the final "abort" (eapi.py:133-135; EOS behaviour not
 #    tried on a device, uncertain). session_name and commit_timer are
-#    interpolated unchecked (eapi.py:112-115, 133-134). The class is
+#    interpolated unchecked (eapi.py:112-115, 133-134). commit_timer is an
+#    int that FastMCP validates; session_name is free text, so it is not
+#    named (refused_args, ADR 0033) and every session is the default
+#    "mcp-push". The class is
 #    WRITE_CONFIG whatever dry_run says. A future M3 dry_run driver must never
 #    use the upstream's push_config dry_run=True: it sends the payload to the
 #    device, before any approval. Classifying config_params is M1-36 (new;
@@ -118,70 +126,104 @@ description: Arista EOS server over eAPI with config sessions
 tools:
   health_check:
     class: LOCAL_ADMIN
+    args: []
+    refused_args: [config_path]
     notes: Parses the server's own config.ini (or the agent's config_path), no device connection; its error detail echoes file content (header, hazard 2).
   get_router_list:
     class: INVENTORY_READ
     group_params: [tags]
+    args: []
+    refused_args: [config_path]
   get_device_facts:
     class: READ_OPERATIONAL
     target_params: [hostname]
+    args: []
+    refused_args: [config_path]
   get_version:
     class: READ_OPERATIONAL
     target_params: [hostname]
+    args: []
+    refused_args: [config_path]
   get_device_facts_batch:
     class: READ_OPERATIONAL
     targets_params: [hostnames]
     group_params: [tags]
+    args: [max_workers]
+    refused_args: [config_path]
   run_command:
     class: EXEC_ARBITRARY
     target_params: [hostname]
     command_params: [command]
+    args: []
+    refused_args: [config_path]
     notes: Verbatim pass-through to eAPI, including configure and reload.
   run_commands:
     class: EXEC_ARBITRARY
     target_params: [hostname]
     command_params: [commands]
+    args: []
+    refused_args: [config_path]
     notes: The list is sent as one eAPI runCmds call, so ["configure", "hostname x"] is a config write.
   run_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [hostnames]
     group_params: [tags]
     command_params: [command]
+    args: [max_workers]
+    refused_args: [config_path]
     notes: Fleet-wide over hostnames plus every device with a matching tag; an empty selection runs nothing upstream (server.py:296-298).
   run_commands_batch:
     class: EXEC_ARBITRARY
     targets_params: [hostnames]
     group_params: [tags]
     command_params: [commands]
+    args: [max_workers]
+    refused_args: [config_path]
     notes: As run_command_batch, with a list of commands per device.
   get_config:
     class: READ_CONFIG
     target_params: [hostname]
+    args: []
+    refused_args: [config_path]
   get_config_diff:
     class: READ_CONFIG
     target_params: [hostname]
+    args: [rollback_id]
+    refused_args: [config_path]
   list_config_sessions:
     class: READ_CONFIG
     target_params: [hostname]
+    args: []
+    refused_args: [config_path]
   push_config:
     class: WRITE_CONFIG
     target_params: [hostname]
     config_params: [config_lines]
+    args: [dry_run, commit_timer]
+    refused_args: [session_name, config_path]
     notes: dry_run defaults to true; commit_timer (default 300s) requires confirm_config_session. dry_run is not a sandbox (header, hazard 3).
   confirm_config_session:
     class: WRITE_CONFIG
     target_params: [hostname]
+    args: []
+    refused_args: [session_name, config_path]
     notes: Finalises a pending session; treated as a write because it makes the change permanent.
   abort_config_session:
     class: WRITE_CONFIG
     target_params: [hostname]
+    args: []
+    refused_args: [session_name, config_path]
     notes: Rollback of a pending session; still a state change on the device.
   collect_tech_support:
     class: READ_CONFIG
     target_params: [hostname]
+    args: []
+    refused_args: [config_path]
     notes: Sends "show tech-support" (eapi.py:158-160), whose output includes the running-config, so it is READ_CONFIG like the same command through run_command (M1-14; was READ_OPERATIONAL). Heavy, 30 seconds or more.
   daily_brief:
     class: READ_OPERATIONAL
     targets_params: [hostnames]
     group_params: [tags]
+    args: [max_workers, since_hours]
+    refused_args: [config_path]
     notes: With neither hostnames nor tags it runs on every configured device and fathomgate sees zero targets (server.py:476-478).

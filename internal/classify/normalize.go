@@ -3,7 +3,9 @@
 package classify
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -153,6 +155,124 @@ type Result struct {
 	// EXEC_ARBITRARY call was not downgraded. It names the first failing
 	// command by index and the check, never by its text.
 	Reason string
+	// UnnamedArgs lists, sorted, the argument names the call carried that
+	// the profile does not name for the tool (ADR 0033). MalformedArgs
+	// lists, sorted, the target, command and config arguments whose value
+	// is not a string or an array of strings. Either one non-empty means
+	// the gate denies the call with default:bad_arguments before Evaluate;
+	// see ArgumentsOK. The names are agent-chosen text: log them escaped,
+	// never put them in the text the agent sees.
+	UnnamedArgs   []string
+	MalformedArgs []string
+}
+
+// ArgumentsOK reports whether the call's arguments passed CheckArguments.
+func (r Result) ArgumentsOK() bool {
+	return len(r.UnnamedArgs) == 0 && len(r.MalformedArgs) == 0
+}
+
+// CheckArguments enforces the profile's closed argument list (ADR 0033).
+//
+// unnamed holds every argument key the profile does not name for the tool,
+// whatever its value: a key sent as "" or null is still sent, and the
+// upstream still sees it. For a tool the profile does not list, every key is
+// unnamed. malformed holds the named target, command and config arguments
+// whose value is neither a string nor an array of strings (a number, a
+// boolean, an object, or an array holding anything but strings); null counts
+// as absent. A string the upstream could itself parse as JSON is malformed
+// too (upstreamMayParseJSON). Arguments in args are not inspected: any JSON
+// value passes.
+//
+// With no profile (the fallback classifier, ADR 0027) nothing is checked
+// and both are nil. Both results are sorted, so the output does not depend
+// on map order.
+func CheckArguments(profile *Profile, tool string, args map[string]any) (unnamed, malformed []string) {
+	if profile == nil {
+		return nil, nil
+	}
+	spec, known := profile.Lookup(tool)
+	for k := range args {
+		if !known || !spec.Named(k) {
+			unnamed = append(unnamed, k)
+		}
+	}
+	if known {
+		lists := []struct {
+			names  []string
+			config bool
+		}{
+			{spec.TargetParams, false}, {spec.TargetsParams, false}, {spec.GroupParams, false},
+			{spec.CommandParams, false}, {spec.ConfigParams, true},
+		}
+		for _, l := range lists {
+			for _, name := range l.names {
+				v, ok := args[name]
+				if !ok {
+					continue
+				}
+				if !stringOrStrings(v) {
+					malformed = append(malformed, name)
+					continue
+				}
+				if s, isString := v.(string); isString && upstreamMayParseJSON(s, l.config) {
+					malformed = append(malformed, name)
+				}
+			}
+		}
+	}
+	sort.Strings(unnamed)
+	sort.Strings(malformed)
+	return unnamed, malformed
+}
+
+// upstreamMayParseJSON reports whether a string value of a mapped argument
+// could reach the upstream as something other than that string. Python
+// FastMCP (mcp 1.x, func_metadata.pre_parse_json) runs json.loads on any
+// string sent for a parameter not annotated plain str, so
+// hostnames: "[\"core-rtr-01\"]" arrives as a list and hostnames: "null" as
+// None (eos-mcp daily_brief then runs on every device), while fathomgate
+// would read one opaque target or command (security review of PR #161, H1).
+//
+// After TrimSpace, a value is refused when it is valid JSON starting with
+// [, n, t or f (an array, null, true, false). For target, group and command
+// arguments a leading [ or { is refused whether or not Go finds it valid,
+// since no hostname, tag or command starts with either and Python's json
+// accepts more (NaN, Infinity). A config payload may be a JSON object
+// (junos config_text) or Junos text starting "[edit ...]", so there only
+// valid JSON arrays and literals are refused.
+func upstreamMayParseJSON(s string, config bool) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	switch t[0] {
+	case '[', '{':
+		if !config {
+			return true
+		}
+		return t[0] == '[' && json.Valid([]byte(t))
+	case 'n', 't', 'f':
+		return json.Valid([]byte(t))
+	}
+	return false
+}
+
+// stringOrStrings reports whether v is null, a string, or an array whose
+// every element is a string, as decoded from JSON.
+func stringOrStrings(v any) bool {
+	switch t := v.(type) {
+	case nil, string, []string:
+		return true
+	case []any:
+		for _, e := range t {
+			if _, ok := e.(string); !ok {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // Classify normalises the arguments and applies the command rules:
@@ -166,8 +286,14 @@ type Result struct {
 //     defence in depth against servers whose own filter is weaker than
 //     their tool name suggests.
 //   - Tools missing from the profile are EXEC_ARBITRARY.
+//
+// Classify also runs CheckArguments and reports its findings in
+// UnnamedArgs and MalformedArgs; it does not change the class for them.
+// Refusing the call is the gate's job (ADR 0026 step 1, ADR 0033), so
+// policy.Evaluate never sees arguments it cannot trust.
 func Classify(profile *Profile, tool string, args map[string]any) Result {
 	var res Result
+	res.UnnamedArgs, res.MalformedArgs = CheckArguments(profile, tool, args)
 	if profile == nil {
 		res.Class = ExecArbitrary
 		res.ClassSource = SourceFallback

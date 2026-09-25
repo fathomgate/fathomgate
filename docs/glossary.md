@@ -69,6 +69,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | Reclassify | A `READ_OPERATIONAL` free-form command becoming `READ_CONFIG` because it reads configuration. |
 | Meta-tool | A tool whose name carries no semantics and whose operation is chosen by a parameter, such as Meraki `execute_api(capability_id)`. |
 | Capability table | Profile section mapping meta-tool capability ids to classes. |
+| Closed argument list | Every tool's profile entry names each argument it accepts (`target_params` and the other mapped lists, plus `args`). A call carrying any other argument is denied with `default:bad_arguments`, never forwarded with the argument stripped. `refused_args` records the arguments a profile deliberately leaves out. ADR 0033. |
 | Resolver chain | The ordered inventory providers: static file, hostname patterns, upstream inventory, source of truth. |
 | Source of truth (SoT) | NetBox or Nautobot. Optional. |
 | Unknown target | A target no provider resolved. Denied for every class unless the policy sets `unknown_target: allow` (ADR 0032). |

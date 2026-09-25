@@ -5,6 +5,38 @@
 # tools are blocklist-filtered server-side (block.cmd, fail-closed) which is
 # weaker than an allow-list, so they stay EXEC_ARBITRARY until the proxy proves
 # every command is a read.
+#
+# Not pinned: no tier 2 run and no audit against a release yet (M1 validates
+# netdev-ssh-mcp, upa and eos-mcp). Argument lists (M1-35, ADR 0033) read
+# [src] from list_tools() inputSchema in jmcp.py at the main branch head,
+# commit 75fe90afd7a0566f8c9e4c88099309aa12dee6e6 (2026-09-24):
+#   https://github.com/Juniper/junos-mcp-server/blob/75fe90afd7a0566f8c9e4c88099309aa12dee6e6/jmcp.py
+# The inputSchema is not the whole story: the handlers read keys from the
+# arguments dict directly, and the low-level MCP server does not refuse
+# properties the schema does not list. So every arguments.get() in the
+# handlers (jmcp.py:785-1660) was read too. load_and_commit_config reads
+# timeout (named) and config (refused) beyond its schema. Every other key
+# is named; none else is refused.
+#
+# Hazards [src] (M1-35, security review of PR #161):
+# 1. render_and_apply_j2_template renders template_content with a plain
+#    jinja2 Environment (autoescape off, not a SandboxedEnvironment;
+#    jmcp.py:1369-1375), before apply_config or dry_run is looked at. A
+#    template such as {{ cycler.__init__.__globals__.os.popen(...) }} runs
+#    Python on the upstream host, which can read the proxy's
+#    /proc/<ppid>/environ. The tool is EXEC_ARBITRARY and never downgraded;
+#    a policy that allows it allows code execution on the MCP host.
+# 2. v1.1.1, the newest tag (0fe6354), also lists add_device (device_name,
+#    device_ip, device_port, username, ssh_key_path) and reload_devices
+#    (file_name), which main no longer has. They are not in this profile,
+#    so they are EXEC_ARBITRARY and any argument they carry is unnamed and
+#    denied (ADR 0033). reload_devices reads an agent-chosen file, the
+#    eos-mcp config_path hazard. add_device also asks the agent for
+#    ssh_key_path through elicitation, and answers to elicitation are an
+#    argument channel the closed list does not cover (ADR 0033, dated note).
+#    Operators: do not run v1.1.1 behind fathomgate, or deny
+#    servers: [junos-mcp-server] first. Pin a version before this profile
+#    is validated.
 server: junos-mcp-server
 source: https://github.com/Juniper/junos-mcp-server
 description: Official Juniper Junos server over PyEZ
@@ -13,38 +45,48 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [timeout]
     notes: Server applies block.cmd regexes; proxy downgrades to READ_OPERATIONAL/READ_CONFIG when the command passes the allow-list.
   execute_junos_pfe_command:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
+    args: [target, timeout]
     notes: never-downgrade. PFE shell on an FPC (`target`); the execution context is the risk, so a PFE "show jnh 0 exceptions" stays EXEC_ARBITRARY (classification.md section 8).
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]
     command_params: [command]
+    args: [timeout]
     notes: Fleet-wide; targets_count rules apply.
   get_junos_config:
     class: READ_CONFIG
     target_params: [router_name]
+    args: []
   junos_config_diff:
     class: READ_CONFIG
     target_params: [router_name]
+    args: [version]
     notes: version 1-49 selects the rollback to diff against.
   gather_device_facts:
     class: READ_OPERATIONAL
     target_params: [router_name]
+    args: [timeout]
   get_router_list:
     class: INVENTORY_READ
+    args: []
     notes: Seeds the proxy's target allow-list at startup (M1).
   load_and_commit_config:
     class: WRITE_CONFIG
     target_params: [router_name]
     config_params: [config_text]
-    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed.
+    args: [config_format, commit_comment, timeout]
+    refused_args: [config]
+    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed. The handler also reads timeout and, when config_text is absent, an undocumented config key as the payload (jmcp.py:1657, 1660); config is refused so the payload is always config_text, which fathomgate reads.
   render_and_apply_j2_template:
-    class: WRITE_CONFIG
+    class: EXEC_ARBITRARY
     target_params: [router_name]
     targets_params: [router_names]
     config_params: [template_content, vars_content]
-    notes: Render-only unless apply_config=true; dry_run=true is commit-check + rollback. Classified WRITE_CONFIG conservatively; M1 may relax when apply_config is false.
+    args: [apply_config, dry_run, commit_comment, config_format, timeout]
+    notes: never-downgrade. Renders the agent's template_content in a plain jinja2 Environment (jmcp.py:1369-1375), so a template runs Python on the upstream host whatever apply_config says (header, hazard 1). EXEC_ARBITRARY since M1-35 (security review of PR #161, H2); was WRITE_CONFIG.

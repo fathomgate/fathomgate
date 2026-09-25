@@ -14,6 +14,10 @@
 #   https://github.com/upa/mcp-netmiko-server/blob/96e8ff321cc839eeb525474736439ddc2ebc795c/main.py
 # Line numbers below are main.py at that commit.
 #
+# Argument list (M1-35, ADR 0033): every parameter of the three tools is a
+# target, command or config parameter, so each tool has `args: []` and any
+# other argument is denied.
+#
 # Device targeting [src, main.py:106-131, 50-60]. The only positional CLI
 # argument is a TOML inventory path. A [default] table supplies shared keys;
 # every other table is one device, keyed by its name, with hostname,
@@ -81,6 +85,7 @@ description: Single-file netmiko server; TOML inventory, three tools, auto-commi
 tools:
   get_network_device_list:
     class: INVENTORY_READ
+    args: []
     notes: >-
       [src main.py:134-169] No parameters. Returns a JSON string of
       [{name, hostname, device_type}] read from the TOML inventory; no device
@@ -90,6 +95,7 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [name]
     command_params: [command]
+    args: []
     notes: >-
       [src main.py:172-204] name: str (required), command: str (required).
       Calls netmiko send_command(command) on the named device and returns the
@@ -101,6 +107,7 @@ tools:
     class: WRITE_CONFIG
     target_params: [name]
     config_params: [commands]
+    args: []
     notes: >-
       [src main.py:207-236, 88-101] name: str (required), commands: list[str]
       (required). netmiko send_config_set(commands) (enters and leaves config
