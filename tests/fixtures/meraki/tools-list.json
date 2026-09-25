@@ -1,0 +1,78 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "description": "The capability ID from semantic search results.",
+            "type": "string"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Dict of parameter names to values for the call."
+          }
+        },
+        "required": [
+          "capability_id"
+        ],
+        "type": "object"
+      },
+      "name": "execute_api"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Natural language description of what you want to do.",
+            "type": "string"
+          },
+          "top_k": {
+            "default": 5,
+            "description": "Number of results to return (default: 5, range: 1-20).",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "semantic_search"
+    }
+  ]
+}

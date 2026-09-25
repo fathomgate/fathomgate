@@ -12,6 +12,7 @@ This document describes what `internal/classify/profile.go` and `normalize.go` p
 | `source` | string (URL) | no | Repository the profile was written against. |
 | `description` | string | no | One line for humans. |
 | `tools` | map of tool name to tool spec | yes, non-empty | Every tool the upstream exposes. A tool absent from the profile normalises to nothing and is treated as `EXEC_ARBITRARY`. |
+| `capabilities` | map of table name to capability table | no | The capability tables of the server's meta-tools ([section 2.5](#25-capability-tables)). A capability table maps a capability id to a class. Every table must be the `capability_table` of at least one tool. |
 
 Comments at the top of the file record the research brief section the tool names came from and the upstream's own safety features. That is convention, not schema.
 
@@ -27,6 +28,8 @@ Comments at the top of the file record the research brief section the tool names
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
 | `args` | list of string | **yes** (`[]` when empty) | Every other argument the tool accepts ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)). The argument list is closed: an argument named in none of the five `*_params` lists and not in `args` is denied ([section 2.2](#23-closed-argument-list)). Values are not inspected. |
 | `refused_args` | list of string | no | Arguments the upstream accepts that the profile deliberately leaves unnamed (eos-mcp `config_path`). No run-time effect beyond being unnamed; the coverage tests use it to tell a reviewed refusal from a parameter the upstream added later. |
+| `capability_param` | string | no | Makes the tool a meta-tool: the argument whose value selects the operation (Meraki `execute_api` `capability_id`). The class of a call comes from the capability table, not from `class` ([section 2.5](#25-capability-tables)). The argument is named, like the `*_params` arguments. Set together with `capability_table`. |
+| `capability_table` | string | no | The name of the table in the top-level `capabilities` that `capability_param` is looked up in. Set together with `capability_param`. |
 | `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. One token is read by the classifier: `never-downgrade` anywhere in the notes, in any case, of an `EXEC_ARBITRARY` tool keeps it `EXEC_ARBITRARY` whatever its commands say ([classification.md](classification.md) section 8). |
 
 ### 2.1 Normalisation rules
@@ -58,10 +61,10 @@ At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily
 
 ### 2.3 Closed argument list
 
-Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A tool's named set is `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args` together. `CheckArguments(profile, tool, args)` returns, sorted:
+Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A tool's named set is `target_params`, `targets_params`, `group_params`, `command_params`, `config_params`, `capability_param` and `args` together (`ToolSpec.NamedArgs`). `CheckArguments(profile, tool, args)` returns, sorted:
 
 - `unnamed`: every top-level argument key not in the named set. A key is sent whatever its value: `""` and `null` count. Matching is exact and case-sensitive. For a tool not in the profile, every key is unnamed.
-- `malformed`: every named target, command or config argument whose value is not a string or an array of strings (`null` is absent), or is a string the upstream could parse as JSON itself. Python FastMCP runs `json.loads` on a string sent for any parameter not annotated plain `str`, so `hostnames: "[\"core-rtr-01\"]"` reaches eos-mcp as a list and `hostnames: "null"` as `None` (the whole fleet for `daily_brief`). After trimming whitespace, a string is malformed when it is valid JSON starting with `[`, `n`, `t` or `f`. For target, group and command arguments, a leading `[` or `{` is malformed whether or not it is valid JSON. Config arguments keep Junos `[edit ...]` text and JSON-object payloads. Values of `args` arguments are not inspected, whatever their JSON type; only top-level keys are checked, so an argument whose object value has keys that change the upstream's behaviour must stay unnamed.
+- `malformed`: every named target, command or config argument whose value is not a string or an array of strings (`null` is absent), or is a string the upstream could parse as JSON itself. Python FastMCP runs `json.loads` on a string sent for any parameter not annotated plain `str`, so `hostnames: "[\"core-rtr-01\"]"` reaches eos-mcp as a list and `hostnames: "null"` as `None` (the whole fleet for `daily_brief`). After trimming whitespace, a string is malformed when it is valid JSON starting with `[`, `n`, `t` or `f`. For target, group and command arguments, a leading `[` or `{` is malformed whether or not it is valid JSON. Config arguments keep Junos `[edit ...]` text and JSON-object payloads. A `capability_param` value must be one string under the same rule as a target: an array, a number, a boolean, an object or a JSON-looking string is malformed, and `null` is absent. Values of `args` arguments are not inspected, whatever their JSON type; only top-level keys are checked, so an argument whose object value has keys that change the upstream's behaviour must stay unnamed.
 
 `Classify` copies both into `Result.UnnamedArgs` and `Result.MalformedArgs` without changing the class; `Result.ArgumentsOK()` is true when both are empty. The gate denies a call whose arguments are not OK with rule `default:bad_arguments`, before `Evaluate`, and never forwards a stripped copy. The reason the agent sees names no argument: `an argument is not named in the server profile for this tool`, or `a target, command or config argument must be a string that does not parse as JSON, or a list of such strings` when only a type is wrong. `fathomgate policy eval --profile` prints the same deny, with the argument names in the trace. With no profile for the server (fallback classifier), nothing is checked.
 
@@ -85,6 +88,47 @@ Why these numbers:
 
 Config payloads are not counted: a line is at most 1,024 bytes and the payload at most 64 KiB (classification.md section 11), and checking a payload at that size costs about 1 ms. With both caps, `Decide` on a call at the 64 KiB argument cap stays near 1 ms ([test-strategy.md, Overhead budget](../testing/test-strategy.md#overhead-budget-m1-23)).
 
+### 2.5 Capability tables
+
+Decision record: [ADR 0010](../adr/0010-classify-by-payload-not-annotations.md) ("meta-tools are classified from a capability table keyed on `capability_id`"). Board task M1-17, test-matrix row 18. A meta-tool is a tool whose name says nothing about what a call does, because an argument picks the operation: Meraki's `execute_api(capability_id, parameters)` runs whichever Dashboard API operation `capability_id` names.
+
+```yaml
+tools:
+  execute_api:
+    class: EXEC_ARBITRARY            # the class of a call whose capability is not in the table
+    capability_param: capability_id  # the argument that picks the operation
+    capability_table: dashboard      # the table below
+    args: []
+    refused_args: [parameters]
+capabilities:
+  dashboard:                         # table name
+    getOrganizations: INVENTORY_READ # capability id: class
+    getNetworkWirelessSsids: READ_CONFIG
+    getOrganizationDevicesStatusesOverview: READ_OPERATIONAL
+```
+
+Lookup (`classify.Classify`, `classifyCapability`):
+
+- The value of `capability_param` is looked up in the table as the upstream receives it, byte for byte: no trimming, no case folding, no Unicode normalisation. `GetOrganizations`, `getOrganizations ` and `getOrganizations` spelt with a Cyrillic `e` (U+0435) are not `getOrganizations`.
+- A listed id gives the table's class. Anything else gives `EXEC_ARBITRARY`: an id the table does not list (every operation the upstream adds after the profile was written), an empty string, a missing or `null` argument, and a value that is not a string (which `CheckArguments` also reports as malformed, so the gate denies it with `default:bad_arguments`).
+- `class_source` is `capability_table` for every call to a meta-tool, listed or not. `Result.ProfileClass` is the tool's own `class` (`EXEC_ARBITRARY`). `Result.Reason` names the table and never the id, which is agent-supplied text: `capability listed in capability table dashboard`, `capability not in capability table dashboard`, `no capability id`, `capability id is not a string`.
+- No other rule runs on a meta-tool call: it has no commands or config payload (see the load rules), so there is no downgrade, redirection or payload check. `internal/gate` applies the annotation raise to the table's class (classification.md section 4), so `readOnlyHint: false` on `execute_api` raises a listed read capability to `EXEC_ARBITRARY`, and the upstream's `readOnlyHint: true` never lowers an unlisted one.
+- Targets come from the tool's target parameters as for any tool. Meraki `execute_api` has none: its organisation, network or serial is inside `parameters`.
+
+Load rules (`ParseProfile`, section 7):
+
+- `capability_param` and `capability_table` are set together or not at all, and `capability_table` names a table in `capabilities`.
+- A meta-tool's `class` is `EXEC_ARBITRARY`, the class of an unlisted capability, so a profile cannot make an unknown operation anything weaker.
+- A meta-tool has no `command_params` or `config_params`: its class comes from the table alone.
+- `capability_param` counts in the named set: it may not also appear in a `*_params` list, `args` or `refused_args`, and has no surrounding space.
+- Each table has a name with no surrounding space and at least one entry; every class is a known class (the loader accepts lower case and `-`, as for `class`).
+- Each capability id is 1 to 128 bytes of printable ASCII other than space (`0x21` to `0x7e`), and does not read as JSON (`null`, `true`, `false`, a leading `[` or `{`). Two ids in one table that differ only in letter case are refused: the upstream would treat them as two operations, and a reader could take one for the other. A duplicate key is a YAML error.
+- Every table is the `capability_table` of at least one tool, so a misspelt reference cannot leave a table unused and the tool without one.
+
+Keys are exact ids, never patterns. A pattern (`^get`) would classify an operation nobody has read, which is what the unknown-id rule exists to prevent, and it would bring a fourth matcher kind into the profile.
+
+The shipped table is `profiles/cisco-meraki-mcp-official.yaml` (section 6). It has one row per operation the upstream indexes at the pinned commit, and `TestMerakiCapabilityTable` holds it to the upstream's capability set in `tests/fixtures/meraki/capabilities.tsv`.
+
 ## 3. Planned fields (not yet parsed)
 
 These are in the plan and in the research but the strict loader rejects them today. Put the information in `notes` until the field lands.
@@ -97,7 +141,6 @@ These are in the plan and in the research but the strict loader rejects them tod
 | `targets_all_when_empty` | Empty selection means every device in the upstream inventory (eos-mcp batch tools). | M2 |
 | `implicit_target` | One device or controller per process (PAN-OS, FortiOS single mode); the target is the server name. | M5 |
 | `reads_config_when` | Extra config-read regexes per upstream. | M2 |
-| `capability_param`, `capability_table`, top-level `capabilities` | Meta-tool classification from a parameter (Meraki `execute_api(capability_id)`). | M1 (planned) |
 | `inventory_tool`, `inventory_map` | Which `INVENTORY_READ` tool seeds the resolver chain's upstream provider. | M2 |
 | `transport`, `era`, `vendor_hint`, `verified_version` | Launch and era configuration; today the launch command lives in `fathomgate serve` flags ([section 8](#8-proxy-config-m0)). | M2 |
 
@@ -208,7 +251,7 @@ tools:
 
 ## 6. Other shipped profiles
 
-The rows show the normalisation keys that differ. Full files, with each tool's `args` and `refused_args`, are in `profiles/`. The refused arguments are eos-mcp `config_path` on every tool and `session_name` on `push_config`, `confirm_config_session` and `abort_config_session`, ntunes `send_config` `enter_config_mode`, and junos `load_and_commit_config` `config`, which the handler reads but the schema does not list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 6).
+The rows show the normalisation keys that differ. Full files, with each tool's `args` and `refused_args`, are in `profiles/`. The refused arguments are eos-mcp `config_path` on every tool and `session_name` on `push_config`, `confirm_config_session` and `abort_config_session`, ntunes `send_config` `enter_config_mode`, junos `load_and_commit_config` `config`, which the handler reads but the schema does not list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 6), and Meraki `execute_api` `parameters` (below).
 
 | Server | Tool | class | target_params | targets_params | group_params | command_params | config_params |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -237,7 +280,16 @@ The rows show the normalisation keys that differ. Full files, with each tool's `
 
 The upa/mcp-netmiko-server profile is `profiles/upa.yaml`: its `server` is `upa`, the prefix tier 2 runs it under, and every profile file is named after its server key (8.3, `--profiles`). It was `upa-mcp-netmiko-server.yaml` until PR #171. Its write tool takes a `commands` list of configuration lines, so `commands` is a `config_params` entry there, not a `command_params` one, and the payload is never reclassified.
 
-Profiles for Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Meraki one waits on the capability-table fields in section 3.
+`profiles/cisco-meraki-mcp-official.yaml` (M1-17) is the first meta-tool profile, read from the upstream's source at `c1d00ea` (package 0.1.0, Dashboard API spec 1.70.0):
+
+| Server | Tool | class | capability_param | capability_table | args | refused_args |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cisco-meraki-mcp-official` | `semantic_search` | `INVENTORY_READ` | | | `[query, top_k]` | |
+| `cisco-meraki-mcp-official` | `execute_api` | `EXEC_ARBITRARY` | `capability_id` | `dashboard` | `[]` | `[parameters]` |
+
+The `dashboard` table has 493 rows, one for each operation the upstream's `execute_api` can look up (the non-deprecated GET operations of its bundled spec) except `clipDeviceCamera`, which the upstream refuses at run time because its name does not start with `get`. The class follows the spec's category tag: `configure` is `READ_CONFIG` (SSID pre-shared keys, RADIUS and SNMP secrets live there), `monitor` and `liveTools` are `READ_OPERATIONAL`, with ten exceptions listed in the profile header: eight organisation, network and device lists and records are `INVENTORY_READ`, and `getOrganizationConfigurationChanges` and `getOrganizationWebhooksLogs`, which return old and new setting values and webhook payloads with their shared secret, are `READ_CONFIG`. `parameters` is refused under [ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 2: its value is an object whose keys the upstream passes to the Meraki SDK as keyword arguments. So only the four capabilities that need no path or query parameter (`getOrganizations`, `getAdministeredIdentitiesMe`, `getAdministeredIdentitiesMeApiKeys`, `getAdministeredLicensingSubscriptionEntitlements`) can run through fathomgate until a decision record says how `parameters` is checked.
+
+Profiles for Palo-MCP and mcfortigate are planned.
 
 ## 7. Validation
 
@@ -247,10 +299,11 @@ Profiles for Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Mer
 - `server` is non-empty;
 - `tools` is non-empty;
 - every tool's `class` is a known class;
-- every tool has `args` (`[]` when empty); no argument name is empty or has surrounding whitespace; no name appears twice across `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args`; no `refused_args` entry is named or listed twice ([section 2.2](#23-closed-argument-list));
+- every tool has `args` (`[]` when empty); no argument name is empty or has surrounding whitespace; no name appears twice across `target_params`, `targets_params`, `group_params`, `command_params`, `config_params`, `capability_param` and `args`; no `refused_args` entry is named or listed twice ([section 2.3](#23-closed-argument-list));
+- a meta-tool's `capability_param` and `capability_table` come together, its table exists, its `class` is `EXEC_ARBITRARY`, and it has no `command_params` or `config_params`; every capability table is used by a tool, is non-empty, has known classes and valid capability ids, and has no two ids that differ only in case ([section 2.5](#25-capability-tables));
 - `server` is unique across the directory.
 
-`internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. `TestRepoProfileArguments` there holds every parameter each upstream accepts per tool, read from the source commit in the profile's header, and requires the named set plus `refused_args` to equal it exactly, with the `refused_args` lists pinned. A tier 2 test that compares each profile against the real upstream's `tools/list` (tool names, and each tool's `inputSchema.properties` against the named set plus `refused_args`) is planned ([test-strategy.md](../testing/test-strategy.md)).
+`internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. `TestRepoProfileArguments` there holds every parameter each upstream accepts per tool, read from the source commit in the profile's header, and requires the named set plus `refused_args` to equal it exactly, with the `refused_args` lists pinned. For the Meraki profile, `capability_test.go` also compares the named set plus `refused_args` with the upstream's own `tools/list` (`tests/fixtures/meraki/tools-list.json`, `TestMerakiToolsListFixture`) and the capability table with the upstream's capability set (`TestMerakiCapabilityTable`). A tier 2 test that compares each profile against the real upstream's `tools/list` (tool names, and each tool's `inputSchema.properties` against the named set plus `refused_args`) is planned ([test-strategy.md](../testing/test-strategy.md)).
 
 ## 8. Proxy config (M0)
 

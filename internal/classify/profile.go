@@ -24,6 +24,12 @@ type Profile struct {
 	Source string `yaml:"source,omitempty"`
 	// Description is a one-line summary of the server.
 	Description string `yaml:"description,omitempty"`
+	// Capabilities holds the capability tables of the server's meta-tools,
+	// by table name. A table maps a capability id, exactly as the upstream
+	// receives it, to the class of a call that selects it (ADR 0010,
+	// profile-schema section 3). A tool reads one table through its
+	// capability_param and capability_table fields.
+	Capabilities map[string]map[string]Class `yaml:"capabilities,omitempty"`
 	// Tools maps tool name to its specification.
 	Tools map[string]ToolSpec `yaml:"tools"`
 }
@@ -59,6 +65,18 @@ type ToolSpec struct {
 	// coverage test tell a reviewed refusal from a parameter the upstream
 	// added after the profile was written.
 	RefusedArgs []string `yaml:"refused_args,omitempty"`
+	// CapabilityParam names the argument that selects a meta-tool's
+	// operation (Meraki execute_api capability_id). When it is set, the
+	// class of a call comes from the capability table CapabilityTable names,
+	// looked up with the argument's value byte for byte; a value the table
+	// does not list, or a missing one, leaves the call at Class, which must
+	// be EXEC_ARBITRARY. The argument is named: it counts in the closed
+	// argument list like the *_params arguments.
+	CapabilityParam string `yaml:"capability_param,omitempty"`
+	// CapabilityTable names the table in the profile's top-level
+	// capabilities that CapabilityParam is looked up in. Set both or
+	// neither.
+	CapabilityTable string `yaml:"capability_table,omitempty"`
 	// Notes is free text for humans: server-side safety, caveats.
 	Notes string `yaml:"notes,omitempty"`
 }
@@ -120,15 +138,118 @@ func (p *Profile) Validate() error {
 	if len(p.Tools) == 0 {
 		return fmt.Errorf("classify: profile %s: tools is empty", p.Server)
 	}
-	for name, spec := range p.Tools {
+	used := map[string]bool{}
+	for _, name := range p.ToolNames() {
+		spec := p.Tools[name]
 		if !spec.Class.Valid() {
 			return fmt.Errorf("classify: profile %s: tool %s: invalid class %q", p.Server, name, spec.Class)
 		}
 		if err := spec.validateArgs(); err != nil {
 			return fmt.Errorf("classify: profile %s: tool %s: %w", p.Server, name, err)
 		}
+		if err := spec.validateCapability(p.Capabilities); err != nil {
+			return fmt.Errorf("classify: profile %s: tool %s: %w", p.Server, name, err)
+		}
+		if spec.CapabilityTable != "" {
+			used[spec.CapabilityTable] = true
+		}
+	}
+	for _, name := range sortedKeys(p.Capabilities) {
+		if err := validateTable(name, p.Capabilities[name]); err != nil {
+			return fmt.Errorf("classify: profile %s: capabilities: %w", p.Server, err)
+		}
+		if !used[name] {
+			return fmt.Errorf("classify: profile %s: capabilities: table %q is not the capability_table of any tool", p.Server, name)
+		}
 	}
 	return nil
+}
+
+// validateCapability checks a meta-tool's capability fields: both set or
+// neither, the table exists, the tool's class is EXEC_ARBITRARY (the class
+// of a call whose capability the table does not list), and the tool has no
+// command or config arguments, so its class comes from the table alone.
+func (s ToolSpec) validateCapability(tables map[string]map[string]Class) error {
+	if s.CapabilityParam == "" && s.CapabilityTable == "" {
+		return nil
+	}
+	if s.CapabilityParam == "" || s.CapabilityTable == "" {
+		return fmt.Errorf("capability_param and capability_table go together: set both or neither")
+	}
+	if _, ok := tables[s.CapabilityTable]; !ok {
+		return fmt.Errorf("capability_table %q is not a table in capabilities", s.CapabilityTable)
+	}
+	if s.Class != ExecArbitrary {
+		return fmt.Errorf("a tool with capability_param must have class EXEC_ARBITRARY, the class of a call whose capability is not in the table (has %s)", s.Class)
+	}
+	if len(s.CommandParams) > 0 || len(s.ConfigParams) > 0 {
+		return fmt.Errorf("a tool with capability_param takes its class from the capability table alone, so it cannot have command_params or config_params")
+	}
+	return nil
+}
+
+// validateTable checks one capability table: a name with no surrounding
+// space, at least one entry, every class known, and every capability id a
+// validCapabilityID. Two ids that differ only in letter case are refused:
+// the upstream looks ids up byte for byte, so they would be two operations,
+// and a reader of the profile could take one for the other.
+func validateTable(name string, table map[string]Class) error {
+	if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) {
+		return fmt.Errorf("table name %q is empty or has surrounding space", name)
+	}
+	if len(table) == 0 {
+		return fmt.Errorf("table %q is empty", name)
+	}
+	folded := make(map[string]string, len(table))
+	for _, id := range sortedKeys(table) {
+		if !validCapabilityID(id) {
+			return fmt.Errorf("table %q: capability id %q must be 1 to %d printable ASCII bytes with no space, and must not read as JSON", name, id, maxCapabilityID)
+		}
+		if !table[id].Valid() {
+			return fmt.Errorf("table %q: capability %s: invalid class %q", name, id, table[id])
+		}
+		key := strings.ToLower(id)
+		if prev, dup := folded[key]; dup {
+			return fmt.Errorf("table %q: capability ids %q and %q differ only in letter case", name, prev, id)
+		}
+		folded[key] = id
+	}
+	return nil
+}
+
+// maxCapabilityID bounds a capability id in a table. The longest Meraki
+// operationId in the pinned spec is 83 bytes.
+const maxCapabilityID = 128
+
+// validCapabilityID reports whether a table key is a capability id the
+// lookup can match: 1 to maxCapabilityID bytes, each printable ASCII other
+// than space (0x21 to 0x7e), and nothing the upstream could parse as JSON
+// instead of taking as a string (upstreamMayParseJSON). The lookup is byte
+// for byte with no folding, so an agent-sent id with a space, a control
+// character, another letter case or any non-ASCII character (a look-alike,
+// a zero-width space, a fullwidth form) never matches a key, and the call
+// stays EXEC_ARBITRARY.
+func validCapabilityID(id string) bool {
+	if id == "" || len(id) > maxCapabilityID {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		if id[i] < 0x21 || id[i] > 0x7e {
+			return false
+		}
+	}
+	return !upstreamMayParseJSON(id, false)
+}
+
+// sortedKeys returns a map's keys sorted, so validation reports the same
+// error whatever the map order.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // validateArgs checks the closed argument list of one tool (ADR 0033).
@@ -146,6 +267,7 @@ func (s ToolSpec) validateArgs() error {
 		{"group_params", s.GroupParams},
 		{"command_params", s.CommandParams},
 		{"config_params", s.ConfigParams},
+		{"capability_param", s.capabilityParams()},
 		{"args", s.Args},
 	}
 	for _, l := range lists {
@@ -176,17 +298,39 @@ func (s ToolSpec) validateArgs() error {
 }
 
 // Named reports whether the tool's profile entry names the argument, in one
-// of the *_params lists or in args. The match is exact and case-sensitive:
-// the upstream receives the key byte for byte.
+// of the *_params lists, as its capability_param or in args. The match is
+// exact and case-sensitive: the upstream receives the key byte for byte.
 func (s ToolSpec) Named(arg string) bool {
-	for _, l := range [][]string{s.TargetParams, s.TargetsParams, s.GroupParams, s.CommandParams, s.ConfigParams, s.Args} {
-		for _, n := range l {
-			if n == arg {
-				return true
-			}
+	for _, n := range s.NamedArgs() {
+		if n == arg {
+			return true
 		}
 	}
 	return false
+}
+
+// NamedArgs returns the tool's named set (ADR 0033): target_params,
+// targets_params, group_params, command_params, config_params,
+// capability_param and args, in that order, unsorted.
+func (s ToolSpec) NamedArgs() []string {
+	lists := [][]string{s.TargetParams, s.TargetsParams, s.GroupParams, s.CommandParams, s.ConfigParams, s.capabilityParams(), s.Args}
+	n := 0
+	for _, l := range lists {
+		n += len(l)
+	}
+	out := make([]string, 0, n)
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
+}
+
+// capabilityParams is CapabilityParam as a list, empty when it is unset.
+func (s ToolSpec) capabilityParams() []string {
+	if s.CapabilityParam == "" {
+		return nil
+	}
+	return []string{s.CapabilityParam}
 }
 
 // Lookup returns the spec for a tool. The tool may be given bare or prefixed
