@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 8 · in review 1 · merged 44 · validated 2 · dropped 1
+Tasks: open 7 · in review 1 · merged 46 · validated 2 · dropped 1
 
 ## In flight
 
@@ -41,8 +41,8 @@ Tasks: open 8 · in review 1 · merged 44 · validated 2 · dropped 1
 | T0.29 | Record in the netdev-ssh-mcp profile that its secret obfuscation is an unkeyed hash | `profiles` | upstream-server-scout | security-reviewer | merged | — | 15 | — |
 | T0.30 | Bind the sealed requestState to the principal (ng3.), carry transport and principal on call, state the cross-session attribution rule in 8.4 | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.27, T0.40 | 2, 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.31 | fathomgate serve --listen, repeatable --listen-token-file name=path, FATHOMGATE_LISTEN_TOKEN; refused M1 flags; MCPGODEBUG refusal; server limits, shutdown and upstream-exit handling | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, release-engineer | merged | T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48, T0.49 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | open | T0.31, T0.52 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
-| T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | open | T0.31, T0.52 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.32 | Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines | `tests/conformance` | test-engineer | go-reviewer | merged | T0.31, T0.52 | 1, 2 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.33 | Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets | `tests/integration` | test-engineer | docs-writer, security-reviewer | merged | T0.31, T0.52 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | T0.35 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | T0.36 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | T0.37 | Note in the Command.Secrets godoc that the built transport holds passed values in its Env | `internal/proxy` | mcp-protocol-engineer | security-reviewer | merged | — | — | — |
@@ -63,6 +63,7 @@ Tasks: open 8 · in review 1 · merged 44 · validated 2 · dropped 1
 | T0.54 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | T0.55 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | — | — | — |
 | T0.56 | Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour | `design` | design-guardian | docs-writer | in review | — | — | — |
+| T0.57 | Stop the listener's session cap and orphan rule locking out an agent that restarts without ending its session | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Done this milestone
 
