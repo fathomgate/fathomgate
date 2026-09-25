@@ -41,5 +41,6 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0031](0031-hostname-patterns-never-make-a-target-known.md) | A hostname pattern never makes a target known; it only adds attributes to a device listed elsewhere | accepted | 2026-09-25 |
 | [0032](0032-unset-unknown-target-denies-every-class.md) | An unset `defaults.unknown_target` denies every class | accepted | 2026-09-25 |
 | [0033](0033-closed-argument-list-per-tool.md) | A closed argument list per tool: an argument the profile does not name is denied | accepted | 2026-09-25 |
+| [0034](0034-source-available-under-fsl.md) | Future versions under the Functional Source License (`FSL-1.1-ALv2`); everything already published stays Apache-2.0 | proposed | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.
