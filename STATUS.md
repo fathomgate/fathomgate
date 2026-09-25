@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 11 · blocked 2 · in review 1 · merged 24 · dropped 3
+Tasks: open 9 · blocked 2 · in review 1 · merged 24 · dropped 5
 
 ## In flight
 
@@ -18,9 +18,7 @@ Tasks: open 11 · blocked 2 · in review 1 · merged 24 · dropped 3
 | M1-07 | Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2 | `docs/security` | security-reviewer | docs-writer | open | — | 15, 16 | — |
 | M1-08 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | M1-09 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
-| M1-10 | Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 2 | — |
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
-| M1-12 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | M1-19 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | merged | — | 4 | — |
 | M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | merged | M1-13 | 3, 4 | — |
 | M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | in review | — | — | — |
@@ -52,6 +50,8 @@ Tasks: open 11 · blocked 2 · in review 1 · merged 24 · dropped 3
 ## Done this milestone
 
 - M1-05 Accept ADR 0030, reloading the policy and inventory without a restart — dropped
+- M1-10 Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames — dropped
+- M1-12 Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it — dropped
 - M1-25 Reload the policy and inventory without a restart (SIGHUP on Unix, polling on Windows) — dropped
 - M1-26 serve --listen-remote, --listen-host, --listen-tls-cert and --listen-tls-key (remote and loopback TLS) — dropped
 
