@@ -382,6 +382,20 @@ func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 // and no listen token reaches it, even inside an upstream's own error
 // message.
 func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup lookupEnvFunc) int {
+	return serveBinding(ctx, args, stderr, lookup, binder{listen: listenTCP, hold: holdWildcards})
+}
+
+// binder is how serve binds the --listen addresses: listenTCP and
+// holdWildcards (bindLoopback's listen and hold). It is a test seam
+// (M1-41): the listener tests record each bind and its error, so they
+// retry on another port only when the error is address in use.
+type binder struct {
+	listen listenFunc
+	hold   holdFunc
+}
+
+// serveBinding is serveContext with the --listen binds made through b.
+func serveBinding(ctx context.Context, args []string, stderr io.Writer, lookup lookupEnvFunc, b binder) int {
 	cfg, err := parseServe(args, stderr, lookup, runtime.GOOS)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -425,7 +439,7 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitUsage
 		}
-		lns, err = bindLoopback(*cfg.listen, listenTCP, holdWildcards, logger)
+		lns, err = bindLoopback(*cfg.listen, b.listen, b.hold, logger)
 		if err != nil {
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitFail

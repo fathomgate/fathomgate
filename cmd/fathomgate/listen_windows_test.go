@@ -355,7 +355,7 @@ func refusesHeldWildcard(t *testing.T, target squatTarget, w wildcard) bool {
 		t.Fatal(err)
 	}
 	rec := &bindRecorder{}
-	defer rec.checkReleased(t)
+	defer rec.checkReleasedOnReturn(t)
 	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
 	if err == nil {
 		for _, l := range lns {
@@ -402,7 +402,10 @@ func TestServeListenWildcardHeldWindows(t *testing.T) {
 // serveListenWildcardHeld is one attempt of
 // TestServeListenWildcardHeldWindows. It returns false when serve found a
 // loopback address on the squatter's port taken by another socket
-// (squatAttempts).
+// (squatAttempts); any other failure of a loopback bind fails the test.
+// serve binds through a bindRecorder (binder, M1-41), so the retry is
+// decided on the bind's own error, not on stderr's text, and every return
+// checks that what serve bound was released.
 func serveListenWildcardHeld(t *testing.T) bool {
 	t.Helper()
 	s, port, err := squatBind(squatTargets[4], 0, true)
@@ -411,20 +414,30 @@ func serveListenWildcardHeld(t *testing.T) bool {
 	}
 	defer func() { _ = windows.Closesocket(s) }()
 	p := strconv.Itoa(int(port))
+	rec := &bindRecorder{}
+	defer rec.checkReleasedOnReturn(t)
 	var stderr lockedBuffer
-	code := serveContext(t.Context(), []string{
+	code := serveBinding(t.Context(), []string{
 		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"), "--no-policy",
 		"--listen", "localhost:" + p,
-	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
+	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}), binder{listen: rec.listen, hold: rec.hold(holdWildcards)})
 	out := stderr.String()
 	checkNoCanary(t, "stderr", out)
-	if code == exitFail && (strings.Contains(out, "fathomgate: serve: --listen: listen tcp 127.0.0.1:"+p+":") ||
-		strings.Contains(out, "fathomgate: serve: --listen: [::1]:"+p+", the other loopback address on the same port, cannot be bound")) {
-		t.Logf("another socket holds a loopback address on port %s; trying another port", p)
-		return false
+	binds := rec.recorded()
+	for _, b := range binds {
+		if b.err != nil {
+			if !addrTaken(b.err) {
+				t.Fatalf("binding %s: %v, want success or address in use; exit %d; stderr %q", b.addr, b.err, code, out)
+			}
+			t.Logf("another socket holds %s; trying another port: %v", b.addr, b.err)
+			return false
+		}
 	}
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::]:"+p+" (dual-stack), a wildcard address on the same port, cannot be held") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
+	}
+	if len(binds) != 2 || len(rec.holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want both loopbacks bound and the hold refused", binds, len(rec.holds))
 	}
 	return true
 }
