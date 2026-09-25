@@ -247,6 +247,12 @@ func (c methodTapConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 // restartWarning is the start of ADR 0018's warn line.
 const restartWarning = "did not answer server/discover within"
 
+// hybridRefusal is the refusal of an upstream that answers the 2025-11-25
+// initialise request with 2026-07-28 (M1-32): both versions and ADR 0008.
+const hybridRefusal = `the upstream answered the ` + methodInitialize + ` request for protocol 2025-11-25 with the later version "2026-07-28"; ` +
+	"fathomgate refuses a hybrid upstream, which opens a stateful session and then speaks a later version on it, " +
+	"so the session was closed and the upstream stopped (ADR 0008)"
+
 // TestDiscoverProbe: the first connect is bounded; only running out of the
 // bound restarts the upstream, once, with the initialise handshake only.
 func TestDiscoverProbe(t *testing.T) {
@@ -274,10 +280,12 @@ func TestDiscoverProbe(t *testing.T) {
 			startup: 30 * time.Second, builds: 1, version: v2025, era: eraStateful,
 		},
 		{
-			// T0.47, N6: the version alone would say stateless.
-			name:    "probe refused, initialise answered with 2026-07-28: stateful",
+			// M1-32: a hybrid (a later version than requested) is refused,
+			// not labelled.
+			name:    "probe refused, initialise answered with 2026-07-28: hybrid refused",
 			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{answers2026Attempt} },
-			startup: 30 * time.Second, builds: 1, version: v2026, era: eraStateful,
+			startup: 30 * time.Second, builds: 1,
+			wantErr: []string{"proxy: upstream netdev-ssh-mcp: connect: ", hybridRefusal},
 		},
 		{
 			name:    "answered with a version go-sdk rejects: no restart",
@@ -293,13 +301,15 @@ func TestDiscoverProbe(t *testing.T) {
 			expire: true, startup: 30 * time.Second, builds: 2, version: v2025, era: eraStateful,
 		},
 		{
-			// T0.47, N6: after the ADR 0018 restart the upstream answers
-			// the 2025-11-25 initialise request with 2026-07-28.
-			name: "probe unanswered: restart, initialise answered with 2026-07-28: stateful",
+			// M1-32: after the ADR 0018 restart the upstream answers the
+			// 2025-11-25 initialise request with 2026-07-28: refused, and
+			// no third attempt.
+			name: "probe unanswered: restart, initialise answered with 2026-07-28: hybrid refused",
 			serve: func(e *probeExpiry) []upstreamAttempt {
 				return []upstreamAttempt{silentThen(e), answers2026Attempt}
 			},
-			expire: true, startup: 30 * time.Second, builds: 2, version: v2026, era: eraStateful,
+			expire: true, startup: 30 * time.Second, builds: 2,
+			wantErr: []string{restarted, hybridRefusal},
 		},
 		{
 			name: "second attempt hangs up: its error, no third attempt",
@@ -365,6 +375,15 @@ func TestDiscoverProbe(t *testing.T) {
 					if !strings.Contains(err.Error(), w) {
 						t.Errorf("error %q does not contain %q", err, w)
 					}
+				}
+				// A refused session is never opened: go-sdk sends no
+				// initialised notification after an answer it or
+				// fathomgate refused.
+				if last := r.received(tc.builds - 1); slices.Contains(last, "notifications/initialized") { //nolint:misspell // MCP wire method name
+					t.Errorf("the failed attempt received %q, want no initialised notification", last)
+				}
+				if strings.Contains(logs.String(), "upstream ready") {
+					t.Errorf("upstream ready logged for an upstream that failed to connect:\n%s", logs.String())
 				}
 				return
 			}
@@ -523,20 +542,21 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	}
 }
 
-// TestRestartedStdioUpstreamAnswering2026IsStateful (T0.47, N6) is the
-// ADR 0018 restart over a real child process whose second process answers
-// the 2025-11-25 initialise request with 2026-07-28. go-sdk accepts that, so
-// the negotiated version is 2026-07-28, but the session was opened with the
-// initialise handshake: the upstream's era, in the upstream ready line and
-// on every call (up.era, what M1's audit reads), is stateful. A tool call
-// still round-trips on the session.
-func TestRestartedStdioUpstreamAnswering2026IsStateful(t *testing.T) {
+// TestRestartedStdioUpstreamAnswering2026IsRefused (M1-32; the T0.47 N6
+// label test before it) is the ADR 0018 restart over a real child process
+// whose second process answers the 2025-11-25 initialise request with
+// 2026-07-28: a hybrid. fathomgate refuses it: New fails with an error
+// naming both versions and ADR 0008, no upstream ready line is logged, and
+// the process is killed at once rather than after go-sdk's close grace
+// (terminateDuration). Both processes ignore stdin EOF and SIGTERM, so only
+// a kill ends them, and both are reaped.
+func TestRestartedStdioUpstreamAnswering2026IsRefused(t *testing.T) {
 	stderr := newSyncBuffer()
 	logs := newSyncBuffer()
 	b := &commandBuilds{cmd: Command{
 		Path:         testExecutable(t),
 		Args:         []string{"-test.run=^$"},
-		Env:          []string{fakeUpstreamEnv + "=nodiscover2026", childRaceEnv},
+		Env:          []string{fakeUpstreamEnv + "=nodiscover2026", fakeLingerEnv + "=1", childRaceEnv},
 		Stderr:       stderr,
 		StderrPrefix: "upstream netdev-ssh-mcp: ",
 	}}
@@ -554,46 +574,40 @@ func TestRestartedStdioUpstreamAnswering2026IsStateful(t *testing.T) {
 		done <- result{p, err}
 	}()
 	stderr.waitFor(t, "upstream netdev-ssh-mcp: fake upstream: unknown method server/discover; not reading any more\n")
+	fired := time.Now()
 	e.fire()
 	out := <-done
-	p, err := out.p, out.err
-	if err != nil {
-		t.Fatalf("%v\nlog:\n%s\nstderr:\n%s", err, logs.String(), stderr.String())
+	elapsed := time.Since(fired)
+	if out.err == nil {
+		_ = out.p.Close()
+		t.Fatalf("New succeeded against a hybrid upstream\nlog:\n%s", logs.String())
 	}
-	t.Cleanup(func() { _ = p.Close() })
-
-	if n := len(b.get()); n != 2 {
-		t.Fatalf("processes started: %d, want 2", n)
+	msg := out.err.Error()
+	const restarted = "proxy: upstream netdev-ssh-mcp: connect with " + initOnly + " (restarted after server/discover got no answer within 5s): "
+	if !strings.HasPrefix(msg, restarted+hybridRefusal) {
+		t.Errorf("error %q\nwant it to start %q", msg, restarted+hybridRefusal)
+	}
+	// fathomgate killed the process, so no exit status is reported as the
+	// upstream's.
+	if strings.Contains(msg, "upstream process ended") {
+		t.Errorf("error %q reports an exit status for a process fathomgate killed", msg)
+	}
+	if elapsed >= terminateDuration {
+		t.Errorf("New returned %s after the refusal: the upstream was not killed at once (go-sdk's close grace is %s)", elapsed, terminateDuration)
 	}
 	if n := strings.Count(logs.String(), restartWarning); n != 1 {
-		t.Fatalf("restart warnings: %d\n%s", n, logs.String())
+		t.Errorf("restart warnings: %d\n%s", n, logs.String())
 	}
-	up := p.upstreams[testServer]
-	if up.version != v2026 {
-		t.Fatalf("negotiated %s, want %s (the fake's answer)", up.version, v2026)
+	if strings.Contains(logs.String(), "upstream ready") {
+		t.Errorf("upstream ready logged for a refused upstream:\n%s", logs.String())
 	}
-	if up.era != eraStateful {
-		t.Fatalf("era %s, want %s: the session was opened with the initialise handshake", up.era, eraStateful)
+	built := b.get()
+	if len(built) != 2 {
+		t.Fatalf("processes started: %d, want 2", len(built))
 	}
-	const ready = `msg="upstream ready" server=netdev-ssh-mcp tools=`
-	const label = ` protocol=2026-07-28 era=stateful`
-	var line string
-	for l := range strings.SplitSeq(logs.String(), "\n") {
-		if strings.Contains(l, ready) {
-			line = l
-		}
-	}
-	if !strings.HasSuffix(line, label) {
-		t.Fatalf("upstream ready line %q does not end with %q\n%s", line, label, logs.String())
-	}
-
-	// Each agent era reaches the upstream, and the call carries the
-	// upstream's era as stateful.
-	for _, agentEra := range []string{v2025, v2026} {
-		agent, _ := connectAgent(t, p, eraSetup{agent: agentEra}, &promptLog{})
-		res, err := agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01", "command": "show version"}})
-		if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
-			t.Fatalf("agent %s: round trip after the restart: %v %q\nstderr:\n%s", agentEra, err, text(res), stderr.String())
+	for i, ct := range built {
+		if ct.Command.Process == nil || ct.Command.ProcessState == nil {
+			t.Errorf("process %d was not started and reaped", i)
 		}
 	}
 }
@@ -705,5 +719,96 @@ func TestExitStatus(t *testing.T) {
 	// very error it was given, unwrapped.
 	if got := withExit(context.Canceled, ""); got != context.Canceled {
 		t.Errorf("withExit without a status changed the error: %v", got)
+	}
+}
+
+// TestHybridRefusalIsNotRestarted (M1-32, the cause guard in
+// connectAttempt): the ADR 0018 bound runs out after the middleware has
+// refused a hybrid answer and before go-sdk has begun closing the session.
+// The attempt was answered, so it is not restarted: one transport, the
+// first attempt's connect: prefix, no restart warning.
+func TestHybridRefusalIsNotRestarted(t *testing.T) {
+	e := newProbeExpiry()
+	afterAbort = func() {
+		e.fire()
+		// Hold go-sdk's close back so the watcher reads the expiry before
+		// any close is requested: without the cause guard this attempt
+		// would count as unanswered and be restarted.
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Cleanup(func() { afterAbort = nil })
+	logs := newSyncBuffer()
+	r := newRebuildable(t, answers2026Attempt, serverAttempt(v2025))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: r.build}},
+		Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverExpired: e.ch})
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded against a hybrid upstream")
+	}
+	if got := r.builds(); got != 1 {
+		t.Errorf("transports built: %d, want 1 (a refused answer is never restarted)", got)
+	}
+	if want := "proxy: upstream netdev-ssh-mcp: connect: " + hybridRefusal; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error %q\nwant it to start %q", err, want)
+	}
+	if strings.Contains(err.Error(), "restarted") || strings.Contains(logs.String(), restartWarning) {
+		t.Errorf("restarted after a refused answer: %q\n%s", err, logs.String())
+	}
+}
+
+// TestHandshakeMiddleware: the middleware refuses an initialise answer
+// naming a later version than requested, or any stateless version even
+// when equal to the request (no handshake session may carry one), aborts
+// the attempt with the refusal as its cause, and marks only sessions it
+// let through.
+func TestHandshakeMiddleware(t *testing.T) {
+	cases := []struct {
+		requested, answered string
+		refused             string // "", "later" or "stateless"
+	}{
+		{v2025, v2025, ""},
+		{v2025, "2025-06-18", ""},
+		{v2025, "2024-11-05", ""},
+		{v2025, v2026, "later"},
+		{"2025-06-18", v2025, "later"},
+		{v2026, v2026, "stateless"},
+		{v2026, v2025, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.requested+"/"+tc.answered, func(t *testing.T) {
+			h := &handshakes{}
+			next := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+				return &mcp.InitializeResult{ProtocolVersion: tc.answered}, nil
+			}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			req := &mcp.InitializeRequest{Params: &mcp.InitializeParams{ProtocolVersion: tc.requested}}
+			res, err := h.middleware(next)(withAbort(ctx, cancel), methodInitialize, req)
+			h.mu.Lock()
+			marked := len(h.byHandshake)
+			h.mu.Unlock()
+			if tc.refused == "" {
+				if err != nil || res == nil || context.Cause(ctx) != nil || marked != 1 {
+					t.Fatalf("got %v, %v (cause %v, marked %d); want the answer through and the session marked", res, err, context.Cause(ctx), marked)
+				}
+				return
+			}
+			var herr *hybridError
+			if !errors.As(err, &herr) || res != nil {
+				t.Fatalf("got %v, %v; want a hybridError", res, err)
+			}
+			want := fmt.Sprintf("the upstream answered the %s request for protocol %s with the %s version %q; ", methodInitialize, tc.requested, tc.refused, tc.answered)
+			if !strings.HasPrefix(err.Error(), want) || !strings.HasSuffix(err.Error(), "(ADR 0008)") {
+				t.Errorf("error %q, want it to start %q", err, want)
+			}
+			if !errors.Is(context.Cause(ctx), err) {
+				t.Errorf("attempt not aborted with the refusal: cause %v", context.Cause(ctx))
+			}
+			if marked != 0 {
+				t.Error("a refused session was marked as opened with the handshake")
+			}
+		})
 	}
 }
