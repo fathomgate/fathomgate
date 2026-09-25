@@ -16,6 +16,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 - eos-mcp `collect_tech_support` is `READ_CONFIG`, not `READ_OPERATIONAL` (M1-14). It sends `show tech-support`, whose output includes the running-config. A policy that allows `READ_OPERATIONAL` but not `READ_CONFIG` now denies it. `profiles/eos-mcp.yaml` is pinned to eos-mcp v1.3.0 (`bffb893`), and both it and `profiles/netdev-ssh-mcp.yaml` (v1.7.1) cite the upstream source lines for every tool.
 
+### Fixed
+
+- `internal/proxy` labels an upstream's era from the handshake request go-sdk had answered on the session and the version it negotiated, not from the version alone (T0.47, M1-06, N6 from the security reviews of PR #77 and #79). An upstream that answers the 2025-11-25 `initialize` request with 2026-07-28, after the ADR 0018 restart or go-sdk's own fallback, was logged `era=stateless`; it is now `protocol=2026-07-28 era=stateful`, and the call carries that era to `Proxy.dispatch` for the M1 audit event and decision log line. A sending middleware on the upstream's client records which sessions were opened with `initialize`, over any transport. Tier 1 test over a real stdio child for the restart path. Rules in `docs/specs/profile-schema.md` section 8.4.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added

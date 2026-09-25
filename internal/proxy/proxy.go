@@ -157,11 +157,19 @@ type upstream struct {
 	tt      *trackedTransport // the connected attempt's, to flush a Command's stderr on Close
 	red     *Redactor         // a Command's Secrets, scrubbed from relayed errors
 	session *mcp.ClientSession
-	// version is the protocol version negotiated with the upstream, and so
-	// its era (eraOf): go-sdk tries server/discover first and falls back to
-	// the initialise handshake, or connect restarts the upstream and
-	// connects with the initialise handshake only (ADR 0018).
+	// version is the protocol version negotiated with the upstream: go-sdk
+	// tries server/discover first and falls back to the initialise
+	// handshake, or connect restarts the upstream and connects with the
+	// initialise handshake only (ADR 0018). It is the version the upstream
+	// answered, which after an initialise handshake can be 2026-07-28.
 	version string
+	// era is the upstream session's era label (upstreamEra): from version
+	// and from the handshake request go-sdk had answered on the session,
+	// never from which connect attempt fathomgate made. A session opened
+	// with the initialise handshake is labelled stateful even at 2026-07-28
+	// (T0.47, N6). It is a label for logs and the audit, not a capability:
+	// no control may read it as what the upstream can or cannot send.
+	era     string
 	done    chan struct{}
 	err     error
 	closing atomic.Bool
@@ -261,7 +269,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		if err := p.addUpstreamTools(up, tools); err != nil {
 			return nil, err
 		}
-		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up), "protocol", up.version, "era", eraOf(up.version))
+		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up), "protocol", up.version, "era", up.era)
 	}
 	p.server.AddReceivingMiddleware(refuseUndeclared, p.checkToolName)
 	return p, nil
@@ -297,6 +305,10 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 		// (progress.go).
 		ProgressNotificationHandler: p.upstreamProgress(up),
 	})
+	// Which handshake request go-sdk had answered on each attempt's
+	// session, for the era label (upstreamEra).
+	hs := &handshakes{}
+	client.AddSendingMiddleware(hs.middleware)
 	if expired == nil {
 		ch := make(chan struct{})
 		t := time.AfterFunc(discoverProbeTimeout, func() { close(ch) })
@@ -312,6 +324,7 @@ func (p *Proxy) connectUpstream(ctx context.Context, impl *mcp.Implementation, u
 	if ir := cs.InitializeResult(); ir != nil {
 		up.version = ir.ProtocolVersion
 	}
+	up.era = upstreamEra(up.version, hs.take(cs))
 	p.upstreams[u.Server] = up
 	go func() {
 		defer close(up.done)
@@ -1030,7 +1043,9 @@ func (p *Proxy) Close() error {
 
 // call is one agent tools/call after the prefix has been resolved. It is
 // what M1's pipeline and audit read: the agent's era is in agent.version,
-// the upstream's in up.version, and the agent side it arrived on in
+// the upstream's version and era in up.version and up.era (not
+// eraOf(up.version), which mislabels an upstream that answered the
+// initialise handshake with 2026-07-28), and the agent side it arrived on in
 // transport and principal (ADR 0016).
 type call struct {
 	up        *upstream
