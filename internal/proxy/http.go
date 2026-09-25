@@ -592,8 +592,15 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && sid != "":
 		// go-sdk's session Close waits for calls in flight; cancel them
 		// first, if the session is this principal's.
+		// A call go-sdk has delivered but fathomgate has not yet admitted is
+		// not cancelled here, and go-sdk's Close then waits for it. The
+		// DELETE does not pause the idle clock, so the idle expiry retires
+		// the session and cancels that call after SessionTimeout (threat
+		// model row 34, T0.57).
 		if n := h.p.limits.Load().cancelSession(sid, principal); n > 0 {
 			h.logger.Info("agent session deleted; cancelling its calls", "session", shortHash(sid), "principal", principal, "calls", n)
+		} else {
+			h.logger.Debug("agent session DELETE received", "session", shortHash(sid), "principal", principal)
 		}
 	case r.Method == http.MethodPost && sid != "":
 		// A POST on the session's own principal's behalf pauses fathomgate's
@@ -916,12 +923,17 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, slo
 	h.register(ls)
 	started := limits.track(func() {
 		_ = kept.Wait()
+		// stop waits on ls.mu, so an expire that retired the session has
+		// finished doing so (it retires under ls.mu).
 		ls.stop()
-		limits.forget(kept) // it is closed: nothing can call on it now
 		h.mu.Lock()
 		if h.live[sid] == ls {
 			delete(h.live, sid)
 		}
+		// The session is closed and no longer in live. Eviction claims only
+		// sessions in live, under h.mu, so no claimIdle can retire it after
+		// this forget, and the retired set cannot keep a closed session.
+		limits.forget(kept)
 		h.mu.Unlock()
 		release()
 		h.logger.Info("agent session closed", "session", shortHash(sid), "principal", principal)
@@ -1183,6 +1195,12 @@ func (s *liveSession) stop() {
 // the retirement such a call would start after the cancellation and run on
 // a closing session, which go-sdk's Close waits for with no idle clock left
 // to cancel it. A POST that started meanwhile wins.
+//
+// The retirement happens under s.mu, so the session's watcher
+// (settleSession), whose stop waits on s.mu, calls callLimits.forget only
+// after it: a retirement can never land after the forget and leave a
+// closed session in the retired set. Lock order: liveSession.mu, then
+// callLimits.mu (nothing takes callLimits.mu and then a liveSession.mu).
 func (s *liveSession) expire() {
 	s.mu.Lock()
 	if s.stopped || s.active > 0 {
@@ -1191,8 +1209,8 @@ func (s *liveSession) expire() {
 	}
 	s.stopped = true
 	s.running = false
-	s.mu.Unlock()
 	n := s.h.p.limits.Load().retire(s.ss)
+	s.mu.Unlock()
 	s.h.logger.Info("agent session idle; closing it", "session", shortHash(s.sid), "principal", s.principal, "calls_cancelled", n)
 	if err := s.ss.Close(); err != nil {
 		s.h.logger.Debug("closing an idle agent session", "session", shortHash(s.sid), "error", err)

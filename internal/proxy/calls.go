@@ -27,6 +27,11 @@ import (
 
 // callLimits is the admission and cancellation state for tool calls. It is
 // built by HTTPHandler and read by Proxy.handler; stdio has none.
+//
+// Lock order: httpHandler.mu, then callLimits.mu (claimIdle during
+// eviction, forget in the session watcher); liveSession.mu, then
+// callLimits.mu (retire in liveSession.expire). callLimits.mu is a leaf:
+// nothing takes another of these locks while holding it.
 type callLimits struct {
 	perSession, perPrincipal int
 	// orphanTTL is how long a call that has ended keeps blocking the
@@ -122,7 +127,9 @@ func (l *callLimits) admit(ctx context.Context, principal string, ss *mcp.Server
 
 // errSessionRetired is the reason admit gives for a call on a session
 // fathomgate is closing. It is a sentinel so Proxy.handler can log the
-// refusal as what it is, not as a call cap.
+// refusal as what it is, not as a call cap. Its text reaches the agent and
+// is quoted in profile-schema 8.5 (*Eviction*); change both together
+// (TestSessionRetiredText pins it).
 var errSessionRetired = errors.New("its agent session has been closed (evicted at the session cap or idle); start a new session and call again")
 
 // isRetired reports whether ss is being closed by fathomgate. Callers hold
@@ -192,7 +199,8 @@ func (l *callLimits) claimIdle(ss *mcp.ServerSession) bool {
 // returns how many it cancelled: the idle expiry (liveSession.expire)
 // closes the session whatever it is running, and a call admitted after the
 // cancellation would otherwise run on a closing session, which go-sdk's
-// Close then waits for, with no idle clock left to cancel it.
+// Close then waits for, with no idle clock left to cancel it. expire calls
+// it holding liveSession.mu (the lock order is on callLimits).
 func (l *callLimits) retire(ss *mcp.ServerSession) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -211,7 +219,10 @@ func (l *callLimits) retire(ss *mcp.ServerSession) int {
 
 // forget drops ss from the retired set once the session has ended
 // (settleSession's watcher), so the set holds only sessions go-sdk has not
-// finished closing.
+// finished closing. The watcher calls it under httpHandler.mu, after the
+// session has left httpHandler.live and after liveSession.stop, so neither
+// a claimIdle (which runs under httpHandler.mu on live sessions only) nor
+// an expire's retire (which runs under liveSession.mu) can land after it.
 func (l *callLimits) forget(ss *mcp.ServerSession) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

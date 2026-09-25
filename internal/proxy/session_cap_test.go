@@ -85,6 +85,20 @@ func sessionCounts(h *httpHarness, sid string) (live, evicted bool, gets, posts 
 	return true, ls.evicted, ls.gets, ls.active
 }
 
+// waitRetiredEmpty waits until callLimits holds no retired session: every
+// session fathomgate retired (evicted or expired) has ended and its watcher
+// has forgotten it. A retirement that landed after the forget would leave
+// a closed session pinned here for good (Go re-review of PR #121).
+func waitRetiredEmpty(t *testing.T, h *httpHarness) {
+	t.Helper()
+	l := h.proxy.limits.Load()
+	waitFor(t, "the retired set to empty", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return len(l.retired) == 0
+	})
+}
+
 // openGET opens a GET stream on sid and waits until the listener counts
 // it. It returns the function that closes the stream and waits for the
 // listener to count it closed; the stream also closes when the test ends.
@@ -147,6 +161,7 @@ func TestHTTPSessionCapEviction(t *testing.T) {
 			live, _, _ := sessionState(h, s2)
 			return !live
 		})
+		waitRetiredEmpty(t, h)
 		h.hh.mu.Lock()
 		n := h.hh.sessionsPerPrincipal["alice"]
 		h.hh.mu.Unlock()
@@ -460,6 +475,7 @@ func assertRefusedBeforeUpstream(t *testing.T, h *httpHarness, g *admitGate, hoo
 	if n := h.proxy.limits.Load().inFlight(); n != 0 {
 		t.Fatalf("%d calls in flight after the refusal, want none", n)
 	}
+	waitRetiredEmpty(t, h)
 }
 
 // TestEvictionRefusesUnadmittedCall is the admission race in the reviews of
@@ -599,4 +615,83 @@ func TestCapLogPerPrincipal(t *testing.T) {
 	step("bob", t0.Add(capLogInterval/2), true, 0) // alice's limit does not hold bob back
 	step("alice", t0.Add(capLogInterval), true, 2)
 	step("alice", t0.Add(3*capLogInterval), true, 0)
+}
+
+// TestDeleteWindowBoundedByIdleExpiry pins the DELETE residual (N3 in the
+// security re-review of PR #121). A call go-sdk has delivered but fathomgate
+// has not admitted when the agent DELETEs its session is not cancelled by
+// the DELETE (cancelSession has nothing admitted to cancel), and go-sdk's
+// Close, which the DELETE runs synchronously, waits for it. The DELETE does
+// not pause fathomgate's idle clock, so after SessionTimeout the expiry
+// retires the session and cancels the call; the DELETE then completes. The
+// bound is SessionTimeout, as for a call whose POST was dropped.
+func TestDeleteWindowBoundedByIdleExpiry(t *testing.T) {
+	hooks := &blockHooks{blocked: make(chan struct{}, 4), cancelled: make(chan struct{}, 4)}
+	gate := newAdmitGate(t)
+	buf := newSyncBuffer()
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	const idle = 300 * time.Millisecond
+	h := newHTTPHarness(t, httpSetup{hooks: hooks, logger: logger, beforeAdmit: gate.hook, opts: HTTPOptions{SessionTimeout: idle}})
+
+	s1 := rawSession(t, h, tokAlice)
+	deliverAndDrop(t, h, gate, s1)
+
+	deleted := make(chan int, 1)
+	go func() {
+		hdr := map[string]string{"Mcp-Protocol-Version": v2025, "Mcp-Session-Id": s1}
+		resp, err := h.raw.Do(h.request(context.Background(), "DELETE", tokAlice, hdr, ""))
+		if err != nil {
+			deleted <- -1
+			return
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		deleted <- resp.StatusCode
+	}()
+	// The DELETE has passed cancelSession, with nothing admitted to cancel,
+	// and is on its way into go-sdk's Close.
+	buf.waitFor(t, "agent session DELETE received")
+
+	gate.open() // the call is admitted: the session was never retired
+	recvOrFail(t, hooks.blocked, "the call to reach the upstream")
+	select {
+	case <-hooks.cancelled:
+	case <-time.After(idle + 5*time.Second):
+		t.Fatal("the call on the deleted session was never cancelled")
+	}
+	// The idle expiry cancelled it, not the DELETE.
+	buf.waitFor(t, "agent session idle; closing it")
+	if !strings.Contains(buf.String(), "calls_cancelled=1") {
+		t.Fatalf("the idle expiry did not cancel the call:\n%s", buf.String())
+	}
+	select {
+	case st := <-deleted:
+		if st != http.StatusNoContent {
+			t.Fatalf("DELETE answered %d, want 204 once the call ended", st)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the DELETE did not complete after the call was cancelled")
+	}
+	// The DELETE and the expiry both closed the session; the retirement is
+	// forgotten all the same.
+	waitRetiredEmpty(t, h)
+}
+
+// TestSessionRetiredText pins the refusal an agent gets for a call on a
+// retired session to the text profile-schema 8.5 quotes (N4 in the security
+// re-review of PR #121): change the spec and this test together.
+func TestSessionRetiredText(t *testing.T) {
+	l := newCallLimits(8, 32)
+	ss := &mcp.ServerSession{}
+	if !l.claimIdle(ss) {
+		t.Fatal("a session with no calls could not be claimed")
+	}
+	_, _, refused, why := l.admit(context.Background(), "alice", ss, "netdev-ssh-mcp.run_show_command")
+	if refused == nil || !errors.Is(why, errSessionRetired) {
+		t.Fatalf("a call on a retired session was not refused as retired: %v", why)
+	}
+	const want = "fathomgate refused netdev-ssh-mcp.run_show_command: its agent session has been closed (evicted at the session cap or idle); start a new session and call again"
+	if got := text(refused); got != want || !refused.IsError {
+		t.Fatalf("refusal %q (isError %v), want %q", got, refused.IsError, want)
+	}
 }
