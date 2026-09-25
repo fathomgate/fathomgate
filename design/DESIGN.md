@@ -24,7 +24,7 @@ The mark is a gateway: a divided arch with its gate panels open, a guiding star 
 | README and docs headers | `fathomgate-horizontal-tagline-dark.svg` / `-light.svg`, swapped with `<picture>` and `prefers-color-scheme`, at 480 px wide or more |
 | Headers without room for the tagline | `fathomgate-horizontal-dark.svg` / `-light.svg`, 240 px wide or more |
 | Avatars and the console sign-in screen | `fathomgate-icon-dark.svg` / `-light.svg`, 48 px or more, centred on a square with clear space (the mark is 512 × 448, not square) |
-| Social cards and release pages | `fathomgate-stacked-dark.svg` / `-light.svg` on a solid ground |
+| Social cards and release pages | `fathomgate-stacked-dark.svg` / `-light.svg` on a solid ground ; the repository's GitHub social preview is `design/social/fathomgate-social-preview.png` (1280 × 640, the dark stacked logo at 768 px wide on `--abyss`), rendered from `design/social/card.html` with headless Chrome |
 | Where the capitals would be too loud: slides, long-form docs | `fathomgate-brandcase-dark.svg` / `-light.svg` |
 | 16 to 32 px: favicons, tabs, small UI | `fathomgate-favicon.svg` (adapts to light and dark by itself) or `fathomgate-small-*.svg`. Never shrink the detailed mark this far |
 | One colour only: print, engraving, vinyl, monochrome UI | `fathomgate-icon-white.svg` / `fathomgate-horizontal-white.svg` on dark; `fathomgate-icon-ink.svg` / `fathomgate-horizontal-ink.svg` on light; `fathomgate-icon-teal.svg` on dark only |
