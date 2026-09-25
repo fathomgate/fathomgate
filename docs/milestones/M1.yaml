@@ -29,7 +29,7 @@ tasks:
     adr: "0026"
     matrix: [3, 4, 6]
     spec: docs/specs/policy-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR (chore/m1-kickoff). Decides the stage order (parse, normalise, classify, resolve, session counters, Evaluate, enforce, record, redact in M2), the deny tool error text, fail-closed handling of hold and of the dry_run, diff and timed_rollback obligations before M3, the decision log line that M4 turns into the audit event, the new internal/gate package, and the internal/proxy exports Options.Gate, Gate, CallInfo, Verdict (supersedes the ADR 0022 table). Five open questions for the maintainer in the record. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR (chore/m1-kickoff). Decides the stage order (parse, normalise, classify, resolve, session counters, Evaluate, enforce, record, redact in M2), the deny tool error text, fail-closed handling of hold and of the dry_run, diff and timed_rollback obligations before M3, the decision log line that M4 turns into the audit event, the new internal/gate package, and the internal/proxy exports Options.Gate, Gate, CallInfo, Verdict (supersedes the ADR 0022 table). Five open questions for the maintainer in the record. Accepted by the maintainer 2026-09-25 on PR #125; recorded in PR #153.'
   - id: M1-02
     title: Accept ADR 0027, serve --policy, --inventory and --profiles; --audit refused until M4
     package: docs/adr
@@ -39,7 +39,7 @@ tasks:
     adr: "0027"
     matrix: [3, 4, 6]
     spec: docs/specs/profile-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR. CLI surface change (amends ADR 0012). Embeds profiles/ with go:embed; serve without --policy stays a pass-through with a Warn (open question 1: require --policy instead). --audit stays refused because the audit chain is M4 (PLAN, PRD R26, and the reservedServeFlags comment in serve.go already say so); the M0 board notes that assumed M1 wires --audit (T0.47, T0.55) are superseded by this. Four open questions. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. CLI surface change (amends ADR 0012). Embeds profiles/ with go:embed; serve without --policy stays a pass-through with a Warn (open question 1: require --policy instead). --audit stays refused because the audit chain is M4 (PLAN, PRD R26, and the reservedServeFlags comment in serve.go already say so); the M0 board notes that assumed M1 wires --audit (T0.47, T0.55) are superseded by this. Four open questions. Accepted by the maintainer 2026-09-25 on PR #125; recorded in PR #153.'
   - id: M1-03
     title: Accept ADR 0028, audit signing key custody
     package: docs/adr
@@ -48,7 +48,7 @@ tasks:
     state: merged
     adr: "0028"
     matrix: []
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR, as T0.55 asked (a short key-custody ADR). Owner-only file checks on every key open; verify accepts a public key only; keyring and KMS deferred behind a crypto.Signer seam; the redaction key is left to M2. Three open questions. Accepted by the maintainer 2026-09-25 in PR #125; the record and its answers land in branch docs/accept-adrs-0026-0030.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR, as T0.55 asked (a short key-custody ADR). Owner-only file checks on every key open; verify accepts a public key only; keyring and KMS deferred behind a crypto.Signer seam; the redaction key is left to M2. Three open questions. Accepted by the maintainer 2026-09-25 on PR #125; recorded in PR #153.'
   - id: M1-04
     title: Accept ADR 0029, remote listening with built-in TLS and loopback authentication
     package: docs/adr
@@ -58,7 +58,7 @@ tasks:
     adr: "0029"
     matrix: [23]
     spec: docs/specs/profile-schema.md
-    notes: 'Drafted by the orchestrator in the M1 kickoff PR. ADR 0016 put --listen-remote and --listen-host in M1 and already decided built-in TLS required off loopback; this record fixes the flags, allows TLS on loopback against port squatting (threat-model row, open for M1), and binds with SO_EXCLUSIVEADDRUSE on Windows. Not an M1 exit criterion; open question 1 asks whether to park it to M2. Accepted in part by the maintainer 2026-09-25 in PR #125: the Windows exclusive bind (point 4) is M1, task M1-27; remote listening, TLS on remote and loopback, Unix socket and mTLS are deferred to M2 and re-decided there (not rejected). Status line: accepted in part (M1: Windows exclusive bind); remainder deferred to M2.'
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. ADR 0016 put --listen-remote and --listen-host in M1 and already decided built-in TLS required off loopback; this record fixes the flags, allows TLS on loopback against port squatting (threat-model row, open for M1), and binds with SO_EXCLUSIVEADDRUSE on Windows. Not an M1 exit criterion; open question 1 asks whether to park it to M2. Accepted in part by the maintainer 2026-09-25 on PR #125, recorded in PR #153: the Windows exclusive bind (point 4) is M1, task M1-27; remote listening, TLS on remote and loopback, Unix socket and mTLS are deferred to M2 and re-decided there (not rejected). Status line: accepted in part (M1: Windows exclusive bind); remainder deferred to M2.'
   - id: M1-05
     title: Accept ADR 0030, reloading the policy and inventory without a restart
     package: docs/adr
