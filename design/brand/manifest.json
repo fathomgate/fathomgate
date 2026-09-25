@@ -1,0 +1,349 @@
+{
+  "project": "Fathomgate",
+  "assets": [
+    {
+      "file": "fathomgate-icon-dark.svg",
+      "width": 512,
+      "height": 448,
+      "theme": "dark",
+      "type": "icon",
+      "description": "Gradient gateway icon for dark backgrounds",
+      "bytes": 4514,
+      "sha256": "7b0b5345f48e517d4275bb0ef96e71f22c40a4db5ec93615ed36d0a302115f6e"
+    },
+    {
+      "file": "fathomgate-icon-light.svg",
+      "width": 512,
+      "height": 448,
+      "theme": "light",
+      "type": "icon",
+      "description": "Gradient gateway icon for light backgrounds",
+      "bytes": 4536,
+      "sha256": "54473b0ca1b49179a5d1f3e530687310f01b213a1baa438cc81b73b3ff1b271a"
+    },
+    {
+      "file": "fathomgate-icon-teal.svg",
+      "width": 512,
+      "height": 448,
+      "theme": "dark",
+      "type": "icon",
+      "description": "Single-color teal gateway icon",
+      "bytes": 2074,
+      "sha256": "602e9aca52cd8a1026a77258ba972e6c07e6e3d9429bdb74ee36149e6aefcbbc"
+    },
+    {
+      "file": "fathomgate-icon-white.svg",
+      "width": 512,
+      "height": 448,
+      "theme": "dark",
+      "type": "icon",
+      "description": "Single-color white gateway icon",
+      "bytes": 2076,
+      "sha256": "b5d8507817f77b316637869b463cb461dd7e4cbef2439510183c19ce11e4eedc"
+    },
+    {
+      "file": "fathomgate-icon-ink.svg",
+      "width": 512,
+      "height": 448,
+      "theme": "light",
+      "type": "icon",
+      "description": "Single-color ink gateway icon",
+      "bytes": 2072,
+      "sha256": "f3c4546a29790c7ac916da51b6fe76ed0ffedfbbcb648da186ffd80a234b9ff6"
+    },
+    {
+      "file": "fathomgate-horizontal-dark.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "dark",
+      "type": "lockup",
+      "description": "Horizontal gradient logo for dark backgrounds",
+      "bytes": 7145,
+      "sha256": "397a0342a236900e693599682c0cd3afb6d36743e28f4b3380f0a43e32d6f207"
+    },
+    {
+      "file": "fathomgate-horizontal-tagline-dark.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "dark",
+      "type": "lockup",
+      "description": "Horizontal logo with outlined tagline for dark backgrounds",
+      "bytes": 15431,
+      "sha256": "76a3d31dc2b5f6b599902de0c7ce1c637095fb3db6cd25cab4e17aa16717c7a8"
+    },
+    {
+      "file": "fathomgate-horizontal-light.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "light",
+      "type": "lockup",
+      "description": "Horizontal gradient logo for light backgrounds",
+      "bytes": 7171,
+      "sha256": "6fe8df3a5cfde7d37d25499296f9350fce437b0215e61c5e3862804d17cb9231"
+    },
+    {
+      "file": "fathomgate-horizontal-tagline-light.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "light",
+      "type": "lockup",
+      "description": "Horizontal logo with outlined tagline for light backgrounds",
+      "bytes": 15457,
+      "sha256": "24d64a2e154e0000973f1419fb7b6d400a3f5c82ad89559adb4ad779c9592ea7"
+    },
+    {
+      "file": "fathomgate-horizontal-white.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "dark",
+      "type": "lockup",
+      "description": "Single-color white horizontal logo",
+      "bytes": 4499,
+      "sha256": "fe12bd78da0d9b542408a68bb6f6dfd624f00dc331a7e9aa19b02036b31e7738"
+    },
+    {
+      "file": "fathomgate-horizontal-ink.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "light",
+      "type": "lockup",
+      "description": "Single-color ink horizontal logo",
+      "bytes": 4495,
+      "sha256": "5e5928ef01a49fca06971c064fb2f5b7c28a4057e20468518bf1c7716cbbdc7b"
+    },
+    {
+      "file": "fathomgate-stacked-dark.svg",
+      "width": 960,
+      "height": 632,
+      "theme": "dark",
+      "type": "lockup",
+      "description": "Stacked logo with outlined tagline for dark backgrounds",
+      "bytes": 15414,
+      "sha256": "ee87de124e20b6b014e566025c775852d1e495fc4279107970ada517b64a3784"
+    },
+    {
+      "file": "fathomgate-stacked-light.svg",
+      "width": 960,
+      "height": 632,
+      "theme": "light",
+      "type": "lockup",
+      "description": "Stacked logo with outlined tagline for light backgrounds",
+      "bytes": 15440,
+      "sha256": "9deac11be2b8643b0314f1b7b0412409e6b135cfa6b70910083408dd2f02a466"
+    },
+    {
+      "file": "fathomgate-brandcase-dark.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "dark",
+      "type": "lockup",
+      "description": "Sentence-case Fathomgate lockup for dark backgrounds",
+      "bytes": 8661,
+      "sha256": "76608118fbd3d4d6a6846e94ef4171b7d40ca79f90791c457fa3481babca5646"
+    },
+    {
+      "file": "fathomgate-brandcase-light.svg",
+      "width": 1200,
+      "height": 288,
+      "theme": "light",
+      "type": "lockup",
+      "description": "Sentence-case Fathomgate lockup for light backgrounds",
+      "bytes": 8683,
+      "sha256": "e131093805cd0822b8ebd2c42d2c3df7d50f11b516a7c60974e55ddea8f63d15"
+    },
+    {
+      "file": "fathomgate-small-teal.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "dark",
+      "type": "small",
+      "description": "Simplified 16–32 pixel gateway mark in teal",
+      "bytes": 949,
+      "sha256": "06ab9c5665e69290cfc8c3845019b696a301eef58ee46e878520451b3035618c"
+    },
+    {
+      "file": "fathomgate-small-white.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "dark",
+      "type": "small",
+      "description": "Simplified 16–32 pixel gateway mark in white",
+      "bytes": 951,
+      "sha256": "e7aba8242bc58df6e4a9ec1454481379ab1fe3e7362af97e7275375ecba6f1f7"
+    },
+    {
+      "file": "fathomgate-small-ink.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "light",
+      "type": "small",
+      "description": "Simplified 16–32 pixel gateway mark in ink",
+      "bytes": 947,
+      "sha256": "d5d085187be4f478c1381e1dfbfcecbbc92adb9e94c243bc7f272aab1f96b7f4"
+    },
+    {
+      "file": "fathomgate-favicon.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "any",
+      "type": "small",
+      "description": "Adaptive light/dark transparent favicon",
+      "bytes": 1023,
+      "sha256": "f728051c938467ccbe6af35d453f91d57a0cb7ff847067f78848a5e65bfb8c99"
+    }
+  ],
+  "validation": [
+    {
+      "file": "fathomgate-icon-dark.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-icon-light.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-icon-teal.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-icon-white.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-icon-ink.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-dark.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-tagline-dark.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-light.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-tagline-light.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-white.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-horizontal-ink.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-stacked-dark.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-stacked-light.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-brandcase-dark.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-brandcase-light.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-small-teal.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-small-white.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-small-ink.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    },
+    {
+      "file": "fathomgate-favicon.svg",
+      "valid_xml": true,
+      "transparent": true,
+      "bitmap_count": 0,
+      "live_text_count": 0,
+      "external_dependencies": 0
+    }
+  ]
+}
