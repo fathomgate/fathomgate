@@ -5,6 +5,7 @@ package proxy
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
@@ -25,8 +26,16 @@ const methodToolsList = "tools/list"
 // in-memory transports). For any other transport it sees nothing, and every
 // readOnlyHint is nil: the raise then rests on destructiveHint alone, which
 // go-sdk keeps as a pointer (New logs a Warn when a Gate is set). It records
-// only while New lists the upstream's tools; readOnlyHints stops it.
+// only while New lists the upstream's tools; readOnlyHints stops it, after
+// which every message costs one atomic load.
+//
+// Keys are matched exactly, byte for byte, as go-sdk's own decoder matches
+// them (it is case-sensitive; encoding/json into a struct is not): an
+// upstream that sends "READONLYHINT" beside "readOnlyHint", or "NAME"
+// beside "name", must not make the two parsers read different tools or
+// hints. A repeated key keeps its last value, as both decoders do.
 type hintCapture struct {
+	done     atomic.Bool // stopped, for the lock-free fast path
 	mu       sync.Mutex
 	stopped  bool
 	pending  map[jsonrpc.ID]struct{} // ids of tools/list requests sent
@@ -36,6 +45,9 @@ type hintCapture struct {
 
 // sent notes a tools/list request's id.
 func (h *hintCapture) sent(m jsonrpc.Message) {
+	if h.done.Load() {
+		return
+	}
 	req, ok := m.(*jsonrpc.Request)
 	if !ok || req.Method != methodToolsList || !req.ID.IsValid() {
 		return
@@ -55,6 +67,9 @@ func (h *hintCapture) sent(m jsonrpc.Message) {
 // does not parse adds nothing: go-sdk then fails the listing, or the tools
 // it lists have no hint here (nil, no raise on readOnlyHint).
 func (h *hintCapture) received(m jsonrpc.Message) {
+	if h.done.Load() {
+		return
+	}
 	res, ok := m.(*jsonrpc.Response)
 	if !ok || res.Error != nil {
 		return
@@ -65,26 +80,44 @@ func (h *hintCapture) received(m jsonrpc.Message) {
 		return
 	}
 	delete(h.pending, res.ID)
-	var page struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			Annotations *struct {
-				ReadOnlyHint *bool `json:"readOnlyHint"`
-			} `json:"annotations"`
-		} `json:"tools"`
-	}
-	if json.Unmarshal(res.Result, &page) != nil {
-		return
-	}
-	if h.readOnly == nil {
-		h.readOnly = make(map[string]*bool, len(page.Tools))
-	}
-	for _, t := range page.Tools {
-		if t.Annotations != nil && t.Annotations.ReadOnlyHint != nil {
-			v := *t.Annotations.ReadOnlyHint
-			h.readOnly[t.Name] = &v
+	for name, v := range readOnlyHintsOf(res.Result) {
+		if h.readOnly == nil {
+			h.readOnly = make(map[string]*bool)
 		}
+		h.readOnly[name] = v
 	}
+}
+
+// readOnlyHintsOf reads one tools/list result: each tool's exact "name"
+// and its annotations' exact "readOnlyHint", for the tools that send a
+// boolean one (null and any other value are absent). Anything that does not
+// parse adds nothing.
+func readOnlyHintsOf(result json.RawMessage) map[string]*bool {
+	var page map[string]json.RawMessage
+	if json.Unmarshal(result, &page) != nil {
+		return nil
+	}
+	var tools []map[string]json.RawMessage
+	if json.Unmarshal(page["tools"], &tools) != nil {
+		return nil
+	}
+	out := make(map[string]*bool, len(tools))
+	for _, t := range tools {
+		var name string
+		if json.Unmarshal(t["name"], &name) != nil {
+			continue
+		}
+		var ann map[string]json.RawMessage
+		if json.Unmarshal(t["annotations"], &ann) != nil {
+			continue
+		}
+		var v *bool
+		if json.Unmarshal(ann["readOnlyHint"], &v) != nil || v == nil {
+			continue
+		}
+		out[name] = v
+	}
+	return out
 }
 
 // readOnlyHints stops the capture and returns what it read, by tool name,
@@ -94,6 +127,7 @@ func (t *trackedTransport) readOnlyHints() (map[string]*bool, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.stopped, h.pending = true, nil
+	h.done.Store(true)
 	out := h.readOnly
 	h.readOnly = nil
 	return out, h.wired

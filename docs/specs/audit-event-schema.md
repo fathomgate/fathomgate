@@ -48,7 +48,7 @@ These appear in the plan and the exporter mappings below but are not in the Go s
 | `schema_version` | Integer schema version. |
 | `proxy_instance` | Stable id of this install. |
 | `client_name`, `client_version`, `protocol_version` | From `initialize` or `_meta`. |
-| `class_source` | `profile`, `fallback`, `capability_table`, `annotation_raise`, `downgrade`, `reclassify` ([classification.md](classification.md) section 2; `classify.Source`). |
+| `class_source` | `profile`, `fallback`, `capability_table`, `annotation_raise`, `downgrade`, `reclassify` ([classification.md](classification.md) section 2; `classify.Source`). Planned: `proxy`, for a call the proxy refused before the classifier ran (arguments over 64 KiB, a gate that failed; ADR 0026 notes, M1-19), class `EXEC_ARBITRARY`; it is in the M1 decision log line today and joins this list when M4 writes the event. |
 | `args_redacted` | Redacted arguments, truncated. |
 | `tags`, `sites`, `vendors` | Per-target lists parallel to `targets`. |
 | `unknown_target`, `sot` | Whether any target was unresolved; `live`, `stale` or `none`. |
