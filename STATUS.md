@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 6 · blocked 3 · merged 39 · validated 2
+Tasks: open 6 · blocked 2 · merged 40 · validated 2
 
 ## In flight
 
@@ -30,7 +30,7 @@ Tasks: open 6 · blocked 3 · merged 39 · validated 2
 | T0.18 | Decide input_required retry handling (SEP-2322 SHOULD vs the proxy's strict -32602) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | T0.4 | 2 | — |
 | T0.19 | Conformance coverage for a 2025-11-25 upstream behind netguard | `tests/conformance` | test-engineer | go-reviewer | merged | T0.4 | 2 | — |
 | T0.20 | Evaluate installing golangci-lint via go run so the checksum database verifies it | `.github/workflows` | release-engineer | go-reviewer, security-reviewer | merged | — | — | — |
-| T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | blocked | T0.4 | — | — |
+| T0.21 | Mark mcp-conformance as a required status check on main | `.github/workflows` | joshscott13 | release-engineer | merged | T0.4 | — | — |
 | T0.22 | Sweep remaining stale go-sdk v1.7 and go 1.24 mentions | `docs` | docs-writer | go-reviewer | merged | — | — | — |
 | T0.23 | Keep device passwords off the netguard command line (upstream secrets from a file or the environment) | `cmd/netguard` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 22 | — |
 | T0.24 | Fix the platform-dependent nolint in internal/audit/key_unix.go so make lint passes on darwin and linux/arm64 | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | — |
