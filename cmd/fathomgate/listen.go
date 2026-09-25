@@ -53,7 +53,7 @@ const (
 
 // errListenAddr is the refusal of a --listen address that is not loopback.
 // It never quotes the value.
-var errListenAddr = errors.New("--listen takes localhost:<port>, an IPv4 address in 127.0.0.0/8 with a port, or [::1]:<port>; fathomgate listens on loopback only in M0, until the policy pipeline is wired (M1)")
+var errListenAddr = errors.New("--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>; fathomgate listens on loopback only in M0, until the policy pipeline is wired (M1)")
 
 // listenAddr is a checked --listen value: the loopback address asked for
 // and its port (0: the OS picks one).
@@ -62,23 +62,27 @@ type listenAddr struct {
 	port uint16
 }
 
+// ipv4Loopback is 127.0.0.1, the only IPv4 address --listen takes.
+var ipv4Loopback = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+
 // other is the loopback address of the other family, which bindLoopback
-// binds on the same port as host: [::1] for an IPv4 loopback address,
-// 127.0.0.1 for [::1].
+// binds on the same port as host: [::1] for 127.0.0.1, 127.0.0.1 for
+// [::1].
 func (a listenAddr) other() netip.Addr {
 	if a.host.Is4() {
 		return netip.IPv6Loopback()
 	}
-	return netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	return ipv4Loopback
 }
 
-// parseListenAddr checks a --listen value. The host must be written out:
-// localhost (taken as 127.0.0.1, never resolved), an IPv4 address in
-// 127.0.0.0/8, or [::1]. A bare :port, an unspecified address, any other
-// address or a host name is refused, and so is an IPv4-mapped IPv6 address
-// or a zone. Port 0 asks the OS for a free port. bindLoopback also binds
-// the other loopback family on the same port, so `localhost` ends up bound
-// on 127.0.0.1 and [::1] alike.
+// parseListenAddr checks a --listen value. The host must be one of
+// localhost (taken as 127.0.0.1, never resolved), 127.0.0.1 or [::1], the
+// two addresses a client may reach for localhost; bindLoopback binds both
+// of them on the port whichever is given. Everything else is refused: any
+// other address in 127.0.0.0/8 (bound alone it would leave 127.0.0.1 and
+// [::1] on its port to another local user; security review of PR #112), a
+// bare :port, an unspecified address, a LAN address, a host name, an
+// IPv4-mapped IPv6 address or a zone. Port 0 asks the OS for a free port.
 func parseListenAddr(s string) (listenAddr, error) {
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
@@ -92,11 +96,7 @@ func parseListenAddr(s string) (listenAddr, error) {
 		host = "127.0.0.1"
 	}
 	ip, err := netip.ParseAddr(host)
-	if err != nil || ip.Zone() != "" {
-		return listenAddr{}, errListenAddr
-	}
-	loopback4 := ip.Is4() && ip.IsLoopback()
-	if !loopback4 && ip != netip.IPv6Loopback() {
+	if err != nil || (ip != ipv4Loopback && ip != netip.IPv6Loopback()) {
 		return listenAddr{}, errListenAddr
 	}
 	return listenAddr{host: ip, port: uint16(p)}, nil
@@ -125,11 +125,14 @@ func bindLoopback(a listenAddr, listen listenFunc, logger *slog.Logger) ([]net.L
 		if err != nil {
 			return nil, err
 		}
-		port := a.port
-		if ap, err := netip.ParseAddrPort(first.Addr().String()); err == nil {
-			port = ap.Port()
+		// The port comes from the bound address; a listener that cannot say
+		// which port it holds is refused rather than guessed at.
+		ta, ok := first.Addr().(*net.TCPAddr)
+		if !ok || ta.Port <= 0 || ta.Port > 65535 {
+			_ = first.Close()
+			return nil, fmt.Errorf("cannot tell which port %s was bound on (%v)", netip.AddrPortFrom(a.host, a.port), first.Addr())
 		}
-		other := netip.AddrPortFrom(a.other(), port).String()
+		other := netip.AddrPortFrom(a.other(), uint16(ta.Port)).String()
 		second, err := listen("tcp", other)
 		switch {
 		case err == nil:
@@ -142,7 +145,13 @@ func bindLoopback(a listenAddr, listen listenFunc, logger *slog.Logger) ([]net.L
 		if a.port == 0 && attempt < bindAttempts {
 			continue
 		}
-		return nil, fmt.Errorf("%s, the other loopback address on the same port, cannot be bound (%w); fathomgate refuses to start, because a client that resolves localhost to that address would send its token to whatever holds it. Stop that program or use another port", other, err)
+		// net.OpError's text repeats the address; name it once.
+		cause := err
+		var oe *net.OpError
+		if errors.As(err, &oe) && oe.Err != nil {
+			cause = oe.Err
+		}
+		return nil, fmt.Errorf("%s, the other loopback address on the same port, cannot be bound (%w); fathomgate refuses to start, because a client that resolves localhost to that address would send its token to whatever holds it. Stop that program or use another port", other, cause)
 	}
 }
 
@@ -153,13 +162,54 @@ type listenServer struct {
 	requests *requestTracker
 	// hookDone is closed once the shutdown hook has closed the proxy.
 	hookDone chan struct{}
+	// firstHeader is how long a new connection gets to deliver its first
+	// request's headers (firstHeaderTimeout; 0 turns the timer off), and
+	// afterFunc starts that timer (time.AfterFunc). Tests change them
+	// before Serve.
+	firstHeader time.Duration
+	afterFunc   func(time.Duration, func()) stopper
+}
+
+// stopper is the part of *time.Timer the first-request timer uses.
+type stopper interface{ Stop() bool }
+
+// firstRequestKey is the connection context key of a *firstRequest.
+type firstRequestKey struct{}
+
+// firstRequest is one connection's first-request timer (L1 in the security
+// review of PR #109). ConnContext starts it when the connection is
+// accepted; it closes the connection unless a request's headers have been
+// read first, which is when net/http calls the handler, and seen stops it.
+// This uses only documented http.Server hooks, so it does not depend on
+// the order in which net/http sets deadlines, and it works the same under
+// TLS. A timer that fires just as the first request reaches the handler
+// closes that connection mid-request; the client sees a reset.
+type firstRequest struct {
+	once  sync.Once
+	timer stopper
+}
+
+// seen stops the timer, once per connection.
+func (f *firstRequest) seen() { f.once.Do(func() { f.timer.Stop() }) }
+
+// firstRequestSeen stops the connection's first-request timer before h
+// runs, so the first request's body, however slow, is not timed by it.
+func firstRequestSeen(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f, ok := r.Context().Value(firstRequestKey{}).(*firstRequest); ok {
+			f.seen()
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // newHTTPServer returns the http.Server for the listener, serving h (from
 // proxy.HTTPHandler): header limit and timeouts set, and no server-wide
 // ReadTimeout or WriteTimeout (either would cut long SSE responses; the
 // handler sets per-request body read and per-write deadlines instead).
-// Server errors go to logger at warn.
+// Server errors go to logger at warn. A new connection that has not
+// delivered a request's headers within firstHeaderTimeout of being
+// accepted is closed (firstRequest).
 //
 // p (the Proxy) is closed by a shutdown hook: Shutdown alone waits for
 // every connection to go idle, and a 2025-era session's open GET stream
@@ -174,13 +224,25 @@ func newHTTPServer(h http.Handler, p io.Closer, grace time.Duration, logger *slo
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	s := &listenServer{requests: &requestTracker{}, hookDone: make(chan struct{})}
+	s := &listenServer{
+		requests:    &requestTracker{},
+		hookDone:    make(chan struct{}),
+		firstHeader: firstHeaderTimeout,
+		afterFunc:   func(d time.Duration, f func()) stopper { return time.AfterFunc(d, f) },
+	}
 	s.Server = &http.Server{
-		Handler:           s.requests.wrap(h),
+		Handler:           firstRequestSeen(s.requests.wrap(h)),
 		MaxHeaderBytes:    maxHeaderBytes,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if s.firstHeader <= 0 {
+				return ctx
+			}
+			f := &firstRequest{timer: s.afterFunc(s.firstHeader, func() { _ = c.Close() })}
+			return context.WithValue(ctx, firstRequestKey{}, f)
+		},
 	}
 	s.RegisterOnShutdown(func() {
 		defer close(s.hookDone)
@@ -223,6 +285,7 @@ func longLived(r *http.Request) bool {
 	return r.Method == http.MethodGet || r.Header.Get("Mcp-Method") == "subscriptions/listen"
 }
 
+// add changes the count by d and wakes wait when it reaches 0.
 func (t *requestTracker) add(d int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -287,7 +350,7 @@ func runListener(ctx context.Context, p *proxy.Proxy, lns []net.Listener, run li
 	}
 	srv := newHTTPServer(h, p, grace, logger)
 	served := make(chan error, len(lns))
-	for _, ln := range limitListeners(lns, maxConnections, firstHeaderTimeout) {
+	for _, ln := range limitListeners(lns, maxConnections) {
 		go func() { served <- srv.Serve(ln) }()
 	}
 	for _, ln := range lns {
@@ -334,34 +397,37 @@ func closeProxy(p *proxy.Proxy, logger *slog.Logger) {
 }
 
 // limitListener is limitListeners for one listener.
-func limitListener(l net.Listener, n int, firstHeader time.Duration) net.Listener {
-	return limitListeners([]net.Listener{l}, n, firstHeader)[0]
+func limitListener(l net.Listener, n int) net.Listener {
+	return limitListeners([]net.Listener{l}, n)[0]
 }
 
 // limitListeners returns listeners that together hold at most n connections
 // open at once (maxConnections for fathomgate), whichever listener they
-// arrive on. Accept waits for a slot before accepting, so further
-// connections queue in the kernel. A connection's first request must send
-// its headers within firstHeader of being accepted (limitedConn); 0 leaves
-// that to the http.Server. n below 1 is a programmer error and panics.
-func limitListeners(ls []net.Listener, n int, firstHeader time.Duration) []net.Listener {
+// arrive on. Accept takes a slot before it accepts, so further connections
+// queue in the kernel. An Accept that is waiting for a connection already
+// holds its slot: with both loopback listeners idle, two of the n slots are
+// held that way, and a listener whose peer takes every other slot waits
+// until one is freed even if its own Accept would find a connection. n
+// below 1 is a programmer error and panics.
+func limitListeners(ls []net.Listener, n int) []net.Listener {
 	if n < 1 {
 		panic("fathomgate: limitListener needs at least one connection slot")
 	}
 	sem := make(chan struct{}, n)
 	out := make([]net.Listener, len(ls))
 	for i, l := range ls {
-		out[i] = &limitedListener{Listener: l, sem: sem, done: make(chan struct{}), firstHeader: firstHeader}
+		out[i] = &limitedListener{Listener: l, sem: sem, done: make(chan struct{})}
 	}
 	return out
 }
 
+// limitedListener is one listener of limitListeners: it takes a slot from
+// the shared semaphore before each Accept.
 type limitedListener struct {
 	net.Listener
-	sem         chan struct{} // shared by every listener of one limitListeners call
-	done        chan struct{}
-	closeOnce   sync.Once
-	firstHeader time.Duration
+	sem       chan struct{} // shared by every listener of one limitListeners call
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // Accept waits for a free slot, then accepts.
@@ -376,11 +442,7 @@ func (l *limitedListener) Accept() (net.Conn, error) {
 		<-l.sem
 		return nil, err
 	}
-	lc := &limitedConn{Conn: c, release: func() { <-l.sem }}
-	if l.firstHeader > 0 {
-		lc.firstBy = time.Now().Add(l.firstHeader)
-	}
-	return lc, nil
+	return &limitedConn{Conn: c, release: func() { <-l.sem }}, nil
 }
 
 // Close closes the listener and wakes an Accept waiting for a slot.
@@ -389,29 +451,12 @@ func (l *limitedListener) Close() error {
 	return l.Listener.Close()
 }
 
+// limitedConn is a connection accepted by a limitedListener; closing it
+// frees its slot.
 type limitedConn struct {
 	net.Conn
 	once    sync.Once
 	release func()
-	// firstBy, when set, caps the first read deadline set on the
-	// connection. net/http's first call on a new plain-HTTP connection is
-	// the first request's header deadline (conn.serve, then readRequest
-	// clears it once the headers are in), so this cuts the time a client
-	// that sends nothing, or trickles headers, holds a slot, and leaves
-	// every later deadline alone. TestFirstHeaderTimeout pins this
-	// against the net/http in use.
-	firstBy  time.Time
-	deadline sync.Once
-}
-
-// SetReadDeadline sets the read deadline, capping the first one at firstBy.
-func (c *limitedConn) SetReadDeadline(t time.Time) error {
-	c.deadline.Do(func() {
-		if !c.firstBy.IsZero() && (t.IsZero() || t.After(c.firstBy)) {
-			t = c.firstBy
-		}
-	})
-	return c.Conn.SetReadDeadline(t)
 }
 
 // Close closes the connection and frees its slot, once.
@@ -419,6 +464,16 @@ func (c *limitedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(c.release)
 	return err
+}
+
+// CloseWrite half-closes the connection when the one underneath can (a
+// *net.TCPConn), so net/http sends FIN after a Connection: close answer
+// before it closes, as it does on an unwrapped connection.
+func (c *limitedConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
 }
 
 // checkListenEnvironment refuses an environment that would change go-sdk's

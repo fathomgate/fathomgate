@@ -66,7 +66,11 @@ func TestParseListenAddr(t *testing.T) {
 		{"localhost:0", "127.0.0.1:0"},
 		{"localhost:8931", "127.0.0.1:8931"},
 		{"127.0.0.1:8931", "127.0.0.1:8931"},
-		{"127.10.20.30:1", "127.10.20.30:1"},
+		// Other 127/8 addresses are refused: bound alone they would leave
+		// 127.0.0.1 and [::1] on the port to another local user.
+		{"127.10.20.30:1", ""},
+		{"127.0.0.2:8931", ""},
+		{"127.0.1.1:8931", ""},
 		{"[::1]:8931", "[::1]:8931"},
 		{"[::1]:0", "[::1]:0"},
 		{"127.0.0.1:65535", "127.0.0.1:65535"},
@@ -243,6 +247,7 @@ func TestServeListenRefusals(t *testing.T) {
 		{"bare port", withToken("--listen", ":8931"), nil, "loopback only in M0"},
 		{"IPv6 any", withToken("--listen", "[::]:8931"), nil, "loopback only in M0"},
 		{"LAN", withToken("--listen", "192.168.1.10:8931"), nil, "loopback only in M0"},
+		{"other 127/8 address", withToken("--listen", "127.0.0.2:8931"), nil, "--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>"},
 		{"host name", withToken("--listen", "example.com:8931"), nil, "loopback only in M0"},
 		{"token as the address", withToken("--listen", testListenToken), nil, "--listen takes"},
 		{"bad port", withToken("--listen", "127.0.0.1:99999"), nil, "--listen: the port must be a number from 0 to 65535"},
@@ -460,29 +465,22 @@ func exitWithin(t *testing.T, done <-chan int, d time.Duration) int {
 	}
 }
 
-// hasIPv6Loopback reports whether this host can bind [::1].
-func hasIPv6Loopback() bool {
-	l, err := net.Listen("tcp", "[::1]:0")
-	if err != nil {
-		return false
-	}
-	_ = l.Close()
-	return true
-}
-
-// waitURLs waits until log has n `listening` lines and returns their URLs.
-func waitURLs(t *testing.T, log *lockedBuffer, n int) []string {
+// waitURLs waits, as waitListening does, until log has n `listening`
+// lines, and returns their URLs.
+func waitURLs(t *testing.T, log *lockedBuffer, done <-chan int, n int) []string {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.After(20 * time.Second)
 	for {
-		urls := listeningURLs(log.String())
-		if len(urls) >= n {
+		if urls := listeningURLs(log.String()); len(urls) >= n {
 			return urls
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%d listening lines, want %d:\n%s", len(urls), n, log.String())
+		select {
+		case code := <-done:
+			t.Fatalf("serve ended with %d before %d listening lines:\n%s", code, n, log.String())
+		case <-deadline:
+			t.Fatalf("fewer than %d listening lines:\n%s", n, log.String())
+		case <-time.After(10 * time.Millisecond):
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -499,11 +497,8 @@ func TestListenerEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	first, done, log := startListener(ctx, t, p, shutdownGrace)
-	families := 1
-	if hasIPv6Loopback() {
-		families = 2
-	}
-	urls := waitURLs(t, log, families)
+	families := loopbackFamilies(t)
+	urls := waitURLs(t, log, done, families)
 	if urls[0] != first || !strings.HasPrefix(first, "http://127.0.0.1:") || !strings.HasSuffix(first, "/mcp") || strings.HasSuffix(first, ":0/mcp") {
 		t.Fatalf("listening urls %q", urls)
 	}
@@ -881,8 +876,8 @@ func TestServeListenProcess(t *testing.T) {
 		// localhost is bound on both loopback families (H1), each named on
 		// its own listening line.
 		urls := []string{url}
-		if hasIPv6Loopback() {
-			urls = waitURLs(t, stderr, 2)
+		if loopbackFamilies(t) == 2 {
+			urls = waitURLs(t, stderr, done, 2)
 			if want := strings.Replace(url, "127.0.0.1", "[::1]", 1); urls[1] != want {
 				t.Fatalf("listening urls %q, want %q second", urls, want)
 			}

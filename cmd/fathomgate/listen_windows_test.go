@@ -8,22 +8,31 @@ import (
 	"os"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 // errFamilyMissing is the bind error of a host without IPv6.
-var errFamilyMissing error = os.NewSyscallError("bind", wsaeAddrNotAvail)
+var errFamilyMissing error = os.NewSyscallError("bind", windows.WSAEADDRNOTAVAIL)
 
 func TestLoopbackFamilyMissingWindows(t *testing.T) {
 	t.Parallel()
-	for _, errno := range []syscall.Errno{wsaeAddrNotAvail, wsaeAFNoSupport, wsaeProtoNoSupport} {
-		if !loopbackFamilyMissing(os.NewSyscallError("bind", errno)) {
-			t.Errorf("%v not taken as a missing loopback family", errno)
-		}
-	}
-	// WSAEADDRINUSE, WSAEACCES.
-	for _, errno := range []syscall.Errno{10048, 10013} {
-		if loopbackFamilyMissing(os.NewSyscallError("bind", errno)) {
-			t.Errorf("%v taken as a missing loopback family; it must refuse to start", errno)
-		}
+	for _, tc := range []struct {
+		errno syscall.Errno
+		want  bool
+	}{
+		{windows.WSAEADDRNOTAVAIL, true},
+		{windows.WSAEAFNOSUPPORT, true},
+		{windows.WSAEPROTONOSUPPORT, true},
+		// Must refuse to start.
+		{windows.WSAEADDRINUSE, false},
+		{windows.WSAEACCES, false},
+	} {
+		t.Run(tc.errno.Error(), func(t *testing.T) {
+			t.Parallel()
+			if got := loopbackFamilyMissing(os.NewSyscallError("bind", tc.errno)); got != tc.want {
+				t.Fatalf("loopbackFamilyMissing %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

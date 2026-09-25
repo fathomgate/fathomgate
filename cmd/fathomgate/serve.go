@@ -113,7 +113,7 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	}
 	var listen string
 	var tokenFiles, listenHosts stringList
-	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.x.y.z or [::1] (loopback only), with the other loopback family bound on the same port too; port 0 picks a free port")
+	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.0.0.1 or [::1] (loopback only); 127.0.0.1 and [::1] are both bound on the port, whichever is given; port 0 picks a free port")
 	fs.Var(&tokenFiles, "listen-token-file", "`NAME=PATH` of an owner-only file holding the bearer token of principal NAME (repeatable); or set FATHOMGATE_LISTEN_TOKEN instead (principal env)")
 	fs.Bool("listen-remote", false, "reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
 	fs.Var(&listenHosts, "listen-host", "allowed `host` name: reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")

@@ -47,7 +47,7 @@ func TestLimitListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := limitListener(inner, 2, 0)
+	l := limitListener(inner, 2)
 	accepted := make(chan net.Conn, 3)
 	go func() {
 		for {
@@ -100,10 +100,10 @@ func TestLimitListenerPanicsBelowOne(t *testing.T) {
 		func() {
 			defer func() {
 				if recover() == nil {
-					t.Errorf("limitListener(l, %d, 0) did not panic", n)
+					t.Errorf("limitListener(l, %d) did not panic", n)
 				}
 			}()
-			_ = limitListener(nil, n, 0)
+			_ = limitListener(nil, n)
 		}()
 	}
 }
@@ -141,7 +141,7 @@ func TestShutdownWithStatefulGET(t *testing.T) {
 	}
 	srv := newHTTPServer(h, p, shutdownGrace, nil)
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(limitListener(inner, maxConnections, firstHeaderTimeout)) }()
+	go func() { served <- srv.Serve(limitListener(inner, maxConnections)) }()
 	url := "http://" + inner.Addr().String() + proxy.HTTPPath
 	tr := &http.Transport{}
 	defer tr.CloseIdleConnections()

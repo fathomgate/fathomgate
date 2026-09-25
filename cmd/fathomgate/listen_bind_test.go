@@ -3,14 +3,15 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,17 +24,50 @@ import (
 // in cmd/fathomgate/listen.go: both loopback families bound (H1) and the
 // first request's header timeout (L1).
 
-// needBothLoopbacks skips the test on a host that cannot bind both
-// 127.0.0.1 and [::1]. CI's Linux, macOS and Windows runners have both.
-func needBothLoopbacks(t *testing.T) {
-	t.Helper()
+// requireBothLoopbacksEnv, set to 1, turns the skip of a test that needs
+// both loopback families into a failure. CI sets it in every Go job, so the
+// H1 regression tests cannot pass there by skipping (security review of
+// PR #112), as FATHOMGATE_REQUIRE_PRIVILEGED_TESTS does for the Windows
+// DACL tests.
+const requireBothLoopbacksEnv = "FATHOMGATE_REQUIRE_BOTH_LOOPBACKS"
+
+// loopbackMissing reports the first loopback family this host cannot bind,
+// or "" when it has both.
+func loopbackMissing() string {
 	for _, a := range []string{"127.0.0.1:0", "[::1]:0"} {
 		l, err := net.Listen("tcp", a)
 		if err != nil {
-			t.Skipf("this host cannot bind %s (%v); the test needs both loopback families", a, err)
+			return a + " (" + err.Error() + ")"
 		}
 		_ = l.Close()
 	}
+	return ""
+}
+
+// needBothLoopbacks skips the test on a host that cannot bind both
+// 127.0.0.1 and [::1], or fails it when requireBothLoopbacksEnv is 1.
+func needBothLoopbacks(t *testing.T) {
+	t.Helper()
+	if m := loopbackMissing(); m != "" {
+		if os.Getenv(requireBothLoopbacksEnv) == "1" {
+			t.Fatalf("this host cannot bind %s, and %s=1 requires both loopback families", m, requireBothLoopbacksEnv)
+		}
+		t.Skipf("this host cannot bind %s; the test needs both loopback families (set %s=1 to fail instead)", m, requireBothLoopbacksEnv)
+	}
+}
+
+// loopbackFamilies is how many listeners bindLoopback gives on this host:
+// 2, or 1 without IPv6 loopback. With requireBothLoopbacksEnv set to 1 a
+// missing family fails the test.
+func loopbackFamilies(t *testing.T) int {
+	t.Helper()
+	if m := loopbackMissing(); m != "" {
+		if os.Getenv(requireBothLoopbacksEnv) == "1" {
+			t.Fatalf("this host cannot bind %s, and %s=1 requires both loopback families", m, requireBothLoopbacksEnv)
+		}
+		return 1
+	}
+	return 2
 }
 
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -167,12 +201,19 @@ func TestServeListenOtherFamilyTaken(t *testing.T) {
 // injected binds.
 type fakeListener struct {
 	addr   netip.AddrPort
+	noTCP  bool // Addr is not a *net.TCPAddr
 	mu     sync.Mutex
 	closed bool
 }
 
 func (f *fakeListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
-func (f *fakeListener) Addr() net.Addr            { return net.TCPAddrFromAddrPort(f.addr) }
+
+func (f *fakeListener) Addr() net.Addr {
+	if f.noTCP {
+		return &net.UnixAddr{Name: "fake", Net: "unix"}
+	}
+	return net.TCPAddrFromAddrPort(f.addr)
+}
 func (f *fakeListener) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -196,6 +237,7 @@ func TestBindLoopbackInjected(t *testing.T) {
 		name     string
 		flag     string
 		otherErr func(attempt int) error
+		noTCP    bool   // the first listener's Addr names no TCP port
 		skip     bool   // no family-missing error on this platform
 		want     string // error substring; "" binds
 		wantN    int    // listeners returned
@@ -204,7 +246,7 @@ func TestBindLoopbackInjected(t *testing.T) {
 	}{
 		{name: "both bind", flag: "127.0.0.1:8931", otherErr: func(int) error { return nil }, wantN: 2, attempts: 1},
 		{name: "IPv6 asked", flag: "[::1]:8931", otherErr: func(int) error { return nil }, wantN: 2, attempts: 1},
-		{name: "other in use, fixed port", flag: "127.0.0.1:8931", otherErr: func(int) error { return errInUse }, want: "[::1]:8931, the other loopback address on the same port, cannot be bound (listen tcp: bind: address already in use); fathomgate refuses to start", attempts: 1},
+		{name: "other in use, fixed port", flag: "127.0.0.1:8931", otherErr: func(int) error { return errInUse }, want: "[::1]:8931, the other loopback address on the same port, cannot be bound (bind: address already in use); fathomgate refuses to start", attempts: 1},
 		{name: "IPv4 in use, fixed port", flag: "[::1]:8931", otherErr: func(int) error { return errInUse }, want: "127.0.0.1:8931, the other loopback address", attempts: 1},
 		{name: "other in use once, port 0", flag: "localhost:0", otherErr: func(n int) error {
 			if n == 1 {
@@ -213,6 +255,7 @@ func TestBindLoopbackInjected(t *testing.T) {
 			return nil
 		}, wantN: 2, attempts: 2},
 		{name: "other always in use, port 0", flag: "localhost:0", otherErr: func(int) error { return errInUse }, want: "cannot be bound", attempts: bindAttempts},
+		{name: "first listener names no port", flag: "127.0.0.1:0", otherErr: func(int) error { return nil }, noTCP: true, want: "cannot tell which port 127.0.0.1:0 was bound on", attempts: 1},
 		{name: "no loopback of the other family", flag: "127.0.0.1:8931", otherErr: func(int) error { return errFamilyMissing }, skip: errFamilyMissing == nil, wantN: 1, attempts: 1, warns: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -237,7 +280,7 @@ func TestBindLoopbackInjected(t *testing.T) {
 						next++
 						ap = netip.AddrPortFrom(ap.Addr(), next)
 					}
-					f := &fakeListener{addr: ap}
+					f := &fakeListener{addr: ap, noTCP: tc.noTCP}
 					firsts = append(firsts, f)
 					return f, nil
 				}
@@ -283,77 +326,131 @@ func TestBindLoopbackInjected(t *testing.T) {
 	}
 }
 
-// TestFirstHeaderTimeout (L1 in the security review of PR #109): a
-// connection that sends nothing is closed firstHeader after it was
-// accepted, not after readHeaderTimeout, so a client without a token holds
-// a connection slot that long at most. A connection that sent its first
-// request in time keeps readHeaderTimeout and IdleTimeout for later ones.
-func TestFirstHeaderTimeout(t *testing.T) {
+// fakeTimer records Stop; fire runs the function it was started with.
+type fakeTimer struct {
+	mu      sync.Mutex
+	d       time.Duration
+	f       func()
+	stopped int
+}
+
+func (ft *fakeTimer) Stop() bool {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	ft.stopped++
+	return true
+}
+
+func (ft *fakeTimer) stops() int {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	return ft.stopped
+}
+
+// TestFirstRequestTimer (L1 in the security review of PR #109; S2 in the
+// Go review of PR #112): each accepted connection gets a timer of
+// firstHeader from ConnContext that closes it; the first request to reach
+// the handler, which net/http calls once the headers are read, stops it
+// before the handler runs, so a slow body is not timed; later requests do
+// not touch it. With firstHeader 0 there is no timer. No clock involved.
+func TestFirstRequestTimer(t *testing.T) {
 	t.Parallel()
-	const firstHeader = 300 * time.Millisecond
-	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })
+	const firstHeader = 3 * time.Second
+	var timers []*fakeTimer
+	var stoppedAtEntry []int
+	h := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		stoppedAtEntry = append(stoppedAtEntry, timers[len(timers)-1].stops())
+	})
 	srv := newHTTPServer(h, io.NopCloser(nil), shutdownGrace, nil)
+	if srv.firstHeader != firstHeaderTimeout || srv.ConnContext == nil {
+		t.Fatalf("first-request timer %v, hook set %v", srv.firstHeader, srv.ConnContext != nil)
+	}
+	srv.firstHeader = firstHeader
+	srv.afterFunc = func(d time.Duration, f func()) stopper {
+		ft := &fakeTimer{d: d, f: f}
+		timers = append(timers, ft)
+		return ft
+	}
+
+	t.Run("silent connection is closed when the timer fires", func(t *testing.T) {
+		server, client := net.Pipe()
+		defer func() { _ = client.Close() }()
+		_ = srv.ConnContext(context.Background(), server)
+		ft := timers[len(timers)-1]
+		if ft.d != firstHeader {
+			t.Fatalf("timer of %v, want %v", ft.d, firstHeader)
+		}
+		ft.f()
+		if _, err := client.Read(make([]byte, 1)); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
+			t.Fatalf("the connection is still open after the timer fired: %v", err)
+		}
+	})
+	t.Run("first request stops the timer before the handler, once", func(t *testing.T) {
+		server, client := net.Pipe()
+		defer func() { _ = client.Close(); _ = server.Close() }()
+		ctx := srv.ConnContext(context.Background(), server)
+		ft := timers[len(timers)-1]
+		stoppedAtEntry = nil
+		for range 2 {
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp", strings.NewReader("{}"))
+			srv.Handler.ServeHTTP(httptest.NewRecorder(), req)
+		}
+		if len(stoppedAtEntry) != 2 || stoppedAtEntry[0] != 1 || ft.stops() != 1 {
+			t.Fatalf("stops seen by the handler %v, total %d; want [1 1], 1", stoppedAtEntry, ft.stops())
+		}
+	})
+	t.Run("no timer when turned off", func(t *testing.T) {
+		n := len(timers)
+		srv.firstHeader = 0
+		defer func() { srv.firstHeader = firstHeader }()
+		server, client := net.Pipe()
+		defer func() { _ = client.Close(); _ = server.Close() }()
+		ctx := srv.ConnContext(context.Background(), server)
+		if len(timers) != n || ctx.Value(firstRequestKey{}) != nil {
+			t.Fatal("a timer was started with firstHeader 0")
+		}
+	})
+}
+
+// TestFirstHeaderTimeoutSmoke: the same through a real socket, with wide
+// bounds. A connection that sends nothing, or half a header, is closed
+// well before readHeaderTimeout.
+func TestFirstHeaderTimeoutSmoke(t *testing.T) {
+	t.Parallel()
+	const firstHeader = 200 * time.Millisecond
+	srv := newHTTPServer(http.NotFoundHandler(), io.NopCloser(nil), shutdownGrace, nil)
+	srv.firstHeader = firstHeader
 	inner, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(limitListener(inner, 4, firstHeader)) }()
-	// Cleanup, not defer: the parallel subtests run after this function
-	// returns.
-	t.Cleanup(func() {
+	go func() { served <- srv.Serve(limitListener(inner, 4)) }()
+	defer func() {
 		_ = srv.Close()
 		<-served
-	})
-	addr := inner.Addr().String()
-
-	t.Run("silent connection", func(t *testing.T) {
-		t.Parallel()
-		for _, partial := range []string{"", "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n"} {
-			c, err := net.Dial("tcp", addr)
-			if err != nil {
-				t.Fatal(err)
-			}
-			start := time.Now()
-			_, _ = io.WriteString(c, partial)
-			_ = c.SetReadDeadline(time.Now().Add(readHeaderTimeout))
-			_, _ = io.Copy(io.Discard, c) // ends when the server closes it
-			d := time.Since(start)
-			_ = c.Close()
-			if d < firstHeader-50*time.Millisecond || d >= readHeaderTimeout/2 {
-				t.Errorf("sent %q: closed after %v, want about %v", partial, d, firstHeader)
-			}
-		}
-	})
-	t.Run("later requests keep the usual timeouts", func(t *testing.T) {
-		t.Parallel()
-		c, err := net.Dial("tcp", addr)
+	}()
+	for _, partial := range []string{"", "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n"} {
+		c, err := net.Dial("tcp", inner.Addr().String())
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _ = c.Close() }()
-		br := bufio.NewReader(c)
-		for i := range 2 {
-			if _, err := fmt.Fprintf(c, "GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"); err != nil {
-				t.Fatalf("request %d: %v", i, err)
-			}
-			resp, err := http.ReadResponse(br, nil)
-			if err != nil {
-				t.Fatalf("request %d: %v", i, err)
-			}
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			if resp.StatusCode != http.StatusOK || resp.Close {
-				t.Fatalf("request %d: status %d, close %v", i, resp.StatusCode, resp.Close)
-			}
-			// Idle past firstHeader: the kept-alive connection must survive.
-			time.Sleep(2 * firstHeader)
+		start := time.Now()
+		_, _ = io.WriteString(c, partial)
+		_ = c.SetReadDeadline(time.Now().Add(readHeaderTimeout))
+		_, _ = io.Copy(io.Discard, c) // ends when the server closes it
+		d := time.Since(start)
+		_ = c.Close()
+		if d >= readHeaderTimeout/2 {
+			t.Errorf("sent %q: closed after %v, want about %v", partial, d, firstHeader)
 		}
-	})
+	}
 }
 
 // TestLimitListenersShareSlots: the connection cap is shared by the
-// listeners of both loopback families.
+// listeners of both loopback families. Each listener accepts once: with a
+// loop, the listener that just accepted could take the freed slot again
+// and starve the other (B1 in the Go review of PR #112).
 func TestLimitListenersShareSlots(t *testing.T) {
 	t.Parallel()
 	inners := make([]net.Listener, 0, 2)
@@ -364,16 +461,12 @@ func TestLimitListenersShareSlots(t *testing.T) {
 		}
 		inners = append(inners, l)
 	}
-	ls := limitListeners(inners, 1, 0)
+	ls := limitListeners(inners, 1)
 	accepted := make(chan net.Conn, 2)
 	var wg sync.WaitGroup
 	for _, l := range ls {
 		wg.Go(func() {
-			for {
-				c, err := l.Accept()
-				if err != nil {
-					return
-				}
+			if c, err := l.Accept(); err == nil {
 				accepted <- c
 			}
 		})
@@ -411,4 +504,41 @@ func TestLimitListenersShareSlots(t *testing.T) {
 		_ = l.Close()
 	}
 	wg.Wait()
+}
+
+// TestLimitedConnCloseWrite: CloseWrite reaches the TCP connection, so the
+// peer reads EOF while the connection stays open for reading (the FIN
+// net/http sends after a Connection: close answer).
+func TestLimitedConnCloseWrite(t *testing.T) {
+	t.Parallel()
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := limitListener(inner, 1)
+	defer func() { _ = l.Close() }()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			accepted <- c
+		}
+	}()
+	client, err := net.Dial("tcp", inner.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	c := <-accepted
+	defer func() { _ = c.Close() }()
+	cw, ok := c.(interface{ CloseWrite() error })
+	if !ok {
+		t.Fatal("limitedConn has no CloseWrite")
+	}
+	if err := cw.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if n, err := client.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("read %d, %v after CloseWrite; want EOF", n, err)
+	}
 }

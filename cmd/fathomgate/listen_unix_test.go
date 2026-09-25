@@ -15,14 +15,23 @@ var errFamilyMissing error = os.NewSyscallError("bind", syscall.EADDRNOTAVAIL)
 
 func TestLoopbackFamilyMissingUnix(t *testing.T) {
 	t.Parallel()
-	for _, errno := range []syscall.Errno{syscall.EADDRNOTAVAIL, syscall.EAFNOSUPPORT, syscall.EPROTONOSUPPORT} {
-		if !loopbackFamilyMissing(os.NewSyscallError("bind", errno)) {
-			t.Errorf("%v not taken as a missing loopback family", errno)
-		}
-	}
-	for _, errno := range []syscall.Errno{syscall.EADDRINUSE, syscall.EACCES, syscall.EPERM} {
-		if loopbackFamilyMissing(os.NewSyscallError("bind", errno)) {
-			t.Errorf("%v taken as a missing loopback family; it must refuse to start", errno)
-		}
+	for _, tc := range []struct {
+		errno syscall.Errno
+		want  bool
+	}{
+		{syscall.EADDRNOTAVAIL, true},
+		{syscall.EAFNOSUPPORT, true},
+		{syscall.EPROTONOSUPPORT, true},
+		// Must refuse to start.
+		{syscall.EADDRINUSE, false},
+		{syscall.EACCES, false},
+		{syscall.EPERM, false},
+	} {
+		t.Run(tc.errno.Error(), func(t *testing.T) {
+			t.Parallel()
+			if got := loopbackFamilyMissing(os.NewSyscallError("bind", tc.errno)); got != tc.want {
+				t.Fatalf("loopbackFamilyMissing %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
