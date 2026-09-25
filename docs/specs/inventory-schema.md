@@ -75,20 +75,12 @@ Import merges into an existing file by `name`; the CSV row wins for every column
 
 ## 4. Hostname patterns
 
-Patterns live under `roles:` in `inventory.yaml` (`internal/inventory/patterns.go`), next to the devices they describe. They are not part of the policy file.
+Patterns are optional. They live under `roles:` in `inventory.yaml` (`internal/inventory/patterns.go`), next to the devices they describe, and are not part of the policy file. `inventory.example.yaml` ships none active: every device it knows is listed by name (section 3). Read the hazard below before turning one on.
 
 ```yaml
-roles:
-  - match: "^(core|border)-"
-    role: core
-  - match: "^fw-"
-    role: firewall
-    vendor: panos
-  - match: "^lab-"
-    tags: [lab]
-    site: lab
-  - match: "-canary$"
-    tags: [canary]
+roles:                                  # the shape; anchored at both ends
+  - match: "^dfw1-acc-sw-[0-9]{2}$"
+    site: dfw1
 ```
 
 | Field | Type | Meaning |
@@ -97,7 +89,17 @@ roles:
 | `role`, `site`, `status`, `vendor` | string | Set if the pattern is the winning provider or the field is otherwise empty |
 | `tags` | list | Always unioned |
 
-Every matching pattern contributes. The first pattern that sets `role` wins `role`. A pattern that sets only `tags` never makes the target resolved on its own: a target matched only by a tags-only pattern remains `unknown` for `role`, and `device_roles: [unknown]` matches it. This keeps a stray `lab-` prefix from turning an unlisted device into a known one.
+Every matching pattern contributes. The first pattern that sets `role` wins `role`. A target matched only by a pattern that sets no role remains `unknown` for `role`, and `device_roles: [unknown]` matches it.
+
+Current code: any matching pattern, whatever it sets, makes the target known (`known: true`, `status: pattern`), so the unknown-target default does not apply to it. The original intent, that a pattern match alone never resolves a target, is not implemented; whether it should be is for the follow-up inventory ADR named in the [threat model](../security/threat-model.md) (row "Pattern-resolved target").
+
+**Hazard.** The target name comes from the agent, and a pattern resolves any string the agent sends that matches it:
+
+- **Reads reach it.** Every shipped example allows reads on a known device. With `^core-` active, `core-x.attacker.example` is known, `get_config` is `allow` `reads-anywhere`, and an upstream that takes a free-form host (netdev-ssh-mcp) logs in to that host with the operator's device password or SSH agent. Config output is not redacted until M2.
+- **Matching is loose.** Patterns are case-insensitive and not anchored at the end unless you add `$`; names with `.`, `@` or `:` still match (`^lab-` matches `LAB-x`, `lab-x.attacker.example` and `lab-x@core-rtr-01`).
+- **Writes.** A tag or role that a rule allowing writes matches on must never come from a pattern: with `^lab-` adding `tags: [lab]`, any such name satisfies `lab-open`'s `device_tags: [lab]` and the write is allowed.
+
+Turn a pattern on only if every name it can match is a device the agent may read, anchor it at both ends, and give it no write-unlocking tag or role. List every device a policy allows writes to by name (section 3).
 
 ## 5. Upstream inventory provider
 

@@ -114,7 +114,7 @@ A source of truth is not a requirement. Role resolution is a lookup from target 
 | Order | Provider | Needs | Typical user |
 | --- | --- | --- | --- |
 | 1 | Static `inventory.yaml` (or `fathomgate inventory import devices.csv`) | Nothing | Most shops; MSP clients; anyone with a spreadsheet |
-| 2 | Hostname patterns in the policy file (`^core-\|^border-` → role `core`; `^lab-` → tag `lab`) | A naming convention | Every network that has one |
+| 2 | Optional hostname patterns under `roles:` in `inventory.yaml`, off in the shipped example. A match makes any name the agent sends a known device, so reads reach it; tags or roles that unlock writes come from devices listed by name, never from a pattern ([inventory-schema section 4](specs/inventory-schema.md#4-hostname-patterns)) | A naming convention, anchored at both ends | Networks whose every matching name is a device the agent may read |
 | 3 | The upstream server's own inventory, read through its `INVENTORY_READ` tools at startup (ntunes `devices.yaml` tags, eos-mcp tags, junos `devices.json`) | The server already configured | Anyone already running one of those servers |
 | 4 | NetBox or Nautobot REST, cached with a TTL; `fathomgate inventory sync` snapshots it into the static file | A source of truth | Shops that have one |
 

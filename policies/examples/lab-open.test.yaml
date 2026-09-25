@@ -1,27 +1,122 @@
+# Cases for lab-open.yaml, run with `fathomgate policy test` or
+# `make policy-test`. Each case is a normalised, classified, role-resolved
+# request and the decision it must produce: the runner takes the class as
+# given, so server and tool name the call the class came from but do not
+# classify it. The classification half of each matrix row is pinned by the
+# tier 1 tests in internal/classify. Targets default to known: true; set
+# known: false to model a device no inventory provider resolved.
 policy: lab-open.yaml
 cases:
-  - name: lab write allowed with dry-run and diff
+  # M1 (ADR 0026): no dry_run or diff until M3, so the write is forwarded.
+  # When the obligations return in M3 this case expects [dry_run, diff].
+  - name: lab write allowed with no obligations until M3
     request:
+      server: eos-mcp
+      tool: push_config
       class: WRITE_CONFIG
-      targets: [{name: lab-leaf-01, tags: [lab]}]
-    expect: {effect: allow, rule: lab-writes-free, obligations: [dry_run, diff]}
+      targets: [{name: lab-leaf-01, role: leaf, tags: [lab]}]
+    expect: {effect: allow, rule: lab-writes-free, obligations: []}
+
   - name: lab destroy allowed
     request:
       class: LAB_LIFECYCLE
       targets: [{name: lab-topo-01, tags: [lab]}]
     expect: {effect: allow, rule: lab-lifecycle}
+
+  - name: lab lifecycle on an untagged device is denied
+    request:
+      class: LAB_LIFECYCLE
+      targets: [{name: dc-leaf-01, role: leaf, tags: [prod]}]
+    expect: {effect: deny, rule: not-lab}
+
   - name: write to an untagged device is denied
     request:
       class: WRITE_CONFIG
       targets: [{name: core-rtr-01, role: core, tags: [prod]}]
     expect: {effect: deny, rule: not-lab}
-  - name: reload in the lab is still denied
+
+  - name: write to a lab device and an untagged device together is denied
     request:
-      class: EXEC_ARBITRARY
-      targets: [{name: lab-leaf-01, tags: [lab]}]
-    expect: {effect: deny, rule: no-exec}
+      server: upa
+      tool: set_config_commands_and_commit_or_save
+      class: WRITE_CONFIG
+      targets:
+        - {name: lab-leaf-01, tags: [lab]}
+        - {name: core-rtr-01, role: core, tags: [prod]}
+    expect: {effect: deny, rule: not-lab}
+
   - name: reads allowed everywhere
     request:
       class: READ_CONFIG
       targets: [{name: core-rtr-01, role: core}]
     expect: {effect: allow, rule: reads-anywhere}
+
+  # Matrix row 3: show ip bgp summary through eos-mcp run_command, profile
+  # class EXEC_ARBITRARY, downgraded to READ_OPERATIONAL by the classifier.
+  - name: "row 3: downgraded show ip bgp summary on a lab device is allowed"
+    request:
+      server: eos-mcp
+      tool: run_command
+      class: READ_OPERATIONAL
+      targets: [{name: lab-leaf-01, role: leaf, tags: [lab]}]
+    expect: {effect: allow, rule: reads-anywhere, obligations: []}
+
+  # Matrix row 4: reload stays EXEC_ARBITRARY; the lab tag does not help.
+  - name: "row 4: reload through eos-mcp run_command in the lab is denied by no-exec"
+    request:
+      server: eos-mcp
+      tool: run_command
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  - name: "row 4: reload through upa send_command_and_get_output in the lab is denied by no-exec"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      class: EXEC_ARBITRARY
+      targets: [{name: lab-leaf-01, tags: [lab]}]
+    expect: {effect: deny, rule: no-exec}
+
+  # Matrix row 6: the unknown-target default runs before the rules. ghost-99
+  # matches no device and no pattern in inventory.example.yaml.
+  - name: "row 6: write to an unknown host is denied by the unknown-target default"
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: ghost-99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
+
+  # Pattern hazard. This is what an inventory produces when a hostname pattern
+  # adds the lab tag (^lab- with tags: [lab]): the agent made the name up, the
+  # pattern made it a known lab device, and the write is allowed and forwarded
+  # with no dry run. Any pattern match also makes a read of the name allowed.
+  # The case pins the behaviour so the hazard stays visible; the fix is in
+  # the inventory, not the policy: list devices by name, with no active
+  # pattern (see lab-open.yaml and inventory.example.yaml).
+  - name: "pattern hazard: a made-up lab- name tagged lab by a pattern is allowed to write"
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: lab-ghost-99, site: lab, tags: [lab]}]
+    expect: {effect: allow, rule: lab-writes-free, obligations: []}
+
+  # A made-up name through the shipped inventory.example.yaml, which has no
+  # active pattern: unknown, so even a config read is denied before the rules.
+  - name: "a made-up name through the shipped inventory is unknown, and a config read is denied"
+    request:
+      server: netdev-ssh-mcp
+      tool: get_config
+      class: READ_CONFIG
+      targets: [{name: lab-x.attacker.example, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}
+
+  - name: "row 6: exec on an unknown host is denied by the unknown-target default"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      class: EXEC_ARBITRARY
+      targets: [{name: 192.0.2.99, known: false}]
+    expect: {effect: deny, rule: default:unknown_target}

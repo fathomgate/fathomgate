@@ -441,7 +441,7 @@ func startListener(ctx context.Context, t *testing.T, p *proxy.Proxy, grace time
 	t.Helper()
 	log := &lockedBuffer{}
 	logger := slog.New(slog.NewTextHandler(log, nil))
-	lns, err := bindLoopback(listenAddr{host: netip.MustParseAddr("127.0.0.1")}, net.Listen, logger)
+	lns, err := bindLoopback(listenAddr{host: netip.MustParseAddr("127.0.0.1")}, listenTCP, holdWildcards, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
