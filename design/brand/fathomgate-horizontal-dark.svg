@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="288" viewBox="0 0 1200 288" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">Fathomgate | Horizontal gradient logo for dark backgrounds</title>
+<desc id="desc">Horizontal gradient logo for dark backgrounds. Manually reconstructed as editable vector paths from the owner-supplied approved concept. Transparent background; no embedded bitmap, external font, or linked asset.</desc>
+<defs>
+  <linearGradient id="fg-horizontal-dark-gate" x1="256" y1="138" x2="256" y2="405" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#B5FAFF"/>
+    <stop offset="0.28" stop-color="#35E7EE"/>
+    <stop offset="0.70" stop-color="#00D4C7"/>
+    <stop offset="1" stop-color="#074263"/>
+  </linearGradient>
+  <linearGradient id="fg-horizontal-dark-edge" x1="256" y1="138" x2="256" y2="337" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#F2FFFF" stop-opacity="0.95"/>
+    <stop offset="0.62" stop-color="#69F3F1" stop-opacity="0.30"/>
+    <stop offset="1" stop-color="#00D4C7" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="fg-horizontal-dark-panel" x1="111" y1="232" x2="150" y2="340" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#91C5E0"/>
+    <stop offset="0.50" stop-color="#4D97BC"/>
+    <stop offset="1" stop-color="#0D547E"/>
+  </linearGradient>
+  <linearGradient id="fg-horizontal-dark-ring" x1="256" y1="14" x2="256" y2="342" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#145775"/>
+    <stop offset="0.60" stop-color="#125875"/>
+    <stop offset="1" stop-color="#0B2C46" stop-opacity="0.2"/>
+  </linearGradient>
+  <linearGradient id="fg-horizontal-dark-step" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#63F3F3"/>
+    <stop offset="0.26" stop-color="#00E2E9"/>
+    <stop offset="1" stop-color="#00AEC3"/>
+  </linearGradient>
+  <linearGradient id="fg-horizontal-dark-word" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#00E7EB"/>
+    <stop offset="1" stop-color="#00C9CE"/>
+  </linearGradient>
+</defs>
+<g transform="translate(18 22) scale(.53)"><g id="sonar-boundaries">
+<path id="boundary-1" d="M67.206,341 A218,218 0 1 1 444.794,341 L441.329,339 A214,214 0 1 0 70.671,339 Z" fill="url(#fg-horizontal-dark-ring)"/>
+<path id="boundary-2" d="M97.396,305.958 A175,175 0 1 1 414.604,305.958 L410.979,304.268 A171,171 0 1 0 101.021,304.268 Z" fill="url(#fg-horizontal-dark-ring)"/>
+<path id="boundary-3" d="M122.066,208.384 A136,136 0 0 1 389.934,208.384 L385.502,209.165 A131.5,131.5 0 0 0 126.498,209.165 Z" fill="url(#fg-horizontal-dark-ring)"/>
+</g>
+<g id="gateway">
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 L162 329 L60 405 L115 405 L194 341 L194 232 C194 200.132 218.044 173.902 249 170.396 Z" fill="url(#fg-horizontal-dark-gate)"/>
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 L162 329 L60 405 L115 405 L194 341 L194 232 C194 200.132 218.044 173.902 249 170.396 Z" transform="translate(512 0) scale(-1 1)" fill="url(#fg-horizontal-dark-gate)"/>
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 V329 L60 405 L64.6 401.7 L164 329.8 V232 C164 183.553 201.87 143.93 249 140.27 Z" fill="url(#fg-horizontal-dark-edge)"/>
+<path d="M249 138.261 C200.36 141.846 162 182.448 162 232 V329 L60 405 L64.6 401.7 L164 329.8 V232 C164 183.553 201.87 143.93 249 140.27 Z" transform="translate(512 0) scale(-1 1)" fill="url(#fg-horizontal-dark-edge)"/>
+</g>
+<g id="gate-panels">
+<path d="M111 244 L150 221 L150 317 L111 340 Z" fill="url(#fg-horizontal-dark-panel)"/>
+<path d="M111 244 L150 221 L150 317 L111 340 Z" transform="translate(512 0) scale(-1 1)" fill="url(#fg-horizontal-dark-panel)"/>
+<path d="M111 244 L150 221 V223.6 L113.1 245.3 V338.76 L111 340 Z" fill="#B8E7F0" opacity="0.88"/>
+<path d="M111 244 L150 221 V223.6 L113.1 245.3 V338.76 L111 340 Z" transform="translate(512 0) scale(-1 1)" fill="#B8E7F0" opacity="0.88"/>
+</g>
+<path id="navigation-star" d="M256 245 C259.7 261.9 260.1 264.6 276 269 C260.1 273.4 259.7 276.1 256 293 C252.3 276.1 251.9 273.4 236 269 C251.9 264.6 252.3 261.9 256 245 Z" fill="#19E1E9"/>
+<g id="passage-steps">
+<path d="M233.5 313 H278.5 L282.5 317 H229.5 Z" fill="url(#fg-horizontal-dark-step)"/>
+<path d="M223.5 325 H288.5 L294.5 331 H217.5 Z" fill="url(#fg-horizontal-dark-step)"/>
+<path d="M206.5 343 H305.5 L313.5 351 H198.5 Z" fill="url(#fg-horizontal-dark-step)"/>
+<path d="M184.5 365 H327.5 L338.5 376 H173.5 Z" fill="url(#fg-horizontal-dark-step)"/>
+<path d="M158 391 H354 L368 405 H144 Z" fill="url(#fg-horizontal-dark-step)"/>
+</g></g><g transform="translate(318 99) scale(.855)"><g aria-label="Fathomgate" id="wordmark"><path d="M8 0 H70 Q73 0 73 3 V10 Q73 13 70 13 H14 V43 H64 Q67 43 67 46 V53 Q67 56 64 56 H14 V97 Q14 100 11 100 H3 Q0 100 0 97 V8 Q0 0 8 0 Z" transform="translate(0 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M0.5 97 L40.2 4 Q42 0 46 0 H50 Q54 0 55.8 4 L95.5 97 Q97 100 93.5 100 H85 Q82.5 100 81.2 97 L71.3 75 H24.7 L14.8 97 Q13.5 100 11 100 H2.5 Q-1 100 0.5 97 Z M30.6 61 H65.4 L48 21 Z" transform="translate(85 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M3 0 H81 Q84 0 84 3 V10 Q84 13 81 13 H49 V97 Q49 100 46 100 H38 Q35 100 35 97 V13 H3 Q0 13 0 10 V3 Q0 0 3 0 Z" transform="translate(193 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M3 0 H11 Q14 0 14 3 V43 H74 V3 Q74 0 77 0 H85 Q88 0 88 3 V97 Q88 100 85 100 H77 Q74 100 74 97 V56 H14 V97 Q14 100 11 100 H3 Q0 100 0 97 V3 Q0 0 3 0 Z" transform="translate(289 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M14 0 H77 Q91 0 91 14 V86 Q91 100 77 100 H14 Q0 100 0 86 V14 Q0 0 14 0 Z M19 13 H72 Q77 13 77 18 V82 Q77 87 72 87 H19 Q14 87 14 82 V18 Q14 13 19 13 Z" transform="translate(389 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M3 0 H10 Q13 0 15 2.5 L55.5 52 L96 2.5 Q98 0 101 0 H108 Q111 0 111 3 V97 Q111 100 108 100 H100 Q97 100 97 97 V23 L61 67 Q58.8 70 55.5 70 Q52.2 70 50 67 L14 23 V97 Q14 100 11 100 H3 Q0 100 0 97 V3 Q0 0 3 0 Z" transform="translate(492 0)" fill="#E6ECF1" fill-rule="evenodd"/><path d="M87 0 H14 Q0 0 0 14 V86 Q0 100 14 100 H77 Q91 100 91 86 V51 Q91 47 87 47 H52 Q49 47 49 50 V57 Q49 60 52 60 H77 V81 Q77 87 71 87 H20 Q14 87 14 81 V19 Q14 13 20 13 H87 Q91 13 91 9 V4 Q91 0 87 0 Z" transform="translate(615 0)" fill="url(#fg-horizontal-dark-word)" fill-rule="evenodd"/><path d="M0.5 97 L40.2 4 Q42 0 46 0 H50 Q54 0 55.8 4 L95.5 97 Q97 100 93.5 100 H85 Q82.5 100 81.2 97 L71.3 75 H24.7 L14.8 97 Q13.5 100 11 100 H2.5 Q-1 100 0.5 97 Z M30.6 61 H65.4 L48 21 Z" transform="translate(718 0)" fill="url(#fg-horizontal-dark-word)" fill-rule="evenodd"/><path d="M3 0 H81 Q84 0 84 3 V10 Q84 13 81 13 H49 V97 Q49 100 46 100 H38 Q35 100 35 97 V13 H3 Q0 13 0 10 V3 Q0 0 3 0 Z" transform="translate(826 0)" fill="url(#fg-horizontal-dark-word)" fill-rule="evenodd"/><path d="M8 0 H73 Q76 0 76 3 V10 Q76 13 73 13 H14 V43 H66 Q69 43 69 46 V53 Q69 56 66 56 H14 V87 H73 Q76 87 76 90 V97 Q76 100 73 100 H8 Q0 100 0 92 V8 Q0 0 8 0 Z" transform="translate(922 0)" fill="url(#fg-horizontal-dark-word)" fill-rule="evenodd"/></g></g>
+</svg>

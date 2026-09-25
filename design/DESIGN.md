@@ -11,8 +11,28 @@ Fathom reference: the tokens in [`tokens.css`](tokens.css); open [`preview.html`
 | `tokens.css` | Fathom semantic tokens (Midnight Zone dark, Chart Room light) plus the Fathomgate policy tokens | Console, docs site, README screenshots |
 | `policy.css` | The `fg-*` components: decision badge, class chip, redacted token, diff view, approval card, TTL bar, blast-radius meter, audit timeline, rule trace | Console |
 | `preview.html` | One approval-console screen rendered in both themes, using only the two files above | Design review, contributor onboarding |
+| `brand/` | The logo: the gateway mark, wordmark and lockups as transparent SVGs, in dark, light and one-colour versions (see Brand below) | README, docs site, console, release pages |
 
 The console is the only UI Fathomgate ships in v1 (milestone M5). The CLI and the audit log are text; their conventions are in the Voice section because words are the interface there too.
+
+## Brand
+
+The mark is a gateway: a divided arch with its gate panels open, a guiding star inside, steps leading through, and three of Fathom's sonar rings around it. It says what Fathomgate does: a way through, with boundaries around it.
+
+| Use | File |
+| --- | --- |
+| README and docs headers | `fathomgate-horizontal-tagline-dark.svg` / `-light.svg`, swapped with `<picture>` and `prefers-color-scheme`, at 480 px wide or more |
+| Headers without room for the tagline | `fathomgate-horizontal-dark.svg` / `-light.svg`, 240 px wide or more |
+| Square places: avatars, social cards, the console sign-in screen | `fathomgate-icon-dark.svg` / `-light.svg`, 48 px or more; `fathomgate-stacked-*.svg` when the name must be there too |
+| 16 to 32 px: favicons, tabs, small UI | `fathomgate-favicon.svg` (adapts to light and dark by itself) or `fathomgate-small-*.svg`. Never shrink the detailed mark this far |
+| One colour only: print, engraving, vinyl, monochrome UI | `fathomgate-icon-teal/-white/-ink.svg`, `fathomgate-horizontal-white/-ink.svg` |
+
+"Dark" means *for a dark page*, "light" means *for a light page*; every canvas is transparent. `manifest.json` lists each file with its size and checksum.
+
+- **Colours belong to the artwork.** The logo's teal (`#00D4C7`), ink (`#0B1B2E`) and light (`#E6ECF1`) are for the logo only. UI keeps using Fathom's semantic tokens; the "no new hue" rule above still holds for everything that isn't the logo.
+- **The wordmark is uppercase artwork; prose is not.** The logo spells FATHOMGATE in custom display lettering. In text, the product is always Fathomgate (one word, capital F only) and `fathomgate` in mono for the command. The `fathomgate-brandcase-*.svg` lockups spell it "Fathomgate" for places where the uppercase would read as shouting.
+- **Leave it alone.** Don't recolour the detailed mark, stretch it, add effects, or set it on a busy background. Give it clear space of at least the height of the gate panels on every side.
+- **The logo is a trademark.** It marks the project's own releases; see [TRADEMARKS.md](../TRADEMARKS.md).
 
 ## Theme
 
