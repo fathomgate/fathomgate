@@ -195,6 +195,14 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
 The wording rules for the mockups in section 7 are accepted as written.
 
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: the licence in answer 4 (`design/` under Apache-2.0) is superseded by [ADR 0034](0034-source-available-under-fsl.md) (accepted 2026-09-25). From the relicensing commit on, `design/` follows the repository licence, `FSL-1.1-ALv2`; what was published before it stays Apache-2.0. The fonts keep OFL-1.1, and the logo and name stay under [TRADEMARKS.md](../../TRADEMARKS.md). How the console is built and served is unchanged | Maintainer decision, Josh Scott, 2026-09-25 |
+
 ## References
 
 - [ADR 0025](0025-split-the-console.md), the console split (pull request #120)
