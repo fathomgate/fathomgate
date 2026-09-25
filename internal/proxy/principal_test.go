@@ -232,7 +232,7 @@ func TestCallCarriesTransportAndPrincipal(t *testing.T) {
 	h.proxy.server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if r, ok := req.(*mcp.CallToolRequest); ok {
-				c, _ := newCall(route, r)
+				c, _ := newCall(ctx, route, r)
 				mu.Lock()
 				got = append(got, c)
 				mu.Unlock()
@@ -449,24 +449,33 @@ func (g *gate) open() { g.once.Do(func() { close(g.ch) }) }
 
 // TestTransportOfFailsClosed pins transportOf and principalOf on the
 // requests go-sdk could hand the tool handler. A principal always means the
-// listener, with or without the header go-sdk sets today; a request with no
-// Extra at all is stdio with no principal, and that binding cannot open a
-// state issued over the listener.
+// listener, with or without the header go-sdk sets today, and so does the
+// listener's mark on the context, with or without Extra (L1 in the security
+// review of T0.48). A request with no Extra and no mark is stdio with no
+// principal, and that binding cannot open a state issued over the listener.
 func TestTransportOfFailsClosed(t *testing.T) {
 	alice := &auth.TokenInfo{UserID: "alice"}
+	plain := context.Background()
+	marked := context.WithValue(plain, listenerKey{}, true)
 	for _, tc := range []struct {
 		name string
+		ctx  context.Context
 		req  *mcp.CallToolRequest
 		want stateBinding
 	}{
-		{"no request", nil, stateBinding{transportStdio, ""}},
-		{"no Extra", &mcp.CallToolRequest{}, stateBinding{transportStdio, ""}},
-		{"empty Extra", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{}}, stateBinding{transportStdio, ""}},
-		{"header only", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: http.Header{}}}, stateBinding{transportHTTP, ""}},
-		{"principal, no header", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice}}, stateBinding{transportHTTP, "alice"}},
-		{"principal and header", &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice, Header: http.Header{}}}, stateBinding{transportHTTP, "alice"}},
+		{"no request", plain, nil, stateBinding{transportStdio, ""}},
+		{"no Extra", plain, &mcp.CallToolRequest{}, stateBinding{transportStdio, ""}},
+		{"empty Extra", plain, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{}}, stateBinding{transportStdio, ""}},
+		{"header only", plain, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: http.Header{}}}, stateBinding{transportHTTP, ""}},
+		{"principal, no header", plain, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice}}, stateBinding{transportHTTP, "alice"}},
+		{"principal and header", plain, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice, Header: http.Header{}}}, stateBinding{transportHTTP, "alice"}},
+		{"marked, no request", marked, nil, stateBinding{transportHTTP, ""}},
+		{"marked, no Extra", marked, &mcp.CallToolRequest{}, stateBinding{transportHTTP, ""}},
+		{"marked, empty Extra", marked, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{}}, stateBinding{transportHTTP, ""}},
+		{"marked, principal", marked, &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: alice}}, stateBinding{transportHTTP, "alice"}},
+		{"mark false", context.WithValue(plain, listenerKey{}, false), &mcp.CallToolRequest{}, stateBinding{transportStdio, ""}},
 	} {
-		if got := (stateBinding{transportOf(tc.req), principalOf(tc.req)}); got != tc.want {
+		if got := (stateBinding{transportOf(tc.ctx, tc.req), principalOf(tc.req)}); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
 	}
@@ -478,7 +487,7 @@ func TestTransportOfFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	noExtra := &mcp.CallToolRequest{}
-	if _, err := s.open(token, stateBinding{transportOf(noExtra), principalOf(noExtra)}); !errors.Is(err, errStateAuth) {
+	if _, err := s.open(token, stateBinding{transportOf(plain, noExtra), principalOf(noExtra)}); !errors.Is(err, errStateAuth) {
 		t.Fatalf("a request with no Extra opened alice's http state: %v", err)
 	}
 }

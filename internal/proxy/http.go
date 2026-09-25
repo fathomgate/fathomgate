@@ -260,23 +260,41 @@ func principalOf(req *mcp.CallToolRequest) string {
 	return req.Extra.TokenInfo.UserID
 }
 
-// transportOf is the agent transport a tools/call arrived on. go-sdk's
-// Streamable HTTP server sets the request's Extra, with its HTTP header,
-// on every JSON-RPC request it serves (both handlers; streamable.go), and
-// the listener's authentication sets TokenInfo; the stdio and in-memory
-// transports set neither. Anything else is a session Proxy.Run serves.
+// listenerKey marks the context of every request the listener has
+// authenticated (serveAuthed). go-sdk builds each session's context from
+// the context of the HTTP request that created it (the initialise POST for
+// a stateful session, the request itself for a stateless one) and keeps its
+// values, so the tool handler's context carries the mark whatever go-sdk
+// puts in the request's Extra.
+type listenerKey struct{}
+
+// fromListener reports whether ctx belongs to a request the listener
+// authenticated.
+func fromListener(ctx context.Context) bool {
+	marked, _ := ctx.Value(listenerKey{}).(bool)
+	return marked
+}
+
+// transportOf is the agent transport a tools/call arrived on: http when
+// its context carries the listener's mark (serveAuthed), or when go-sdk set
+// the request's Extra with an HTTP header or a TokenInfo, as its Streamable
+// HTTP server does on every request it serves (streamable.go); otherwise a
+// session Proxy.Run serves, whose stdio and in-memory transports set
+// neither and whose context is never marked.
 //
-// A request with a principal (TokenInfo) is http whether or not go-sdk set
-// the header, so a go-sdk that stopped setting only the header cannot make
-// a listener call read as stdio. A request with no Extra is stdio and has
-// no principal either (principalOf), and that binding cannot open a state
-// issued over the listener, whose principal is never empty
-// (TestTransportOfFailsClosed). The other direction does not fail closed:
-// a listener call that arrived with no Extra at all would bind as the
-// local agent's {stdio, ""}. That is safe only while `fathomgate serve` never
-// runs Proxy.Run and the listener in one process (ADR 0016); T0.31 must
-// fix or re-state it.
-func transportOf(req *mcp.CallToolRequest) agentTransport {
+// Either sign is enough for http, so a listener call cannot read as stdio
+// if a go-sdk release stops setting Extra: the mark alone still says http
+// (L1 in the security review of T0.48). A call that reads as http but has
+// no principal (principalOf) is refused before dispatch (Proxy.handler),
+// so it binds neither the local agent's {stdio, ""} nor an {http, ""} that
+// no listener request can have (TestListenerCallWithoutExtra). A request
+// with no Extra and no mark is stdio with no principal, and that binding
+// cannot open a state issued over the listener, whose principal is never
+// empty (TestTransportOfFailsClosed).
+func transportOf(ctx context.Context, req *mcp.CallToolRequest) agentTransport {
+	if fromListener(ctx) {
+		return transportHTTP
+	}
 	if req != nil && req.Extra != nil && (req.Extra.Header != nil || req.Extra.TokenInfo != nil) {
 		return transportHTTP
 	}
@@ -514,12 +532,16 @@ func (h *httpHandler) logRefusal(r *http.Request) {
 	h.logger.Warn("listener: authentication failed", "remote", r.RemoteAddr, "reason", reason)
 }
 
-// serveAuthed runs after authentication: the POST caps, era dispatch and
-// the session cap.
+// serveAuthed runs after authentication: it marks the request's context as
+// the listener's, then runs the POST caps, era dispatch and the session
+// cap.
 func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 	if aw, ok := w.(*authWriter); ok {
 		w = aw.ResponseWriter
 	}
+	// Every call this request carries, or a session it creates carries,
+	// reads as http from here on (transportOf).
+	r = r.WithContext(context.WithValue(r.Context(), listenerKey{}, true))
 	principal := contextPrincipal(r.Context())
 	if r.Method == http.MethodPost {
 		release, ok := h.acquirePOST(principal)

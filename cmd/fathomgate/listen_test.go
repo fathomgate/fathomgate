@@ -32,7 +32,10 @@ func TestCheckListenEnvironment(t *testing.T) {
 
 func TestNewHTTPServer(t *testing.T) {
 	t.Parallel()
-	s := newHTTPServer(http.NotFoundHandler(), io.NopCloser(nil), nil)
+	s := newHTTPServer(http.NotFoundHandler(), io.NopCloser(nil), shutdownGrace, nil)
+	if shutdownGrace != 5*time.Second || maxConnections != 128 {
+		t.Fatalf("grace %v, connection cap %d", shutdownGrace, maxConnections)
+	}
 	if s.MaxHeaderBytes != 64<<10 || s.ReadHeaderTimeout != 10*time.Second || s.IdleTimeout != 120*time.Second || s.ReadTimeout != 0 || s.WriteTimeout != 0 {
 		t.Fatalf("server limits %+v", s)
 	}
@@ -108,7 +111,9 @@ func TestLimitListenerPanicsBelowOne(t *testing.T) {
 // TestShutdownWithStatefulGET (G2 in the review of PR #68): with a 2025-era
 // session's GET stream open, graceful Shutdown returns promptly, because
 // newHTTPServer closes the proxy on shutdown, which closes the session and
-// ends the stream. Without the hook Shutdown waits for its deadline.
+// ends the stream. Without the hook Shutdown waits for its deadline. The
+// shutdown grace (J4) does not wait for a GET stream: only other requests
+// in flight hold it.
 func TestShutdownWithStatefulGET(t *testing.T) {
 	ctx := context.Background()
 	up := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: "0"}, nil)
@@ -134,7 +139,7 @@ func TestShutdownWithStatefulGET(t *testing.T) {
 		_ = p.Close()
 		t.Fatal(err)
 	}
-	srv := newHTTPServer(h, p, nil)
+	srv := newHTTPServer(h, p, shutdownGrace, nil)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(limitListener(inner, maxConnections)) }()
 	url := "http://" + inner.Addr().String() + proxy.HTTPPath
@@ -184,6 +189,10 @@ func TestShutdownWithStatefulGET(t *testing.T) {
 	start := time.Now()
 	if err := srv.Shutdown(sctx); err != nil {
 		t.Fatalf("Shutdown with a stateful GET open: %v after %v", err, time.Since(start))
+	}
+	<-srv.hookDone
+	if d := time.Since(start); d >= shutdownGrace {
+		t.Fatalf("Shutdown waited %v for a GET stream", d)
 	}
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close after Shutdown: %v", err)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -32,7 +33,22 @@ const startupTimeout = 30 * time.Second
 // enforced when M0 forwards every call.
 var reservedServeFlags = []string{"policy", "inventory", "profiles", "audit"}
 
-const serveUsage = "Usage: fathomgate serve --server <name> --upstream <path> [--upstream-env K=V]... [--upstream-env-pass NAME]... [-- <upstream args>...]"
+// reservedListenFlags are refused in M0: they take the listener off
+// loopback, which waits for the policy pipeline and built-in TLS (M1, ADR
+// 0016). Unlike reservedServeFlags they are not looked for among the
+// upstream's arguments after "--": an upstream flag of that name is the
+// upstream's.
+var reservedListenFlags = []string{"listen-remote", "listen-host"}
+
+const serveUsage = `Usage:
+  fathomgate serve --server <name> --upstream <path> [--upstream-env K=V]... [--upstream-env-pass NAME]...
+                   [--listen <addr>:<port> (--listen-token-file NAME=PATH... | env FATHOMGATE_LISTEN_TOKEN)]
+                   [-- <upstream args>...]
+
+The agent side is stdio, or with --listen Streamable HTTP at http://<addr>:<port>/mcp
+(loopback only, a bearer token on every request) instead of stdio.
+
+Flags:`
 
 // envNamePattern is the rule for upstream environment variable names, as
 // printed in errors.
@@ -54,6 +70,15 @@ type serveConfig struct {
 	// everything it writes to stderr. A proxy.Secret never formats its
 	// value.
 	secrets []proxy.Secret
+
+	// listenAddr is the address to bind for --listen (parseListenAddr),
+	// or "" to serve the agent on stdio. The two agent sides are exclusive
+	// (ADR 0016).
+	listenAddr string
+	// tokens are the listener's bearer tokens by principal, read from the
+	// --listen-token-file files or FATHOMGATE_LISTEN_TOKEN. They are never
+	// passed to the upstream, and serve scrubs them from its stderr.
+	tokens listenTokens
 }
 
 // lookupEnvFunc reads a variable from fathomgate's own environment
@@ -87,6 +112,12 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	for _, name := range reservedServeFlags {
 		fs.String(name, "", "not enforced in M0; refused until the pipeline is wired (M1)")
 	}
+	var listen string
+	var tokenFiles, listenHosts stringList
+	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.x.y.z or [::1] (loopback only); port 0 picks a free port")
+	fs.Var(&tokenFiles, "listen-token-file", "`NAME=PATH` of an owner-only file holding the bearer token of principal NAME (repeatable); or set FATHOMGATE_LISTEN_TOKEN instead (principal env)")
+	fs.Bool("listen-remote", false, "reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
+	fs.Var(&listenHosts, "listen-host", "allowed `host` name: reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(usageOut, serveUsage)
 		fs.SetOutput(usageOut)
@@ -114,6 +145,14 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	}
 	if len(refused) > 0 {
 		return cfg, fmt.Errorf("%s not enforced in M0; fathomgate serve is pass-through only and forwards every call", strings.Join(refused, ", "))
+	}
+	fs.Visit(func(f *flag.Flag) {
+		if slices.Contains(reservedListenFlags, f.Name) {
+			refused = append(refused, "--"+f.Name)
+		}
+	})
+	if len(refused) > 0 {
+		return cfg, fmt.Errorf("%s reserved for M1: the listener is loopback-only until the policy pipeline is wired, and then needs TLS", strings.Join(refused, ", "))
 	}
 	consumed := len(args) - len(rest)
 	sawDashDash := consumed > 0 && args[consumed-1] == "--"
@@ -189,6 +228,23 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 		}
 		cfg.secrets = append(cfg.secrets, proxy.NewSecret(name, v))
 	}
+
+	// --listen: the address first, then the tokens, which may read files.
+	// A token file named without --listen is refused rather than ignored.
+	switch {
+	case listen != "":
+		addr, err := parseListenAddr(listen)
+		if err != nil {
+			return cfg, err
+		}
+		tokens, err := loadListenTokens(tokenFiles, lookup)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.listenAddr, cfg.tokens = addr, tokens
+	case len(tokenFiles) > 0:
+		return cfg, errors.New("--listen-token-file is only used with --listen")
+	}
 	cfg.upstreamEnv = env
 	cfg.upstreamArgs = rest
 	return cfg, nil
@@ -197,8 +253,8 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 // parseFlagError replaces a flag package error, which quotes the argument,
 // with one that names only its position: the first argument that is an
 // unknown flag, bad flag syntax, or a flag missing its value. Every serve
-// flag takes a value. -h and -help are handled by the flag package
-// (flag.ErrHelp) before this is reached.
+// flag takes a value but --listen-remote, a boolean. -h and -help are
+// handled by the flag package (flag.ErrHelp) before this is reached.
 func parseFlagError(fs *flag.FlagSet, args []string) error {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -210,8 +266,15 @@ func parseFlagError(fs *flag.FlagSet, args []string) error {
 		if name == "" || name[0] == '-' || name[0] == '=' {
 			return fmt.Errorf("bad flag syntax at argument %d; run fathomgate serve -h for the flags", i+1)
 		}
-		if fs.Lookup(name) == nil {
+		f := fs.Lookup(name)
+		if f == nil {
 			return fmt.Errorf("unknown flag at argument %d; run fathomgate serve -h for the flags", i+1)
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			if hasValue {
+				return fmt.Errorf("flag at argument %d takes no value", i+1)
+			}
+			continue
 		}
 		if !hasValue {
 			if i+1 >= len(args) {
@@ -273,17 +336,27 @@ func isReservedServeFlag(name string) bool {
 	return false
 }
 
-// cmdServe runs the proxy: an MCP server on stdio toward the agent and an
-// MCP client toward one upstream spawned over stdio.
+// cmdServe runs the proxy: an MCP server toward the agent, on stdio or
+// with --listen over Streamable HTTP, and an MCP client toward one upstream
+// spawned over stdio.
 func cmdServe(args []string) int {
 	return serve(args, os.Stderr, os.LookupEnv)
 }
 
-// serve is cmdServe with its stderr and environment lookup injected.
+// serve is cmdServe with its stderr and environment lookup injected. It
+// runs until SIGINT or SIGTERM, or until the agent side ends.
+func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return serveContext(ctx, args, stderr, lookup)
+}
+
+// serveContext is serve with the end of ctx standing in for a signal.
 // Everything it writes to stderr (errors, the slog log, relayed upstream
 // stderr) goes through a redactingWriter, so no --upstream-env-pass value
-// reaches it, even inside an upstream's own error message.
-func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
+// and no listen token reaches it, even inside an upstream's own error
+// message.
+func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 	cfg, err := parseServe(args, stderr, lookup, runtime.GOOS)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -292,11 +365,30 @@ func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 		_, _ = fmt.Fprintf(stderr, "fathomgate: serve: %v\n", err)
 		return exitUsage
 	}
-	out := &redactingWriter{w: stderr, red: proxy.NewRedactor(cfg.secrets)}
-
+	// The listener's tokens are scrubbed from stderr too. They are kept out
+	// of cfg.secrets, which proxy.Command passes to the upstream.
+	scrub := slices.Clone(cfg.secrets)
+	for _, name := range cfg.tokens.names {
+		scrub = append(scrub, proxy.NewSecret("listen-token:"+name, string(cfg.tokens.byName[name])))
+	}
+	out := &redactingWriter{w: stderr, red: proxy.NewRedactor(scrub)}
 	logger := slog.New(slog.NewTextHandler(out, nil))
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+
+	// The listener's pre-flight, before anything is bound or spawned: the
+	// MCPGODEBUG refusal (S6 in the security review of T0.40), then the
+	// bind, so a port in use fails before the upstream starts.
+	var ln net.Listener
+	if cfg.listenAddr != "" {
+		if err := checkListenEnvironment(lookup); err != nil {
+			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
+			return exitUsage
+		}
+		ln, err = net.Listen("tcp", cfg.listenAddr)
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
+			return exitFail
+		}
+	}
 
 	cmd := proxy.Command{
 		Path:         cfg.upstream,
@@ -316,12 +408,19 @@ func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 	p, err := proxy.New(startCtx, []proxy.Upstream{up}, proxy.Options{Version: version, Logger: logger})
 	cancel()
 	if err != nil {
+		if ln != nil {
+			_ = ln.Close()
+		}
 		_, _ = fmt.Fprintf(out, "fathomgate: %v\n", err)
 		return exitFail
 	}
 	attrs := []any{"server", cfg.server}
 	if len(cfg.passNames) > 0 {
 		attrs = append(attrs, "upstream_env_pass", strings.Join(cfg.passNames, ","))
+	}
+	if ln != nil {
+		// Neither stdin nor stdout is touched from here on (ADR 0016).
+		return runListener(ctx, p, ln, listenRun{tokens: cfg.tokens, server: cfg.server, passNames: cfg.passNames}, logger, out)
 	}
 	logger.Info("serving on stdio; M0 pass-through, no policy enforced", attrs...)
 
