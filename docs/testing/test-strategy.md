@@ -69,6 +69,26 @@ Findings of M1-23, both fixed in M1-39 (below) and removed from `KnownOverBudget
 1. **Command classification costs about 3 µs a command** (policy-engineer, `internal/classify`). `classifyCommand` checks each command against the read allow-list with backtracking regular expressions, which takes about 70% of the CPU. The 1,900 show commands that fit in 64 KiB take 5 to 10 ms in `Decide`. Nothing caps the number of commands in a call below the 64 KiB argument cap.
 2. **The proxy runs `Decide` twice when a target is already counted** (mcp-protocol-engineer, `internal/proxy`). `decideLocked` runs the gate again with a lower `devices_touched`, which repeats parsing, classification and resolution. Every worst case costs about twice as much in the proxy as in `Decide`, and 3,300 targets go over the budget only because of this.
 
+### After M1-39, 2026-09-25
+
+M1-39 fixed both findings. The gate refuses a call with more than 64 commands or 256 targets before it classifies anything ([profile-schema section 2.4](../specs/profile-schema.md#24-per-call-caps)). The blocklist and shell-metacharacter checks run as a word-set lookup and a byte loop instead of unanchored regular expressions, checked against the old expressions by `FuzzBlocklistWords` and `FuzzShellMeta`; a 1 KiB command went from 61 µs to 5.5 µs (`BenchmarkClassifyCommand`). The proxy runs `Decide` once: the gate takes already-counted targets off `devices_touched` through `seam.CallInfo.Counted` (ADR 0026 notes). The worst cases now sit at the caps, since nothing larger reaches classification, and two more cases fill 64 KiB with short commands and names to time the refusal. `KnownOverBudget` is empty.
+
+Maintainer's workstation, as above (no `-race`, `-p 1`, `FATHOMGATE_OVERHEAD_STRICT=1`; 0 s means under one 0.5 ms clock step). Before is the M1-23 corpus on the M1-23 code; after is the M1-39 corpus, at the default `GOMAXPROCS` of 16 and, for the p99, at 4:
+
+| Case | `Decide` before, p50 / p99 | `Decide` after, p50 / p99 (p99 at `GOMAXPROCS=4`) | Proxy stage before, p50 / p99 | Proxy stage after, p50 / p99 (p99 at `GOMAXPROCS=4`) |
+| --- | --- | --- | --- | --- |
+| Typical corpus | 0 s / 0.51 ms | 0 s / 0 s | 0 s / 0.53 ms | 0 s / 0 s |
+| Show commands: 1,900 short before, 64 of 1 KiB after | 7.7 ms / 9.9 ms | 1.0 ms / 1.5 ms (1.5 ms) | 15.0 ms / 26.7 ms | 1.0 ms / 12.3 ms (2.0 ms) |
+| One 64 KiB multi-line command | 0.51 ms / 4.1 ms | 0 s / 1.5 ms (1.5 ms) | 1.0 ms / 7.8 ms | 0 s / 3.0 ms (1.5 ms) |
+| 64 KiB config string | 0.52 ms / 4.2 ms | 1.0 ms / 7.0 ms (1.5 ms) | 1.6 ms / 11.6 ms | 1.0 ms / 11.0 ms (1.5 ms) |
+| 64 KiB config lines | 1.0 ms / 8.1 ms | 1.0 ms / 9.3 ms (2.0 ms) | 2.1 ms / 12.7 ms | 1.0 ms / 13.0 ms (1.6 ms) |
+| Targets: 3,300 short before, 256 of 250 bytes after | 2.6 ms / 16.4 ms | 0 s / 1.5 ms (1.5 ms) | 5.8 ms / 28.7 ms | 1.0 ms / 12.5 ms (2.1 ms) |
+| Batch to every known target: 64 KiB of short commands before, 64 of 1 KiB after | 8.3 ms / 21.5 ms | 1.0 ms / 9.3 ms (1.9 ms) | 18.0 ms / 38.4 ms | 1.0 ms / 12.0 ms (1.5 ms) |
+| 1,900 short commands, refused by the cap | | 0 s / 2.0 ms (1.2 ms) | | 0 s / 12.5 ms (1.5 ms) |
+| 3,300 short targets, refused by the cap | | 0 s / 12.5 ms (1.8 ms) | | 0.50 ms / 10.2 ms (1.7 ms) |
+
+Every worst-case p50 is now about 1 ms or less, in `Decide` and in the proxy stage. The p99s at 16 threads are still over 5 ms on this machine, and they are not the call's cost. With `GOGC=off`, every worst case's p99 is 1.5 to 2.0 ms. With the collector on and `GOMAXPROCS` at 2 or 4 it is 1.2 to 2.1 ms. At `GOMAXPROCS` 8 or 16, a collection cycle stalls the timed call for 10 to 13 ms on Windows, although the cycle itself takes under 1 ms (`GODEBUG=gctrace=1`). Even the refusal of 3,300 short targets, which does no more than parse and count, shows it. Each worst case now allocates 0.4 to 1.0 MB, against 0.4 to 3.4 MB before; that makes collections less frequent, but not rare enough to move a p99 of 200 samples. The Linux runner showed p99 close to p50 before M1-39.
+
 ## Tier 2: what it proves
 
 - `tools/list` from each real upstream matches its profile: every listed tool has a profile entry and every profiled tool exists. A mismatch fails the build and is the drift signal for upstream schema changes.
