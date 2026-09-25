@@ -39,4 +39,4 @@ go test -run '^$' -bench BenchmarkDecideOverhead ./internal/gate/
 ## Questions for the receiver
 
 - Should the known worst cases fail the build instead (a red PR until the findings are fixed)? The brief said to report, not loosen, so this PR reports them.
-- The `-race` job's time for `internal/proxy` went from 25 s to about 100 s at 30 worst-case rounds. The last commit cuts that to 10 rounds; check the next CI run.
+- The `-race` job's time for `internal/proxy` is 59 s, against 25 s on main (101 s at 30 worst-case rounds; now 10). Most of it is the known-over worst cases at 100 to 200 ms a call under `-race`. Is that acceptable, or should those cases skip under `-race`? The 1x step holds the budget either way.
