@@ -286,10 +286,10 @@ cannot start programs, or when several clients should share one fathomgate.
 In M0 this has three limits, on purpose:
 
 - fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
-  `[::1]`). Other machines cannot connect, and it refuses any other
-  address. Listening on a network waits for M1, when a policy runs in
-  front of your devices. Whichever of the three you give, Fathomgate takes
-  the port on both `127.0.0.1` and `[::1]`, so that no other user of this
+  `[::1]`, and no other address, not even another `127.x.x.x`). Other
+  machines cannot connect, and it refuses any other address. Listening on a network waits for M1, when a policy runs in
+  front of your devices. Whichever of the three you give, Fathomgate
+  takes the port on both `127.0.0.1` and `[::1]`, so that no other user of this
   computer can take the other one and collect tokens from clients that try
   it first.
 - Every request must carry a token, a long random password that you make.

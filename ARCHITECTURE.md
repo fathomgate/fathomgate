@@ -41,6 +41,8 @@ Each stage is one Go package under `internal/`. The table is the contract betwee
 | `internal/redact` | Ordered vendor regex list, then generic patterns; keyed truncated HMAC-SHA256 tokens; runs at the response serialiser | Every tool result | Redacted result, count and pattern ids | [redaction-patterns](docs/specs/redaction-patterns.md) |
 | `internal/audit` | Hash-chained JSONL, Ed25519 checkpoints, `fathomgate audit verify`, OCSF and CEF exporters | One event per call | Appended line; checkpoint record | [audit-event-schema](docs/specs/audit-event-schema.md) |
 
+One package under `internal/` is a helper, not a stage: `internal/fileacl` reports whether an open file has a macOS extended ACL, which the owner-only checks on listen token files (`cmd/fathomgate`) and on the audit key and log (`internal/audit`) refuse because the mode bits do not show it (T0.52). It reads the ACL with `fgetattrlist(2)` through the `syscall` package, so it needs no cgo, and on every other OS it reports none.
+
 Data that contributors edit without Go lives outside `internal/`: `profiles/` (one YAML per upstream server), `policies/examples/` (with `*.test.yaml` cases), and `tests/fixtures/configs/` (redaction corpus).
 
 Toolchain note: `go.mod` declares Go 1.26.0 as the floor ([ADR 0015](docs/adr/0015-raise-go-floor-to-1-26.md)), builds with the Go named by its `toolchain` line ([ADR 0013](docs/adr/0013-pin-go-toolchain-in-go-mod.md)) and pins go-sdk v1.8.0, which `internal/proxy` imports ([ADR 0011](docs/adr/0011-accept-go-sdk-transitive-modules.md)). In M0 the proxy is pass-through: `tools/list` and `tools/call` are forwarded with the `<server>.` prefix and no pipeline stage runs yet ([profile-schema section 8](docs/specs/profile-schema.md#8-proxy-config-m0)).

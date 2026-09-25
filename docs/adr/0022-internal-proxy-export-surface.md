@@ -1,8 +1,8 @@
 # ADR 0022: The exported surface of `internal/proxy`, restated in one record
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer; to accept); proposed by mcp-protocol-engineer for T0.52 (L3 in the post-merge security review of PR #109); reviewers security-reviewer, go-reviewer
+- Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25; proposed by mcp-protocol-engineer for T0.52 (L3 in the post-merge security review of PR #109); reviewers security-reviewer, go-reviewer
 
 ## Context
 
