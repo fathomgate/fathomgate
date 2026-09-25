@@ -341,11 +341,19 @@ func TestPOSTBeforeRegistration(t *testing.T) {
 		defer ls.mu.Unlock()
 		return ls.active, ls.running
 	}
+	begin := func(sid, principal string) func() {
+		t.Helper()
+		end, ok := hd.beginPOST(sid, principal)
+		if !ok {
+			t.Fatalf("beginPOST(%s, %s) refused a session that was never evicted", sid, principal)
+		}
+		return end
+	}
 
-	endDone := hd.beginPOST("s1", "alice") // ends before registration
+	endDone := begin("s1", "alice") // ends before registration
 	endDone()
-	endAlice := hd.beginPOST("s1", "alice") // still in progress
-	endBob := hd.beginPOST("s1", "bob")     // another principal: go-sdk's 403
+	endAlice := begin("s1", "alice") // still in progress
+	endBob := begin("s1", "bob")     // another principal: go-sdk's 403
 	ls := &liveSession{h: hd, sid: "s1", principal: "alice"}
 	hd.register(ls)
 	ls.arm()
@@ -355,7 +363,7 @@ func TestPOSTBeforeRegistration(t *testing.T) {
 	}
 
 	// A POST after registration pauses the clock as before.
-	endLate := hd.beginPOST("s1", "alice")
+	endLate := begin("s1", "alice")
 	if n, _ := active(ls); n != 2 {
 		t.Fatalf("%d POSTs in progress, want 2", n)
 	}

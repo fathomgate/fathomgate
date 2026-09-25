@@ -133,6 +133,17 @@ func (l *callLimits) cancelSession(sessionID, principal string) int {
 	return n
 }
 
+// busy reports whether ss has a call in flight. The session cap's eviction
+// (httpHandler.reserveSession) never takes a session that has one: a
+// 2025-era call keeps running after its POST is dropped, and evicting its
+// session would cancel it.
+func (l *callLimits) busy(ss *mcp.ServerSession) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	sc := l.sessions[ss]
+	return sc != nil && len(sc.calls) > 0
+}
+
 // track runs fn on a goroutine that Proxy.Close waits for, unless the
 // limits are already closed, in which case it reports false and fn does not
 // run.
