@@ -176,7 +176,8 @@ func withHeld(lns []net.Listener, held io.Closer) []net.Listener {
 // heldListener is a listener that also closes what bindLoopback holds
 // beside it (the Windows wildcard sockets) when it is closed. The first
 // listener closed releases them: every path that closes one listener closes
-// them all.
+// them all. Callers must not type-assert bindLoopback's listeners to
+// *net.TCPListener: on Windows they are *heldListener.
 type heldListener struct {
 	net.Listener
 	held *closeOnce

@@ -2,7 +2,7 @@
 
 - **Task:** M1-27 — Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row
 - **From → To:** mcp-protocol-engineer → security-reviewer (go-reviewer second)
-- **State now:** in review, second round: the review's wildcard-hold finding is in. This PR leaves `docs/milestones/M1.yaml` alone (the orchestrator asked for no board or ADR edits), so the board still says `open`.
+- **State now:** in review, code approved by the security and Go re-review; final wording round pushed. This PR leaves `docs/milestones/M1.yaml` alone (the orchestrator asked for no board or ADR edits), so the board still says `open`.
 - **Branch / PR:** `fix/windows-exclusive-bind` · [PR #156](https://github.com/fathomgate/fathomgate/pull/156)
 - **Date:** 2026-09-25
 
@@ -29,7 +29,7 @@
 - `heldListener` in `listen.go`: the first listener closed releases the wildcards. Every path that closes one listener closes them all.
 - The threat-model row status, now split by case:
   - exact-address takeover on Windows: defence in depth;
-  - wildcard squat while fathomgate runs on Windows: mitigated, same user; another user's socket still to be measured;
+  - wildcard squat while fathomgate runs on Windows: mitigated by design; measured only with same-user sockets; the other-user case, which is the threat, is to be measured;
   - squat while fathomgate is down: open until TLS on loopback in M2.
 
 ## Deliberately unfinished

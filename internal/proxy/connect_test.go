@@ -202,6 +202,20 @@ func serverAttempt(version string) upstreamAttempt {
 	}
 }
 
+// answers2026Attempt is serverAttempt(v2025), whose server/discover gets
+// method-not-found, but its answer to the initialise request names
+// 2026-07-28 (initializeAnswers): the session go-sdk opens is stateful at
+// 2026-07-28 (T0.47, N6).
+func answers2026Attempt(t *testing.T, st mcp.Transport) func() []string {
+	log := &methodLog{}
+	ss, err := fakeUpstream(&recorder{}, nil).Connect(context.Background(), initializeAnswers{legacyServer{methodTap{st, log}}, v2026}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	return log.get
+}
+
 // methodTap records the methods the wrapped server transport reads, before
 // anything (pinServer included) acts on them.
 type methodTap struct {
@@ -246,17 +260,24 @@ func TestDiscoverProbe(t *testing.T) {
 		startup time.Duration // the caller's startup budget
 		builds  int
 		version string // negotiated, on success
+		era     string // the upstream's era, on success
 		wantErr []string
 	}{
 		{
 			name:    "probe answered: no restart, stateless",
 			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{serverAttempt(v2026)} },
-			startup: 30 * time.Second, builds: 1, version: v2026,
+			startup: 30 * time.Second, builds: 1, version: v2026, era: eraStateless,
 		},
 		{
 			name:    "probe refused: go-sdk's own fallback, no restart",
 			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{serverAttempt(v2025)} },
-			startup: 30 * time.Second, builds: 1, version: v2025,
+			startup: 30 * time.Second, builds: 1, version: v2025, era: eraStateful,
+		},
+		{
+			// T0.47, N6: the version alone would say stateless.
+			name:    "probe refused, initialise answered with 2026-07-28: stateful",
+			serve:   func(*probeExpiry) []upstreamAttempt { return []upstreamAttempt{answers2026Attempt} },
+			startup: 30 * time.Second, builds: 1, version: v2026, era: eraStateful,
 		},
 		{
 			name:    "answered with a version go-sdk rejects: no restart",
@@ -269,7 +290,16 @@ func TestDiscoverProbe(t *testing.T) {
 			serve: func(e *probeExpiry) []upstreamAttempt {
 				return []upstreamAttempt{silentThen(e), serverAttempt(v2026)}
 			},
-			expire: true, startup: 30 * time.Second, builds: 2, version: v2025,
+			expire: true, startup: 30 * time.Second, builds: 2, version: v2025, era: eraStateful,
+		},
+		{
+			// T0.47, N6: after the ADR 0018 restart the upstream answers
+			// the 2025-11-25 initialise request with 2026-07-28.
+			name: "probe unanswered: restart, initialise answered with 2026-07-28: stateful",
+			serve: func(e *probeExpiry) []upstreamAttempt {
+				return []upstreamAttempt{silentThen(e), answers2026Attempt}
+			},
+			expire: true, startup: 30 * time.Second, builds: 2, version: v2026, era: eraStateful,
 		},
 		{
 			name: "second attempt hangs up: its error, no third attempt",
@@ -344,6 +374,12 @@ func TestDiscoverProbe(t *testing.T) {
 			up := p.upstreams[testServer]
 			if up.version != tc.version {
 				t.Errorf("negotiated %s, want %s", up.version, tc.version)
+			}
+			if up.era != tc.era {
+				t.Errorf("era %s, want %s", up.era, tc.era)
+			}
+			if want := "protocol=" + tc.version + " era=" + tc.era; !strings.Contains(logs.String(), want) {
+				t.Errorf("upstream ready line does not say %s:\n%s", want, logs.String())
 			}
 			if tc.builds == 2 {
 				if second := r.received(1); len(second) == 0 || second[0] != "initialize" { //nolint:misspell // MCP wire method name
@@ -473,6 +509,9 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	if got := p.upstreams[testServer].version; got != v2025 {
 		t.Fatalf("negotiated %s, want %s", got, v2025)
 	}
+	if got := p.upstreams[testServer].era; got != eraStateful {
+		t.Fatalf("era %s, want %s", got, eraStateful)
+	}
 	if n := strings.Count(logs.String(), restartWarning); n != 1 {
 		t.Fatalf("restart warnings: %d\n%s", n, logs.String())
 	}
@@ -481,6 +520,81 @@ func TestDiscoverProbeRestartsStdioUpstream(t *testing.T) {
 	res, err := agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01", "command": "show version"}})
 	if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
 		t.Fatalf("round trip after the restart: %v %q", err, text(res))
+	}
+}
+
+// TestRestartedStdioUpstreamAnswering2026IsStateful (T0.47, N6) is the
+// ADR 0018 restart over a real child process whose second process answers
+// the 2025-11-25 initialise request with 2026-07-28. go-sdk accepts that, so
+// the negotiated version is 2026-07-28, but the session was opened with the
+// initialise handshake: the upstream's era, in the upstream ready line and
+// on every call (up.era, what M1's audit reads), is stateful. A tool call
+// still round-trips on the session.
+func TestRestartedStdioUpstreamAnswering2026IsStateful(t *testing.T) {
+	stderr := newSyncBuffer()
+	logs := newSyncBuffer()
+	b := &commandBuilds{cmd: Command{
+		Path:         testExecutable(t),
+		Args:         []string{"-test.run=^$"},
+		Env:          []string{fakeUpstreamEnv + "=nodiscover2026", childRaceEnv},
+		Stderr:       stderr,
+		StderrPrefix: "upstream netdev-ssh-mcp: ",
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	e := newProbeExpiry()
+	type result struct {
+		p   *Proxy
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: b.build}},
+			Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverExpired: e.ch})
+		done <- result{p, err}
+	}()
+	stderr.waitFor(t, "upstream netdev-ssh-mcp: fake upstream: unknown method server/discover; not reading any more\n")
+	e.fire()
+	out := <-done
+	p, err := out.p, out.err
+	if err != nil {
+		t.Fatalf("%v\nlog:\n%s\nstderr:\n%s", err, logs.String(), stderr.String())
+	}
+	t.Cleanup(func() { _ = p.Close() })
+
+	if n := len(b.get()); n != 2 {
+		t.Fatalf("processes started: %d, want 2", n)
+	}
+	if n := strings.Count(logs.String(), restartWarning); n != 1 {
+		t.Fatalf("restart warnings: %d\n%s", n, logs.String())
+	}
+	up := p.upstreams[testServer]
+	if up.version != v2026 {
+		t.Fatalf("negotiated %s, want %s (the fake's answer)", up.version, v2026)
+	}
+	if up.era != eraStateful {
+		t.Fatalf("era %s, want %s: the session was opened with the initialise handshake", up.era, eraStateful)
+	}
+	const ready = `msg="upstream ready" server=netdev-ssh-mcp tools=`
+	const label = ` protocol=2026-07-28 era=stateful`
+	var line string
+	for l := range strings.SplitSeq(logs.String(), "\n") {
+		if strings.Contains(l, ready) {
+			line = l
+		}
+	}
+	if !strings.HasSuffix(line, label) {
+		t.Fatalf("upstream ready line %q does not end with %q\n%s", line, label, logs.String())
+	}
+
+	// Each agent era reaches the upstream, and the call carries the
+	// upstream's era as stateful.
+	for _, agentEra := range []string{v2025, v2026} {
+		agent, _ := connectAgent(t, p, eraSetup{agent: agentEra}, &promptLog{})
+		res, err := agent.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.run_show_command", Arguments: map[string]any{"host": "lab-sw-01", "command": "show version"}})
+		if err != nil || res.IsError || !strings.Contains(text(res), "show version") {
+			t.Fatalf("agent %s: round trip after the restart: %v %q\nstderr:\n%s", agentEra, err, text(res), stderr.String())
+		}
 	}
 }
 

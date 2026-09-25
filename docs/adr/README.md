@@ -33,10 +33,10 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0023](0023-listener-binds-both-loopback-families.md) | `serve --listen` binds both loopback families, and three smaller listener changes | accepted | 2026-09-25 |
 | [0024](0024-local-console-embedded-loopback-only.md) | A local console in the core: embedded in the binary, loopback only | accepted | 2026-09-25 |
 | [0025](0025-split-the-console.md) | Split the console: a local console in the core, the team console in the paid edition | accepted | 2026-09-25 |
-| [0026](0026-m1-policy-pipeline-at-dispatch.md) | The M1 policy pipeline at `Proxy.dispatch` | proposed | 2026-09-25 |
-| [0027](0027-serve-policy-inventory-profiles-flags.md) | `fathomgate serve --policy`, `--inventory` and `--profiles` in M1; `--audit` stays refused until M4 | proposed | 2026-09-25 |
-| [0028](0028-audit-key-custody.md) | Audit signing key custody: an owner-only file checked on every open, and a verifier that trusts only a public key | proposed | 2026-09-25 |
-| [0029](0029-remote-listener-tls-and-loopback-authentication.md) | Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback | proposed | 2026-09-25 |
-| [0030](0030-reload-policy-and-inventory.md) | Reloading the policy and inventory without a restart | proposed | 2026-09-25 |
+| [0026](0026-m1-policy-pipeline-at-dispatch.md) | The M1 policy pipeline at `Proxy.dispatch` | accepted | 2026-09-25 |
+| [0027](0027-serve-policy-inventory-profiles-flags.md) | `fathomgate serve --policy`, `--inventory` and `--profiles` in M1; `--audit` stays refused until M4 | accepted | 2026-09-25 |
+| [0028](0028-audit-key-custody.md) | Audit signing key custody: an owner-only file checked on every open, and a verifier that trusts only a public key | accepted | 2026-09-25 |
+| [0029](0029-remote-listener-tls-and-loopback-authentication.md) | Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback | accepted in part (M1: Windows exclusive bind); remainder deferred to M2 | 2026-09-25 |
+| [0030](0030-reload-policy-and-inventory.md) | Reloading the policy and inventory without a restart | proposed, deferred to M2 | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.
