@@ -1,9 +1,9 @@
 # ADR 0027: `fathomgate serve --policy`, `--inventory` and `--profiles` in M1; `--audit` stays refused until M4
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer; to accept); proposed by the orchestrator for M1 (board task M1-02); owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer, design-guardian (CLI copy), release-engineer
-- Amends on acceptance: [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md), its reserved-flag clause only
+- Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by the orchestrator for M1 (board task M1-02); owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer, design-guardian (CLI copy), release-engineer
+- Amends: [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md), its reserved-flag clause only
 
 ## Context
 
@@ -13,19 +13,20 @@ The profiles are data the binary needs to classify anything. Today they live in 
 
 ## Decision
 
-We will accept `--policy <file>`, `--inventory <file>` and `--profiles <dir>` on `fathomgate serve` from M1, embed the shipped profiles in the binary, validate everything before the upstream is spawned, keep `--audit` refused with a message that names M4, and keep `serve` without `--policy` as a pass-through that says so loudly.
+We will accept `--policy <file>`, `--inventory <file>` and `--profiles <dir>` on `fathomgate serve` from M1, embed the shipped profiles in the binary, validate everything before the upstream is spawned, keep `--audit` refused with a message that names M4, and require `--policy`, with `--no-policy` as the explicit way to keep v0.1.0's pass-through.
 
 | Flag | Meaning in M1 | Errors (exit 2 before anything is spawned) |
 | --- | --- | --- |
 | `--policy <file>` | The policy file ([policy-schema](../specs/policy-schema.md)), loaded with `policy.Load` (strict: unknown keys, unknown obligations and `hold` in `defaults.unknown_target` are errors). One file. | Missing, unreadable, or invalid; the message names the file and the loader's error, which never quotes a secret because a policy holds none. |
 | `--inventory <file>` | The static inventory with its `roles:` hostname patterns ([inventory-schema](../specs/inventory-schema.md) sections 3 and 4), loaded with `inventory.LoadChain`. Optional: without it every target is `known: false`, and `defaults.unknown_target` decides (unset denies `WRITE_CONFIG` and `EXEC_ARBITRARY`). | As for `--policy`. Only with `--policy`. |
-| `--profiles <dir>` | A directory of profile YAML files that **replaces** the embedded set, for an operator's own or patched profiles. Without it the embedded profiles are used. | As for `--policy`. A profile set (embedded or given) with no profile for `--server` is not an error: calls to it take the fallback classifier and `serve` warns once at start (open question 3). |
-| `--audit` | Still refused, exit 2: `--audit is not available until M4 (the audit chain); decisions are logged to stderr`. | Always. |
+| `--profiles <dir>` | A directory of profile YAML files that **replaces** the embedded set, for an operator's own or patched profiles. Without it the embedded profiles are used. | As for `--policy`. A profile set (embedded or given) with no profile for `--server` is not an error: calls to it take the fallback classifier and `serve` warns once at start (decision 3). |
+| `--no-policy` | Keeps v0.1.0's pass-through: every call is forwarded with no policy. | With `--policy`, `--inventory` or `--profiles`. |
+| `--audit` | Still refused, exit 2, with a message that says `--audit` arrives in M4 (the audit chain) and that decisions are logged to stderr until then. | Always. |
 
 Rules that go with the table:
 
 - **Embedded profiles.** `profiles/*.yaml` are embedded with `go:embed` at build time, so the release binary classifies the shipped upstreams with no files beside it. `fathomgate version` prints the embedded profile set (server keys and each file's pinned upstream version line). `--profiles` replaces the set, it does not merge, so an operator always knows which file classified a tool.
-- **Without `--policy`.** `serve` keeps v0.1.0's pass-through, with `--inventory` and `--profiles` refused (they configure nothing), the existing start-up line's `policy="none (...)"` kept, and a second Warn line: `no --policy: every call is forwarded; see docs/install.md`. With `--listen-remote` (M1, ADR 0029) `--policy` is required.
+- **`--policy` is required.** `serve` with neither `--policy` nor `--no-policy` exits 2 before anything is spawned, with a message naming both flags. `--no-policy` keeps v0.1.0's pass-through, with `--inventory` and `--profiles` refused (they configure nothing), the existing start-up line's `policy="none (...)"` kept, and a second Warn line saying every call is forwarded. `--listen-remote` (deferred to M2, [ADR 0029](0029-remote-listener-tls-and-loopback-authentication.md)) refuses `--no-policy`. The exact message texts are fixed in M1-20 with design-guardian's review.
 - **Start-up line.** With a policy, the start-up line names the policy file, its rule count, the inventory file and its device count, the profile source (`embedded` or the directory) and whether the upstream's server key has a profile. No policy content is logged.
 - **Unenforced obligations.** For each obligation in the loaded policy that M1 does not enforce (ADR 0026), one Warn line at start naming the obligation and the rules that use it.
 - **Reserved inside the upstream arguments.** As today, the four names are refused among the arguments after `--`, so an upstream flag of the same name still cannot be passed. The rule does not change.
@@ -44,7 +45,7 @@ The flag table in [profile-schema 8.3](../specs/profile-schema.md#83-fathomgate-
 ### Negative
 
 - A profile fix for a new upstream release needs a fathomgate release, or `--profiles` with a copy of the whole set. Mitigated by `--profiles` and by shipping `profiles/` in the release archive as well.
-- v0.1.0 users who never pass `--policy` get a Warn line they did not get before, and no protection. The alternative (below) would break their configs.
+- Every v0.1.0 config without `--policy` exits 2 on upgrade to v0.2.0. The fix is one flag: `--policy <file>` for a policy, or `--no-policy` to keep the pass-through. The v0.2.0 CHANGELOG entry and upgrade note say so.
 - `--profiles` replacing rather than merging means an operator who adds one profile must copy the rest. Deliberate: a merge makes it unclear which file won.
 
 ### Neutral
@@ -55,18 +56,20 @@ The flag table in [profile-schema 8.3](../specs/profile-schema.md#83-fathomgate-
 
 | Alternative | Why not |
 | --- | --- |
-| Make `--policy` required from M1 | Every v0.1.0 config breaks on upgrade, and the pass-through has real users (conformance, client testing). Open question 1 keeps this on the table. |
+| Keep the pass-through when `--policy` is absent, with a Warn (this record's first draft) | An operator who forgets the flag gets no protection and one stderr line nobody reads in a supervised process. The maintainer chose an explicit `--no-policy` (decision 1); the pass-through's real users (conformance, client testing) add one flag. |
 | A built-in default policy (read-only) when `--policy` is absent | Safe, but silent: an operator who forgets the flag gets a policy they never read, and a write that fails looks like an upstream bug. |
 | Accept `--audit` in M1 with the existing `audit.Writer` | Puts a hash chain in operators' hands before its key custody (T0.55, ADR 0028), checkpoint cadence and verify story are done, and pulls M4 scope forward. ADR 0026 logs the same fields to stderr instead. |
 | A YAML config file (`--config`) | ADR 0012 deferred it until M1 added settings. Three paths are still flags' work; revisit when M2 adds a NetBox URL and credentials. |
 | Merge `--profiles` over the embedded set | Two files for one server, with the winner decided by a rule the operator must remember. |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **Pass-through without `--policy`.** Keep it in v0.2.0 with a Warn (this record), or make `--policy` required and offer `--no-policy` for the pass-through? The second is safer for new users and costs one flag for existing ones.
-2. **Multiple policy files.** One `--policy` file in M1 (this record), or repeatable with a defined concatenation order? One file keeps "first match in file order" literal.
-3. **Missing profile for `--server`.** Fall back to the classifier with a Warn (this record's default), or refuse to start unless `--require-profile` (or the reverse, `--allow-fallback`)? The fallback is deny-by-default for anything that looks like a write or free-form command, so starting is safe; refusing is louder.
-4. **`--audit` message.** Name the milestone (`until M4`) or a version (`until v0.5.0`)? Milestones are what the docs use; versions are what users see.
+Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
+
+1. **Pass-through: `--policy` is required.** `--no-policy` keeps the M0 pass-through explicitly. Existing users add one flag; the v0.2.0 CHANGELOG entry and upgrade note must say so.
+2. **Multiple policy files: one `--policy` file.** "First match in file order" stays literal.
+3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written.
+4. **`--audit` message: name the milestone.** The refusal says `--audit` arrives in M4.
 
 ## References
 
