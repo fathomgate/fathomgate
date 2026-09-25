@@ -178,7 +178,7 @@ board task. A reason that is only a gap, not a design choice, needs a task.
   with its reason and reference.
 - **go-sdk bump:** the current fixture and fathomgate both move; the 2025
   fixture stays at v1.6.1. The job must pass before the bump merges
-  (CONTRIBUTING.md). A changed control leg means the fixture or the relay
+  (docs/maintainers.md). A changed control leg means the fixture or the relay
   changed, not fathomgate. A changed `fathomgate-up2025` leg with an unchanged
   `control-up2025` is fathomgate's upstream client (the new go-sdk) meeting a
   2025 server: read it before re-baselining.

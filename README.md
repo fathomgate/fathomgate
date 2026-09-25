@@ -205,7 +205,7 @@ docs/                  plan, ADRs, specs, testing, research
 | See what ships when | [ROADMAP.md](ROADMAP.md) |
 | Know why a decision was made | [docs/adr/](docs/adr/README.md) |
 | Implement or review an interface | [docs/specs/](docs/specs/) |
-| Add a server profile, policy or secret pattern without writing Go | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Help without writing Go: profiles, policies, secret-masking reports, docs | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Work here as a coding agent | [CLAUDE.md](CLAUDE.md), [AGENTS.md](AGENTS.md), [docs/agents/](docs/agents/README.md) |
 | See what is in progress | [STATUS.md](STATUS.md) |
 | See the console design | [design/DESIGN.md](design/DESIGN.md) |
