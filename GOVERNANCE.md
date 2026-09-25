@@ -38,7 +38,7 @@ The words for decisions, states and classes are fixed by [ADR 0009](docs/adr/000
 ## Release cadence
 
 - A release is tagged when a milestone's exit criteria in [ROADMAP.md](ROADMAP.md) pass in CI, including tier 2. Tier 3 results are reported in the release notes but do not block until M3.
-- Versions before `1.0.0` are `0.<milestone>.<patch>`: M1 ships `0.1.0`, M2 `0.2.0`, and so on. Patch releases carry fixes only.
+- Versions before `1.0.0` are `0.<minor>.<patch>`, one minor version per milestone: M0 shipped `0.1.0`, M1 ships `0.2.0`, M2 `0.3.0`, and so on. Patch releases carry fixes only.
 - `1.0.0` is cut after M5 when the policy schema, profile schema and audit event schema have been stable for one full milestone.
 - After `1.0.0`, minor releases are at most monthly and never break a `version: 1` policy, profile or audit consumer. A schema `version: 2` is a major release.
 - Security patches are released as soon as ready on the supported lines in [SECURITY.md](SECURITY.md).
