@@ -186,7 +186,7 @@ The source is public so you can read, build and audit every line that decides wh
 ```
 tool call ──▶ Normalize  work out the targets, commands and config from the server's profile
           ──▶ Classify   the profile's class, raised or lowered by inspecting the commands
-          ──▶ Resolve    the device's role: inventory.yaml (or a CSV import) → hostname patterns; unknown stays unknown
+          ──▶ Resolve    the device's role: inventory.yaml (or a CSV import), which hostname patterns can only enrich; unknown stays unknown
           ──▶ Evaluate   unknown-target default, session caps, then the rules in order; first match wins
           ──▶ allow / hold / deny, each with a rule id and a full trace
 ```
