@@ -3,7 +3,7 @@
 - **Task:** M1.14, Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test
 - **From → To:** upstream-server-scout → policy-engineer (security-reviewer and go-reviewer also review)
 - **State now:** in review. This PR does not edit `docs/milestones/`; move M1-14 on the board when you pick it up.
-- **Branch / PR:** `feat/profile-coverage` · PR link in the PR description (opened with this note)
+- **Branch / PR:** `feat/profile-coverage` · [PR #158](https://github.com/fathomgate/fathomgate/pull/158)
 - **Date:** 2026-09-25
 
 ## Done
