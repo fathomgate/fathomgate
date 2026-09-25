@@ -295,6 +295,53 @@ func TestHTTPSessionCapEviction(t *testing.T) {
 		}
 	})
 
+	t.Run("an evicted session answers 404 until go-sdk has forgotten it", func(t *testing.T) {
+		// go-sdk's Close ends Wait (waking the session's watcher) before it
+		// takes the id out of its handler, and in between answers a call on
+		// the id 200 with an empty body. So the watcher must leave the
+		// evicted session's entry in live for closeEvicted to remove once
+		// Close has returned. Here Close has returned, the watcher has run
+		// (the retired set is empty only after its forget), and the entry
+		// is held: it must still be there, answering 404 (macOS CI flake
+		// of run 36160322146).
+		h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{MaxSessions: 2, MaxSessionsPerPrincipal: 2}})
+		a1 := rawSession(t, h, tokAlice)
+		rawSession(t, h, tokBob)
+		closed, release := make(chan struct{}), make(chan struct{})
+		h.hh.mu.Lock()
+		h.hh.evictClosed = func(sid string) {
+			if sid == a1 {
+				close(closed)
+				<-release
+			}
+		}
+		h.hh.mu.Unlock()
+		t.Cleanup(func() {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		})
+		rawSession(t, h, tokAlice)
+		recvOrFail(t, closed, "the evicted session's Close to return")
+		waitRetiredEmpty(t, h)
+		if live, evicted, _ := sessionState(h, a1); !live || !evicted {
+			t.Fatalf("after its Close, the evicted session: live %v, evicted %v; want its tombstone kept until closeEvicted removes it", live, evicted)
+		}
+		if st := pingSession(t, h, tokAlice, a1); st != http.StatusNotFound {
+			t.Fatalf("the evicted session answered %d, want 404", st)
+		}
+		close(release)
+		waitFor(t, "the tombstone to be removed", func() bool {
+			live, _, _ := sessionState(h, a1)
+			return !live
+		})
+		if st := pingSession(t, h, tokAlice, a1); st != http.StatusNotFound {
+			t.Fatalf("the evicted session answered %d once forgotten, want go-sdk's 404", st)
+		}
+	})
+
 	t.Run("a stateful go-sdk client whose session was evicted reconnects", func(t *testing.T) {
 		h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{MaxSessionsPerPrincipal: 1}})
 		old := rawSession(t, h, tokAlice) // the crashed agent's session
