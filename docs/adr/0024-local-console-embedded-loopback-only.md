@@ -1,9 +1,10 @@
 # ADR 0024: A local console in the core: embedded in the binary, loopback only
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer), who accepts or changes this record; proposed by docs-writer with the orchestrator; reviewers security-reviewer, design-guardian, release-engineer, go-reviewer
-- Relates to: ADR 0025 (the console split: the local console in the core, the team console in the paid edition; accepted by the maintainer 2026-09-25, in its own pull request), which settles the console row that [ADR 0020](0020-open-core-apache-2.md) left contested. This record decides how the core's half is built and served
+- Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by docs-writer with the orchestrator; reviewers security-reviewer, design-guardian, release-engineer, go-reviewer
+- Relates to: ADR 0025 (the console split: the local console in the core, the team console in the paid edition; accepted by the maintainer 2026-09-25, in pull request #120), which settles the console row that [ADR 0020](0020-open-core-apache-2.md) left contested. This record decides how the core's half is built and served
+- Settles: the `design/` contested row of [ADR 0020](0020-open-core-apache-2.md) (dated row in its *Amendments*)
 - Builds on: [ADR 0016](0016-streamable-http-listener.md) and [ADR 0023](0023-listener-binds-both-loopback-families.md) (the loopback listener and its browser defences), [ADR 0009](0009-fathom-design-system-policy-layer.md) (the design system), [ADR 0004](0004-approval-hold-state-machine.md) and [approval-protocol 6 and 8](../specs/approval-protocol.md#6-decision-channels) (decision channels and separation of duties)
 
 ## Context
@@ -98,7 +99,7 @@ Everything the console shows from an upstream, an inventory or a diff is untrust
 - **Checks.** `tools/licences` is extended to the npm packages that end up in the bundle (runtime dependencies and what they pull in): each must be under a licence on the existing allow-list (Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC), and their notices join `THIRD_PARTY_LICENSES/`. OFL-1.1 is added for font files only. `npm audit` and an OSV scan run in CI; Dependabot gets an `npm` entry for `console/`. The existing `tests/conformance/package-lock.json` is the precedent for a pinned npm tree in this repository.
 - **Release and snapshot builds.** The Node build runs in the unprivileged job of `release.yaml` (the `test` job of the split in pull request #119: `contents: read`, no `id-token`), and the same in `snapshot.yaml`. It uploads `internal/console/dist/` as a workflow artifact with its SHA-256 in the job output; the `goreleaser` job, which alone holds `id-token: write`, downloads it, checks the digest, and never runs npm. A release fails if `dist/index.html` is missing, so no release ships the placeholder. CI builds the console on every pull request that touches `console/` or `design/`.
 
-### 6. Scope in M5 (core)
+### 6. Scope in M5, "See it" (core)
 
 | Page | Shows | Acts |
 | --- | --- | --- |
@@ -181,9 +182,22 @@ The mockups in `design/reference/` are references; [DESIGN.md](../../design/DESI
 | Commit the built assets | Unreviewable generated code in every console pull request, and a second diff to keep in step |
 | No local console; CLI only in the core | The maintainer's decision of 2026-09-25 (ADR 0025) puts a local console in the core. The CLI stays complete and needs no browser |
 
+## Decisions on the open questions
+
+Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
+
+1. **CLI surface: accepted.** `fathomgate serve --console <addr>:<port>` on its own loopback port, plus `fathomgate console open [--print] [--port]`, with the login URL in an owner-only file, as in section 1.
+2. **`approver_must_differ`: accepted as written.** A console approval never satisfies it (section 3). A later record may revisit this for a `serve` that runs as a dedicated OS user, with the console session started over the local socket by a different user.
+3. **The console split and the milestone: resolved.** Pull request #120 records the split as ADR 0025 (accepted). The local console stays in M5, the roadmap stage "See it".
+4. **Licence of `design/`: decided.** `design/` (`tokens.css`, `policy.css`, `preview.html`, `DESIGN.md` and the reference mockups in `design/reference/`) is under Apache-2.0 like the rest of the core. The fonts keep their own licence, the SIL Open Font License 1.1. The logo and the name stay governed by [TRADEMARKS.md](../../TRADEMARKS.md), not by the code licence. This settles the `design/` contested row of [ADR 0020](0020-open-core-apache-2.md), in a dated row of its *Amendments*.
+5. **Session lifetimes, `Secure` or `__Host-` cookies on plain-HTTP loopback, and the bundle size budget: deferred** to the M5 console spec, `docs/specs/console.md`. The values in section 2 stay recommendations until then.
+6. **OFL-1.1 on the licence allow-list for font files only: approved in principle**, applied in the pull request that adds the fonts, and specified in `docs/specs/console.md`.
+
+The wording rules for the mockups in section 7 are accepted as written.
+
 ## References
 
-- ADR 0025, the console split (in its own pull request)
+- ADR 0025, the console split (pull request #120)
 - [ADR 0016, the Streamable HTTP listener](0016-streamable-http-listener.md): *Request handling, in order*, steps 1 to 3, and why `http.CrossOriginProtection` was ruled out
 - [ADR 0023, both loopback families](0023-listener-binds-both-loopback-families.md): point 1 and the port-squatting residual
 - [ADR 0020, open core](0020-open-core-apache-2.md): the boundary rule, the contested console row, invariants 4 to 6
