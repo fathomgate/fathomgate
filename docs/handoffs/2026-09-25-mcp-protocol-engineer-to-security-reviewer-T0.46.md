@@ -3,7 +3,7 @@
 - **Task:** T0.46 — Kill the upstream's whole process tree so a launcher's grandchild cannot outlive a restart or shutdown (S2)
 - **From → To:** mcp-protocol-engineer → security-reviewer (go-reviewer also reviews)
 - **State now:** in review. `docs/milestones/M0.yaml` is not edited here; the orchestrator syncs the board.
-- **Branch / PR:** `feat/upstream-process-tree` · see the PR that carries this note. ADR 0021 is still `proposed` on `main`; PR #110 records its acceptance and must merge first.
+- **Branch / PR:** `feat/upstream-process-tree` · see the PR that carries this note. ADR 0021 is `accepted` (PR #110, merged into this branch).
 - **Date:** 2026-09-25
 
 ## Done
