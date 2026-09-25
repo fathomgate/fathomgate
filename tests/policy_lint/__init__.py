@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Schema linter for Fathomgate policy YAML.
 
 Mirrors ``internal/policy.Validate`` in Go so contributors without a Go

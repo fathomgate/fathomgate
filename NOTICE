@@ -1,17 +1,28 @@
 Fathomgate
 Copyright 2026 Josh Scott
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Licensed under the Functional Source License, Version 1.1, ALv2 Future
+License (SPDX: FSL-1.1-ALv2); see LICENSE. You may use, copy, modify and
+redistribute Fathomgate for any purpose other than a Competing Use, as
+LICENSE defines it. Each version converts to the Apache License, Version
+2.0, on the second anniversary of the date it is made available; each
+commit pushed to the public repository counts as a version.
+
+Two directories are licensed under the Apache License, Version 2.0,
+instead, each with its own LICENSE file:
+
+    policies/examples/
+    profiles/
+
+Earlier versions remain under the Apache License, Version 2.0:
+Fathomgate v0.1.0, and every commit on the main branch of
+github.com/fathomgate/fathomgate before the commit that added this
+paragraph, were made available under Apache-2.0 and stay so. The
+decision is recorded in docs/adr/0034-source-available-under-fsl.md.
+
+A copy of the Apache License, Version 2.0, is at
 
     http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 
 ------------------------------------------------------------------------
 Third-party software

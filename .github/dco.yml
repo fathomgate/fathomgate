@@ -1,4 +1,5 @@
 # DCO GitHub App (https://github.com/apps/dco): every commit in a pull request
+# (today only the maintainer's: outside code is not accepted, ADR 0034)
 # needs a Signed-off-by line matching its author. The app skips bot commits
 # (Dependabot) and merge commits on its own; no setting is needed for them.
 #

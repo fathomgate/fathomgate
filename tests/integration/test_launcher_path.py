@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 2, matrix row 22: the PATH-stripped launcher.
 
 GUI-launched MCP hosts (Claude Desktop, Cursor started from the Dock or

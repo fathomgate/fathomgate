@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Auth-and-prefix shim between the conformance suite and an HTTP MCP server.
 
 The official MCP conformance suite (@modelcontextprotocol/conformance) drives

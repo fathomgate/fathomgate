@@ -1,6 +1,6 @@
 # Reference mockups
 
-These two images are the maintainer's reference mockups for the local console. They are AI-generated, and they are not a spec. [DESIGN.md](../DESIGN.md) wins wherever they differ from it, and every number, name, device and agent in them is illustrative data, not product behaviour. Like the rest of `design/`, they are under Apache-2.0 ([ADR 0020](../../docs/adr/0020-open-core-apache-2.md), *Amendments*); the Fathomgate name and logo in them stay governed by [TRADEMARKS.md](../../TRADEMARKS.md).
+These two images are the maintainer's reference mockups for the local console. They are AI-generated, and they are not a spec. [DESIGN.md](../DESIGN.md) wins wherever they differ from it, and every number, name, device and agent in them is illustrative data, not product behaviour. Like the rest of `design/`, they are under the repository licence, `FSL-1.1-ALv2` ([ADR 0034](../../docs/adr/0034-source-available-under-fsl.md); versions published before the relicensing stay Apache-2.0); the Fathomgate name and logo in them stay governed by [TRADEMARKS.md](../../TRADEMARKS.md).
 
 | File | What it shows |
 | --- | --- |

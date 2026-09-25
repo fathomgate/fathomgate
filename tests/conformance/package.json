@@ -2,7 +2,7 @@
   "name": "fathomgate-conformance",
   "private": true,
   "description": "Pins the official MCP conformance suite that `make conformance` runs against fathomgate serve (T0.4). See tests/conformance/README.md before bumping.",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "devDependencies": {
     "@modelcontextprotocol/conformance": "0.2.0-alpha.11"
   }

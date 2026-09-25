@@ -170,7 +170,9 @@ A line such as `encrypted-password "$9$…";` comes back as `encrypted-password 
 
 The full glossary is in [docs/glossary.md](docs/glossary.md).
 
-## For contributors
+## Under the hood
+
+The source is public so you can read, build and audit every line that decides what reaches a device.
 
 ### How a request is decided
 
@@ -237,7 +239,7 @@ docs/                  plan, ADRs, specs, testing, research
 | See what ships when | [ROADMAP.md](ROADMAP.md) |
 | Know why a decision was made | [docs/adr/](docs/adr/README.md) |
 | Implement or review an interface | [docs/specs/](docs/specs/) |
-| Help without writing Go: profiles, policies, secret-masking reports, docs | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Help through issues: profile requests, secret-masking reports, bugs, ideas | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Work here as a coding agent | [CLAUDE.md](CLAUDE.md), [AGENTS.md](AGENTS.md), [docs/agents/](docs/agents/README.md) |
 | See what is in progress | [STATUS.md](STATUS.md) |
 | See the console design | [design/DESIGN.md](design/DESIGN.md) |
@@ -248,6 +250,14 @@ As of September 2026 there is no vendor-neutral guardrail for AI assistants that
 
 ## Licence
 
-Apache License 2.0, see [LICENSE](LICENSE) and [ADR 0020](docs/adr/0020-open-core-apache-2.md). [NOTICE](NOTICE) carries the copyright line and the attributions for every module linked into the binary, and [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/README.md) their full licence texts; both ship in every release archive and image. Contributions are accepted under Apache-2.0 by DCO sign-off, with no CLA ([CONTRIBUTING.md](CONTRIBUTING.md#licence-of-contributions)). The licence covers the code, not the name: a fork must not ship as Fathomgate ([TRADEMARKS.md](TRADEMARKS.md)).
+Fathomgate is source-available under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (`FSL-1.1-ALv2`). You may read, build, run, modify and redistribute it for any purpose except a Competing Use: offering it, or a product or service with the same or substantially similar function, commercially to others. Running it in front of your own network, at any scale, is allowed. Each version becomes Apache-2.0 two years after it is made available; every commit pushed here counts as a version, and each release's notes give its conversion date. The decision is [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
+
+| Path or version | Licence |
+| --- | --- |
+| Everything in this repository not listed below | `FSL-1.1-ALv2` ([LICENSE](LICENSE)) |
+| [`policies/examples/`](policies/examples/LICENSE) and [`profiles/`](profiles/LICENSE) | Apache-2.0, so you can copy and share policies and profiles freely |
+| `v0.1.0`, and every commit before the relicensing | Apache-2.0, for good |
+
+[NOTICE](NOTICE) carries the copyright line, the licence history and the attributions for every module linked into the binary, and [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/README.md) their full licence texts; both ship in every release archive and image. Fathomgate does not accept code from outside contributors for now; ideas, bugs, profile requests and secret-masking gaps are welcome as issues ([CONTRIBUTING.md](CONTRIBUTING.md)). Neither licence covers the name: a fork must not ship as Fathomgate ([TRADEMARKS.md](TRADEMARKS.md)).
 
 The product was called NetGuard, a placeholder, until [ADR 0019](docs/adr/0019-rename-to-fathomgate.md) renamed it Fathomgate; older ADRs and handoff notes keep the old name.

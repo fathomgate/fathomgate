@@ -80,7 +80,9 @@ jobs:
       - name: redaction fixtures
         run: make fixtures-check
       # ADR 0020: THIRD_PARTY_LICENSES/ and NOTICE match the modules linked
-      # into fathomgate, and every Go, Python and shell file has its SPDX line.
+      # into fathomgate. ADR 0034: every Go, Python and shell file has the SPDX
+      # line for its path (FSL-1.1-ALv2, or Apache-2.0 under policies/examples/
+      # and profiles/).
       - name: licences and SPDX headers
         run: make licences-check PYTHON=python3
 

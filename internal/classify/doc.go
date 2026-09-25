@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package classify assigns a network-semantic class to every MCP tool call
 // before the policy engine sees it.

@@ -307,6 +307,7 @@ fathomgate/
 - [ ] Whether IOS-XR and Nokia SR Linux join the first driver set; both have native commit-confirmed and SR Linux images pull freely
 - [ ] Whether to offer the policy layer as an ext-proc plugin for agentgateway once the standalone proxy is stable
 - [x] Release model and licence: open core, core under Apache-2.0 replacing the never-distributed MIT `LICENSE`, outside contributions by DCO sign-off. Decided in [ADR 0020](adr/0020-open-core-apache-2.md) (`accepted`, 2026-09-24), with the core/commercial boundary, the contested roadmap items and the extension seams. `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES/`, SPDX lines and `TRADEMARKS.md` landed with the relicensing pull request
+- [x] Licence, revisited: versions from the relicensing commit on are source-available under `FSL-1.1-ALv2`, converting to Apache-2.0 after two years; `policies/examples/` and `profiles/` stay Apache-2.0; `v0.1.0` and earlier commits stay Apache-2.0; no code from outside contributors for now. Decided in [ADR 0034](adr/0034-source-available-under-fsl.md) (`accepted`, 2026-09-25), which supersedes ADR 0020's licence and contribution terms; the boundary between the public repository and the paid edition is unchanged
 
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |

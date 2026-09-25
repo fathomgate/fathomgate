@@ -14,7 +14,7 @@ We want a future where connecting an AI assistant to a production network is as 
 - **Nothing reaches a device that your rules didn't allow.** When Fathomgate isn't sure what a request does, it treats it as risky, not safe.
 - **People stay in the loop for the changes that matter.** Reads flow freely. Config changes on production gear wait for a human, show them the diff first, and can roll themselves back.
 - **Every decision can be explained and proved.** Each refusal names its rule. The audit log is chained so an edited line gives itself away.
-- **The parts that keep you safe are open, and stay open.** Everything that decides what's allowed, or proves what happened, is Apache-2.0 and always will be. You can read it, audit it and run it yourself.
+- **You can check the parts that keep you safe.** Everything that decides what's allowed, or proves what happened, is in this public repository, and it stays there. You can read it, audit it, build it and run it yourself, and each version becomes Apache-2.0 two years after it's published.
 
 ## The journey
 
@@ -54,26 +54,30 @@ For teams, the paid edition will add a team console: single sign-on, roles, appr
 
 ## Beyond
 
-- **Every network MCP server, profiled.** A shared library that tells Fathomgate what each tool of each server really does. Anyone can contribute one.
+- **Every network MCP server, profiled.** A shared library that tells Fathomgate what each tool of each server really does. Anyone can request one, and profiles are Apache-2.0, free to copy and share.
 - **Policy packs you can drop in:** read-only everywhere, change freeze, lab-open and production-closed, follow-the-sun approvals.
 - **More vendors and more ways to change safely**, starting with the platforms the community runs.
 - **A standard shape for AI safety on networks** that MCP server authors can point to, instead of each building their own.
 
-## Come build it with us
+## Help shape it
 
-You don't need to know Go to make a real difference.
+You don't need to write any code to make a real difference. Everything below starts with an issue.
 
 - **Profile an MCP server you use.** Tell Fathomgate what each of its tools does. There's an [issue template](.github/ISSUE_TEMPLATE/upstream_server_profile.yml) for it, and it's the single most valuable thing you can give the project.
 - **Found a secret that wasn't masked?** Report it with the [redaction gap template](.github/ISSUE_TEMPLATE/redaction_gap.yml), with fake values please. Every vendor's config dialect has corners we haven't seen.
-- **Write a policy for how your team actually works** and share it in `policies/examples/`.
+- **Tell us how your team actually works**, so the example policies in `policies/examples/` cover it.
 - **Try it in your lab** (containerlab is perfect for this) and tell us what broke or what surprised you.
-- **Improve the docs.** If something here confused you, it will confuse the next person too.
+- **Point out what's confusing in the docs.** If something here confused you, it will confuse the next person too.
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are under Apache-2.0 with a DCO sign-off (`git commit -s`), and everyone is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). For now Fathomgate doesn't accept code from outside contributors: you bring the problem and the knowledge, and the maintainer writes the code. Everyone is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Open source, and how it's funded
+## Source-available, and how it's funded
 
-The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log) is open source under Apache-2.0. The paid edition that funds the work is for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. The team console shows nothing about a request that you can't get from the open command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
+Fathomgate is source-available, not open source. Its licence, the [Functional Source License](LICENSE) (`FSL-1.1-ALv2`), lets you read, build, run and change all of it, in front of as many devices as you like. The one thing it doesn't allow is selling Fathomgate, or something that does the same job, to others. Each version becomes Apache-2.0, a standard open-source licence, two years after it's published. Version 0.1.0 and everything published before the change stay Apache-2.0, and so do the example policies and the server profiles.
+
+We changed this on 2026-09-25, a day after first publishing under Apache-2.0 and promising it would stay that way. Fathomgate is a commercial product, and we'd rather say so plainly than have it resold by someone else. What that promise was for still holds: the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log are all in this public repository, and you can audit every line.
+
+The paid edition that funds the work is proprietary, and it's for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. The team console shows nothing about a request that you can't get from the public command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays in the public repository.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md) and [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
 
 ## For the details
 

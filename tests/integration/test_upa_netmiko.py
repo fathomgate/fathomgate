@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 2: `fathomgate serve` in front of the real 2025-era upstream
 upa/mcp-netmiko-server (FastMCP, one file, pinned by commit and sha256 in
 conftest), which reaches the fake SSH device through netmiko's interactive

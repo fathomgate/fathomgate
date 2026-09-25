@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 1: tests/conformance/shim.py, the auth-and-prefix shim the
 conformance suite drives `fathomgate serve --listen` through (T0.32,
 ADR 0016).

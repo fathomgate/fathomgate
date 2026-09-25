@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package audit writes and verifies Fathomgate's hash-chained JSONL audit log.
 //

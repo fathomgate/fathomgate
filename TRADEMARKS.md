@@ -1,8 +1,8 @@
 # Trademarks
 
-The Apache License 2.0 covers Fathomgate's code, not its name: you may use, change and redistribute the code under [LICENSE](LICENSE), but a product built from it must not call itself Fathomgate.
+Fathomgate's licences cover its code, not its name: you may use, change and redistribute the code under the terms in [LICENSE](LICENSE) and [NOTICE](NOTICE), but a product built from it must not call itself Fathomgate.
 
-Section 6 of the licence says so directly: it "does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor". This page says what that means in practice. The decision behind it is [ADR 0020](docs/adr/0020-open-core-apache-2.md).
+Both licences say so directly. The Functional Source License (`FSL-1.1-ALv2`), which covers current versions, gives "no right ... to use our trademarks, trade names, service marks or product names" beyond identifying the origin of the software. The Apache License 2.0, which covers `v0.1.0`, earlier commits, `policies/examples/`, `profiles/`, and every version once it converts, "does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor" (section 6). This page says what that means in practice. The decisions behind it are [ADR 0020](docs/adr/0020-open-core-apache-2.md) and [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
 
 ## What you may do
 
@@ -10,7 +10,7 @@ Section 6 of the licence says so directly: it "does not grant permission to use 
 | --- | --- |
 | Refer to the project by name | "We run Fathomgate in front of our Junos MCP server." |
 | Say what your work is based on or works with | "Based on Fathomgate", "a fork of Fathomgate", "a profile for Fathomgate" |
-| Redistribute an unmodified official release under its own name | A package of a tagged release, built from the tag, with `LICENSE` and `NOTICE` intact |
+| Redistribute an unmodified official release under its own name, as its licence allows | A package of a tagged release, built from the tag, with `LICENSE` and `NOTICE` intact |
 | Write about it | Articles, talks, tutorials, comparisons, bug reports |
 
 ## What you may not do
@@ -25,11 +25,11 @@ Section 6 of the licence says so directly: it "does not grant permission to use 
 ## If you fork
 
 1. Choose a new name, and change it everywhere a user sees it: the binary, the Go module path, the container image, the Homebrew formula, the CLI's output and the docs.
-2. Keep `LICENSE` and `NOTICE`, as Apache-2.0 section 4 requires, and state in the modified files that you changed them.
+2. Keep `LICENSE` and `NOTICE`. For a version under `FSL-1.1-ALv2`, include its terms and keep every copyright notice, and use it only for a Permitted Purpose. For a version under Apache-2.0, follow its section 4, including stating in the modified files that you changed them.
 3. You may say "based on Fathomgate" in your README and release notes.
 
 ## Status of the name
 
-This page is not legal advice. The name has not had a professional trademark clearance search. [ADR 0019](docs/adr/0019-rename-to-fathomgate.md) recommends one in classes 9 and 42 before any commercial or public use, because the FATHOM field is crowded, and this page may change when that search is done. Nothing here claims a registered mark.
+This page is not legal advice. The name has not had a professional trademark clearance search. [ADR 0019](docs/adr/0019-rename-to-fathomgate.md) recommends one in classes 9 and 42, because the FATHOM field is crowded, and [ADR 0034](docs/adr/0034-source-available-under-fsl.md) recommends registering FATHOMGATE after it. This page may change when that is done. Nothing here claims a registered mark.
 
 Questions about a use not covered here go to the maintainer in a GitHub Discussion before you ship.
