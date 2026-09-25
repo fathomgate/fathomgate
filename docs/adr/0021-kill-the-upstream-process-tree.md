@@ -1,6 +1,6 @@
 # ADR 0021: Kill the upstream's whole process tree: a process group on Unix, a Job Object on Windows
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; to accept); proposed by docs-writer for T0.46; owner mcp-protocol-engineer; reviewers security-reviewer, go-reviewer
 

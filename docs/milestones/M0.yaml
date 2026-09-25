@@ -289,18 +289,18 @@ tasks:
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer, release-engineer]
-    state: in progress
+    state: merged
     blocked_by: [T0.27, T0.30, T0.38, T0.40, T0.42, T0.43, T0.44, T0.48, T0.49]
     adr: "0016"
     matrix: [23]
-    notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/fathomgate''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself. From the T0.48 security review (L1): transportOf must not bind a listener call as stdio when go-sdk''s RequestExtra is missing. Have serveAuthed mark the context and treat the marker as http in newCall, refusing a marked request with no TokenInfo, or re-state the residual if the two sides stay exclusive; pin it with a test. Unblocked 2026-09-25: every blocker has merged (T0.30, T0.38, T0.40, T0.42 to T0.44, T0.48, T0.49). Started.'
+    notes: 'Blocked also by T0.42, T0.43 and T0.44 (post-merge security review of T0.40): all three are latent only because p.limits is nil until --listen exists, and T0.31 is what makes them live. S6 from that review is T0.31''s own work: cmd/fathomgate''s checkListenEnvironment (listen.go:116) has no non-test caller, so the only live MCPGODEBUG guard is HTTPHandler; T0.31 must call the pre-flight before HTTPHandler. ADR 0016. Tokens never on the command line; token files owner-only; bind loopback only, --listen-remote and --listen-host refused until M1 (M1 adds built-in TLS, required off loopback). Blocked until T0.38 (review fixes for #68) and T0.30 (principal-bound requestState) merge; nothing may expose the listener before then. Now blocked on T0.40 (J1, J2) and T0.30; J4 (shutdown grace) is part of T0.31 itself. From the T0.48 security review (L1): transportOf must not bind a listener call as stdio when go-sdk''s RequestExtra is missing. Have serveAuthed mark the context and treat the marker as http in newCall, refusing a marked request with no TokenInfo, or re-state the residual if the two sides stay exclusive; pin it with a test. Unblocked 2026-09-25: every blocker has merged (T0.30, T0.38, T0.40, T0.42 to T0.44, T0.48, T0.49). Started. Merged in PR #109 2026-09-25 (b2d1546) before its reviews (maintainer); all 11 required checks green. Stdio and the listener stay exclusive (ADR 0016). The post-merge security review requested changes: H1 (high) --listen localhost:P binds only 127.0.0.1, so another local user can bind [::1]:P and collect the bearer token from an agent that tries IPv6 first; M1 port squatting while fathomgate is down; L1 slot exhaustion without a token; L2 macOS ACLs; L3 UpstreamExited added by amendment. All in T0.52.'
   - id: T0.32
     title: Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
     package: tests/conformance
     owner: test-engineer
     reviewers: [go-reviewer]
     state: open
-    blocked_by: [T0.31]
+    blocked_by: [T0.31, T0.52]
     adr: "0016"
     matrix: [1, 2]
     notes: 'ADR 0016 expects 11 of the 12 HTTP-transport baseline entries to clear. File an upstream request for a suite header option and a tool-name map; drop the shim when both exist.'
@@ -310,7 +310,7 @@ tasks:
     owner: test-engineer
     reviewers: [docs-writer, security-reviewer]
     state: open
-    blocked_by: [T0.31]
+    blocked_by: [T0.31, T0.52]
     adr: "0016"
     matrix: [23]
   - id: T0.34
@@ -420,7 +420,7 @@ tasks:
     reviewers: [security-reviewer, go-reviewer]
     state: in progress
     matrix: [2, 22]
-    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name. ADR drafted 2026-09-25 (proposed): process group on Unix, Job Object on Windows, widening ADR 0011''s x/sys scope to internal/proxy. Code waits on the maintainer''s acceptance.'
+    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name. ADR drafted 2026-09-25 (proposed): process group on Unix, Job Object on Windows, widening ADR 0011''s x/sys scope to internal/proxy. Code waits on the maintainer''s acceptance. ADR 0021 accepted by the maintainer 2026-09-25 (PR #107). Code started.'
   - id: T0.47
     title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected, before M1 audits it (N6)
     package: internal/proxy
@@ -461,9 +461,34 @@ tasks:
     package: tests/integration
     owner: test-engineer
     reviewers: [docs-writer, security-reviewer]
-    state: open
+    state: merged
     matrix: [1, 15, 22]
-    notes: 'From the public-history audit 2026-09-24. Upstream fixed the unkeyed-hash obfuscation Fathomgate reported (T0.29) in GHSA-8g43-jrf3-q9vq (v1.7.0, maintainer credited) and GHSA-h47r-329w-6p9h (v1.7.1). docs/install.md, the netdev-ssh-mcp profile notes and the tier 2 pin (release binary sha256 in ci.yaml, tests/README.md) still name v1.6.6. Bump the pinned binary and its sha256, re-run tier 2 against it, update the profile notes (what v1.7.x changed about obfuscation, verified from source), docs/install.md and the matrix rows that name the version, and link both advisories. Re-check matrix row 15 against the new behaviour.'
+    notes: 'From the public-history audit 2026-09-24. Upstream fixed the unkeyed-hash obfuscation Fathomgate reported (T0.29) in GHSA-8g43-jrf3-q9vq (v1.7.0, maintainer credited) and GHSA-h47r-329w-6p9h (v1.7.1). docs/install.md, the netdev-ssh-mcp profile notes and the tier 2 pin (release binary sha256 in ci.yaml, tests/README.md) still name v1.6.6. Bump the pinned binary and its sha256, re-run tier 2 against it, update the profile notes (what v1.7.x changed about obfuscation, verified from source), docs/install.md and the matrix rows that name the version, and link both advisories. Re-check matrix row 15 against the new behaviour. Merged in PR #108 2026-09-25; security and docs reviews approve after one fix round. The key file is optional; the default per-run key is stronger when the agent can read files.'
+  - id: T0.52
+    title: Apply the post-merge security review of PR #109 (--listen binds both loopback families; port-squatting row; slot exhaustion; macOS ACLs; proxy export ADR)
+    package: cmd/fathomgate
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in progress
+    adr: "0016"
+    matrix: [23]
+    notes: 'H1 (high): --listen localhost:P or 127.0.0.1:P binds only 127.0.0.1:P (listen.go:65-67); another local user can bind [::1]:P and an agent using http://localhost:P tries ::1 first, so it sends its bearer token to the attacker (reproduced). Fix: bind the other loopback family on the same port too, refuse to start if it is taken, regression test; install.md says to paste the exact listening URL. M1: port squatting while fathomgate is down or restarting, a threat-model row, Open until M1 TLS or a socket. L1: tokenless connections can fill the 128 slots. L2: macOS extended ACLs on token files (and the audit key) are not detected. L3: a short ADR restating the exported surface of internal/proxy instead of another ADR 0016 amendment. Notes N1 (same-user processes, the upstream included, can act as a principal), N2 (no overall shutdown deadline; second signal ignored). Blocks T0.32 and T0.33 and any tag.'
+  - id: T0.53
+    title: Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2
+    package: docs/security
+    owner: security-reviewer
+    reviewers: [docs-writer]
+    state: open
+    matrix: [15, 16]
+    notes: 'From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI.'
+  - id: T0.54
+    title: Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule)
+    package: docs
+    owner: docs-writer
+    reviewers: [design-guardian]
+    state: open
+    matrix: []
+    notes: 'From the docs review of PR #108. docs/install.md and other docs inherited lower-case netguard-in-prose and now say fathomgate in prose; ADR 0019 wants Fathomgate in prose and fathomgate in mono for the command and typed values. One sweep after T0.52 merges, not file by file.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
