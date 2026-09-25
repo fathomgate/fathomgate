@@ -3,7 +3,7 @@
 - **Task:** M1-35 — Clarify the public preview, reporting contacts and release guidance
 - **From → To:** docs-writer → orchestrator
 - **State now:** in review
-- **Branch / PR:** `codex/public-facing-clarity` · none yet
+- **Branch / PR:** `codex/public-facing-clarity` · [PR #163](https://github.com/fathomgate/fathomgate/pull/163)
 - **Date:** 2026-09-25
 
 ## Done
