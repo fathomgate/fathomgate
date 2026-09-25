@@ -3,7 +3,7 @@
 - **Task:** M1-41 — Retry the serve listener tests only on address in use (typed error from run)
 - **From → To:** mcp-protocol-engineer → go-reviewer
 - **State now:** in review
-- **Branch / PR:** test/serve-listen-typed-retry · PR link in the PR's first comment and on the board
+- **Branch / PR:** test/serve-listen-typed-retry · https://github.com/fathomgate/fathomgate/pull/192
 - **Date:** 2026-09-25
 
 ## Done
