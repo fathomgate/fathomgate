@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-25
 - Deciders: Josh Scott (maintainer), who decided on 2026-09-25 for a closed list (any argument the profile does not name is denied, not a per-tool deny-list) and for deny, never strip; written up by policy-engineer (board task M1-35); reviewers security-reviewer, go-reviewer
-- Amends: [profile-schema.md](../specs/profile-schema.md) sections 2 and 7 (new section 2.2); [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md) step 1 gains a second cause for `default:bad_arguments`
+- Amends: [profile-schema.md](../specs/profile-schema.md) sections 2 and 7 (new section 2.3; numbered 2.2 when accepted, renumbered when the gate added its own 2.2); [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md) step 1 gains a second cause for `default:bad_arguments`
 
 ## Context
 
@@ -147,5 +147,5 @@ Each profile's parameters were read from the upstream source (the M1-35 PR lists
 
 - Security review of PR #158 (M1-14), reproduced `config_path` reads; [M1 board](../milestones/M1.yaml) M1-35 (this record), M1-18 (gate), M1-19 (wiring), M1-20 (`serve` Warn), M1-28 (validation)
 - [ADR 0010](0010-classify-by-payload-not-annotations.md), [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md), [ADR 0027](0027-serve-policy-inventory-profiles-flags.md)
-- [profile-schema.md](../specs/profile-schema.md) section 2.2; [threat-model.md](../security/threat-model.md) (the eos-mcp `config_path` row)
+- [profile-schema.md](../specs/profile-schema.md) section 2.3; [threat-model.md](../security/threat-model.md) (the eos-mcp `config_path` row)
 - `internal/classify/profile.go` (`ToolSpec.Args`, `RefusedArgs`, `validateArgs`, `Named`), `normalize.go` (`CheckArguments`, `Result.UnnamedArgs`, `MalformedArgs`)

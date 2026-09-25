@@ -238,10 +238,11 @@ const (
 	RuleMaxDevices    = "default:session.max_devices"
 	RuleMaxPending    = "default:session.max_pending"
 	RuleNoMatch       = "default:no-match"
-	// RuleBadArguments is produced by the gate (and shown by policy eval)
-	// for arguments it cannot accept: not a JSON object, or failing the
-	// profile's closed argument list (ADR 0026 step 1, ADR 0033). Evaluate
-	// never returns it.
+	// RuleBadArguments is produced by internal/gate before Evaluate, never
+	// by Evaluate: arguments that are not one JSON object, a target that is
+	// not a hostname or IP literal, a missing target, a group selector, or
+	// arguments failing the profile's closed argument list (ADR 0026,
+	// ADR 0033). fathomgate policy eval --profile shows the last case too.
 	RuleBadArguments = "default:bad_arguments"
 )
 

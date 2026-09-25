@@ -72,7 +72,7 @@ Added beside the four in policy-schema section 5, produced by the gate, never by
 
 ### The decision log line (M1) and the audit seam (M4)
 
-`--audit` stays refused until M4 (ADR 0027). In M1 the record step writes one `slog` line per call at Info, `msg=decision`, with: `server`, `tool`, `class`, `class_source`, `targets` (names), `roles`, `unknown_target` (bool), `effect`, `rule_id`, `obligations`, `forwarded` (bool), `agent_era`, `upstream_era`, `transport`, `principal`, `session` (fathomgate's short session hash, as the eviction log uses), and `trace` at Debug only. No argument value, command or result text is logged; the command is represented by the class. The line is the event M4 will write, field for field where [audit-event-schema section 2](../specs/audit-event-schema.md#2-call-record) already names one, so M4 swaps the sink behind the same record step.
+`--audit` stays refused until M4 (ADR 0027). In M1 the record step writes one `slog` line per call at Info, `msg=decision`, with: `server`, `tool`, `class`, `class_source`, `targets` (names), `roles`, `unknown_target` (bool), `decision` (the effect `Evaluate` returned), `rule_id`, `reason` (the policy author's or fathomgate's fixed text), `obligations`, `forwarded` (bool), `agent_protocol`, `agent_era`, `upstream_protocol`, `upstream_era`, `transport`, `principal`, `session_id` (fathomgate's short session hash, as the eviction log uses), and, only when set, `parse_error` (a fixed code: `invalid_utf8`, `invalid_json`, `not_object`, `duplicate_key`, `trailing_data`), `unnamed_args` and `malformed_args` (argument names, at most 8, each cut at 64 bytes); `trace` at Debug only. `forwarded`, the protocol and era fields, `parse_error`, `unnamed_args` and `malformed_args` are log-only in M1: they have no field in audit-event-schema section 2, and M4 adds each to its section 2.1 or drops it before the audit sink changes. No argument value, command or result text is logged; the command is represented by the class. The line is the event M4 will write, field for field where [audit-event-schema section 2](../specs/audit-event-schema.md#2-call-record) already names one, so M4 swaps the sink behind the same record step.
 
 ### Where the code lives, and what is exported
 
@@ -145,6 +145,16 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 3. **Hold wording: accepted.** The maintainer's sentence, "Held by rule `<id>`: needs approval, and approvals aren't available yet, so this call was not run.", is carried in the one fixed first-line shape with the verb `held`: `fathomgate held <server>.<tool>: rule <rule_id> (class <CLASS>): needs approval, and approvals aren't available yet, so this call was not run.` (orchestrator, 2026-09-25, so agents and scripts parse one shape). design-guardian reviews the exact copy in M1-18 and M1-19. The recorded effect stays `hold`.
 4. **Counter key for 2026-era agents: accepted as written.** The principal over HTTP, the process on stdio.
 5. **Decision log level: Info for every decision line.** Until M4 the log line is the only record of a decision.
+
+## Amendments
+
+This section records factual corrections (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Decision log line: `effect` is spelled `decision` and `session` is spelled `session_id`. | The line is the M4 audit event field for field, and [audit-event-schema section 2](../specs/audit-event-schema.md#2-call-record) and DESIGN.md (log fields are the console's labels) name them so. Design review of PR #162 (M1-18). |
+| 2026-09-25 | `CallInfo` and `Verdict` live in the leaf package `internal/gate/seam`, which imports nothing from fathomgate; M1-18 fixed their fields (`go doc ./internal/gate/seam`). | So the proxy can name them without importing `classify`, `inventory` or `policy`, as this record requires. The proxy's `Gate` interface and `Options.Gate` remain M1-19's. |
+| 2026-09-25 | The decision log line's field list above also names `reason`, `agent_protocol`, `upstream_protocol`, and when set `parse_error`, `unnamed_args` and `malformed_args`, and says which fields are log-only until M4. | M1-18 records them (agent and upstream protocol beside the era labels from M1-06; the parse failure kind and the closed argument list's findings from ADR 0033), and the list must say which fields have no audit-event-schema section 2 field yet. Design and security re-reviews of PR #162. |
 
 ## References
 

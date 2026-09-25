@@ -25,7 +25,7 @@ Comments at the top of the file record the research brief section the tool names
 | `group_params` | list of string | no | Argument names holding group or tag selectors (`tags`). Each value is emitted as an `@name` token for the inventory to expand. |
 | `command_params` | list of string | no | Argument names holding operational commands, as a string or an array (`command`, `commands`). |
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
-| `args` | list of string | **yes** (`[]` when empty) | Every other argument the tool accepts ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)). The argument list is closed: an argument named in none of the five `*_params` lists and not in `args` is denied ([section 2.2](#22-closed-argument-list)). Values are not inspected. |
+| `args` | list of string | **yes** (`[]` when empty) | Every other argument the tool accepts ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md)). The argument list is closed: an argument named in none of the five `*_params` lists and not in `args` is denied ([section 2.2](#23-closed-argument-list)). Values are not inspected. |
 | `refused_args` | list of string | no | Arguments the upstream accepts that the profile deliberately leaves unnamed (eos-mcp `config_path`). No run-time effect beyond being unnamed; the coverage tests use it to tell a reviewed refusal from a parameter the upstream added later. |
 | `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. One token is read by the classifier: `never-downgrade` anywhere in the notes, in any case, of an `EXEC_ARBITRARY` tool keeps it `EXEC_ARBITRARY` whatever its commands say ([classification.md](classification.md) section 8). |
 
@@ -40,11 +40,23 @@ Implemented in `Normalize(profile, tool, args)`:
 - A tool is looked up by its bare name or by `<server>.<name>`.
 - A tool not in the profile yields empty targets, commands and payload; callers treat it as `EXEC_ARBITRARY`.
 
-A tool with a `command_params` or `config_params` but no target source (eos-mcp `run_command_batch` with only `hostnames` and `tags` selectors, both optional upstream) can arrive with zero targets. What zero targets means for policy is decided by the policy's `device_roles` and `device_tags` matchers, which do not match a request with no targets.
+`Normalize` is what `fathomgate policy eval --arg` and `classify.Result` use. The proxy's decision takes its targets from the stricter rules in 2.2 instead.
+
+### 2.2 Targets at the gate
+
+`internal/gate` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md) step 2) reads the same three parameter lists, but takes every target exactly as the upstream will receive it and refuses what it cannot vouch for. Each refusal is `deny` with rule `default:bad_arguments` and a fixed reason that names no argument and no value.
+
+- **One name per `target_params` value.** The value must be a string; a comma is not a separator there, so `"core-rtr-01,lab-sw-01"` is refused. A `targets_params` value is an array of strings or a string split on commas; no part is trimmed, so `"r1, r2"` is refused, and an empty part is refused. `null`, and an empty array or string in `targets_params`, add nothing.
+- **Hostname or IP literal.** Every name is 1 to 253 bytes of ASCII letters, digits, `-`, `_` and `.`, in labels of 1 to 63 bytes, none starting with `-`; or an IPv6 address with no zone (the only form that may contain `:`). A name whose last label is numeric (digits, or `0x` and hex digits) must be a dotted-quad IPv4 address in canonical form, so `127.1`, `2130706433`, `0x7f.0.0.1` and `010.0.0.1` are refused. A name Python's `json.loads` reads as something other than a string (`null`, `true`, `false`, `NaN`, `Infinity`, a number such as `1e5`) is refused, because FastMCP upstreams `json.loads` a string sent for a parameter not typed `str`: `hostnames: "null"` would reach eos-mcp as `None`, its whole fleet, and `hostnames: "[\"core-rtr-01\"]"` as a list (both refused; the second for its brackets and quotes). `@` (an SSH client reads `lab-x@core-rtr-01` as user `lab-x` at `core-rtr-01`), whitespace, control characters, brackets, `%`, `/` and any non-ASCII byte are refused.
+- **Exact match against the inventory.** The name is looked up as sent: no trimming, no case folding. A record whose stored name differs from it, if only in case, does not make it known, because upstreams key their own device tables by name (upa's TOML, eos-mcp's router list) and a case variant may be another entry there or none. `CORE-rtr-01` is therefore `unknown` even when `core-rtr-01` is listed ([inventory-schema section 7](inventory-schema.md#7-unknown-target-semantics)).
+- **No call without a target.** A tool whose profile entry has any of `target_params`, `targets_params` or `group_params`, whose profile class is not `INVENTORY_READ` or `LOCAL_ADMIN`, and that arrives with no target is refused. eos-mcp `daily_brief` and the `*_batch` tools run on the upstream's whole fleet when `hostnames` is empty, while fathomgate would count zero devices, bypassing `max_devices` and the unknown-target default.
+- **No group selector.** A `group_params` value other than `null`, `""` or `[]` is refused on the same tools, with or without named targets: the upstream expands the tag itself, so fathomgate cannot see which devices it reaches. fathomgate never expands a tag or `@group` from its own inventory for an upstream that expands it itself. `INVENTORY_READ` and `LOCAL_ADMIN` tools may carry one (eos-mcp `get_router_list tags=[lab]`). Group expansion through the upstream inventory provider is M2 (inventory-schema section 8).
+- **A tool the profile does not list** is looked up exactly (an upstream tool named `eos-mcp.get_version` is not `get_version`) and is refused with `default:bad_arguments` when it carries any argument: no argument of it is named ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md) section 2). Otherwise a tool the upstream adds later would reach the rules with zero targets, past the unknown-target default and `max_devices`. With no arguments it is the fallback `EXEC_ARBITRARY`. The agent is told "an argument is not named in the server profile for this tool"; the log line carries the names (`unnamed_args`, at most 8, each cut at 64 bytes).
+- **A server with no profile** gets the fallback class and none of these checks: nothing names its parameters. `fathomgate serve` warns at start when a server has no profile (ADR 0027), and the warning must say the arguments are not checked (M1-20).
 
 At eos-mcp v1.3.0 an empty selection runs nothing on the batch tools, but `daily_brief` with neither `hostnames` nor `tags` runs on every device in the upstream's own `config.ini` (`eos_mcp/server.py:476-478`). There, zero targets means the whole fleet.
 
-### 2.2 Closed argument list
+### 2.3 Closed argument list
 
 Decision record: [ADR 0033](../adr/0033-closed-argument-list-per-tool.md). A tool's named set is `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args` together. `CheckArguments(profile, tool, args)` returns, sorted:
 
@@ -217,7 +229,7 @@ Profiles for Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Mer
 - `server` is non-empty;
 - `tools` is non-empty;
 - every tool's `class` is a known class;
-- every tool has `args` (`[]` when empty); no argument name is empty or has surrounding whitespace; no name appears twice across `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args`; no `refused_args` entry is named or listed twice ([section 2.2](#22-closed-argument-list));
+- every tool has `args` (`[]` when empty); no argument name is empty or has surrounding whitespace; no name appears twice across `target_params`, `targets_params`, `group_params`, `command_params`, `config_params` and `args`; no `refused_args` entry is named or listed twice ([section 2.2](#23-closed-argument-list));
 - `server` is unique across the directory.
 
 `internal/classify/profiles_repo_test.go` loads every file in `profiles/` in tier 1. `TestRepoProfileArguments` there holds every parameter each upstream accepts per tool, read from the source commit in the profile's header, and requires the named set plus `refused_args` to equal it exactly, with the `refused_args` lists pinned. A tier 2 test that compares each profile against the real upstream's `tools/list` (tool names, and each tool's `inputSchema.properties` against the named set plus `refused_args`) is planned ([test-strategy.md](../testing/test-strategy.md)).
