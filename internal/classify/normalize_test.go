@@ -156,7 +156,8 @@ func TestClassify(t *testing.T) {
 		{"read tool escalated to config read", "run_show_command", map[string]any{"host": "a", "command": "show running-config"}, ReadConfig, true},
 		{"read tool escalated to exec", "run_show_command", map[string]any{"host": "a", "command": "reload"}, ExecArbitrary, true},
 		{"read tool stays read", "run_show_command", map[string]any{"host": "a", "command": "show version"}, ReadOperational, true},
-		{"write stays write", "send_config", map[string]any{"device": "a", "config_commands": []any{"show version"}}, WriteConfig, true},
+		{"write stays write", "send_config", map[string]any{"device": "a", "config_commands": []any{"hostname x"}}, WriteConfig, true},
+		{"write with a show line is exec", "send_config", map[string]any{"device": "a", "config_commands": []any{"show version"}}, ExecArbitrary, true},
 		{"unknown tool is exec", "mystery", nil, ExecArbitrary, false},
 	}
 	for _, tc := range cases {

@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 11 · blocked 8 · in progress 2 · in review 7 · merged 6 · dropped 3
+Tasks: open 10 · blocked 8 · in progress 2 · in review 8 · merged 6 · dropped 3
 
 ## In flight
 
@@ -42,7 +42,7 @@ Tasks: open 11 · blocked 8 · in progress 2 · in review 7 · merged 6 · dropp
 | M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | blocked | M1-18 | 3, 4, 6 | — |
 | M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | in review | — | 6 | — |
 | M1-35 | Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in progress | — | 4 | — |
-| M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | open | — | 4 | — |
+| M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in review | — | 4 | — |
 | M1-37 | Make an unset unknown_target deny every class (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | in progress | — | 6 | — |
 
 ## Done this milestone

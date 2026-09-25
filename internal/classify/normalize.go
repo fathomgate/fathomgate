@@ -101,10 +101,11 @@ const (
 	// SourceDowngrade means an EXEC_ARBITRARY call whose every command
 	// passed the read allow-list is now READ_OPERATIONAL.
 	SourceDowngrade Source = "downgrade"
-	// SourceReclassify means the commands moved the class anywhere else:
+	// SourceReclassify means the arguments moved the class anywhere else:
 	// an EXEC_ARBITRARY or READ_OPERATIONAL call that reads configuration
-	// is READ_CONFIG, and a READ_OPERATIONAL call whose command fails the
-	// allow-list is EXEC_ARBITRARY.
+	// is READ_CONFIG, a READ_OPERATIONAL call whose command fails the
+	// allow-list is EXEC_ARBITRARY, and a call whose config payload fails
+	// the config payload check is EXEC_ARBITRARY.
 	SourceReclassify Source = "reclassify"
 )
 
@@ -285,6 +286,9 @@ func stringOrStrings(v any) bool {
 //     EXEC_ARBITRARY when a command fails the allow-list. This is
 //     defence in depth against servers whose own filter is weaker than
 //     their tool name suggests.
+//   - Tools with config arguments, unless already EXEC_ARBITRARY, are
+//     escalated to EXEC_ARBITRARY when a config line leaves configuration
+//     mode or runs an exec command (checkConfigPayload). This runs first.
 //   - Tools missing from the profile are EXEC_ARBITRARY.
 //
 // Classify also runs CheckArguments and reports its findings in
@@ -312,6 +316,19 @@ func Classify(profile *Profile, tool string, args map[string]any) Result {
 	res.Class = spec.Class
 	res.ClassSource = SourceProfile
 	res.Targets, res.Commands, res.ConfigPayload = Normalize(profile, tool, args)
+
+	// A config payload that leaves configuration mode or runs an exec
+	// command makes the call EXEC_ARBITRARY before any command rule runs,
+	// so nothing can downgrade it again (classification.md section 11). A
+	// tool already EXEC_ARBITRARY has nothing to raise.
+	if spec.Class != ExecArbitrary && len(spec.ConfigParams) > 0 {
+		if f := checkConfigPayload(profile, tool, spec, args); f != nil {
+			res.Class = ExecArbitrary
+			res.ClassSource = SourceReclassify
+			res.Reason = f.reason()
+			return res
+		}
+	}
 
 	if len(spec.CommandParams) == 0 {
 		return res

@@ -224,6 +224,41 @@ func TestInjectionInputs(t *testing.T) {
 	check(t, "run_commands batch", v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY"})
 }
 
+// TestConfigSessionEscape is the M1-36 reproduction from the security review
+// of PR #158: under lab-open, push_config with config_lines ["end"] was
+// allowed by lab-writes-free. A config payload that leaves configuration
+// mode is EXEC_ARBITRARY (classification.md section 11), so no-exec denies
+// it, on both CLI config tools of the M1 servers; an ordinary payload is
+// still the write lab-writes-free allows.
+func TestConfigSessionEscape(t *testing.T) {
+	t.Parallel()
+	g := newGate(t, examplePolicy(t, "lab-open"), true)
+	tools := []struct{ server, tool, target, param string }{
+		{eos, "push_config", "hostname", "config_lines"},
+		{upa, "set_config_commands_and_commit_or_save", "name", "commands"},
+	}
+	for _, tl := range tools {
+		for i, lines := range [][]any{
+			{"end"},
+			{"end", "reload now"},
+			{"end", "configure", "hostname x"},
+			{"hostname x\nend\nreload now"},
+			{"do reload"},
+		} {
+			label := tl.server + "." + tl.tool + " payload " + string(rune('a'+i))
+			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: lines}))
+			check(t, label, v, want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "reclassify"})
+			for _, word := range []string{"reload", "configure", "end"} {
+				if strings.Contains(v.Error, word) {
+					t.Errorf("%s: the payload is echoed: %q", label, v.Error)
+				}
+			}
+		}
+		v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: []any{"interface Ethernet1", " description uplink"}}))
+		check(t, tl.server+"."+tl.tool+" ordinary write", v, want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
+	}
+}
+
 // TestAttackerHostNames: the names of the PR #154 review and ADR 0031, with
 // the patterns that used to make them known active. Each is refused as a bad
 // argument (not a hostname) or as an unknown target; none reaches a rule.

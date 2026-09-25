@@ -45,7 +45,7 @@ tools:
     config_params: [config_commands]
     args: [save_config, dry_run]
     refused_args: [enter_config_mode]
-    notes: dry_run and save_config flags exist; the proxy forces dry_run first (M3 obligation dry_run).
+    notes: dry_run and save_config flags exist; the proxy forces dry_run first (M3 obligation dry_run). A line that leaves config mode or runs an exec command makes the call EXEC_ARBITRARY (M1-36, classification.md section 11, CLI union list), here and in send_config_parallel.
   send_config_parallel:
     class: WRITE_CONFIG
     targets_params: [devices]

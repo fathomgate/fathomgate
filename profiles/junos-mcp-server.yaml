@@ -82,7 +82,7 @@ tools:
     config_params: [config_text]
     args: [config_format, commit_comment, timeout]
     refused_args: [config]
-    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed. The handler also reads timeout and, when config_text is absent, an undocumented config key as the payload (jmcp.py:1657, 1660); config is refused so the payload is always config_text, which fathomgate reads.
+    notes: Immediate commit; config_format set|text|xml. Server applies block.cfg line-by-line. M3 adds commit-check + commit confirmed. The handler also reads timeout and, when config_text is absent, an undocumented config key as the payload (jmcp.py:1657, 1660); config is refused so the payload is always config_text, which fathomgate reads. config_format defaults to set (jmcp.py:1658); in set format every line must start with a configuration statement (set, delete, activate, ...), text and xml are data checked for control and non-ASCII bytes only; a failing line makes the call EXEC_ARBITRARY (M1-36, classification.md section 11.3).
   render_and_apply_j2_template:
     class: EXEC_ARBITRARY
     target_params: [router_name]
