@@ -66,7 +66,7 @@ make all          # builds, runs the Go tests and every policy test
 ## Sending a pull request
 
 - **One change per pull request.** A profile and a policy example are two pull requests.
-- **Sign off your commits** with `git commit -s`. That adds a `Signed-off-by` line, which says you wrote the change and have the right to contribute it ([Developer Certificate of Origin](https://developercertificate.org/)). A check fails without it. A consistent pseudonym is fine.
+- **Sign off your commits** with `git commit -s`. That adds a `Signed-off-by` line, which says you wrote the change and have the right to contribute it ([Developer Certificate of Origin](https://developercertificate.org/)). The `DCO` check fails a pull request if any commit's sign-off is missing or doesn't match its author. Forgot one? You don't need to rewrite your branch: the check's details page shows the exact commit to add. A consistent pseudonym is fine.
 - **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): what changed`. For example, `feat(profiles): add scrapli-mcp profile` or `docs: fix the install steps for Windows`. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`. The scope is the area you touched (`profiles`, `policies`, `redact`, `proxy`, `docs`, `tests` and so on).
 - **Fill in the [pull request template](.github/PULL_REQUEST_TEMPLATE.md).** Its short checklist catches the usual things: tests, docs, and whether a design record is needed.
 - **CI has to pass.** If it fails and you can't see why, say so in the pull request and we'll help.
