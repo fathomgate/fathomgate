@@ -9,7 +9,7 @@
 
 `fathomgate audit keygen` writes an Ed25519 private key (PKCS#8 PEM, `0600`, a protected owner-only DACL on Windows since T0.12) and its public half. Writing is careful; reading is not. The security review of PR #112 (medium, predating that PR, MCP08) found:
 
-- `audit.LoadKey` (`internal/audit/key.go`) calls `os.ReadFile`. It follows a symbolic link and checks no owner, mode, link count, Windows DACL or macOS extended ACL. Another local user who can replace or link the file can make fathomgate sign with a key they hold, and a key file left group-readable is used without a word.
+- `audit.LoadKey` (`internal/audit/key.go`) calls `os.ReadFile`. It follows a symbolic link and checks no owner, mode, link count, Windows DACL or macOS extended ACL. Another local user who can replace or link the file can make Fathomgate sign with a key they hold, and a key file left group-readable is used without a word.
 - `audit.LoadPublicKey` accepts a private key file and derives the public half, so `fathomgate audit verify --key <signing key>` trusts the very file the signer uses. A verifier should never need, or be handed, the secret; and a check that passes with the signer's own file proves nothing to a third party.
 
 Nothing signs in production yet: `serve --audit` stays refused until M4 ([ADR 0027](0027-serve-policy-inventory-profiles-flags.md)). The fix is cheap now and expensive after operators have key files in the field. The same owner-only open already exists twice: `openExistingLog` for the audit log and `readTokenFile` for listen tokens ([ADR 0016](0016-streamable-http-listener.md), T0.31), with `internal/fileacl` for macOS ACLs.

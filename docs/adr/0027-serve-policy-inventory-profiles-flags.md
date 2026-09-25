@@ -44,7 +44,7 @@ The flag table in [profile-schema 8.3](../specs/profile-schema.md#83-fathomgate-
 
 ### Negative
 
-- A profile fix for a new upstream release needs a fathomgate release, or `--profiles` with a copy of the whole set. Mitigated by `--profiles` and by shipping `profiles/` in the release archive as well.
+- A profile fix for a new upstream release needs a Fathomgate release, or `--profiles` with a copy of the whole set. Mitigated by `--profiles` and by shipping `profiles/` in the release archive as well.
 - Every v0.1.0 config without `--policy` exits 2 on upgrade to v0.2.0. The fix is one flag: `--policy <file>` for a policy, or `--no-policy` to keep the pass-through. The v0.2.0 CHANGELOG entry and upgrade note say so.
 - `--profiles` replacing rather than merging means an operator who adds one profile must copy the rest. Deliberate: a merge makes it unclear which file won.
 

@@ -85,11 +85,11 @@ a mock.
 - Tier 2: live for upa/mcp-netmiko-server at commit `96e8ff3` (CI job
   `tier2-upa`, no Docker). `integration/test_upa_netmiko.py` covers the
   2025-era half of matrix row 2. With mcp 1.30.0 (hash-pinned
-  `integration/upstreams/upa-mcp-netmiko-server/requirements.txt`), fathomgate
+  `integration/upstreams/upa-mcp-netmiko-server/requirements.txt`), Fathomgate
   negotiates 2025-11-25 stateful with it, lists `upa.<tool>`, and a 2025 and
   a 2026 agent each run `show version` once on the fake device through
   netmiko. With the upstream's own `uv.lock` (mcp 1.6.0), which never
-  answers `server/discover`, fathomgate restarts it once and connects with
+  answers `server/discover`, Fathomgate restarts it once and connects with
   `initialize` only, at 2024-11-05 (ADR 0018; test-matrix.md row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
   at 2026-07-28 stateless).
 - Tier 2: live for shigechika/eos-mcp 1.3.0 (the PyPI wheel; every

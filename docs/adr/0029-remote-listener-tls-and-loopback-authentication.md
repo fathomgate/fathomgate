@@ -1,4 +1,4 @@
-# ADR 0029: Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback
+# ADR 0029: Remote listening with built-in TLS, and letting an agent authenticate Fathomgate on loopback
 
 - Status: accepted in part (M1: Windows exclusive bind); remainder deferred to M2
 - Date: 2026-09-25
@@ -9,7 +9,7 @@
 
 [ADR 0016](0016-streamable-http-listener.md) reserved `--listen-remote` and `--listen-host` for M1, "when a policy stands between the listener and the devices", and its accepted answer to open question 1 says remote mode needs `--listen-tls-cert` and `--listen-tls-key` (`crypto/tls`, no new dependency), with a non-loopback bind without them exiting 2. What it did not decide is the shape of those flags in detail, or anything about loopback.
 
-The [threat model](../security/threat-model.md) has one row open for M1, owned by mcp-protocol-engineer: **port squatting while fathomgate is down or restarting**. Another local user binds the loopback port first; an agent, which cannot authenticate fathomgate, sends its bearer token; the token then works against the real fathomgate. On Windows no race is even needed, because fathomgate's sockets are not bound with `SO_EXCLUSIVEADDRUSE`, so a wildcard bind by another user receives loopback connections while fathomgate runs. [ADR 0023](0023-listener-binds-both-loopback-families.md) records the row as fixed in M1 "by TLS with a pinned certificate, or by a Unix socket or named pipe protected by file permissions".
+The [threat model](../security/threat-model.md) has one row open for M1, owned by mcp-protocol-engineer: **port squatting while Fathomgate is down or restarting**. Another local user binds the loopback port first; an agent, which cannot authenticate Fathomgate, sends its bearer token; the token then works against the real Fathomgate. On Windows no race is even needed, because Fathomgate's sockets are not bound with `SO_EXCLUSIVEADDRUSE`, so a wildcard bind by another user receives loopback connections while Fathomgate runs. [ADR 0023](0023-listener-binds-both-loopback-families.md) records the row as fixed in M1 "by TLS with a pinned certificate, or by a Unix socket or named pipe protected by file permissions".
 
 Neither fix is free. Most MCP hosts' Streamable HTTP clients verify TLS against the system roots and cannot pin a certificate; few speak HTTP over a Unix socket or named pipe at all. A fix no client can use closes nothing.
 
@@ -19,15 +19,15 @@ This record is not an M1 exit criterion. The criteria are met on stdio. It is on
 
 **Accepted in part, 2026-09-25.** Point 4 (the Windows exclusive bind) is accepted for M1, board task M1-27. Points 1, 2 and 3, and the TLS mitigation in point 5, are deferred to M2 and will be re-decided there; they are not rejected. Until then remote listening stays reserved, as ADR 0016 left it.
 
-We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 decided, allow the same TLS on loopback so an agent that can verify a certificate authenticates fathomgate, bind with `SO_EXCLUSIVEADDRUSE` on Windows, and keep plain-HTTP loopback as the default with the residual recorded.
+We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 decided, allow the same TLS on loopback so an agent that can verify a certificate authenticates Fathomgate, bind with `SO_EXCLUSIVEADDRUSE` on Windows, and keep plain-HTTP loopback as the default with the residual recorded.
 
 1. **Flags.** `--listen-tls-cert <file>` and `--listen-tls-key <file>` (PEM; both or neither; the key file opened with the owner-only checks of the listen token file and of [ADR 0028](0028-audit-key-custody.md)). TLS 1.3 only, standard library defaults otherwise. The `listening` line's URL becomes `https://`. Certificates are read once at start; rotation is a restart.
 2. **Remote.** `--listen-remote` allows a non-loopback `--listen` address, and requires `--policy` ([ADR 0027](0027-serve-policy-inventory-profiles-flags.md)), `--listen-tls-cert` and `--listen-tls-key`, and at least one `--listen-host <name>`; otherwise exit 2. Requests whose `Host` is not a listed name or the literal bound address get 403, as ADR 0016 said. Everything else in ADR 0016's request handling, including the bearer token on every request, stands.
 3. **Loopback with TLS.** The two TLS flags are also accepted with a loopback `--listen`. An agent configured with that certificate's CA (or the certificate itself, where the client allows it) then refuses a squatter that cannot present it. Documented in `docs/install.md` with the clients known to support a custom CA.
-4. **Windows exclusive bind.** Every listener socket on Windows is bound with `SO_EXCLUSIVEADDRUSE`, so another user's wildcard bind cannot take fathomgate's loopback connections while it runs. This needs `golang.org/x/sys/windows`, already a dependency (ADR 0011, 0021).
-5. **Residual.** Plain-HTTP loopback while fathomgate is down stays open, and the threat-model row says so, with the mitigations: TLS on loopback (3, from M2), a supervisor that restarts at once, one token per agent. The Unix-socket and named-pipe listener is not built in M1 (decision 2).
+4. **Windows exclusive bind.** Every listener socket on Windows is bound with `SO_EXCLUSIVEADDRUSE`, so another user's wildcard bind cannot take Fathomgate's loopback connections while it runs. This needs `golang.org/x/sys/windows`, already a dependency (ADR 0011, 0021).
+5. **Residual.** Plain-HTTP loopback while Fathomgate is down stays open, and the threat-model row says so, with the mitigations: TLS on loopback (3, from M2), a supervisor that restarts at once, one token per agent. The Unix-socket and named-pipe listener is not built in M1 (decision 2).
 
-**Correction, 2026-09-25 (M1-27; security review of PR #156).** Decision 4 said `SO_EXCLUSIVEADDRUSE` stops another user's wildcard bind from taking fathomgate's loopback connections while it runs. It does not: the option protects only the exact addresses bound (`127.0.0.1:P`, `[::1]:P`). Measured on Windows 11 build 26200 and the Windows Server CI runner with a socket of the same user: while fathomgate holds both loopbacks with the option, another socket can still bind `0.0.0.0:P`, `[::]:P` IPv6-only or `[::]:P` dual-stack, with or without `SO_REUSEADDR`; agents reach fathomgate while it runs and the wildcard socket once it stops, and fathomgate restarts on the port without noticing. Decision 4 stands as defence in depth for the exact addresses. The fix, measured in the same review and implemented in M1-27: after its loopback binds, fathomgate also binds one socket on each of `0.0.0.0:P`, `[::]:P` IPv6-only and `[::]:P` dual-stack, without `SO_EXCLUSIVEADDRUSE` and never listening, and holds them while it serves. Every same-user bind of port P on a wildcard or loopback address then fails, and a squatter already holding one of them stops fathomgate starting. Another user's socket is still to be measured. The squat while fathomgate is down stays open until TLS (the deferred part of this record).
+**Correction, 2026-09-25 (M1-27; security review of PR #156).** Decision 4 said `SO_EXCLUSIVEADDRUSE` stops another user's wildcard bind from taking Fathomgate's loopback connections while it runs. It does not: the option protects only the exact addresses bound (`127.0.0.1:P`, `[::1]:P`). Measured on Windows 11 build 26200 and the Windows Server CI runner with a socket of the same user: while Fathomgate holds both loopbacks with the option, another socket can still bind `0.0.0.0:P`, `[::]:P` IPv6-only or `[::]:P` dual-stack, with or without `SO_REUSEADDR`; agents reach Fathomgate while it runs and the wildcard socket once it stops, and Fathomgate restarts on the port without noticing. Decision 4 stands as defence in depth for the exact addresses. The fix, measured in the same review and implemented in M1-27: after its loopback binds, Fathomgate also binds one socket on each of `0.0.0.0:P`, `[::]:P` IPv6-only and `[::]:P` dual-stack, without `SO_EXCLUSIVEADDRUSE` and never listening, and holds them while it serves. Every same-user bind of port P on a wildcard or loopback address then fails, and a squatter already holding one of them stops Fathomgate starting. Another user's socket is still to be measured. The squat while Fathomgate is down stays open until TLS (the deferred part of this record).
 
 ## Consequences
 
@@ -35,7 +35,7 @@ We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 
 
 - The remote mode ADR 0016 promised lands with the policy in front of it and cannot be switched on without TLS, a host list and a policy.
 - An operator who needs the squatting row closed can close it today with a client that trusts a custom CA.
-- ~~The Windows no-race case is closed while fathomgate runs.~~ Withdrawn by the correction under *Decision*: the exclusive bind alone does not close it; the wildcard sockets of M1-27 do.
+- ~~The Windows no-race case is closed while Fathomgate runs.~~ Withdrawn by the correction under *Decision*: the exclusive bind alone does not close it; the wildcard sockets of M1-27 do.
 
 ### Negative
 
@@ -59,11 +59,11 @@ We will ship remote listening behind the pipeline with built-in TLS as ADR 0016 
 
 Accepted in part by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
-1. **Remote listening is not M1.** The Windows exclusive bind (point 4) is accepted for M1 (M1-27): on Windows, another user's wildcard bind can no longer take fathomgate's loopback connections while it runs. TLS, remote listening and TLS on loopback (points 1 to 3) move to M2 and are re-decided there. They are deferred, not rejected.
+1. **Remote listening is not M1.** The Windows exclusive bind (point 4) is accepted for M1 (M1-27): on Windows, another user's wildcard bind can no longer take Fathomgate's loopback connections while it runs. TLS, remote listening and TLS on loopback (points 1 to 3) move to M2 and are re-decided there. They are deferred, not rejected.
 2. **Unix socket or named pipe:** deferred to M2 with the rest of the listener work.
 3. **mTLS:** deferred to M2 with the rest of the listener work.
 
-In M1 the port-squatting row stays open for plain-HTTP loopback while fathomgate is down, with the mitigations a supervisor that restarts at once and one token per agent.
+In M1 the port-squatting row stays open for plain-HTTP loopback while Fathomgate is down, with the mitigations a supervisor that restarts at once and one token per agent.
 
 ## References
 

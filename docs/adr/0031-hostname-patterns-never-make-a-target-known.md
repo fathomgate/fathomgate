@@ -52,7 +52,7 @@ We will make hostname patterns attribute-only: a pattern never makes a target kn
 ### Neutral
 
 - M1-18 target-name validation remains necessary and complementary: it stops names such as `lab-x@core-rtr-01`, which an upstream's SSH layer may read as `user@host`, before resolution.
-- Target alias drift (upa TOML, threat model) is unchanged: fathomgate resolves names, not the address the upstream connects to. This decision does not make it worse; (b) and (c) would have, by giving roles to TOML names fathomgate's inventory never listed.
+- Target alias drift (upa TOML, threat model) is unchanged: Fathomgate resolves names, not the address the upstream connects to. This decision does not make it worse; (b) and (c) would have, by giving roles to TOML names Fathomgate's inventory never listed.
 - DNS search suffixes: matching stays exact on the string the upstream receives. `core-rtr-01.corp.example` is not `core-rtr-01` and is `unknown`, which fails closed. Under (b) or (c), `^core-` would have admitted any short name the proxy host's resolver completes through a search domain, including a wildcard record.
 
 ## Alternatives considered

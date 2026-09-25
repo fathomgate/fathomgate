@@ -9,7 +9,7 @@
 
 A target no inventory provider resolves is `unknown` ([ADR 0007](0007-role-resolver-chain-sot-optional.md), [inventory-schema section 7](../specs/inventory-schema.md#7-unknown-target-semantics)). The policy's `defaults.unknown_target` decides what happens to it. `deny` denies every class and `allow` lets the rules decide; left unset, ADR 0007 denied `WRITE_CONFIG` and `EXEC_ARBITRARY` and let reads and every other class go on to the rules. A rule that matches on class alone, such as `reads-anywhere`, then allowed a read to any host the agent named.
 
-The security reviews of PR #154 (M1-21) and PR #158 (M1-14) showed that a read is not safe on the upstreams fathomgate fronts first. Those servers connect to whatever host the agent names and log in with the operator's device credentials:
+The security reviews of PR #154 (M1-21) and PR #158 (M1-14) showed that a read is not safe on the upstreams Fathomgate fronts first. Those servers connect to whatever host the agent names and log in with the operator's device credentials:
 
 - **eos-mcp** falls back to the `[DEFAULT]` section of `config.ini` for a host it does not list (`config.py:62-70`), so any `hostname` receives the fleet's eAPI username and password, over HTTPS with certificate verification off by default and a process-wide TLS context lowered to TLS 1.0 (`eapi.py:17-27`).
 - **netdev-ssh-mcp** takes a free-form `host` and opens an SSH session to it with the credentials the operator passed to the upstream.
@@ -53,7 +53,7 @@ We will make an unset `defaults.unknown_target` deny every class, exactly as `un
 | Alternative | Why not |
 | --- | --- |
 | A per-server profile flag (for example `credentials_to_any_host: true` on eos-mcp and netdev-ssh-mcp) that forces `deny` for that server, keeping today's permissive default elsewhere | Rejected by the maintainer. It makes safety depend on a profile author spotting the hazard in each upstream's source, and a profile that is missing or not yet audited (the fallback classifier) would get the permissive default. Every upstream that connects to a device authenticates to it, so the flag would be set almost everywhere. |
-| Keep the permissive default and document it | The examples already set `deny`, which is the documentation. The finding is that a policy without the key is unsafe on the first upstreams fathomgate supports. |
+| Keep the permissive default and document it | The examples already set `deny`, which is the documentation. The finding is that a policy without the key is unsafe on the first upstreams Fathomgate supports. |
 | Deny reads only for `READ_CONFIG` | The credentials leave on connect, before any command runs; `READ_OPERATIONAL` sends them too. |
 | Make `unknown_target` a required key | Refuses every existing policy that omits it, for no gain over a safe default. |
 

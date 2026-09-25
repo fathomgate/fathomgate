@@ -78,7 +78,7 @@ how EOS behaves. These need cEOS (M1-28 and M3, tier 3):
   session, so that push_config's `["end", "reload now"]` would reload the
   switch even with `dry_run=True`. The tier 2 case shows only that eos-mcp
   sends those lines in one call with `configure session mcp-push` before
-  `abort`, and that fathomgate denies the call before it leaves. That
+  `abort`, and that Fathomgate denies the call before it leaves. That
   `reload now` is refused by the fake is not EOS behaviour.
 - `clock set`, `watch` and `terminal` from configuration mode, and an
   alias (`alias hn reload now`, then `hn`) inside a session.
