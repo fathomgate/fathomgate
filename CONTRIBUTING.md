@@ -1,6 +1,6 @@
 # Contributing to Fathomgate
 
-Thanks for being here. Fathomgate keeps AI assistants safe on real networks, and the people who know those networks best are the ones running them. You don't need to write Go to help, and most of the contributions we need most don't involve any code at all.
+Thanks for being here. Fathomgate is building a policy checkpoint for AI assistants working on networks, and the people who know those networks best are the ones running them. You don't need to write Go to help, and most of the contributions we need most don't involve any code at all.
 
 New to the project? Read the [roadmap](ROADMAP.md) for where it's going, then pick something below. Issues labelled [`good first issue`](https://github.com/fathomgate/fathomgate/labels/good%20first%20issue) are a good place to start. If you're unsure about anything, open an issue and ask. Questions are contributions too.
 
@@ -23,7 +23,7 @@ The full format is in [docs/specs/profile-schema.md](docs/specs/profile-schema.m
 
 ### Report a secret that wasn't masked
 
-Fathomgate hides passwords, keys and community strings in everything that comes back from a device. Every vendor writes secrets in its own way, and we won't have seen them all. If you find one that slips through, or a config format we don't handle yet, open a [redaction gap issue](https://github.com/fathomgate/fathomgate/issues/new?template=redaction_gap.yml).
+The standalone `fathomgate redact` command masks supported password, key and community-string patterns. Masking live proxy responses is planned; v0.1.0 forwards them unchanged. Every vendor writes secrets in its own way, and we won't have seen them all. If you find one that slips through, or a config format we don't handle yet, follow [SECURITY.md](SECURITY.md) privately for a documented pattern that is not masked. For a new, undocumented vendor format, open a [redaction gap issue](https://github.com/fathomgate/fathomgate/issues/new?template=redaction_gap.yml).
 
 **Never paste a real secret anywhere**: not in an issue, a commit or a test file. Replace it with a made-up value of the same shape and length, starting with `FAKE`.
 

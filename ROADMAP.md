@@ -2,9 +2,9 @@
 
 **Safe passage for AI on your network.**
 
-AI assistants can already log in to routers, read configs and push changes. That is going to be one of the most useful things to happen to network operations in years, and one of the riskiest. Today the only thing standing between an assistant and `reload` on a core router is whatever guardrails each MCP server's author thought to add, and most added none.
+AI assistants can already log in to routers, read configs and push changes. That is going to be one of the most useful things to happen to network operations in years, and one of the riskiest. The available controls depend on the MCP server, device permissions and deployment. Fathomgate's goal is to add a shared policy layer that understands network commands and device roles.
 
-Fathomgate is the missing layer. It sits between the assistant and every network MCP server you run, reads each request before it reaches a device, and decides: **allow** it, **hold** it for a person to approve, or **deny** it with the rule that said no. It masks secrets on the way back and keeps a record of every decision that shows if anyone has edited it.
+The workflow below is the target design; **v0.1.0 is a pass-through preview with no live policy enforcement, redaction or decision audit logging**. Fathomgate is being built as a shared checkpoint. In the planned workflow, it sits between the assistant and every network MCP server you run, reads each request before it reaches a device, and decides: **allow** it, **hold** it for a person to approve, or **deny** it with the rule that said no. It masks secrets on the way back and keeps a record of every decision that shows if anyone has edited it.
 
 We want a future where connecting an AI assistant to a production network is as ordinary, and as safe, as giving a new engineer read-only access on their first day and change access once they've earned it.
 

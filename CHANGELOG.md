@@ -6,6 +6,10 @@ Entries use the project vocabulary: decisions are allow, hold, deny, expired; cl
 
 ## [Unreleased]
 
+### Changed
+
+- Public documentation leads with the v0.1.0 pass-through limits, labels the planned enforcement workflow, starts with verified binary downloads, supplies monitored reporting contacts and reconciles release and announcement guidance.
+
 ### Added
 
 - M1 (classify plus allow and deny) is open: the board is `docs/milestones/M1.yaml` and `STATUS.md` now shows it. Seven open M0 tasks moved to it (T0.35, T0.36, T0.47, T0.53, T0.54, T0.55 and T0.58, now M1-06 to M1-12), and their M0 rows are marked `dropped` with a pointer to the new id. Five decision records are proposed and wait for the maintainer: `docs/adr/0026-m1-policy-pipeline-at-dispatch.md` (the order of stages at `Proxy.dispatch`, the tool error a `deny` returns, naming the rule, and M1 not running a `hold` or an `allow` that needs `dry_run`, `diff` or `timed_rollback`), `0027-serve-policy-inventory-profiles-flags.md` (`serve --policy`, `--inventory` and `--profiles`, profiles embedded in the binary, `--audit` still refused until M4), `0028-audit-key-custody.md` (owner-only checks on the audit signing key, and `audit verify` accepting only a public key), `0029-remote-listener-tls-and-loopback-authentication.md` (`--listen-remote` with built-in TLS, TLS on loopback, `SO_EXCLUSIVEADDRUSE` on Windows) and `0030-reload-policy-and-inventory.md` (reloading without a restart).

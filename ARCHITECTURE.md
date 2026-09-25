@@ -1,5 +1,7 @@
 # Architecture
 
+**Target architecture.** The pipeline below spans M1 to M5. The v0.1.0 proxy forwards tool calls without policy enforcement, approvals, response redaction or decision audit logging. Standalone components are available; [ROADMAP.md](ROADMAP.md) distinguishes shipped and planned behavior.
+
 Fathomgate is one process that is an MCP server toward the agent and an MCP client toward each upstream network-device MCP server. Every `tools/call` passes through a fixed pipeline: normalize, classify, resolve role, evaluate policy. The policy returns one of four decisions: allow, hold, deny, or (for a hold whose TTL ran out) expired. Every result passes back through the redactor and the audit writer.
 
 This page is the system in one screen. The [ADRs](docs/adr/README.md) record why; the [specs](docs/specs/) say exactly how.

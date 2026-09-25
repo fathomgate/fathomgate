@@ -5,12 +5,12 @@ Fathomgate is a security control. A bug that lets a call reach a device against 
 ## Reporting
 
 - Use GitHub private vulnerability reporting on this repository (Security tab, "Report a vulnerability"). This is the preferred channel.
-- If that is unavailable, email SECURITY_CONTACT_EMAIL_PLACEHOLDER with the subject `fathomgate security`.
+- If that is unavailable, email [joshscott13@gmail.com](mailto:joshscott13@gmail.com) with the subject `fathomgate security`.
 - Include: version or commit, the upstream server and profile involved, the policy file (with any secrets replaced), the exact `tools/call` arguments, what you expected and what happened. For a redaction gap, include the shape of the line with the secret characters replaced by a made-up value of the same length. Never send a real secret.
 - You will get an acknowledgement within 3 days and a first assessment within 10 days. Fixes for confirmed policy, approval or redaction bypasses are released as a patch as soon as they are ready; the advisory is published with the release.
 - Credit is given in the advisory and the changelog unless you ask otherwise.
 
-Until the first tagged release, report against `main`.
+Report the release version or the exact `main` commit you tested. In v0.1.0, `serve` forwards tool calls without policy enforcement, approvals, secret masking or decision audit logging; that documented absence is not a bypass. Reports about the standalone commands and proxy transport are in scope.
 
 ## Supported versions
 

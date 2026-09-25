@@ -341,3 +341,12 @@ relo
     state: open
     matrix: [6]
     notes: 'From the security review of PR #154 (H1, H2). internal/inventory/patterns.go Resolve returns known:true on any match, so a pattern switches off the unknown-target default for every string it matches (reads reach attacker-chosen hosts through free-form-host upstreams; tags from a pattern could unlock writes). inventory-schema originally intended that a tags-only pattern never makes a target known. ADR options: a pattern never makes a target known on its own (it only adds attributes to a listed device); or it may, but pattern-derived tags can never satisfy device_tags for WRITE_CONFIG, EXEC_ARBITRARY or LAB_LIFECYCLE (carry Target.Status pattern into policy.Target). The shipped example has no active patterns meanwhile. Threat-model row: Pattern-resolved target (reads and writes).'
+
+  - id: M1-35
+    title: Clarify the public preview, reporting contacts and release guidance
+    package: docs
+    owner: docs-writer
+    reviewers: [orchestrator, design-guardian]
+    state: in review
+    matrix: []
+    notes: 'User-requested public communications review: separate v0.1.0 behavior from the planned pipeline, improve the binary quickstart, reconcile governance and add monitored contact addresses. GitHub metadata updated; private vulnerability reporting verified enabled.'
