@@ -85,25 +85,27 @@ func TestReadTokenFileWindows(t *testing.T) {
 		{"everyone can read", "D:P(A;;FA;;;" + me + ")(A;;FR;;;WD)", "grants access to S-1-1-0"},
 		{"administrators", "D:P(A;;FA;;;" + me + ")(A;;FA;;;BA)", "grants access to S-1-5-32-544"},
 	} {
-		path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-"))
-		if err := os.WriteFile(path, tok, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if tc.sddl != "" {
-			setSecurity(t, path, tc.sddl)
-		}
-		got, err := readTokenFile(path)
-		switch {
-		case tc.want == "" && err != nil:
-			t.Errorf("%s: %v", tc.name, err)
-		case tc.want == "" && string(got) != string(tok):
-			t.Errorf("%s: read %q", tc.name, got)
-		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
-			t.Errorf("%s: error %v, want %q", tc.name, err, tc.want)
-		}
-		if err != nil && strings.Contains(err.Error(), dir) {
-			t.Errorf("%s: the error quotes the path: %v", tc.name, err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-"))
+			if err := os.WriteFile(path, tok, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.sddl != "" {
+				setSecurity(t, path, tc.sddl)
+			}
+			got, err := readTokenFile(path)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Error(err)
+			case tc.want == "" && string(got) != string(tok):
+				t.Errorf("read %q", got)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("error %v, want %q", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), dir) {
+				t.Errorf("the error quotes the path: %v", err)
+			}
+		})
 	}
 
 	target := filepath.Join(dir, "target")
@@ -112,25 +114,27 @@ func TestReadTokenFileWindows(t *testing.T) {
 	if err := os.Link(target, hard); err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]string{
-		hard:                               "2 hard links",
-		dir:                                "cannot open the token file",
-		filepath.Join(dir, "no-such-file"): "cannot open the token file",
+	cases := []struct{ name, path, want string }{
+		{"hard link", hard, "2 hard links"},
+		{"directory", dir, "cannot open the token file"},
+		{"missing", filepath.Join(dir, "no-such-file"), "cannot open the token file"},
 	}
 	// A symbolic link needs a privilege or developer mode.
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink(target, link); err == nil {
-		cases[link] = "reparse point"
+		cases = append(cases, struct{ name, path, want string }{"symbolic link", link, "reparse point"})
 	} else {
 		t.Logf("symbolic link case skipped: %v", err)
 	}
-	for path, want := range cases {
-		_, err := readTokenFile(path)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: error %v, want %q", filepath.Base(path), err, want)
-		}
-		if err != nil && strings.Contains(err.Error(), dir) {
-			t.Errorf("%s: the error quotes the path: %v", filepath.Base(path), err)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := readTokenFile(tc.path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %v, want %q", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), dir) {
+				t.Errorf("the error quotes the path: %v", err)
+			}
+		})
 	}
 }

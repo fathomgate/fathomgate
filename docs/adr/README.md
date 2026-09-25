@@ -29,5 +29,7 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0019](0019-rename-to-fathomgate.md) | Rename the product from NetGuard to Fathomgate | accepted | 2026-09-24 |
 | [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted | 2026-09-24 |
 | [0021](0021-kill-the-upstream-process-tree.md) | Kill the upstream's whole process tree: a process group on Unix, a Job Object on Windows | accepted | 2026-09-24 |
+| [0022](0022-internal-proxy-export-surface.md) | The exported surface of `internal/proxy`, restated in one record | accepted | 2026-09-25 |
+| [0023](0023-listener-binds-both-loopback-families.md) | `serve --listen` binds both loopback families, and three smaller listener changes | accepted | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.

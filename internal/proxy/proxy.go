@@ -939,10 +939,12 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	}
 }
 
-// UpstreamExited returns a channel that is closed when an upstream session
-// ends on its own: the process exited or hung up, or the session failed. An
-// upstream ended by [Proxy.Close], or one that failed during [New], does not
-// close it. After it is closed, that upstream's tools answer with the tool
+// UpstreamExited returns a channel that is closed when the first upstream
+// session ends on its own: the process exited or hung up, or the session
+// failed. With several upstreams it closes on the first of them to end and
+// stays closed; which one it was is in the proxy's log. An upstream ended
+// by [Proxy.Close], or one that failed during [New], does not close it.
+// After it is closed, that upstream's tools answer with the tool
 // error "upstream <server> is not running". `fathomgate serve --listen`
 // waits on it to stop the listener and exit 1, so a supervisor restarts the
 // proxy instead of it answering for a dead upstream (ADR 0016).

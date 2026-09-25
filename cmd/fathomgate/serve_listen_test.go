@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,7 +66,11 @@ func TestParseListenAddr(t *testing.T) {
 		{"localhost:0", "127.0.0.1:0"},
 		{"localhost:8931", "127.0.0.1:8931"},
 		{"127.0.0.1:8931", "127.0.0.1:8931"},
-		{"127.10.20.30:1", "127.10.20.30:1"},
+		// Other 127/8 addresses are refused: bound alone they would leave
+		// 127.0.0.1 and [::1] on the port to another local user.
+		{"127.10.20.30:1", ""},
+		{"127.0.0.2:8931", ""},
+		{"127.0.1.1:8931", ""},
 		{"[::1]:8931", "[::1]:8931"},
 		{"[::1]:0", "[::1]:0"},
 		{"127.0.0.1:65535", "127.0.0.1:65535"},
@@ -90,18 +95,22 @@ func TestParseListenAddr(t *testing.T) {
 		{"::1:8931", ""},
 		{"", ""},
 	} {
-		got, err := parseListenAddr(tc.in)
-		if tc.want == "" {
-			if err == nil {
-				t.Errorf("%q: accepted as %q", tc.in, got)
-			} else if tc.in != "" && strings.Contains(err.Error(), tc.in) && !strings.Contains(errListenAddr.Error(), tc.in) {
-				t.Errorf("%q: the error quotes the value: %v", tc.in, err)
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			a, err := parseListenAddr(tc.in)
+			got := netip.AddrPortFrom(a.host, a.port).String()
+			if tc.want == "" {
+				if err == nil {
+					t.Errorf("accepted as %q", got)
+				} else if tc.in != "" && strings.Contains(err.Error(), tc.in) && !strings.Contains(errListenAddr.Error(), tc.in) {
+					t.Errorf("the error quotes the value: %v", err)
+				}
+				return
 			}
-			continue
-		}
-		if err != nil || got != tc.want {
-			t.Errorf("%q: %q, %v; want %q", tc.in, got, err, tc.want)
-		}
+			if err != nil || got != tc.want {
+				t.Errorf("%q, %v; want %q", got, err, tc.want)
+			}
+		})
 	}
 }
 
@@ -118,6 +127,13 @@ func TestLoadListenTokens(t *testing.T) {
 	empty := tokenFile(t, dir, "empty", "")
 	shared := tokenFile(t, dir, "shared", testListenToken+"\n")
 	makeShared(t, shared)
+	// A directory and file name with "=" in them: only the first "=" of
+	// NAME=PATH splits.
+	eqDir := filepath.Join(dir, "a=b")
+	if err := os.Mkdir(eqDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	withEq := tokenFile(t, eqDir, "tok=en", testListenToken+"\n")
 
 	env := func(v string) lookupEnvFunc {
 		return func(k string) (string, bool) { return v, k == listenTokenEnv }
@@ -134,7 +150,7 @@ func TestLoadListenTokens(t *testing.T) {
 		{name: "crlf stripped once", files: []string{"bob=" + crlf}, lookup: noEnv, names: []string{"bob"}, wantTok: map[string]string{"bob": testListenToken2}},
 		{name: "no newline", files: []string{"bob=" + bare}, lookup: noEnv, names: []string{"bob"}},
 		{name: "two files, sorted", files: []string{"zed=" + ok, "ci:runner-1=" + crlf}, lookup: noEnv, names: []string{"ci:runner-1", "zed"}},
-		{name: "path with =", files: []string{"alice=" + ok}, lookup: noEnv, names: []string{"alice"}},
+		{name: "path with =", files: []string{"alice=" + withEq}, lookup: noEnv, names: []string{"alice"}, wantTok: map[string]string{"alice": testListenToken}},
 		{name: "env token", lookup: env(testListenToken), names: []string{"env"}, wantTok: map[string]string{"env": testListenToken}},
 		{name: "none", lookup: noEnv, want: "--listen needs a bearer token"},
 		{name: "env and file", files: []string{"alice=" + ok}, lookup: env(testListenToken2), want: "FATHOMGATE_LISTEN_TOKEN and --listen-token-file are both set"},
@@ -157,30 +173,32 @@ func TestLoadListenTokens(t *testing.T) {
 		{name: "missing", files: []string{"alice=" + filepath.Join(dir, "FAKE-listen-token-as-path")}, lookup: noEnv, want: "--listen-token-file alice: cannot open the token file"},
 		{name: "shared", files: []string{"alice=" + shared}, lookup: noEnv, want: "--listen-token-file alice: the token file"},
 	} {
-		got, err := loadListenTokens(tc.files, tc.lookup)
-		if tc.want != "" {
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("%s: error %v, want %q", tc.name, err, tc.want)
-			} else {
-				checkNoCanary(t, tc.name, err.Error())
-				if strings.Contains(err.Error(), dir) {
-					t.Errorf("%s: the error quotes a path: %v", tc.name, err)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := loadListenTokens(tc.files, tc.lookup)
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Errorf("error %v, want %q", err, tc.want)
+				} else {
+					checkNoCanary(t, tc.name, err.Error())
+					if strings.Contains(err.Error(), dir) {
+						t.Errorf("the error quotes a path: %v", err)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got.names, tc.names) || len(got.byName) != len(tc.names) {
+				t.Errorf("principals %v, want %v", got.names, tc.names)
+			}
+			for name, tok := range tc.wantTok {
+				if string(got.byName[name]) != tok {
+					t.Errorf("token of %s is %d bytes, not the expected one", name, len(got.byName[name]))
 				}
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("%s: %v", tc.name, err)
-			continue
-		}
-		if !slices.Equal(got.names, tc.names) || len(got.byName) != len(tc.names) {
-			t.Errorf("%s: principals %v, want %v", tc.name, got.names, tc.names)
-		}
-		for name, tok := range tc.wantTok {
-			if string(got.byName[name]) != tok {
-				t.Errorf("%s: token of %s is %d bytes, not the expected one", tc.name, name, len(got.byName[name]))
-			}
-		}
+		})
 	}
 }
 
@@ -229,6 +247,7 @@ func TestServeListenRefusals(t *testing.T) {
 		{"bare port", withToken("--listen", ":8931"), nil, "loopback only in M0"},
 		{"IPv6 any", withToken("--listen", "[::]:8931"), nil, "loopback only in M0"},
 		{"LAN", withToken("--listen", "192.168.1.10:8931"), nil, "loopback only in M0"},
+		{"other 127/8 address", withToken("--listen", "127.0.0.2:8931"), nil, "--listen takes localhost:<port>, 127.0.0.1:<port> or [::1]:<port>"},
 		{"host name", withToken("--listen", "example.com:8931"), nil, "loopback only in M0"},
 		{"token as the address", withToken("--listen", testListenToken), nil, "--listen takes"},
 		{"bad port", withToken("--listen", "127.0.0.1:99999"), nil, "--listen: the port must be a number from 0 to 65535"},
@@ -386,6 +405,16 @@ func agentOver(t *testing.T, url, token, era string) (*mcp.ClientSession, *http.
 
 var listeningURL = regexp.MustCompile(`msg=listening url=(http://\S+)`)
 
+// listeningURLs returns the URL of every `listening` line in log, in order.
+func listeningURLs(log string) []string {
+	ms := listeningURL.FindAllStringSubmatch(log, -1)
+	urls := make([]string, 0, len(ms))
+	for _, m := range ms {
+		urls = append(urls, m[1])
+	}
+	return urls
+}
+
 // waitListening waits for the `listening url=...` line and returns the URL.
 func waitListening(t *testing.T, log *lockedBuffer, done <-chan int) string {
 	t.Helper()
@@ -404,22 +433,24 @@ func waitListening(t *testing.T, log *lockedBuffer, done <-chan int) string {
 	}
 }
 
-// startListener runs runListener on a free loopback port for p with the
-// token of principal alice, and returns the URL and the exit code channel.
+// startListener runs runListener for p with the token of principal alice
+// on a free port of 127.0.0.1 and, where the host has it, the same port of
+// [::1] (bindLoopback), and returns the first URL and the exit code
+// channel.
 func startListener(ctx context.Context, t *testing.T, p *proxy.Proxy, grace time.Duration) (string, <-chan int, *lockedBuffer) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	log := &lockedBuffer{}
+	logger := slog.New(slog.NewTextHandler(log, nil))
+	lns, err := bindLoopback(listenAddr{host: netip.MustParseAddr("127.0.0.1")}, net.Listen, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := &lockedBuffer{}
-	logger := slog.New(slog.NewTextHandler(log, nil))
 	run := listenRun{
 		tokens: listenTokens{byName: map[string][]byte{"alice": []byte(testListenToken)}, names: []string{"alice"}},
 		server: "fake", grace: grace,
 	}
 	done := make(chan int, 1)
-	go func() { done <- runListener(ctx, p, ln, run, logger, log) }()
+	go func() { done <- runListener(ctx, p, lns, run, logger, log) }()
 	return waitListening(t, log, done), done, log
 }
 
@@ -434,19 +465,48 @@ func exitWithin(t *testing.T, done <-chan int, d time.Duration) int {
 	}
 }
 
+// waitURLs waits, as waitListening does, until log has n `listening`
+// lines, and returns their URLs.
+func waitURLs(t *testing.T, log *lockedBuffer, done <-chan int, n int) []string {
+	t.Helper()
+	deadline := time.After(20 * time.Second)
+	for {
+		if urls := listeningURLs(log.String()); len(urls) >= n {
+			return urls
+		}
+		select {
+		case code := <-done:
+			t.Fatalf("serve ended with %d before %d listening lines:\n%s", code, n, log.String())
+		case <-deadline:
+			t.Fatalf("fewer than %d listening lines:\n%s", n, log.String())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 // TestListenerEndToEnd: a real loopback listener serving an in-memory
-// upstream. A go-sdk agent in each era, with a bearer token, lists the
-// prefixed tools and calls one; a request without the token gets 401 and
-// one with an Origin gets 403. The end of the context (SIGINT, SIGTERM)
-// then stops it with exit 0, promptly although the stateful agent holds a
-// GET stream open, and closes the upstream.
+// upstream on 127.0.0.1 and [::1] (where the host has IPv6), one
+// `listening` line each. A go-sdk agent in each era, on each address, with
+// a bearer token, lists the prefixed tools and calls one; a request
+// without the token gets 401 and one with an Origin gets 403, and both
+// close the connection. The end of the context (SIGINT, SIGTERM) then
+// stops it with exit 0, promptly although the stateful agent holds a GET
+// stream open, and closes the upstream.
 func TestListenerEndToEnd(t *testing.T) {
 	p, upstream := memProxy(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	url, done, log := startListener(ctx, t, p, shutdownGrace)
-	if !strings.HasPrefix(url, "http://127.0.0.1:") || !strings.HasSuffix(url, "/mcp") || strings.HasSuffix(url, ":0/mcp") {
-		t.Fatalf("listening url %q", url)
+	first, done, log := startListener(ctx, t, p, shutdownGrace)
+	families := loopbackFamilies(t)
+	urls := waitURLs(t, log, done, families)
+	if urls[0] != first || !strings.HasPrefix(first, "http://127.0.0.1:") || !strings.HasSuffix(first, "/mcp") || strings.HasSuffix(first, ":0/mcp") {
+		t.Fatalf("listening urls %q", urls)
+	}
+	if families == 2 && urls[1] != strings.Replace(first, "127.0.0.1", "[::1]", 1) {
+		t.Fatalf("second listening url %q, want [::1] on the port of %q", urls[1], first)
+	}
+	if n := strings.Count(log.String(), "principals=alice"); n != families {
+		t.Errorf("%d listening lines name the principal, want %d:\n%s", n, families, log.String())
 	}
 	for _, want := range []string{"server=fake", "principals=alice", "policy=\"none (M0 pass-through"} {
 		if !strings.Contains(log.String(), want) {
@@ -454,14 +514,14 @@ func TestListenerEndToEnd(t *testing.T) {
 		}
 	}
 
-	trs := make([]*http.Transport, 0, 3)
+	trs := make([]*http.Transport, 0, 5)
 	defer func() {
 		for _, tr := range trs {
 			tr.CloseIdleConnections()
 		}
 	}()
-	for _, era := range []string{"2025-11-25", "2026-07-28"} {
-		cs, tr := agentOver(t, url, testListenToken, era)
+	for i, era := range []string{"2025-11-25", "2026-07-28"} {
+		cs, tr := agentOver(t, urls[i%len(urls)], testListenToken, era)
 		trs = append(trs, tr)
 		defer func() { _ = cs.Close() }()
 		var names []string
@@ -484,6 +544,9 @@ func TestListenerEndToEnd(t *testing.T) {
 		}
 	}
 
+	// Every refusal closes its connection (Connection: close from the
+	// handler; the Go review of PR #109, item 5), so a client without a
+	// token holds no connection slot past its answer.
 	raw := &http.Transport{}
 	trs = append(trs, raw)
 	for _, tc := range []struct {
@@ -495,20 +558,37 @@ func TestListenerEndToEnd(t *testing.T) {
 		{"wrong token", map[string]string{"Authorization": "Bearer " + testListenToken2}, http.StatusUnauthorized},
 		{"origin", map[string]string{"Authorization": "Bearer " + testListenToken, "Origin": "http://evil.example"}, http.StatusForbidden},
 	} {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		for k, v := range tc.header {
-			req.Header.Set(k, v)
+		for _, url := range urls {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json, text/event-stream")
+			for k, v := range tc.header {
+				req.Header.Set(k, v)
+			}
+			resp, err := raw.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Errorf("%s on %s: status %d, want %d", tc.name, url, resp.StatusCode, tc.want)
+			}
+			if !resp.Close {
+				t.Errorf("%s on %s: the answer keeps the connection open", tc.name, url)
+			}
 		}
-		resp, err := raw.RoundTrip(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		if resp.StatusCode != tc.want {
-			t.Errorf("%s: status %d, want %d", tc.name, resp.StatusCode, tc.want)
+	}
+
+	// H1 in the security review of PR #109: while fathomgate listens, no
+	// one can bind either loopback family on its port.
+	if families == 2 {
+		port := strings.TrimSuffix(strings.TrimPrefix(first, "http://127.0.0.1:"), proxy.HTTPPath)
+		for _, addr := range []string{"127.0.0.1:" + port, "[::1]:" + port} {
+			if l, err := net.Listen("tcp", addr); err == nil {
+				_ = l.Close()
+				t.Errorf("%s could be bound while fathomgate listens on it", addr)
+			}
 		}
 	}
 
@@ -665,6 +745,101 @@ func (c *signalCloser) Close() error {
 	return nil
 }
 
+// TestShutdownWithListenStream (item 1 of the Go review of PR #109): a
+// 2026-era agent's subscriptions/listen stream is a POST that never ends
+// on its own. Like a 2025-era GET stream it must not hold the shutdown
+// grace: with it open and nothing else in flight, the proxy is closed at
+// once (which is what ends the stream) and no "cancelling them" warning is
+// logged. The handler stands in for go-sdk: today go-sdk answers a listen
+// request on fathomgate at once, because the proxy declares no listChanged
+// capability, so only a stand-in holds one open.
+func TestShutdownWithListenStream(t *testing.T) {
+	t.Parallel()
+	closer := &signalCloser{closed: make(chan struct{})}
+	entered := make(chan struct{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_ = http.NewResponseController(w).Flush()
+		close(entered)
+		<-closer.closed // Proxy.Close ends the listen streams
+	})
+	logs := &lockedBuffer{}
+	srv := newHTTPServer(h, closer, shutdownGrace, slog.New(slog.NewTextHandler(logs, nil)))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+	tr := &http.Transport{}
+	defer tr.CloseIdleConnections()
+	body := `{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+ln.Addr().String()+"/mcp", strings.NewReader(body))
+	req.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "subscriptions/listen")
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		if resp, err := tr.RoundTrip(req); err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+	<-entered
+
+	start := time.Now()
+	shut := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace+closeWait)
+		defer cancel()
+		shut <- srv.Shutdown(ctx)
+	}()
+	select {
+	case <-closer.closed:
+	case <-time.After(shutdownGrace / 2):
+		t.Fatal("the listen stream held the shutdown grace: the proxy was not closed at once")
+	}
+	t.Logf("proxy closed %v after shutdown began", time.Since(start))
+	if err := <-shut; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	<-srv.hookDone
+	<-streamDone
+	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Serve: %v", err)
+	}
+	if strings.Contains(logs.String(), "shutdown grace ended with requests in flight") {
+		t.Fatalf("the listen stream was counted as a request in flight:\n%s", logs.String())
+	}
+}
+
+// TestLongLived: which requests the shutdown grace does not wait for.
+func TestLongLived(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, method, mcpMethod string
+		want                    bool
+	}{
+		{"2025 GET stream", http.MethodGet, "", true},
+		{"2026 subscriptions/listen", http.MethodPost, "subscriptions/listen", true},
+		{"tools/call", http.MethodPost, "tools/call", false},
+		{"2025 POST", http.MethodPost, "", false},
+		{"DELETE", http.MethodDelete, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r, _ := http.NewRequest(tc.method, "http://127.0.0.1/mcp", nil)
+			if tc.mcpMethod != "" {
+				r.Header.Set("Mcp-Method", tc.mcpMethod)
+			}
+			if got := longLived(r); got != tc.want {
+				t.Fatalf("longLived %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestServeListenProcess: `fathomgate serve --listen` end to end with a real
 // upstream process (this test binary as a go-sdk stdio server) and a token
 // file. A 2025-era agent calls a tool through it; the end of the context
@@ -696,19 +871,30 @@ func TestServeListenProcess(t *testing.T) {
 		defer cancel()
 		url, done, stderr := start(ctx)
 		if !strings.HasPrefix(url, "http://127.0.0.1:") {
-			t.Fatalf("localhost bound as %q, want 127.0.0.1", url)
+			t.Fatalf("localhost bound as %q, want 127.0.0.1 first", url)
 		}
-		cs, tr := agentOver(t, url, testListenToken, "2025-11-25")
-		defer tr.CloseIdleConnections()
-		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "fake.echo", Arguments: map[string]any{"n": 1}})
-		if err != nil || res.IsError || res.Content[0].(*mcp.TextContent).Text != `echo {"n":1}` {
-			t.Fatalf("tools/call: %v %+v", err, res)
+		// localhost is bound on both loopback families (H1), each named on
+		// its own listening line.
+		urls := []string{url}
+		if loopbackFamilies(t) == 2 {
+			urls = waitURLs(t, stderr, done, 2)
+			if want := strings.Replace(url, "127.0.0.1", "[::1]", 1); urls[1] != want {
+				t.Fatalf("listening urls %q, want %q second", urls, want)
+			}
+		}
+		for i, u := range urls {
+			cs, tr := agentOver(t, u, testListenToken, "2025-11-25")
+			defer tr.CloseIdleConnections()
+			res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "fake.echo", Arguments: map[string]any{"n": i}})
+			if err != nil || res.IsError || res.Content[0].(*mcp.TextContent).Text != fmt.Sprintf(`echo {"n":%d}`, i) {
+				t.Fatalf("tools/call on %s: %v %+v", u, err, res)
+			}
+			defer func() { _ = cs.Close() }()
 		}
 		cancel()
 		if code := exitWithin(t, done, 2*shutdownGrace); code != exitOK {
 			t.Fatalf("exit %d, want 0:\n%s", code, stderr.String())
 		}
-		_ = cs.Close()
 		checkNoCanary(t, "stderr", stderr.String())
 	})
 

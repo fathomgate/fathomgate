@@ -83,7 +83,7 @@ vet: ## go vet + gofmt check
 ifdef LINT_GOOS
 LINT_TARGETS ?= $(LINT_GOOS)/$(or $(LINT_GOARCH),amd64)
 endif
-LINT_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+LINT_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 lint: $(GOLANGCI_LINT) ## golangci-lint at GOLANGCI_LINT_VERSION (sha256-verified release binary) for each of LINT_TARGETS
 	GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GOLANGCI_LINT) config verify

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+
+	"github.com/fathomgate/fathomgate/internal/fileacl"
 )
 
 // readTokenFile reads a listen token file, refusing one another user could
@@ -16,7 +18,8 @@ import (
 // opens the file without following a final symbolic link (and without
 // blocking on a FIFO), then checks the open descriptor: a regular file with
 // exactly one link, owned by the effective user, with no group or other
-// permission bits (mode 0600 or 0400). No error quotes the path.
+// permission bits (mode 0600 or 0400), and on macOS no extended ACL. No
+// error quotes the path.
 func readTokenFile(path string) ([]byte, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -48,6 +51,14 @@ func readTokenFile(path string) ([]byte, error) {
 	}
 	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
 		return nil, fmt.Errorf("the token file has mode %04o, so other users can read or change it; make it owner-only with chmod 600", perm)
+	}
+	// The mode bits do not show a macOS extended ACL (L2 in the security
+	// review of PR #109); fileacl reads it on the open descriptor.
+	switch ext, err := fileacl.Extended(f); {
+	case err != nil:
+		return nil, fmt.Errorf("cannot check the token file's access control list: %w", pathless(err))
+	case ext:
+		return nil, errors.New("the token file has an extended ACL, which can give other users access the mode does not show; remove it with chmod -N")
 	}
 	return readCapped(f)
 }

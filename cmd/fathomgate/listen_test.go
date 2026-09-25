@@ -33,8 +33,8 @@ func TestCheckListenEnvironment(t *testing.T) {
 func TestNewHTTPServer(t *testing.T) {
 	t.Parallel()
 	s := newHTTPServer(http.NotFoundHandler(), io.NopCloser(nil), shutdownGrace, nil)
-	if shutdownGrace != 5*time.Second || maxConnections != 128 {
-		t.Fatalf("grace %v, connection cap %d", shutdownGrace, maxConnections)
+	if shutdownGrace != 5*time.Second || maxConnections != 128 || firstHeaderTimeout != 3*time.Second {
+		t.Fatalf("grace %v, connection cap %d, first header timeout %v", shutdownGrace, maxConnections, firstHeaderTimeout)
 	}
 	if s.MaxHeaderBytes != 64<<10 || s.ReadHeaderTimeout != 10*time.Second || s.IdleTimeout != 120*time.Second || s.ReadTimeout != 0 || s.WriteTimeout != 0 {
 		t.Fatalf("server limits %+v", s)
