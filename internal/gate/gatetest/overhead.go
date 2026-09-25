@@ -2,16 +2,24 @@
 
 // Package gatetest is the M1-23 overhead corpus and its measurement, shared
 // by the tier 1 overhead tests of internal/gate (Decide alone) and
-// internal/proxy (the dispatch path around Decide). It is test support:
-// nothing the binary links imports it.
+// internal/proxy (the dispatch path around Decide).
+//
+// Package gatetest is for tests only: it imports testing, and nothing the
+// fathomgate binary links may import it (TestNotInBinary checks
+// cmd/fathomgate's dependencies).
 //
 // The PRD's M1 success metric is "under 5 ms at p99 for classify plus
 // evaluate, measured in tier 1". The tests time every call on its own after
 // a warm-up and fail when the p99 of the typical corpus is over [Budget]
-// ([CheckTypical]). The worst cases, arguments at the proxy's 64 KiB cap,
-// are timed one by one against the same budget ([CheckWorst]): a p50 over
-// it fails the run unless the case is in [KnownOverBudget], and a p99 over
-// it is logged as OVER BUDGET AT p99. Their p99 is not a pass condition
+// ([CheckTypical]), in every run. The worst cases, arguments at the proxy's
+// 64 KiB cap, are timed one by one against the same budget ([CheckWorst]).
+// Their p50 is enforced only when [Strict] is true, which the CI steps that
+// run the overhead tests alone with -p 1 set: in a full parallel go test
+// run, other packages' tests share the CPU and a p50 of a few milliseconds
+// is not the gate's alone. In the strict steps a p50 over the budget fails
+// unless the case is known ([KnownOverBudget]), and a known case back under
+// the budget fails too, so its entry is removed. A p99 over the budget is
+// logged as OVER BUDGET AT p99 everywhere. Their p99 is not a pass condition
 // because it is set by garbage collection, not by the call: each worst case
 // allocates 0.4 to 3.4 MB, so a collection starts every call or two and its
 // pause lands on a random call (on Windows 10 to 18 ms, against 2 to 4 ms
@@ -22,6 +30,7 @@ package gatetest
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -37,9 +46,9 @@ const Budget = 5 * time.Millisecond
 // instruments every memory access and slows CPU-bound Go code by 2 to 20
 // times (Go's race detector documentation); the gate is all map, string,
 // regexp and JSON work, near the top of that range. The budget holds at 1x
-// in every run without -race: the Windows and macOS CI jobs and the Linux
-// job's overhead step (ci.yaml). Under -race the tests still catch an
-// order-of-magnitude regression.
+// in every run without -race, and the strict steps of the Linux, Windows
+// and macOS CI jobs (ci.yaml) run without it. Under -race the typical
+// corpus still catches an order-of-magnitude regression.
 const RaceFactor = 10
 
 // MaxArgs is the proxy's cap on a call's arguments (internal/proxy
@@ -56,7 +65,16 @@ func Limit() time.Duration {
 	return Budget
 }
 
-// What names the two measurements, for the logs and KnownOverBudget.
+// StrictEnv is the environment variable that turns on [Strict].
+const StrictEnv = "FATHOMGATE_OVERHEAD_STRICT"
+
+// Strict reports whether StrictEnv is "1": the worst cases' p50 is then
+// enforced. Only the CI steps that run the overhead tests alone (-p 1, no
+// -race) set it.
+func Strict() bool { return os.Getenv(StrictEnv) == "1" }
+
+// WhatGate and WhatProxy name the two measurements, for the logs and
+// KnownOverBudget.
 const (
 	WhatGate  = "gate Decide"
 	WhatProxy = "proxy decision stage"
@@ -64,15 +82,15 @@ const (
 
 // The findings behind KnownOverBudget.
 const (
-	findingRegexp = "M1-23 finding: classify matches each command against the read allow-list with backtracking regexps, about 3 us a command, so the 1,900 commands that fit in 64 KiB take 5 to 6 ms. Owner: policy-engineer (internal/classify)."
+	findingRegexp = "M1-23 finding: classify matches each command against the read allow-list with backtracking regexps, about 3 us a command, so the 1,900 commands that fit in 64 KiB take 5 to 10 ms. Owner: policy-engineer (internal/classify)."
 	findingTwice  = "M1-23 finding: when a target of the call is already counted, decideLocked runs Decide a second time with the lower count, so the proxy pays the whole classify and resolve cost twice. Owner: mcp-protocol-engineer (internal/proxy)."
 )
 
-// KnownOverBudget names the worst cases whose p50 is over Budget, keyed
-// "<what>: <case>", with the finding. They are still timed and logged, with
-// KNOWN OVER BUDGET; remove an entry when its finding is fixed, and the case
-// then fails the run if it is still over.
-var KnownOverBudget = map[string]string{
+// knownOverBudget holds the worst cases whose p50 is over Budget, keyed
+// "<what>: <case>", with the finding. Remove an entry when its finding is
+// fixed: the strict steps fail on a known case that is back under the
+// budget, and on an unknown case over it.
+var knownOverBudget = map[string]string{
 	WhatGate + ": " + WorstShowCommands:  findingRegexp,
 	WhatGate + ": " + WorstBatch:         findingRegexp,
 	WhatProxy + ": " + WorstShowCommands: findingRegexp + " " + findingTwice,
@@ -80,7 +98,16 @@ var KnownOverBudget = map[string]string{
 	WhatProxy + ": " + WorstManyTargets:  findingTwice,
 }
 
-// The worst-case names, for KnownOverBudget and the logs.
+// KnownOverBudget returns the finding for worst case name under
+// measurement what (WhatGate or WhatProxy), and whether its p50 is known to
+// be over Budget.
+func KnownOverBudget(what, name string) (finding string, ok bool) {
+	finding, ok = knownOverBudget[what+": "+name]
+	return finding, ok
+}
+
+// WorstShowCommands and the other Worst names are the worst cases' names,
+// for KnownOverBudget and the logs.
 const (
 	WorstShowCommands = "eos run_commands, 64 KiB of show commands"
 	WorstOneCommand   = "upa send_command, one 64 KiB multi-line command"
@@ -109,12 +136,6 @@ const (
 	eos    = "eos-mcp"
 )
 
-// InventoryNames are the devices of inventory.example.yaml.
-var InventoryNames = []string{
-	"core-rtr-01", "core-rtr-02", "border-rtr-01", "dc-spine-01", "dc-leaf-01",
-	"acc-sw-01", "fw-edge-01", "lab-leaf-01", "lab-spine-01", "lab-sw-01",
-}
-
 func mustJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -127,7 +148,7 @@ func typical(name, server, tool string, args map[string]any, effect, rule string
 	return Case{Name: name, Server: server, Tool: tool, Args: mustJSON(args), Effect: effect, Rule: rule}
 }
 
-// Typical is the fixed mix of calls through the three M1 profiles: typed
+// Typical returns the fixed mix of calls through the three M1 profiles: typed
 // reads, downgraded exec, config dumps, refused exec, writes that hold,
 // unknown targets, bad names, fan-out and group selectors. Its p99 is the
 // PRD metric.
@@ -148,13 +169,18 @@ func Typical() []Case {
 	}
 }
 
-// Worst is the worst-case corpus: arguments within 1 KiB under the 64 KiB
-// cap whose every command, config line or target the gate must check (no
-// input fails early, except the one multi-line command, which the
+// Worst returns the worst-case corpus: arguments within 1 KiB under the
+// 64 KiB cap whose every command, config line or target the gate must
+// check (no input fails early, except the one multi-line command, which the
 // downgrade refuses at its first line break after reading the whole
 // payload), a long multi-line config payload and thousands of targets,
-// each resolved.
-func Worst() ([]Case, error) {
+// each resolved. known are the device names of the inventory under test
+// (inventory.example.yaml, as the tests load it): the target list starts
+// with them, and the batch names all of them.
+func Worst(known []string) ([]Case, error) {
+	if len(known) == 0 {
+		return nil, fmt.Errorf("no inventory device names")
+	}
 	show := func(i int) string { return fmt.Sprintf("show interfaces Ethernet%d/%d status", i/48+1, i%48+1) }
 	cfg := func(i int) string {
 		if i%2 == 0 {
@@ -163,14 +189,14 @@ func Worst() ([]Case, error) {
 		return fmt.Sprintf("   description uplink to dc-leaf-%04d port %d", i, i%48+1)
 	}
 	target := func(i int) string {
-		if i < len(InventoryNames) {
-			return InventoryNames[i]
+		if i < len(known) {
+			return known[i]
 		}
 		return fmt.Sprintf("lab-dev-%05d", i)
 	}
-	known := make([]any, len(InventoryNames))
-	for i, n := range InventoryNames {
-		known[i] = n
+	all := make([]any, len(known))
+	for i, n := range known {
+		all[i] = n
 	}
 	specs := []struct {
 		name, server, tool string
@@ -185,7 +211,7 @@ func Worst() ([]Case, error) {
 		{WorstConfigString, upa, "set_config_commands_and_commit_or_save", map[string]any{"name": "core-rtr-01"}, "commands", true, cfg, "hold", "prod-core-needs-approval"},
 		{WorstConfigLines, eos, "push_config", map[string]any{"hostname": "lab-sw-01"}, "config_lines", false, cfg, "allow", "lab-writes-free"},
 		{WorstManyTargets, eos, "daily_brief", map[string]any{}, "hostnames", false, target, "deny", "default:unknown_target"},
-		{WorstBatch, eos, "run_commands_batch", map[string]any{"hostnames": known}, "commands", false, show, "deny", "default:session.max_devices"},
+		{WorstBatch, eos, "run_commands_batch", map[string]any{"hostnames": all}, "commands", false, show, "deny", "default:session.max_devices"},
 	}
 	out := make([]Case, 0, len(specs))
 	for _, s := range specs {
@@ -250,18 +276,22 @@ func withKey(base map[string]any, key string, v any) map[string]any {
 	return m
 }
 
-// Rounds are the measured and warm-up passes: over the typical corpus
+// Rounds returns the measured and warm-up passes: over the typical corpus
 // (each pass is one call of every case), and per worst case. With 200
 // samples the nearest-rank p99 is the third-largest. -short and -race run
-// far fewer, to keep the -race job's time (a worst case costs 100 to 200 ms
-// a call under -race): there a worst case's p99 of 10 samples is its
-// maximum, and the 1x budget is held by the runs without -race.
+// fewer: a worst case's p99 of 10 samples is its maximum. Under -race the
+// tests time no worst case at all (TimeWorst), since a worst case costs
+// 100 to 200 ms a call there.
 func Rounds() (typicalRounds, worstRounds, warm int) {
 	if testing.Short() || RaceEnabled {
 		return 100, 10, 2
 	}
 	return 2000, 200, 50
 }
+
+// TimeWorst reports whether the tests time the worst cases: not under
+// -race, where they check each worst case's verdict once and move on.
+func TimeWorst() bool { return !RaceEnabled }
 
 // Time runs fn warm times untimed, collects garbage, then runs it n times
 // and returns each run's wall time.
@@ -279,7 +309,7 @@ func Time(n, warm int, fn func()) []time.Duration {
 	return out
 }
 
-// Quantile is the nearest-rank q-quantile of samples (sorted in place).
+// Quantile returns the nearest-rank q-quantile of samples (sorted in place).
 func Quantile(samples []time.Duration, q float64) time.Duration {
 	if len(samples) == 0 {
 		return 0
@@ -289,7 +319,7 @@ func Quantile(samples []time.Duration, q float64) time.Duration {
 	return samples[min(max(i, 0), len(samples)-1)]
 }
 
-// ClockStep is the smallest non-zero step of time.Now seen over a short
+// ClockStep returns the smallest non-zero step of time.Now seen over a short
 // spin. On Windows the monotonic clock advances in steps of about 0.5 ms,
 // so every sample there is quantised to it and p50 of a microsecond call
 // reads 0s; the p99 of a call near the budget is then within one step of
@@ -315,8 +345,8 @@ func summary(t testing.TB, what, name string, samples []time.Duration) (p50, p99
 	return p50, p99
 }
 
-// CheckTypical is the PRD metric: it fails t when the p99 of samples is
-// over Limit.
+// CheckTypical checks the PRD metric: it fails t when the p99 of samples
+// is over Limit, strict or not.
 func CheckTypical(t testing.TB, what, name string, samples []time.Duration) {
 	t.Helper()
 	if _, p99 := summary(t, what, name, samples); p99 > Limit() {
@@ -324,29 +354,35 @@ func CheckTypical(t testing.TB, what, name string, samples []time.Duration) {
 	}
 }
 
-// CheckWorst fails t when the p50 of one worst case's samples is over
-// Limit, unless the case is in KnownOverBudget, and logs a p99 over Limit
+// CheckWorst logs one worst case's p50, p99 and max, and a p99 over Limit
 // as OVER BUDGET AT p99 (see the package doc for why p99 is reported, not
-// enforced, for a worst case).
+// enforced, for a worst case). When Strict is true it fails t if the p50 is
+// over Limit and the case is not known (KnownOverBudget), or if the case is
+// known and its p50 is back under Limit; otherwise it only logs those.
 func CheckWorst(t testing.TB, what, name string, samples []time.Duration) {
 	t.Helper()
 	p50, p99 := summary(t, what, name, samples)
 	if p99 > Limit() {
 		t.Logf("%s: %s: OVER BUDGET AT p99: %v > %v", what, name, p99, Limit())
 	}
-	if p50 <= Limit() {
-		return
+	finding, known := KnownOverBudget(what, name)
+	report := t.Logf
+	if Strict() {
+		report = t.Errorf
 	}
-	if why, ok := KnownOverBudget[what+": "+name]; ok {
-		t.Logf("%s: %s: KNOWN OVER BUDGET: p50 %v > %v (%s)", what, name, p50, Limit(), why)
-		return
+	switch {
+	case p50 > Limit() && known:
+		t.Logf("%s: %s: KNOWN OVER BUDGET: p50 %v > %v (%s)", what, name, p50, Limit(), finding)
+	case p50 > Limit():
+		report("%s: %s: p50 %v over the budget %v (enforced with %s=1)", what, name, p50, Limit(), StrictEnv)
+	case known:
+		report("%s: %s: p50 %v now under budget %v; remove it from KnownOverBudget (enforced with %s=1)", what, name, p50, Limit(), StrictEnv)
 	}
-	t.Errorf("%s: %s: p50 %v over the budget %v", what, name, p50, Limit())
 }
 
 // Header logs what the numbers were measured on.
 func Header(t testing.TB, what string) {
 	t.Helper()
-	t.Logf("%s: %s/%s, %s, race=%v, GOMAXPROCS=%d, clock step %v; budget p99 <= %v",
-		what, runtime.GOOS, runtime.GOARCH, runtime.Version(), RaceEnabled, runtime.GOMAXPROCS(0), ClockStep(), Limit())
+	t.Logf("%s: %s/%s, %s, race=%v, strict=%v, GOMAXPROCS=%d, clock step %v; budget p99 <= %v",
+		what, runtime.GOOS, runtime.GOARCH, runtime.Version(), RaceEnabled, Strict(), runtime.GOMAXPROCS(0), ClockStep(), Limit())
 }

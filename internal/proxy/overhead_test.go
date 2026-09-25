@@ -24,8 +24,8 @@ import (
 )
 
 // overheadGate is internal/gate over the repo profiles, prod-approval and
-// inventory.example.yaml.
-func overheadGate(t *testing.T) *fgate.Gate {
+// inventory.example.yaml, and the device names of that inventory.
+func overheadGate(t *testing.T) (*fgate.Gate, []string) {
 	t.Helper()
 	root := func(parts ...string) string { return filepath.Join(append([]string{"..", ".."}, parts...)...) }
 	profiles, err := classify.LoadProfileDir(root("profiles"))
@@ -48,7 +48,11 @@ func overheadGate(t *testing.T) *fgate.Gate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return g
+	names := make([]string, len(f.Devices))
+	for i, d := range f.Devices {
+		names[i] = d.Name
+	}
+	return g, names
 }
 
 // noopUpstreams are one in-memory upstream per server of cases, each with
@@ -150,14 +154,16 @@ func overCap(t *testing.T, worst []gatetest.Case) gatetest.Case {
 // proxy's dispatch path, in process, with internal/gate over the repo
 // profiles, prod-approval and inventory.example.yaml, and no-op upstreams.
 //
-// The added latency is what gated runs before it forwards or refuses a
-// call: the argument cap, the counter key's lock and counters, Decide (twice
-// when a target is already counted), the re-encoding of the arguments, the
-// decision line and, for a refusal, the tool error. It is timed per call by
-// running decide and logDecision as gated does; the p99 over the typical
-// corpus must stay under the budget, and each worst case's p50 must
-// (gatetest.CheckWorst). The session counters are those of one stdio agent
-// that has already made every typical call, the steady state.
+// The added latency is decideAndRespond, what gated runs before it
+// forwards or refuses a call: the argument cap, the counter key's lock and
+// counters, Decide (twice when a target is already counted), the
+// re-encoding of the arguments, the decision line and, for a refusal, the
+// tool error. The p99 over the typical corpus must stay under the budget in
+// every run; each worst case's p50 is enforced only with
+// FATHOMGATE_OVERHEAD_STRICT=1 (gatetest.CheckWorst), and under -race the
+// worst cases are checked for their verdict only. The session counters are
+// those of one stdio agent that has already made every typical call, the
+// steady state.
 //
 // As a check on that stage timing, every call is also sent end to end
 // through an agent session, once to the gated proxy and once to a
@@ -166,21 +172,22 @@ func overCap(t *testing.T, worst []gatetest.Case) gatetest.Case {
 // logged, not checked: it is set by the in-memory transport's scheduling
 // jitter, which is as large on the pass-through proxy (on Windows its p99
 // alone is about 10 ms for a call the gate decides in microseconds). The
-// p50 of the typical corpus's differences must stay under the budget.
+// p50 of the typical corpus's differences must stay under the budget. The
+// worst cases are not sent end to end under -short or -race.
 func TestDispatchOverhead(t *testing.T) {
-	worst, err := gatetest.Worst()
+	g, names := overheadGate(t)
+	worst, err := gatetest.Worst(names)
 	if err != nil {
 		t.Fatal(err)
 	}
 	typical := gatetest.Typical()
 	worst = append(worst, overCap(t, worst))
 	all := slices.Concat(typical, worst)
-	g := overheadGate(t)
 	gated, gatedAgent := overheadProxy(t, all, g)
 	_, passAgent := overheadProxy(t, all, nil)
 	ctx := context.Background()
 	typicalRounds, worstRounds, warm := gatetest.Rounds()
-	gatetest.Header(t, "proxy dispatch")
+	gatetest.Header(t, gatetest.WhatProxy)
 
 	calls := make([]call, len(all))
 	for i, tc := range all {
@@ -191,13 +198,12 @@ func TestDispatchOverhead(t *testing.T) {
 		calls[i] = call{up: r.up, tool: r.tool, arguments: tc.Args, agent: agentPeer{version: "2025-11-25"}, transport: transportStdio}
 	}
 	stage := func(i int) (effect, rule string) {
-		d, err := gated.decide(ctx, calls[i])
+		d, refused, err := gated.decideAndRespond(ctx, calls[i])
 		if err != nil {
 			t.Fatal(err)
 		}
-		gated.logDecision(ctx, d.v)
-		if !d.v.Forward {
-			_ = toolError(d.v.Error)
+		if (refused == nil) != d.v.Forward {
+			t.Fatalf("%s: forward=%v with refusal %v", all[i].Name, d.v.Forward, refused)
 		}
 		return d.v.Effect, d.v.RuleID
 	}
@@ -217,8 +223,12 @@ func TestDispatchOverhead(t *testing.T) {
 		k++
 	})
 	gatetest.CheckTypical(t, gatetest.WhatProxy, "typical corpus", samples)
-	for i := len(typical); i < len(all); i++ {
-		gatetest.CheckWorst(t, gatetest.WhatProxy, all[i].Name, gatetest.Time(worstRounds, warm, func() { stage(i) }))
+	if gatetest.TimeWorst() {
+		for i := len(typical); i < len(all); i++ {
+			gatetest.CheckWorst(t, gatetest.WhatProxy, all[i].Name, gatetest.Time(worstRounds, warm, func() { stage(i) }))
+		}
+	} else {
+		t.Logf("%s: worst cases checked for their verdict only under -race", gatetest.WhatProxy)
 	}
 
 	// 2. End to end, gated against pass-through, paired call by call.
@@ -273,6 +283,9 @@ func TestDispatchOverhead(t *testing.T) {
 	t.Logf("%s: typical corpus: n=%d p50 %v p99 %v", added, len(diffs), p50, p99)
 	if p50 > gatetest.Limit() {
 		t.Errorf("%s: typical corpus: p50 %v over the budget %v", added, p50, gatetest.Limit())
+	}
+	if testing.Short() || gatetest.RaceEnabled {
+		return
 	}
 	for i := len(typical); i < len(all); i++ {
 		diffs := endToEnd(all[i].Name, []int{i}, max(worstRounds/5, 5))

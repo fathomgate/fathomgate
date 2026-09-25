@@ -29,21 +29,23 @@ Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && p
 Two tier 1 tests hold the PRD's M1 metric, *under 5 ms at p99 for classify plus evaluate*. Both use the repo profiles, `prod-approval.yaml` and `inventory.example.yaml`, and time every call on its own after a warm-up. The corpus is in `internal/gate/gatetest`, and each case must first get its expected decision word and rule id, so a change that turns a costly path into a cheap early refusal fails instead of making the numbers look better.
 
 - `TestDecideOverhead` (`internal/gate`) times `Gate.Decide` alone.
-- `TestDispatchOverhead` (`internal/proxy`) times the decision stage the proxy runs before it forwards or refuses a call: the 64 KiB argument cap, the counter lock and counters, `Decide` (run twice when a target is already counted), re-encoding the arguments, the decision line and the tool error. The counters are those of one stdio agent in steady state. As a cross-check it sends every call end to end through an agent session to a gated proxy and to a pass-through proxy over the same no-op upstreams, and logs the paired difference.
+- `TestDispatchOverhead` (`internal/proxy`) times `Proxy.decideAndRespond`, the decision stage the proxy runs before it forwards or refuses a call: the 64 KiB argument cap, the counter lock and counters, `Decide` (run twice when a target is already counted), re-encoding the arguments, the decision line and the tool error. The counters are those of one stdio agent in steady state. As a cross-check it sends every call end to end through an agent session to a gated proxy and to a pass-through proxy over the same no-op upstreams, and logs the paired difference.
 
 What fails the run:
 
-| Corpus | Check | Limit |
-| --- | --- | --- |
-| Typical: the 12 calls of `gatetest.Typical` (typed reads, downgraded exec, config dumps, `no-exec`, holds, unknown and malformed targets, fan-out, group selectors) | p99 of 24,000 calls | 5 ms |
-| Worst: arguments within 1 KiB of the 64 KiB cap (1,900 show commands, one multi-line command, a multi-line config string, config lines, 3,300 targets, a batch over every known target) and, in the proxy, one byte over the cap | p50 of each case, 200 calls | 5 ms, unless listed in `gatetest.KnownOverBudget` |
-| End to end, typical, gated minus pass-through | p50 | 5 ms |
+| Corpus | Check | Limit | Enforced in |
+| --- | --- | --- | --- |
+| Typical: the 12 calls of `gatetest.Typical` (typed reads, downgraded exec, config dumps, `no-exec`, holds, unknown and malformed targets, fan-out, group selectors) | p99 of 24,000 calls | 5 ms | Every run |
+| Worst: arguments within 1 KiB of the 64 KiB cap (1,900 show commands, one multi-line command, a multi-line config string, config lines, 3,300 targets, a batch over every known target) and, in the proxy, one byte over the cap | p50 of each case, 200 calls | 5 ms. A case in `gatetest.KnownOverBudget` passes while over it and fails once it is back under it, so its entry comes out | Only with `FATHOMGATE_OVERHEAD_STRICT=1` |
+| End to end, typical, gated minus pass-through | p50 | 5 ms | Every run |
+
+`FATHOMGATE_OVERHEAD_STRICT=1` is set only in the `gate overhead budget (M1-23)` steps of the Linux, Windows and macOS CI jobs. Those steps run the two tests alone, with `-p 1 -v` and without `-race`. In a full `go test ./...`, other packages' tests share the CPU, so a worst case's p50 of a few milliseconds is not the gate's alone and is only logged. The go-reviewer's round on PR #183 caught `TestDecideOverhead` failing 1 run in 3 that way, with the 3,300-target case at a p50 of 5.74 ms.
 
 A worst case's p99 over the budget is logged as `OVER BUDGET AT p99`, not failed, because the garbage collector sets it rather than the call. Each worst case allocates 0.4 to 3.4 MB, so a collection starts every call or two. On Windows the pause lands on a random call and adds 10 to 18 ms. With `GOGC=off`, or on Linux, p99 sits close to p50. The end-to-end p99 is logged for the same kind of reason: it is set by the in-memory transport's scheduling jitter, which is as large on the pass-through proxy.
 
-Under `-race` the limit is 10 times higher (`gatetest.RaceFactor`), and the tests run 100 typical and 10 worst-case rounds. The race detector slows this map, regexp and JSON code by up to 20 times. The 1x budget is held by every run without `-race`: the Windows and macOS CI jobs, and the Linux job's `gate overhead budget (M1-23)` step, which runs both tests with `-p 1 -v` so the numbers below come from its log. The threshold never moves to make a run pass. A case over it goes into `KnownOverBudget` with its finding and owner, and comes out when the finding is fixed.
+Under `-race` the limit is 10 times higher (`gatetest.RaceFactor`), because the race detector slows this map, regexp and JSON code by up to 20 times. Only the typical corpus is timed there, for 100 rounds. Each worst case is checked once for its decision word and rule id, and the end-to-end worst cases are skipped, as they are under `-short`. The 1x budget is held by the strict steps, and the numbers below come from the Linux step's log. The threshold never moves to make a run pass. A case over it goes into `KnownOverBudget` with its finding and owner, and comes out when the finding is fixed.
 
-Run: `go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/`. Per-case means and allocations: `go test -run '^$' -bench BenchmarkDecideOverhead ./internal/gate/`.
+Run: `FATHOMGATE_OVERHEAD_STRICT=1 go test -count=1 -p 1 -v -run 'TestDecideOverhead|TestDispatchOverhead' ./internal/gate/ ./internal/proxy/`. Per-case means and allocations: `go test -run '^$' -bench BenchmarkDecideOverhead ./internal/gate/`.
 
 ### Measured, 2026-09-25
 
@@ -64,7 +66,7 @@ Maintainer's workstation (Windows 11, Ryzen 7 7700X, 16 threads, go1.26.8, no `-
 
 Findings, both in `KnownOverBudget` and neither loosened:
 
-1. **Command classification costs about 3 µs a command** (policy-engineer, `internal/classify`). `classifyCommand` checks each command against the read allow-list with backtracking regular expressions, which takes about 70% of the CPU. The 1,900 show commands that fit in 64 KiB take 5 to 10 ms. Nothing caps the number of commands in a call below the 64 KiB argument cap.
+1. **Command classification costs about 3 µs a command** (policy-engineer, `internal/classify`). `classifyCommand` checks each command against the read allow-list with backtracking regular expressions, which takes about 70% of the CPU. The 1,900 show commands that fit in 64 KiB take 5 to 10 ms in `Decide`. Nothing caps the number of commands in a call below the 64 KiB argument cap.
 2. **The proxy runs `Decide` twice when a target is already counted** (mcp-protocol-engineer, `internal/proxy`). `decideLocked` runs the gate again with a lower `devices_touched`, which repeats parsing, classification and resolution. Every worst case costs about twice as much in the proxy as in `Decide`, and 3,300 targets go over the budget only because of this.
 
 ## Tier 2: what it proves
