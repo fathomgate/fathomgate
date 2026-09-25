@@ -752,57 +752,70 @@ func (c *signalCloser) Close() error {
 
 // TestShutdownWithListenStream (item 1 of the Go review of PR #109): a
 // 2026-era agent's subscriptions/listen stream is a POST that never ends
-// on its own. Like a 2025-era GET stream it does not hold the shutdown
+// on its own. Like a 2025-era GET stream it must not hold the shutdown
 // grace: with it open and nothing else in flight, the proxy is closed at
-// once, the stream ends, and no "cancelling them" warning is logged.
+// once (which is what ends the stream) and no "cancelling them" warning is
+// logged. The handler stands in for go-sdk: today go-sdk answers a listen
+// request on fathomgate at once, because the proxy declares no listChanged
+// capability, so only a stand-in holds one open.
 func TestShutdownWithListenStream(t *testing.T) {
-	p, _ := memProxy(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	url, done, log := startListener(ctx, t, p, shutdownGrace)
-
-	body := `{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{"notifications":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"raw","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+testListenToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("Mcp-Protocol-Version", "2026-07-28")
-	req.Header.Set("Mcp-Method", "subscriptions/listen")
-	tr := &http.Transport{}
-	defer tr.CloseIdleConnections()
-	resp, err := tr.RoundTrip(req)
+	t.Parallel()
+	closer := &signalCloser{closed: make(chan struct{})}
+	entered := make(chan struct{})
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_ = http.NewResponseController(w).Flush()
+		close(entered)
+		<-closer.closed // Proxy.Close ends the listen streams
+	})
+	logs := &lockedBuffer{}
+	srv := newHTTPServer(h, closer, shutdownGrace, slog.New(slog.NewTextHandler(logs, nil)))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		t.Fatalf("subscriptions/listen: status %d, %q: %s", resp.StatusCode, resp.Header.Get("Content-Type"), b)
-	}
-	// The acknowledgement is the stream's first event; once it has arrived
-	// the stream is open and held by go-sdk.
-	first := make([]byte, 1)
-	if _, err := io.ReadFull(resp.Body, first); err != nil {
-		t.Fatalf("no acknowledgement on the listen stream: %v", err)
-	}
-	streamEnded := make(chan struct{})
-	go func() { _, _ = io.Copy(io.Discard, resp.Body); close(streamEnded) }()
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+	tr := &http.Transport{}
+	defer tr.CloseIdleConnections()
+	body := `{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+ln.Addr().String()+"/mcp", strings.NewReader(body))
+	req.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "subscriptions/listen")
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		if resp, err := tr.RoundTrip(req); err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+	<-entered
 
 	start := time.Now()
-	cancel()
-	if code := exitWithin(t, done, shutdownGrace); code != exitOK {
-		t.Fatalf("exit %d, want 0:\n%s", code, log.String())
-	}
-	if d := time.Since(start); d >= shutdownGrace/2 {
-		t.Fatalf("shutdown took %v with a listen stream open; the stream held the grace", d)
-	}
-	if strings.Contains(log.String(), "shutdown grace ended with requests in flight") {
-		t.Fatalf("the listen stream was counted as a request in flight:\n%s", log.String())
-	}
+	shut := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace+closeWait)
+		defer cancel()
+		shut <- srv.Shutdown(ctx)
+	}()
 	select {
-	case <-streamEnded:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the listen stream is still open after shutdown")
+	case <-closer.closed:
+	case <-time.After(shutdownGrace / 2):
+		t.Fatal("the listen stream held the shutdown grace: the proxy was not closed at once")
+	}
+	t.Logf("proxy closed %v after shutdown began", time.Since(start))
+	if err := <-shut; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	<-srv.hookDone
+	<-streamDone
+	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("Serve: %v", err)
+	}
+	if strings.Contains(logs.String(), "shutdown grace ended with requests in flight") {
+		t.Fatalf("the listen stream was counted as a request in flight:\n%s", logs.String())
 	}
 }
 
