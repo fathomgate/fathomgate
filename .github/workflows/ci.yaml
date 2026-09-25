@@ -281,7 +281,10 @@ jobs:
             TestWindowsDanglingSymlinkNotFollowed/log \
             TestNewWriterWindowsHardLinkKeepsDACL \
             TestNewWriterWindowsBrokenChainKeepsDACL \
-            TestNewWriterWindowsRefusesOtherOwner; do
+            TestNewWriterWindowsRefusesOtherOwner \
+            TestLoadKeyWindowsDACL \
+            TestLoadKeyWindowsRefusesSymlink \
+            TestLoadKeyWindowsRefusesOtherOwner; do
             if ! grep -qF -- "--- PASS: $t (" audit-windows.log; then
               echo "::error::$t did not print --- PASS"
               missing=1
@@ -326,8 +329,8 @@ jobs:
       - run: go test -race -count=1 ./internal/proxy/
       - name: ACL, token file, audit file and H1 tests ran on macOS
         run: |
-          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|NewWriter|Writer|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
-            ./internal/fileacl/ ./cmd/fathomgate/ ./internal/audit/ | tee macos.log
+          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|LoadKey|NewWriter|Writer|TestRead|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
+            ./internal/fileacl/ ./internal/secretfile/ ./cmd/fathomgate/ ./internal/audit/ | tee macos.log
           missing=0
           for t in \
             TestBindLoopbackHoldsBothFamilies \
@@ -338,7 +341,12 @@ jobs:
             TestReadTokenFileUnix \
             TestReadTokenFileDarwinACL \
             TestDarwinInheritedACLRefused \
-            TestDarwinExistingLogWithACLRefused; do
+            TestDarwinExistingLogWithACLRefused \
+            TestLoadKeyDarwinRefusesExtendedACL \
+            TestLoadKeyUnixMode \
+            TestLoadKeyUnixRefusesSymlink \
+            TestReadOwnerOnly \
+            TestReadErrors; do
             if ! grep -qF -- "--- PASS: $t (" macos.log; then
               echo "::error::$t did not print --- PASS"
               missing=1

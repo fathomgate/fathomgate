@@ -3,13 +3,18 @@
 package audit
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
+
+	"github.com/fathomgate/fathomgate/internal/secretfile"
 )
 
 // Files Fathomgate creates for the audit trail, and how each is protected.
@@ -134,15 +139,34 @@ func discard(f *os.File, path string) {
 	_ = f.Close()
 }
 
-// LoadKey reads a PKCS#8 PEM Ed25519 private key written by SaveKey.
+// maxKeyFileBytes caps what LoadKey and LoadPublicKey read. A PEM Ed25519
+// key is under 200 bytes.
+const maxKeyFileBytes = 16 << 10
+
+// ErrPrivateKey is returned by LoadPublicKey for a file holding a private
+// key: a verifier never needs, and is never handed, the signing key.
+var ErrPrivateKey = errors.New("audit: a private key where a public key is required")
+
+// LoadKey reads a PKCS#8 PEM Ed25519 private key written by SaveKey,
+// refusing a file another user could read or replace (ADR 0028): it is
+// opened without following a final symbolic link or reparse point, and must
+// be a regular file with one link, owned by the current user, with no group
+// or other permission bits (0600 or 0400) and no macOS extended ACL on
+// Unix, or a protected DACL granting only the owner and SYSTEM on Windows.
+// The checks run on the open file (internal/secretfile); a refusal matches
+// secretfile.ErrUnsafe and names the path and the check, never the content.
+// There is no way to skip them.
 func LoadKey(path string) (ed25519.PrivateKey, error) {
-	b, err := os.ReadFile(path)
+	b, err := secretfile.Read(path, "the signing key "+path, maxKeyFileBytes)
 	if err != nil {
-		return nil, fmt.Errorf("audit: read key: %w", err)
+		return nil, fmt.Errorf("audit: %w", err)
 	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return nil, fmt.Errorf("audit: %s: no PEM block", path)
+	block, err := onePEMBlock(path, b)
+	if err != nil {
+		return nil, err
+	}
+	if block.Type != "PRIVATE KEY" {
+		return nil, fmt.Errorf("audit: %s: not a PKCS#8 PRIVATE KEY PEM block", path)
 	}
 	k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
@@ -155,23 +179,33 @@ func LoadKey(path string) (ed25519.PrivateKey, error) {
 	return priv, nil
 }
 
-// LoadPublicKey reads a PEM public key written by SavePublicKey. It also
-// accepts a private key file and derives the public half.
+// LoadPublicKey reads a PEM Ed25519 public key written by SavePublicKey.
+// It accepts only a PUBLIC KEY block: a file holding a private key is
+// refused with an error matching ErrPrivateKey, and the key is not parsed.
+// The public key is not secret, so its file is not checked for ownership;
+// that it is the right key is for the operator to establish.
 func LoadPublicKey(path string) (ed25519.PublicKey, error) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("audit: read public key: %w", err)
 	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return nil, fmt.Errorf("audit: %s: no PEM block", path)
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, maxKeyFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("audit: read public key: %w", err)
 	}
-	if block.Type == "PRIVATE KEY" {
-		priv, err := LoadKey(path)
-		if err != nil {
-			return nil, err
-		}
-		return priv.Public().(ed25519.PublicKey), nil
+	if len(b) > maxKeyFileBytes {
+		return nil, fmt.Errorf("audit: %s: larger than %d bytes; not a public key", path, maxKeyFileBytes)
+	}
+	block, err := onePEMBlock(path, b)
+	if err != nil {
+		return nil, err
+	}
+	if strings.Contains(block.Type, "PRIVATE KEY") {
+		return nil, fmt.Errorf("%w: %s", ErrPrivateKey, path)
+	}
+	if block.Type != "PUBLIC KEY" {
+		return nil, fmt.Errorf("audit: %s: not a PUBLIC KEY PEM block", path)
 	}
 	k, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
@@ -182,4 +216,18 @@ func LoadPublicKey(path string) (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("audit: %s: not an Ed25519 key", path)
 	}
 	return pub, nil
+}
+
+// onePEMBlock decodes the single PEM block a key file holds. Anything but
+// white space after it is refused, so a file cannot carry a second key the
+// reader never looks at.
+func onePEMBlock(path string, b []byte) (*pem.Block, error) {
+	block, rest := pem.Decode(b)
+	if block == nil {
+		return nil, fmt.Errorf("audit: %s: no PEM block", path)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("audit: %s: more than the one PEM block of a key", path)
+	}
+	return block, nil
 }
