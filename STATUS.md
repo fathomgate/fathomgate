@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 10 · blocked 2 · merged 24 · dropped 5
+Tasks: open 9 · blocked 2 · in review 1 · merged 24 · dropped 5
 
 ## In flight
 
@@ -37,7 +37,7 @@ Tasks: open 10 · blocked 2 · merged 24 · dropped 5
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | docs-writer | test-engineer | open | — | — | — |
 | M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
-| M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | open | M1-18 | 3, 4, 6 | [0035](docs/adr/0035-policy-test-cases-run-the-gate-path.md) |
+| M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | in review | M1-18 | 3, 4, 6 | [0035](docs/adr/0035-policy-test-cases-run-the-gate-path.md) |
 | M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | merged | — | 6 | [0031](docs/adr/0031-hostname-patterns-never-make-a-target-known.md) |
 | M1-35 | Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 4 | — |
 | M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 4 | — |
