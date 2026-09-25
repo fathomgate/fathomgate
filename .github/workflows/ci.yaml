@@ -248,6 +248,46 @@ jobs:
           done
           exit "$missing"
 
+  # The macOS extended-ACL checks (internal/fileacl, used by the listen token
+  # file check and the audit key and log; L2 in the security review of PR
+  # #109) call fgetattrlist(2) directly and are only compiled on darwin, so
+  # only a macOS runner proves them. The tests set real ACLs with chmod +a;
+  # the step fails unless each prints `--- PASS`.
+  macos:
+    name: go test (macos, extended ACLs)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go in use is the go.mod toolchain
+        run: make toolchain-check
+      - run: go vet ./...
+      - name: ACL, token file and audit file tests ran on macOS
+        run: |
+          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|NewWriter|Writer' \
+            ./internal/fileacl/ ./cmd/fathomgate/ ./internal/audit/ | tee macos.log
+          missing=0
+          for t in \
+            TestExtendedDarwin \
+            TestParseAttrBuf \
+            TestReadTokenFileUnix \
+            TestReadTokenFileDarwinACL \
+            TestDarwinInheritedACLRefused \
+            TestDarwinExistingLogWithACLRefused; do
+            if ! grep -qF -- "--- PASS: $t (" macos.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
@@ -264,7 +304,7 @@ jobs:
       # `make lint` downloads the golangci-lint release archive pinned in the
       # Makefile (GOLANGCI_LINT_VERSION), checks its sha256 against the hash
       # committed there before unpacking it, then runs `config verify` and
-      # `run` for linux and darwin on amd64 and arm64 plus windows/amd64
+      # `run` for linux, darwin and windows on amd64 and arm64 (every release target)
       # (T0.20, T0.24). It replaces golangci-lint-action, which downloads the
       # archive without verifying it. Must be built with a
       # Go at least as new as the go.mod toolchain minor, or it refuses to run
