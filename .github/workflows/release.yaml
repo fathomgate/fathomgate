@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release and upload archives
-      packages: write # push the image to ghcr.io (dockers: in .goreleaser.yaml)
+      # packages: write (push the image to ghcr.io) comes back when
+      # .goreleaser.yaml sets skip_push to auto; the image is not pushed yet.
       # id-token: write comes back with cosign keyless signing of
       # checksums.txt and the image; nothing signs yet, so it is not granted.
     steps:

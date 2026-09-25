@@ -90,6 +90,10 @@ brews:
       system "#{bin}/fathomgate", "version"
     skip_upload: true
 
+# The image is built (snapshot.yaml checks it runs as nonroot with no shell)
+# but not pushed yet: it is amd64 only, tagged only `<version>-amd64`, and
+# unsigned. It is pushed once there is an arm64 build, a manifest tagged
+# vX.Y.Z, vX.Y and latest, and cosign signing; until then skip_push is true.
 dockers:
   - image_templates:
       - "ghcr.io/fathomgate/fathomgate:{{ .Version }}-amd64"
@@ -102,4 +106,4 @@ dockers:
     goarch: amd64
     use: buildx
     build_flag_templates: ["--platform=linux/amd64"]
-    skip_push: auto
+    skip_push: true
