@@ -15,31 +15,16 @@ and 6, which also runs upa and eos-mcp and records run ids.
 """
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from .conftest import REPO, SERVER, FakeDevice, client_env, serve_args
+from .conftest import REPO, SERVER, FakeDevice, client_env, owner_only_file, serve_args
 
 pytestmark = [pytest.mark.tier2, pytest.mark.netdev_ssh_mcp]
 
 # The no-exec reason of the example policies (PR #170).
 NO_EXEC = "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
-
-
-def _config_file(path: Path, content: str) -> Path:
-    """Write a configuration file only its owner can change, as `serve`
-    requires (mode 0600 on Unix; on Windows a DACL for the user alone)."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-        f.write(content)
-    if sys.platform == "win32":
-        user = os.environ["USERNAME"]
-        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"], check=True, capture_output=True)
-    return path
 
 
 def _text(result) -> str:
@@ -51,8 +36,8 @@ async def test_policy_read_only_over_stdio(fathomgate_binary: Path, upstream_bin
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    policy = _config_file(tmp_path / "read-only.yaml", (REPO / "policies/examples/read-only.yaml").read_text(encoding="utf-8"))
-    inventory = _config_file(tmp_path / "inventory.yaml", "devices:\n  - name: 127.0.0.1\n    role: lab\n    tags: [lab]\n")
+    policy = owner_only_file(tmp_path / "read-only.yaml", (REPO / "policies/examples/read-only.yaml").read_text(encoding="utf-8"))
+    inventory = owner_only_file(tmp_path / "inventory.yaml", "devices:\n  - name: 127.0.0.1\n    role: lab\n    tags: [lab]\n")
     args = [a for a in serve_args(upstream_binary, fake_device) if a != "--no-policy"]
     args += ["--policy", str(policy), "--inventory", str(inventory)]
     params = StdioServerParameters(command=str(fathomgate_binary), args=args, env=client_env())
