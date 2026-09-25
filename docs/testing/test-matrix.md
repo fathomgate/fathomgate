@@ -1,6 +1,6 @@
 # Test matrix
 
-The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real upstream server it is validated against. Tier definitions are in [test-strategy.md](test-strategy.md). Status moves from `planned` to `passing` when the case runs green in CI; a case that is skipped for a licence reason is `skipped` with the reason.
+The 22 cases from [PLAN.md](../PLAN.md#test-matrix), plus row 23 from [ADR 0016](../adr/0016-streamable-http-listener.md#testing). Every case names the real upstream server it is validated against. Tier definitions are in [test-strategy.md](test-strategy.md). Status moves from `planned` to `passing` when the case runs green in CI; a case that is skipped for a licence reason is `skipped` with the reason.
 
 | # | Case | Tier | Upstream server | Expected | Milestone | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -26,6 +26,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix). Every case names the real u
 | 20 | Timed rollback fires | 3 | eos-mcp on cEOS | Unconfirmed configure session reverts at the timer; device state asserted over scrapli | M3 | planned |
 | 21 | Watchdog rollback | 3 | netdev-ssh-mcp on NX-OS image | Checkpoint restored at the watchdog deadline | M5 | skipped until an NX-OS image is licensed on the runner |
 | 22 | PATH-stripped launcher | 2 | Claude Desktop-style config with absolute binary path and empty `PATH`; netdev-ssh-mcp v1.7.1 behind fathomgate | Proxy starts and serves `tools/list`; no ENOENT | M0 | passing (client-smoke CI, netdev-ssh-mcp v1.7.1 since T0.51; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand with v1.6.6, 2026-09-23; see [run notes](#run-notes)) |
+| 23 | Streamable HTTP listener toward the agent | 2 | netdev-ssh-mcp v1.7.1 behind `fathomgate serve --listen` | A python-sdk client over Streamable HTTP with a bearer token, in each era (2025-11-25 stateful, 2026-07-28 stateless) and on both `listening` URLs (`127.0.0.1` and `[::1]`), lists `netdev-ssh-mcp.*` and runs a read-only `tools/call` on the fake device; the same requests get 401 with no token or a wrong one, and 403 with `Origin: http://evil.example` or a non-loopback `Host`; a `tools/call` without a valid token reaches no device; the token never appears in Fathomgate's stderr. Claude Code with `"type": "http"` and an `Authorization` header lists the tools | M0 (not an exit criterion, ADR 0016) | passing (client-smoke CI, netdev-ssh-mcp v1.7.1, [run 36099468294](https://github.com/fathomgate/fathomgate/actions/runs/36099468294), 2026-09-25, T0.33; Claude Code 2.1.281 by hand on Windows the same day; see [run notes](#run-notes)) |
 
 ## Run notes
 
@@ -99,11 +100,42 @@ One entry per run that changed a row's status or added evidence for it. A row be
 - Row 15: re-checked, and it stays `planned`. v1.7.x tokens are keyed, but under the upstream's key, and they are not fathomgate's `<redacted:hmac:…>`. The row's case runs with `--no-obfuscate`, so the upstream's tokens cannot mask a gap in fathomgate's redactor. The Expected cell now says so. With its trailing annotations stripped, the upstream's v1.7.1 obfuscator leaves 0 of the corpus's 71 secrets in clear (v1.6.6: 20 of 71, the T0.29 totals). Row 15 is about fathomgate, so this does not count toward it.
 - Status: rows 1, 2 and 22 stay `passing`, now on v1.7.1, on run 36088442110 at `d40bb64` (the commit after it changes docs only).
 
+**Row 23, 2026-09-25 (T0.33): the HTTP listener against netdev-ssh-mcp v1.7.1.** Fathomgate at `b7af4ff` (`main`, after T0.31 in PR #109 and T0.52 in PR #112) plus this change. Upstream: `krisiasty/netdev-ssh-mcp` v1.7.1 release binary. Device: the fake SSH device (EOS persona). Client: python-sdk `mcp` 2.2.0 (`mcp.Client` over `streamable_http_client`, the header set on its HTTP client), and raw `http.client` requests for the refusals. File: `tests/integration/test_http_listener.py`, in the `netdev_ssh_mcp` marker set, so it runs in CI job `tier2 client smoke (netdev-ssh-mcp)`.
+
+- Start: `fathomgate serve --listen 127.0.0.1:0` with a FAKE token (`FAKE-` and 64 random hex characters), either from `--listen-token-file ci=<file>` (mode `0600`; on Windows the `icacls /inheritance:r /grant:r` of install.md step 1) or from `FATHOMGATE_LISTEN_TOKEN`. The harness reads the URLs from the two `msg=listening url=` lines: `127.0.0.1` first, then `[::1]` on the same port.
+- Both eras, with each token source: `mode="legacy"` negotiates 2025-11-25 (initialize, `Mcp-Session-Id`) and `mode="auto"` negotiates 2026-07-28 (`server/discover`, stateless). Each lists exactly the five `netdev-ssh-mcp.<tool>` names, and `run_show_command` with `show version` returns the transcript unchanged. The device logs one `show version` per call. The `listening` line names the principal (`ci` or `env`), never the token.
+- Both URLs: the same list and call in both eras on `http://127.0.0.1:P/mcp` and `http://[::1]:P/mcp`, 4 calls, 4 `show version` lines on the device.
+- Refusals, on both URLs, for an initialize (2025 shape) and a 2026-07-28 `tools/list` with its headers and `_meta`: the same request with the token gets 200 first. Then no `Authorization`, a wrong FAKE token of the same length, and `Basic <token>` each get 401 with `WWW-Authenticate: Bearer`. An `Origin: http://evil.example` gets 403 with the token and without it, and so does `Host: evil.example`. Every refusal carries `Connection: close` and no CORS header, and neither token is in its body or headers. The device logs nothing. Fathomgate logs `listener: authentication failed` with a reason.
+- Shutdown and stderr: each test stops Fathomgate as an operator does: SIGINT on Unix, `CTRL_BREAK_EVENT` to its process group on Windows, which Go delivers as `os.Interrupt`. It checks exit 0, the `shutting down` line, an empty stdout, and that neither the token, its random part, nor the wrong token appears anywhere in stderr. That is a check that nothing prints the token. Fathomgate's scrubber (`[redacted:listen-token:<name>]`) is not triggered, because nothing tries to print it.
+- Mutation check: with `crossOrigin` disabled in `internal/proxy/http.go` (built, then reverted), `test_http_refusals` fails with `200 == 403`.
+- By hand, Windows 11 amd64, `netdev-ssh-mcp_1.7.1_windows_amd64.exe` (sha256 `281ead1c…a7d7`, as in `checksums.txt`; `go version -m` gives v1.7.1): `test_http_listener.py` 7 passed; `-m "tier2 and netdev_ssh_mcp"` 21 passed, 11 skipped (the nine POSIX-only row 22 cases and the two M1 cases), 1 xfailed (row 15).
+- Claude Code 2.1.281 on the same host, against a listener started by hand with a FAKE token file:
+  - `claude -p --mcp-config <file> --strict-mcp-config` with `{"type": "http", "url": "<the listening URL>", "headers": {"Authorization": "Bearer ${FATHOMGATE_TOKEN}"}}` reported the server `connected` and listed `mcp__netdev__netdev-ssh-mcp_get_config` and the other four tools. The model called `run_show_command` and answered `Serial number: FAKE0000SN01`. This was done once with the `127.0.0.1` URL and once with the `[::1]` URL. The device logged one `show version` for each.
+  - With a wrong token the server was `failed`, and the model reported HTTP 401.
+  - In an isolated `CLAUDE_CONFIG_DIR`, `claude mcp add --transport http netdev <url> --header "Authorization: Bearer <token>"` wrote `{"type": "http", "url": ..., "headers": {"Authorization": ...}}` to the local scope, and `claude mcp list` showed `✔ Connected`. `claude mcp get` printed the header with the token in clear.
+  - With `'Authorization: Bearer ${FATHOMGATE_TOKEN}'`, the saved entry kept the reference. `claude mcp list` connected with the variable set, and failed with `HTTP 401` and a `Missing environment variables: FATHOMGATE_TOKEN` warning without it.
+  - `--scope project` wrote the same JSON to `.mcp.json`.
+  - Not run: a session from a project `.mcp.json`, which needs the interactive approval. ADR 0016's row text names `.mcp.json`; the same JSON ran through `--mcp-config --strict-mcp-config` instead, which reads the same `mcpServers` format and the same `${VAR}` expansion, without the approval step.
+  - Fathomgate's stderr for the whole session: 0 occurrences of the token, and two `authentication failed ... reason="unknown token"` lines.
+- **Fix round, 2026-09-25 (security and docs reviews of PR #115).** Same host, Claude Code 2.1.281, a new by-hand listener with the per-client token file and principal the docs now use (`--listen-token-file claude-code=<dir>/claude-code.token`, `principals=claude-code` on both `listening` lines). The client variable is now `CLAUDE_FATHOMGATE_TOKEN`: outside the `FATHOMGATE_*` prefix, and not `FG_*` (ADR 0019). Fathomgate never reads it. Every command ran in Git Bash (the shell this Windows host's agent uses), from a script, with the token masked in its output:
+  - In an isolated `CLAUDE_CONFIG_DIR`, the documented `claude mcp add --transport http netdev <url> --header 'Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}'` saved `"Authorization": "Bearer ${CLAUDE_FATHOMGATE_TOKEN}"`. `CLAUDE_FATHOMGATE_TOKEN="$(cat <file>)" claude mcp list` showed `✔ Connected`, and afterwards the shell still had no such variable. So Claude Code expands this name toward a remote server; it is not one of the credential variables it reads as empty.
+  - L1, `claude mcp get netdev` on that entry: with the variable set it showed `Status: ✔ Connected` and `Headers: Authorization: Bearer ${CLAUDE_FATHOMGATE_TOKEN}`, the reference and not the value. Without the variable it showed `Status: ✘ Failed to connect`, `Issue: Server rejected the configured Authorization header (HTTP 401) ... Error detail: invalid token` and the same reference. A literal token entry (first round) is printed in clear. install.md says both.
+  - The scoped launch, headless: `CLAUDE_FATHOMGATE_TOKEN="$(cat <file>)" claude -p ... --mcp-config <file> --strict-mcp-config`, with the `${CLAUDE_FATHOMGATE_TOKEN}` JSON, answered `Serial number: FAKE0000SN01` on the `127.0.0.1` URL and on the `[::1]` URL. The device logged one `show version` for each. The isolated config dir has no login, so this ran with the real one and a config file, touching no saved configuration.
+  - `ANTHROPIC_API_KEY` as the header variable, set to the right token: `claude mcp list` gave `Failed to connect ... (HTTP 401) ... Error detail: no bearer token`, with no warning about the variable. Fathomgate logged `reason="not a bearer token"`.
+  - `FATHOMGATE_LISTEN_TOKEN` set where `fathomgate serve --listen-token-file ...` starts: exit 2, `fathomgate: serve: FATHOMGATE_LISTEN_TOKEN and --listen-token-file are both set; use one`.
+  - Not run: the PowerShell lines in Windows PowerShell 5.1 or PowerShell 7 (this host's agent sandbox does not run `powershell.exe`), macOS or Linux terminals, approving a project `.mcp.json`, and Cursor or any other client over HTTP.
+  - Tier 2 additions: `non-loopback Host without token` (403) in `test_http_refusals`, and `test_http_tool_call_needs_token` in both eras. In that test a `tools/call` of `run_show_command` with no token and with a wrong one gets 401 and the device logs nothing. The 2025 call goes on a session the right token opened. A control call with the token then runs `show version` once. Locally 9 passed.
+  - Mutation checks (built, then reverted):
+    - A verifier that accepts any token as the first principal fails `test_http_refusals` and `test_http_tool_call_needs_token`, both eras (`200 == 401`).
+    - With `hostAllowed` returning true, `test_http_refusals` fails on `non-loopback Host without token` (`401 == 403`). The case with a token still gets 403, from go-sdk's own Host check behind authentication, so only the case without a token notices.
+- CI, on [PR #115](https://github.com/fathomgate/fathomgate/pull/115) at `573c1d5` (ubuntu-latest, linux/amd64): job `tier2 client smoke (netdev-ssh-mcp)` ([job 107958688053](https://github.com/fathomgate/fathomgate/actions/runs/36099468294/job/107958688053)). The linux_amd64 release binary passed `sha256sum -c` against the pinned sha256. All 7 `test_http_listener.py` cases passed, both `listening` URLs included, with `FATHOMGATE_TIER2_REQUIRED=1`, so neither `[::1]` nor anything else could skip. The whole marker set: 30 passed, 2 skipped (M1), 1 xfailed (row 15). Every other job in [run 36099468294](https://github.com/fathomgate/fathomgate/actions/runs/36099468294) is green.
+- Status: `passing`, on run 36099468294 against netdev-ssh-mcp v1.7.1. Row 23 is not an M0 exit criterion (ADR 0016).
+
 ## Coverage by component
 
 | Component | Cases |
 | --- | --- |
-| `internal/proxy` | 1, 2, 12, 16, 17, 22 |
+| `internal/proxy` | 1, 2, 12, 16, 17, 22, 23 |
 | `internal/normalize` | 5, 6, 13, 18 |
 | `internal/classify` | 3, 4, 5, 18 |
 | `internal/inventory` | 6, 7, 8, 14 |
@@ -117,7 +149,7 @@ One entry per run that changed a row's status or added evidence for it. A row be
 
 | Upstream | Cases |
 | --- | --- |
-| netdev-ssh-mcp | 1, 2, 3, 6, 15, 21 |
+| netdev-ssh-mcp | 1, 2, 3, 6, 15, 21, 22, 23 |
 | junos-mcp-server | 8, 9, 10, 11, 12, 13, 15, 17 |
 | upa/mcp-netmiko-server | 2, 4 |
 | ntunes/netmiko-mcp-server | 5, 13, 14 |

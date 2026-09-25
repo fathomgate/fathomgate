@@ -151,7 +151,10 @@ jobs:
           echo "FATHOMGATE_UPSTREAM=$RUNNER_TEMP/upstream/$bin" >> "$GITHUB_ENV"
       # Only this upstream's cases; the upa cases run in tier2-upa. A marker
       # that selects nothing makes pytest exit 5, which fails the step.
-      - name: tier 2 through fathomgate serve (passthrough and PATH-stripped launcher)
+      # test_http_listener.py (matrix row 23) is in the same marker set: the
+      # HTTP listener in front of the same binary, both eras, both loopback
+      # URLs. FATHOMGATE_TIER2_REQUIRED=1 also makes a missing [::1] fail.
+      - name: tier 2 through fathomgate serve (passthrough, PATH-stripped launcher, HTTP listener)
         working-directory: tests
         env:
           FATHOMGATE_TIER2_REQUIRED: "1"
