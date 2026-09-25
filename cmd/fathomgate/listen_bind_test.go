@@ -147,7 +147,8 @@ const squatAttempts = 50
 
 // bindRecorder gives bindLoopback listenTCP and a holdFunc that record
 // every socket they bind, so a test can check that bindLoopback released
-// each one. The listeners are returned unwrapped.
+// each one. The listeners are returned unwrapped. It sees only the sockets
+// bound through the listenFunc and holdFunc it injects, nothing else.
 type bindRecorder struct {
 	mu    sync.Mutex
 	binds []recordedBind
@@ -169,6 +170,7 @@ type recordedHold struct {
 	err    error
 }
 
+// Close closes what the holdFunc held and records the call and its error.
 func (h *recordedHold) Close() error {
 	err := h.c.Close()
 	h.mu.Lock()
@@ -283,9 +285,10 @@ func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 }
 
 // refusesTakenOtherFamily is one attempt of
-// TestBindLoopbackRefusesTakenOtherFamily. It returns false, having checked
-// nothing, when the first family's address on the squatter's port was
-// already taken by another socket (squatAttempts).
+// TestBindLoopbackRefusesTakenOtherFamily. It returns false when the first
+// family's address on the squatter's port was already in use by another
+// socket (squatAttempts); any other failure of that bind fails the test.
+// Every return checks that what bindLoopback bound was released.
 func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
 	t.Helper()
 	squatter, err := net.Listen("tcp", squat)
@@ -299,6 +302,7 @@ func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
 		t.Fatal(err)
 	}
 	rec := &bindRecorder{}
+	defer rec.checkReleased(t)
 	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
 	if err == nil {
 		for _, l := range lns {
@@ -309,6 +313,9 @@ func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
 	binds := rec.recorded()
 	first := netip.AddrPortFrom(a.host, port).String()
 	if len(binds) == 1 && binds[0].addr == first && binds[0].err != nil {
+		if !addrTaken(binds[0].err) {
+			t.Fatalf("binding %s: %v, want success or address in use", first, binds[0].err)
+		}
 		t.Logf("another socket holds %s; trying another port: %v", first, binds[0].err)
 		return false
 	}
@@ -320,7 +327,6 @@ func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
 	if len(binds) != 2 || binds[0].addr != first || binds[0].err != nil || binds[1].addr != squatter.Addr().String() || binds[1].err == nil || len(rec.holds) != 0 {
 		t.Fatalf("binds %+v, holds %d; want %s bound, then %s refused, and nothing held", binds, len(rec.holds), first, squatter.Addr())
 	}
-	rec.checkReleased(t)
 	return true
 }
 

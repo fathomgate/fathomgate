@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"syscall"
 	"testing"
@@ -35,3 +36,7 @@ func TestLoopbackFamilyMissingUnix(t *testing.T) {
 		})
 	}
 }
+
+// addrTaken reports a bind error that means another socket holds the
+// address (squatAttempts): EADDRINUSE. Any other error fails the test.
+func addrTaken(err error) bool { return errors.Is(err, syscall.EADDRINUSE) }
