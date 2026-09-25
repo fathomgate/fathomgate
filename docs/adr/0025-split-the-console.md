@@ -78,6 +78,14 @@ We will ship a local console for one operator on one machine in the core, in M5,
 | OCSF and CEF exporters in the core | Keeping two external schemas in step is ongoing work ([ADR 0005](0005-hash-chained-jsonl-audit.md) *Negative*), and they are integrations under ADR 0020's rule. The open JSONL already reaches any SIEM through a general log shipper |
 | Audit log or `audit verify` in the paid edition | Breaks ADR 0020's rule: the chain proves what happened, so it stays open |
 
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: this record calls the core open and Apache-2.0. [ADR 0034](0034-source-available-under-fsl.md) (accepted 2026-09-25) moves versions made available from the relicensing commit on to `FSL-1.1-ALv2`, source-available and converting to Apache-2.0 after two years. The split is unchanged: the local console stays in the public repository, and the team console and the OCSF and CEF exporters stay in the proprietary paid edition | Maintainer decision, Josh Scott, 2026-09-25 |
+
 ## References
 
 - [ADR 0020, open core under Apache-2.0](0020-open-core-apache-2.md): section 2 (boundary rule), the *Approval console* contested row, section 3 (extension invariants)

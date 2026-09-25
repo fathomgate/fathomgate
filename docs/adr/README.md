@@ -27,11 +27,11 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0017](0017-keep-upstream-secrets-off-the-command-line.md) | Keep upstream secrets off the command line with `--upstream-env-pass` | accepted | 2026-09-23 |
 | [0018](0018-bound-server-discover-then-initialize-only.md) | Bound go-sdk's `server/discover` probe, then restart the upstream and connect with `initialize` only | accepted | 2026-09-24 |
 | [0019](0019-rename-to-fathomgate.md) | Rename the product from NetGuard to Fathomgate | accepted | 2026-09-24 |
-| [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted | 2026-09-24 |
+| [0020](0020-open-core-apache-2.md) | Open core under Apache-2.0, with outside contributions by DCO sign-off | accepted; licence, contributions and "stays open" superseded by [0034](0034-source-available-under-fsl.md) | 2026-09-24 |
 | [0021](0021-kill-the-upstream-process-tree.md) | Kill the upstream's whole process tree: a process group on Unix, a Job Object on Windows | accepted | 2026-09-24 |
 | [0022](0022-internal-proxy-export-surface.md) | The exported surface of `internal/proxy`, restated in one record | accepted | 2026-09-25 |
 | [0023](0023-listener-binds-both-loopback-families.md) | `serve --listen` binds both loopback families, and three smaller listener changes | accepted | 2026-09-25 |
-| [0024](0024-local-console-embedded-loopback-only.md) | A local console in the core: embedded in the binary, loopback only | accepted | 2026-09-25 |
+| [0024](0024-local-console-embedded-loopback-only.md) | A local console in the core: embedded in the binary, loopback only | accepted; `design/` licence (answer 4) superseded by [0034](0034-source-available-under-fsl.md) | 2026-09-25 |
 | [0025](0025-split-the-console.md) | Split the console: a local console in the core, the team console in the paid edition | accepted | 2026-09-25 |
 | [0026](0026-m1-policy-pipeline-at-dispatch.md) | The M1 policy pipeline at `Proxy.dispatch` | accepted | 2026-09-25 |
 | [0027](0027-serve-policy-inventory-profiles-flags.md) | `fathomgate serve --policy`, `--inventory` and `--profiles` in M1; `--audit` stays refused until M4 | accepted | 2026-09-25 |
@@ -41,5 +41,6 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0031](0031-hostname-patterns-never-make-a-target-known.md) | A hostname pattern never makes a target known; it only adds attributes to a device listed elsewhere | accepted | 2026-09-25 |
 | [0032](0032-unset-unknown-target-denies-every-class.md) | An unset `defaults.unknown_target` denies every class | accepted | 2026-09-25 |
 | [0033](0033-closed-argument-list-per-tool.md) | A closed argument list per tool: an argument the profile does not name is denied | accepted | 2026-09-25 |
+| [0034](0034-source-available-under-fsl.md) | Future versions under the Functional Source License (`FSL-1.1-ALv2`); everything already published stays Apache-2.0 | accepted | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.
