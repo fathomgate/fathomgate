@@ -5,13 +5,15 @@ package gate
 import (
 	"context"
 	"testing"
+
+	"github.com/fathomgate/fathomgate/internal/gate/seam"
 )
 
 // benchCorpus is a fixed mix of calls through the three M1 profiles: typed
 // reads, downgraded exec, config dumps, refused exec, writes that hold,
 // unknown targets, bad names, fan-out and group selectors.
-func benchCorpus() []CallInfo {
-	return []CallInfo{
+func benchCorpus() []seam.CallInfo {
+	return []seam.CallInfo{
 		call(netdev, "run_show_command", map[string]any{"host": "core-rtr-01", "command": "show ip bgp summary"}),
 		call(netdev, "get_config", map[string]any{"host": "lab-sw-01"}),
 		call(upa, "send_command_and_get_output", map[string]any{"name": "core-rtr-01", "command": "show interfaces status"}),
@@ -35,11 +37,12 @@ func BenchmarkDecide(b *testing.B) {
 	corpus := benchCorpus()
 	ctx := context.Background()
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	n := 0
+	for b.Loop() {
 		for _, in := range corpus {
 			_ = g.Decide(ctx, in)
 		}
+		n++
 	}
-	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N*len(corpus)), "ns/call")
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(n*len(corpus)), "ns/call")
 }

@@ -11,6 +11,7 @@ import (
 )
 
 func TestValidTargetName(t *testing.T) {
+	t.Parallel()
 	good := []string{
 		"core-rtr-01", "lab-sw-01", "CORE-RTR-01", "core_rtr_01", "a",
 		"core-rtr-01.dfw1.example.net", "10.0.0.1", "192.168.255.254",
@@ -44,6 +45,7 @@ func TestValidTargetName(t *testing.T) {
 }
 
 func TestTargetsExtraction(t *testing.T) {
+	t.Parallel()
 	spec := classify.ToolSpec{TargetParams: []string{"host"}, TargetsParams: []string{"hosts"}, GroupParams: []string{"tags"}}
 	cases := []struct {
 		name    string

@@ -12,8 +12,10 @@ import (
 // value or a target: the agent already has its arguments, and anything
 // echoed back is a place for injected text to ride (ADR 0026).
 const (
-	reasonNotObject = "the arguments are not one JSON object"
-	reasonUnnamed   = "an argument is not one this tool accepts, or its value is not text"
+	reasonNotObject = "the arguments must be one JSON object, in UTF-8, with no key given twice"
+	// reasonUnnamed and reasonMalformed are ADR 0033 section 3's texts.
+	reasonUnnamed   = "an argument is not named in the server profile for this tool"
+	reasonMalformed = "a target, command or config argument is not a plain string (it parses as JSON) or a list of strings"
 	reasonBadTarget = "a target is not a hostname or IP address"
 	reasonNoTarget  = "this tool needs at least one target named explicitly"
 	reasonGroup     = "selecting devices by tag or group is not supported yet; name each target"
@@ -39,14 +41,14 @@ const (
 //
 //	fathomgate <denied|cannot run|held> <server>.<tool>: rule <rule_id> (class <CLASS>): <reason>
 //
-// unmet is the first change-safety obligation of an allow that cannot be
-// met; unknown reports whether a target was not in inventory.
+// unmet is the first obligation of an allow that fathomgate cannot carry;
+// unknown reports whether a target was not in inventory.
 func errorText(server, tool string, dec policy.Decision, class, unmet string, unknown bool) string {
 	var verb, reason string
 	switch dec.Effect {
 	case policy.Allow:
 		verb = "cannot run"
-		reason = "obligation " + unmet + " cannot be met until change-safety drivers exist"
+		reason = unmetReason(unmet)
 	case policy.Hold:
 		verb = "held"
 		reason = reasonHeld
@@ -72,6 +74,18 @@ func errorText(server, tool string, dec policy.Decision, class, unmet string, un
 	b.WriteString("): ")
 	b.WriteString(oneLine(reason))
 	return b.String()
+}
+
+// unmetReason says why an allow is not run. The change-safety obligations
+// are named (ADR 0026); any other obligation fathomgate cannot carry is not
+// in the vocabulary (a policy built in Go without Validate), so it is not
+// named either, whatever text it holds.
+func unmetReason(obligation string) string {
+	switch obligation {
+	case "dry_run", "diff", "timed_rollback":
+		return "obligation " + obligation + " cannot be met until change-safety drivers exist"
+	}
+	return "an obligation fathomgate does not know cannot be met"
 }
 
 // denyReason is the policy author's reason for a rule, or fathomgate's

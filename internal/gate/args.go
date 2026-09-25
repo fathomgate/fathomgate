@@ -8,60 +8,79 @@ import (
 	"errors"
 	"io"
 	"net/netip"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
 )
 
-// parseArguments decodes a tools/call's arguments into a map. Absent
-// arguments and JSON null are an empty object. Anything else must be one
-// JSON object in valid UTF-8 with no key given twice: two parsers that keep
-// different copies of a duplicated key (first wins against last wins) would
-// let fathomgate check one value while the upstream uses the other, and Go
-// silently replaces invalid UTF-8 where the upstream may not.
-func parseArguments(raw json.RawMessage) (map[string]any, error) {
+// Parse error kinds, for the decision log line only (never the agent).
+const (
+	parseNotObject    = "not_object"
+	parseInvalidJSON  = "invalid_json"
+	parseInvalidUTF8  = "invalid_utf8"
+	parseDuplicateKey = "duplicate_key"
+	parseTrailingData = "trailing_data"
+)
+
+// parseArguments decodes a tools/call's arguments into a map, or returns
+// the kind of problem. Absent arguments and JSON null are an empty object.
+// Anything else must be one JSON object in valid UTF-8 with no top-level key
+// given twice: two parsers that keep different copies of a duplicated key
+// (first wins against last wins) would let fathomgate check one value while
+// the upstream uses the other, and Go silently replaces invalid UTF-8 where
+// the upstream may not.
+//
+// Only top-level keys are checked for duplicates. Below the top level
+// fathomgate reads only the values of target, command and config
+// arguments, and those must be strings or arrays of strings (an object
+// there is a bad target, a failed command or, with the closed argument
+// list, a malformed argument). A value in a profile's args list is
+// forwarded without being read, so a duplicate inside it cannot make
+// fathomgate check something other than what the upstream uses.
+func parseArguments(raw json.RawMessage) (map[string]any, string) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return map[string]any{}, nil
+		return map[string]any{}, ""
 	}
 	if !utf8.Valid(trimmed) {
-		return nil, errors.New("arguments are not valid UTF-8")
+		return nil, parseInvalidUTF8
 	}
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	tok, err := dec.Token()
 	if err != nil {
-		return nil, err
+		return nil, parseInvalidJSON
 	}
 	if d, ok := tok.(json.Delim); !ok || d != '{' {
-		return nil, errors.New("arguments are not a JSON object")
+		return nil, parseNotObject
 	}
 	out := map[string]any{}
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, parseInvalidJSON
 		}
 		key, ok := tok.(string)
 		if !ok {
-			return nil, errors.New("object key is not a string")
+			return nil, parseInvalidJSON
 		}
 		if _, dup := out[key]; dup {
-			return nil, errors.New("a key appears twice")
+			return nil, parseDuplicateKey
 		}
 		var v any
 		if err := dec.Decode(&v); err != nil {
-			return nil, err
+			return nil, parseInvalidJSON
 		}
 		out[key] = v
 	}
 	if _, err := dec.Token(); err != nil { // the closing brace
-		return nil, err
+		return nil, parseInvalidJSON
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("data after the arguments object")
+		return nil, parseTrailingData
 	}
-	return out, nil
+	return out, ""
 }
 
 // targetProblem is why the target arguments of a call were refused. The
@@ -270,23 +289,27 @@ func declaresTargets(spec classify.ToolSpec) bool {
 	return len(spec.TargetParams) > 0 || len(spec.TargetsParams) > 0 || len(spec.GroupParams) > 0
 }
 
-// argumentsChecker is the method classify.Result gains with the closed
-// argument list (board task M1-35, ADR 0033, PR #161).
-type argumentsChecker interface{ ArgumentsOK() bool }
-
-// unnamedArguments is the hook for the closed argument list: it reports
-// whether classify found an argument the profile does not name for the
-// tool, or a target, command or config argument whose value is not a
-// string or a list of strings. Either one is default:bad_arguments; the
-// argument is never stripped and never named to the agent.
+// argumentFindings is the hook for the closed argument list (board task
+// M1-35, ADR 0033, PR #161): the argument names classify reports as not
+// named by the profile, and the named target, command or config arguments
+// whose value is not a plain string or a list of strings. Either one is
+// default:bad_arguments; the argument is never stripped and never named to
+// the agent (the decision log line carries the names, capped).
 //
-// TODO(M1-35): once PR #161 is on main, call res.ArgumentsOK() directly and
-// drop argumentsChecker. Until then classify.Result has no such method and
-// this returns false; TestClosedArgumentListHook starts running, and must
-// pass, the moment it does.
-func unnamedArguments(res classify.Result) bool {
-	if c, ok := any(res).(argumentsChecker); ok {
-		return !c.ArgumentsOK()
+// TODO(M1-35): once PR #161 is on main, read res.UnnamedArgs and
+// res.MalformedArgs directly and drop the reflection. Until then
+// classify.Result has neither field and this returns nothing;
+// TestClosedArgumentListHook starts running, and must pass, the moment it
+// does. M1-19 must not wire the gate into the proxy before that.
+func argumentFindings(res classify.Result) (unnamed, malformed []string) {
+	v := reflect.ValueOf(res)
+	field := func(name string) []string {
+		f := v.FieldByName(name)
+		if !f.IsValid() {
+			return nil
+		}
+		s, _ := f.Interface().([]string)
+		return s
 	}
-	return false
+	return field("UnnamedArgs"), field("MalformedArgs")
 }

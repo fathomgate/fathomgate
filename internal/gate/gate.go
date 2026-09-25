@@ -4,12 +4,12 @@ package gate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"slices"
+	"sort"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/gate/seam"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
 )
@@ -26,7 +26,10 @@ type Config struct {
 	// profile is classified by the fallback classifier and its arguments are
 	// not checked against a closed list.
 	Profiles map[string]*classify.Profile
-	// Inventory resolves target names. nil means no name is known.
+	// Inventory resolves target names. nil means no name is known. Decide
+	// calls it from every session at once, so it must be safe for
+	// concurrent use; the M1 resolvers (static file, patterns, their Chain)
+	// are read-only after load and are.
 	Inventory inventory.Resolver
 }
 
@@ -55,86 +58,59 @@ func New(cfg Config) (*Gate, error) {
 	return &Gate{policy: cfg.Policy, profiles: profiles, inventory: cfg.Inventory}, nil
 }
 
-// CallInfo is one tools/call as the proxy sees it at dispatch. It is plain
-// data: the proxy fills it without importing classify, inventory or policy.
-type CallInfo struct {
-	// Server is the upstream's prefix (the profile's server name) and Tool
-	// the upstream's own tool name, without the prefix. The proxy has
-	// already checked both against [A-Za-z0-9_.-].
-	Server, Tool string
-	// Arguments is the call's arguments object as the agent sent it.
-	Arguments json.RawMessage
-	// ReadOnlyHint and DestructiveHint are the tool's annotations from the
-	// upstream's tools/list, nil when the upstream did not send them. They
-	// can only raise a read class to EXEC_ARBITRARY (explicit false and
-	// explicit true respectively); nothing lowers a class.
-	ReadOnlyHint, DestructiveHint *bool
-	// AgentProtocol and UpstreamProtocol are the negotiated protocol
-	// versions; AgentEra and UpstreamEra their era labels (stateful or
-	// stateless). The era is a label for the record, never a capability.
-	AgentProtocol, AgentEra, UpstreamProtocol, UpstreamEra string
-	// Transport is the agent transport (stdio or http), Principal the
-	// server-side identity of the agent, and Session fathomgate's short
-	// session hash. They are recorded, never used to decide.
-	Transport, Principal, Session string
-	// DevicesTouched and PendingHolds are the counters of this call's
-	// counter key (ADR 0026, Session counters), read before the call.
-	DevicesTouched, PendingHolds int
+// forwardable reports whether an allow may be forwarded while carrying the
+// obligation. In M1 fathomgate carries these in the log line and enforces
+// them later (redact in M2, the others in M4); every other obligation,
+// including dry_run, diff, timed_rollback and any name a policy built in Go
+// without Validate might hold, stops the call (ADR 0026 decision 1).
+func forwardable(obligation string) bool {
+	switch obligation {
+	case "redact", "notify", "require_ticket", "canary_first":
+		return true
+	}
+	return false
 }
-
-// Verdict is the gate's answer for one call.
-type Verdict struct {
-	// Forward is true only for an allow whose obligations fathomgate can
-	// meet or carry (no dry_run, diff or timed_rollback in M1).
-	Forward bool
-	// Effect is what Evaluate returned (allow, hold or deny), or deny for a
-	// call refused before Evaluate. A hold stays hold here even though it is
-	// not forwarded.
-	Effect string
-	// RuleID names the rule that decided, or a default: id.
-	RuleID string
-	// Class and ClassSource are the final class and the step that set it.
-	Class, ClassSource string
-	// Targets are the call's target names after validation, exactly as the
-	// upstream receives them; the proxy counts them when it forwards.
-	Targets []string
-	// Error is the one-line tool error text for a call that is not
-	// forwarded, empty when Forward is true.
-	Error string
-	// Record is the decision log line's attributes (msg=decision, level
-	// Info). It holds no argument value, command or upstream text.
-	Record []slog.Attr
-	// Trace is the rule trace as one attribute, for the same line at Debug.
-	Trace slog.Attr
-}
-
-// changeSafety are the obligations nothing in M1 can meet, so an allow that
-// carries one is not forwarded (ADR 0026 decision 1).
-var changeSafety = []string{"dry_run", "diff", "timed_rollback"}
 
 // Decide runs steps 1 to 6 of ADR 0026 on one call and says whether to
-// forward it. It never fails: every problem is a deny with a rule id.
-func (g *Gate) Decide(_ context.Context, in CallInfo) Verdict {
+// forward it. It never fails: every problem is a deny with a rule id. ctx
+// is not used yet; it is there for a resolver that takes one (the M2
+// upstream-provider record).
+func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
 	d := decision{in: in}
 	profile := g.profiles[in.Server]
+	var spec classify.ToolSpec
+	inProfile := false
+	if profile != nil {
+		// Exact lookup: an upstream tool named "eos-mcp.get_version" is not
+		// get_version (Profile.Lookup would strip the prefix).
+		spec, inProfile = profile.Tools[in.Tool]
+	}
 
 	// 1. Parse.
-	args, err := parseArguments(in.Arguments)
-	if err != nil {
+	args, parseErr := parseArguments(in.Arguments)
+	if parseErr != "" {
 		// Classify without arguments so the refusal still names a class.
-		d.classify(profile, nil, in)
+		d.classify(profile, spec, inProfile, nil)
+		d.parseError = parseErr
 		return d.refuse(reasonNotObject)
 	}
 
-	// 2 and 3. Normalise and classify.
-	d.classify(profile, args, in)
-	var spec classify.ToolSpec
-	var inProfile bool
-	if profile != nil {
-		spec, inProfile = profile.Lookup(in.Tool)
-	}
-	if unnamedArguments(d.res) {
+	// 2 and 3. Classify, then the closed argument list, then the targets.
+	d.classify(profile, spec, inProfile, args)
+	if profile != nil && !inProfile && len(args) > 0 {
+		// ADR 0033 section 2: a tool the profile does not list has no
+		// named argument, so every key is unnamed. Without this a tool the
+		// upstream added later would reach the rules with zero targets,
+		// past the unknown-target default and max_devices.
+		d.unnamed = sortedKeys(args)
 		return d.refuse(reasonUnnamed)
+	}
+	if unnamed, malformed := argumentFindings(d.res); len(unnamed) > 0 || len(malformed) > 0 {
+		d.unnamed, d.malformed = unnamed, malformed
+		if len(unnamed) > 0 {
+			return d.refuse(reasonUnnamed)
+		}
+		return d.refuse(reasonMalformed)
 	}
 	if inProfile {
 		names, groups, problem := targets(spec, args)
@@ -196,40 +172,43 @@ func (g *Gate) resolve(name string) policy.Target {
 
 // decision carries one call through Decide.
 type decision struct {
-	in       CallInfo
-	res      classify.Result
-	class    classify.Class
-	source   classify.Source
-	targets  []string
-	resolved []policy.Target
-	dec      policy.Decision
+	in         seam.CallInfo
+	res        classify.Result
+	class      classify.Class
+	source     classify.Source
+	targets    []string
+	resolved   []policy.Target
+	dec        policy.Decision
+	parseError string
+	unnamed    []string
+	malformed  []string
 }
 
-// classify runs classify.Classify and then the annotations. An annotation
-// that says a read tool is not read-only (readOnlyHint false) or destroys
-// (destructiveHint true) raises the tool's profile class to EXEC_ARBITRARY
-// before its commands are inspected, as classification.md section 2 orders
-// it: a raised tool that carries commands is then downgraded exactly as an
-// EXEC_ARBITRARY tool would be, and one without commands stays
-// EXEC_ARBITRARY with class_source annotation_raise.
-func (d *decision) classify(profile *classify.Profile, args map[string]any, in CallInfo) {
-	d.res = classify.Classify(profile, in.Tool, args)
-	d.class, d.source = d.res.Class, d.res.ClassSource
-	if !d.res.Known || !raises(in) || !isReadClass(d.res.ProfileClass) {
-		return
+// classify sets the class. A server with no profile gets the fallback; a
+// tool the profile does not list exactly gets the fallback too. Then the
+// annotations: readOnlyHint false or destructiveHint true on a tool whose
+// profile class is a read class makes the call EXEC_ARBITRARY, whatever its
+// commands say. The upstream is saying the tool's execution context is not
+// read-only, so a raised tool is never downgraded (classification.md
+// section 4), and the raise can only make the class stricter: a call that
+// is already EXEC_ARBITRARY keeps its own source.
+func (d *decision) classify(profile *classify.Profile, spec classify.ToolSpec, inProfile bool, args map[string]any) {
+	switch {
+	case profile == nil:
+		d.res = classify.Classify(nil, d.in.Tool, args)
+	case !inProfile:
+		d.res = classify.Result{Class: classify.ExecArbitrary, ClassSource: classify.SourceFallback, Reason: "tool not in profile"}
+	default:
+		d.res = classify.Classify(profile, d.in.Tool, args)
 	}
-	spec, _ := profile.Lookup(in.Tool)
-	spec.Class = classify.ExecArbitrary
-	raised := classify.Classify(&classify.Profile{Server: profile.Server, Tools: map[string]classify.ToolSpec{in.Tool: spec}}, in.Tool, args)
-	d.class = raised.Class
-	d.source = raised.ClassSource
-	if raised.ClassSource == classify.SourceProfile {
-		d.source = classify.SourceAnnotationRaise
+	d.class, d.source = d.res.Class, d.res.ClassSource
+	if inProfile && isReadClass(spec.Class) && raises(d.in) && d.class != classify.ExecArbitrary {
+		d.class, d.source = classify.ExecArbitrary, classify.SourceAnnotationRaise
 	}
 }
 
 // raises reports whether the annotations ask for a raise.
-func raises(in CallInfo) bool {
+func raises(in seam.CallInfo) bool {
 	return (in.ReadOnlyHint != nil && !*in.ReadOnlyHint) || (in.DestructiveHint != nil && *in.DestructiveHint)
 }
 
@@ -239,7 +218,7 @@ func isReadClass(c classify.Class) bool {
 }
 
 // refuse is a deny with default:bad_arguments, decided before Evaluate.
-func (d *decision) refuse(reason string) Verdict {
+func (d *decision) refuse(reason string) seam.Verdict {
 	d.targets, d.resolved = nil, nil
 	d.dec = policy.Decision{
 		Effect: policy.Deny,
@@ -251,8 +230,8 @@ func (d *decision) refuse(reason string) Verdict {
 }
 
 // verdict turns the decision into what the proxy does and records.
-func (d *decision) verdict() Verdict {
-	v := Verdict{
+func (d *decision) verdict() seam.Verdict {
+	v := seam.Verdict{
 		Effect:      string(d.dec.Effect),
 		RuleID:      d.dec.RuleID,
 		Class:       string(d.class),
@@ -262,13 +241,13 @@ func (d *decision) verdict() Verdict {
 	unmet := ""
 	switch d.dec.Effect {
 	case policy.Allow:
+		v.Forward = true
 		for _, o := range d.dec.Obligations {
-			if slices.Contains(changeSafety, o) {
-				unmet = o
+			if !forwardable(o) {
+				unmet, v.Forward = o, false
 				break
 			}
 		}
-		v.Forward = unmet == ""
 	case policy.Hold, policy.Deny:
 	default:
 		// Evaluate returns only the three effects; anything else is not
@@ -291,4 +270,13 @@ func (d *decision) hasUnknown() bool {
 		}
 	}
 	return false
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

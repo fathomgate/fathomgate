@@ -15,8 +15,11 @@
 //     tag or group selector the upstream expands itself, is denied with
 //     default:bad_arguments: fathomgate cannot see which devices it would
 //     reach.
-//  3. Classify: classify.Classify, then the tool's annotations, which can
-//     only raise a read class (invariant 3, ADR 0010).
+//  3. Classify: classify.Classify on the tool looked up exactly, then the
+//     tool's annotations, which can only raise a read class to
+//     EXEC_ARBITRARY and never let it be downgraded (invariant 3, ADR 0010).
+//     A tool the profile does not list is refused when it carries any
+//     argument, and so is an argument the profile does not name (ADR 0033).
 //  4. Resolve: each name through the inventory. A name is known only when an
 //     inventory record carries exactly that name and it did not come from a
 //     hostname pattern alone (ADR 0031).
@@ -30,7 +33,9 @@
 // the fallback classifier and checks no argument names; fathomgate serve
 // warns at start when that happens (ADR 0027, board task M1-20).
 //
-// The only text the agent sees is Verdict.Error, one line in one shape:
+// The types that cross to the proxy, CallInfo and Verdict, are in the leaf
+// package internal/gate/seam. The only text the agent sees is
+// Verdict.Error, one line in one shape:
 //
 //	fathomgate <denied|cannot run|held> <server>.<tool>: rule <rule_id> (class <CLASS>): <reason>
 //
