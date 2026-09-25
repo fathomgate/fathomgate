@@ -4,6 +4,7 @@
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer
 - Amended by: [ADR 0023](0023-listener-binds-both-loopback-families.md) (both loopback families, the narrowed `--listen` address set, first-request header timeout, grace, second signal); export list restated in [ADR 0022](0022-internal-proxy-export-surface.md)
+- Followed by: [ADR 0029](0029-remote-listener-tls-and-loopback-authentication.md) (2026-09-25; accepted in part: the Windows exclusive bind lands in M1; `--listen-remote`, `--listen-host` and TLS, reserved here for M1, are deferred to M2 and re-decided there)
 - Amends: [ADR 0012](0012-serve-cli-and-proxy-api-for-m0.md) (adds flags and one exported method; nothing in it is withdrawn) and the sentence "The agent side is stdio" in [profile-schema section 8.3](../specs/profile-schema.md#83-netguard-serve-flags)
 
 ## Context

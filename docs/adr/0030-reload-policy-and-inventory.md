@@ -1,8 +1,8 @@
 # ADR 0030: Reloading the policy and inventory without a restart
 
-- Status: proposed
+- Status: proposed, deferred to M2
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer; to accept); proposed by the orchestrator for M1 (board task M1-05, for M1-25); owner mcp-protocol-engineer; reviewers policy-engineer, security-reviewer, go-reviewer
+- Deciders: Josh Scott (maintainer), deferred by the maintainer 2026-09-25 (see *Decisions on the open questions*); proposed by the orchestrator for M1 (board task M1-05, for M1-25); owner mcp-protocol-engineer; reviewers policy-engineer, security-reviewer, go-reviewer
 
 ## Context
 
@@ -49,11 +49,13 @@ We will reload the `--policy` and `--inventory` files on SIGHUP on Unix and by p
 | No reload on Windows | Windows is a supported platform; the restart cost above applies there too. |
 | Reload profiles too | Mid-session reclassification; keep it a restart until someone needs otherwise. |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **Polling on Unix.** Offer `--reload-poll` on Unix too (useful in containers where signalling is awkward), or SIGHUP only?
-2. **Park to M2?** R33 is P1 and not an exit criterion. Keep it on the M1 board (proposed) or move it to M2 so M1 closes on the pipeline?
-3. **Poll interval.** Fixed 5 seconds, or a flag?
+Deferred by the maintainer, Josh Scott, on 2026-09-25. This record is not accepted.
+
+- **Open question 2, park to M2: yes.** Reload moves to M2, with board task M1-25. The record stays `proposed` and is decided in M2.
+- **Open question 1, polling on Unix, and open question 3, the poll interval:** open, decided with the record in M2.
+- Until then a changed `--policy` or `--inventory` file takes effect on restart.
 
 ## References
 

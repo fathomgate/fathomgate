@@ -60,7 +60,6 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | Audit | Any single edited line fails `fathomgate audit verify` |
 | Review from the CLI | The CLI shows the diff, the rule trace and the rule for every pending record, in tier 2 |
 | Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
-| Local console | Shows Holding, Approved and Denied calls live in both themes; loopback only and off by default; an approval from it alone never satisfies `approver_must_differ` |
 | Time from `hold` to approver notification | Under 5 seconds via webhook |
 
 ## 6. Requirements
@@ -101,7 +100,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R30 | IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy watchdog | P0 | M5 | [change-safety-drivers](specs/change-safety-drivers.md) |
 | R31 | Optional OPA backend mapping onto `Decision` | P2 | M5 | [ADR 0003](adr/0003-yaml-policy-dsl-with-obligations.md) |
 | R32 | Block and audit upstream `sampling/createMessage` | P1 | M2 | [ADR 0008](adr/0008-dual-era-mcp-support.md) |
-| R33 | Policy reload on SIGHUP without dropping connections; failed reload keeps the old policy | P1 | M1 | [policy-schema](specs/policy-schema.md) |
+| R33 | Policy reload on SIGHUP without dropping connections; failed reload keeps the old policy. Until 2026-09-25 R33 was M1; the maintainer deferred [ADR 0030](adr/0030-reload-policy-and-inventory.md) (proposed, deferred to M2) and moved it | P1 | M2 (was M1) | [policy-schema](specs/policy-schema.md), [ADR 0030](adr/0030-reload-policy-and-inventory.md) |
 | R34 | Python `tools/policy-lint` sharing the YAML schema and classifier tables | P1 | M1 | [CONTRIBUTING](../CONTRIBUTING.md) |
 | R35 | The CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind without a console | P0 | M3 | [approval-protocol](specs/approval-protocol.md), [ADR 0025](adr/0025-split-the-console.md) |
 | R36 | Team console: SSO, roles and RBAC, multi-approver and N-of-M approvals, fleet view across many instances, central policy management, long-term retention and search, SIEM export (R27) | n/a | Paid edition, not core | [ADR 0025](adr/0025-split-the-console.md) |
