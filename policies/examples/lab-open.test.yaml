@@ -78,15 +78,39 @@ cases:
       targets: [{name: lab-leaf-01, tags: [lab]}]
     expect: {effect: deny, rule: no-exec}
 
-  # Matrix row 6: the unknown-target default runs before the rules, so an
-  # unknown lab-looking name does not reach lab-writes-free.
+  # Matrix row 6: the unknown-target default runs before the rules. ghost-99
+  # matches no device and no pattern in inventory.example.yaml.
   - name: "row 6: write to an unknown host is denied by the unknown-target default"
     request:
       server: eos-mcp
       tool: push_config
       class: WRITE_CONFIG
-      targets: [{name: lab-ghost-99, tags: [lab], known: false}]
+      targets: [{name: ghost-99, known: false}]
     expect: {effect: deny, rule: default:unknown_target}
+
+  # Pattern hazard. This is what an inventory produces when a hostname pattern
+  # adds the lab tag (^lab- with tags: [lab]): the agent made the name up, the
+  # pattern made it a known lab device, and the write is allowed and forwarded
+  # with no dry run. The case pins the behaviour so the hazard stays visible;
+  # the fix is in the inventory, not the policy: list lab devices statically
+  # (see the header of lab-open.yaml and inventory.example.yaml).
+  - name: "pattern hazard: a made-up lab- name tagged lab by a pattern is allowed to write"
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: lab-ghost-99, site: lab, tags: [lab]}]
+    expect: {effect: allow, rule: lab-writes-free, obligations: []}
+
+  # The same name through the shipped inventory.example.yaml, whose ^lab-
+  # pattern sets only site: known, but untagged, so not-lab denies the write.
+  - name: "the same name through the shipped inventory (site only, no tag) is denied by not-lab"
+    request:
+      server: eos-mcp
+      tool: push_config
+      class: WRITE_CONFIG
+      targets: [{name: lab-ghost-99, site: lab}]
+    expect: {effect: deny, rule: not-lab}
 
   - name: "row 6: exec on an unknown host is denied by the unknown-target default"
     request:

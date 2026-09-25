@@ -85,7 +85,6 @@ roles:
     role: firewall
     vendor: panos
   - match: "^lab-"
-    tags: [lab]
     site: lab
   - match: "-canary$"
     tags: [canary]
@@ -97,7 +96,11 @@ roles:
 | `role`, `site`, `status`, `vendor` | string | Set if the pattern is the winning provider or the field is otherwise empty |
 | `tags` | list | Always unioned |
 
-Every matching pattern contributes. The first pattern that sets `role` wins `role`. A pattern that sets only `tags` never makes the target resolved on its own: a target matched only by a tags-only pattern remains `unknown` for `role`, and `device_roles: [unknown]` matches it. This keeps a stray `lab-` prefix from turning an unlisted device into a known one.
+Every matching pattern contributes. The first pattern that sets `role` wins `role`. A target matched only by a pattern that sets no role remains `unknown` for `role`, and `device_roles: [unknown]` matches it.
+
+Current code: any matching pattern, including a tags-only one, makes the target known (`known: true`, `status: pattern`), so the unknown-target default does not apply to it. The design intent, that a tags-only pattern never resolves a target on its own, is not implemented; it is for the follow-up inventory ADR named in the [threat model](../security/threat-model.md) (row "Pattern-resolved target satisfies `device_tags` for writes").
+
+**Do not use a pattern to add a tag or role that a rule allowing writes matches on.** The target name comes from the agent, so a pattern resolves any matching string the agent sends: with `^lab-` adding `tags: [lab]`, `lab-ghost-99`, `LAB-core-rtr-01` and `lab-x@core-rtr-01` all satisfy `device_tags: [lab]`, and `lab-open` allows writes to them. List every device a policy allows writes to statically by name (section 3), as `inventory.example.yaml` does for its lab devices.
 
 ## 5. Upstream inventory provider
 

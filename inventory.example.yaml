@@ -4,6 +4,15 @@
 # devices: resolved first, exact (case-insensitive) hostname match.
 # roles:   hostname regexes tried next for anything not listed; first pattern
 #          to set a role wins, tags accumulate.
+#
+# Warning: a target name comes from the agent, so a pattern resolves any
+# string the agent sends that matches it, and today any match makes the name
+# a known device. A pattern that adds a tag or role a write rule matches on
+# (lab-open's device_tags: [lab], prod-approval's device_roles) lets the
+# agent write to a name it made up: "lab-ghost-99", "LAB-core-rtr-01" or
+# "lab-x@core-rtr-01" would all satisfy device_tags: [lab]. List every device
+# a policy allows writes to statically by name, as the lab devices are below,
+# and keep patterns to attributes no rule that allows a write matches on.
 devices:
   - name: core-rtr-01
     role: core
@@ -50,11 +59,36 @@ devices:
     site: lab
     tags: [lab]
     status: active
+  # The containerlab topology in docs/testing/test-strategy.md.
+  - name: lab-sw-01
+    role: access
+    site: lab
+    tags: [lab]
+    status: active
+  - name: lab-sw-02
+    role: access
+    site: lab
+    tags: [lab]
+    status: active
+  - name: lab-srl-01
+    role: leaf
+    site: lab
+    tags: [lab]
+    status: active
 roles:
+  # The one exception to the warning: in the shipped examples role core never
+  # leads to allow. prod-approval holds a core write for a second person, who
+  # sees the target name (without this pattern an unlisted core- name would be
+  # denied by default:no-match instead); read-only and lab-open never allow a
+  # write by role. Check your own policy before copying this: a rule that
+  # allows writes by role turns the pattern into the same hazard.
   - match: "^core-|^border-"
     role: core
+  # No tags: [lab] here, on purpose (see the warning at the top). A lab
+  # device is only one listed above. This pattern sets the site, which no
+  # policy rule matches on; it still makes any lab- name the agent sends a
+  # known device, so the unknown-target default does not stop a read of it.
   - match: "^lab-"
-    tags: [lab]
     site: lab
   - match: "^fw-"
     role: firewall

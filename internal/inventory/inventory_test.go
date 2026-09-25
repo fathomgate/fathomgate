@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -219,6 +220,22 @@ func TestRepoExampleInventory(t *testing.T) {
 	for _, name := range []string{"core-rtr-01", "lab-leaf-01"} {
 		if _, ok := chain.Resolve(name); !ok {
 			t.Errorf("%s should resolve from the example inventory", name)
+		}
+	}
+	// Lab devices are listed statically, so they carry the lab tag that
+	// lab-open's lab-writes-free matches on.
+	for _, name := range []string{"lab-leaf-01", "lab-spine-01", "lab-sw-01", "lab-sw-02", "lab-srl-01"} {
+		tg, ok := chain.Resolve(name)
+		if !ok || !slices.Contains(tg.Tags, "lab") {
+			t.Errorf("%s: got %+v (known %v), want a static device tagged lab", name, tg, ok)
+		}
+	}
+	// A name the agent makes up must never pick up the lab tag from a
+	// pattern (security review of PR #154, H1): with it, lab-open would
+	// allow a write to it.
+	for _, name := range []string{"lab-ghost-99", "LAB-core-rtr-01", "lab-x@core-rtr-01", "lab-leaf-01.evil", "Lab-Sw-01x"} {
+		if tg, _ := chain.Resolve(name); slices.Contains(tg.Tags, "lab") {
+			t.Errorf("%s: resolved with tag lab (%+v); lab devices must be listed statically", name, tg)
 		}
 	}
 }

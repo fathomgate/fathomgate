@@ -1,12 +1,22 @@
-# lab-open: for a containerlab or EVE-NG environment where every device
-# carries the "lab" tag (statically or via a ^lab- hostname pattern).
-# Writes to lab devices are allowed; anything not tagged lab is denied so a
-# stray production hostname in the same inventory stays safe. Arbitrary
-# commands that the classifier could not prove to be reads are denied even in
-# the lab, because "reload" on a lab node still costs an afternoon.
+# lab-open: for a containerlab or EVE-NG environment where every lab device
+# carries the "lab" tag. Writes to lab devices are allowed; anything not
+# tagged lab is denied so a stray production hostname in the same inventory
+# stays safe. Arbitrary commands that the classifier could not prove to be
+# reads are denied even in the lab, because "reload" on a lab node still
+# costs an afternoon.
 #
-# M1 and M2: lab writes carry no dry_run or diff. fathomgate cannot run a dry
-# run or take a diff until the change-safety drivers land in M3, and an allow
+# List lab devices statically by name in the inventory. Do not tag them with
+# a hostname pattern: the target name comes from the agent, and a pattern
+# that adds the lab tag lets any matching string the agent sends be written
+# to ("lab-x@core-rtr-01" matches ^lab-). inventory.example.yaml lists its
+# lab devices this way.
+#
+# M1–M2: a write fathomgate allows here is sent to the device as the agent
+# wrote it — no dry run, no diff, no rollback; until M4 no audit event, only
+# the decision log line.
+#
+# That is because lab-writes-free carries no dry_run or diff until M3.
+# fathomgate cannot run a dry run or take a diff until the change-safety drivers land in M3, and an allow
 # that carries an obligation it cannot meet is not forwarded (ADR 0026), so
 # with those obligations every lab write would be refused. They return to
 # lab-writes-free in M3 as obligations: [dry_run, diff].
