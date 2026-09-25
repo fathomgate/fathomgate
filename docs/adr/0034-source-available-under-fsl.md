@@ -231,6 +231,12 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 6. **Lawyer review:** the relicensing pull request is prepared as a draft and merges only after the maintainer confirms a lawyer's review or explicitly waives it (decision 7).
 7. **`policies/examples/` and `profiles/` stay Apache-2.0**, each with its own `LICENSE` file and a path rule in `NOTICE` and the README. The engine, the proxy, the CLI, the gate and everything else go to `FSL-1.1-ALv2`.
 
+## Amendments
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | The maintainer waived the lawyer's review of decision 6 and told the orchestrator to go ahead with the relicensing pull request (#166). `design/` goes under FSL-1.1-ALv2 with the rest of the core, as decision 7 already reads; only `policies/examples/` and `profiles/` stay Apache-2.0. The questions listed for the lawyer (Competing Use and managed service providers, AI co-author trailers) stay open for the maintainer to take up later. | Maintainer decision, recorded so the history shows the review was waived rather than done |
+
 ## References
 
 - [ADR 0020, open core under Apache-2.0](0020-open-core-apache-2.md): section 2 (boundary rule and table), section 3 (extension seam and invariants), section 4 (licensing mechanics), *Alternatives considered* (FSL and BSL)
