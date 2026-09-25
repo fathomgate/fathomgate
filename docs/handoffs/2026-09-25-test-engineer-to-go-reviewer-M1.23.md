@@ -40,3 +40,15 @@ go test -run '^$' -bench BenchmarkDecideOverhead ./internal/gate/
 
 - Should the known worst cases fail the build instead (a red PR until the findings are fixed)? The brief said to report, not loosen, so this PR reports them.
 - The `-race` job's time for `internal/proxy` is 59 s, against 25 s on main (101 s at 30 worst-case rounds; now 10). Most of it is the known-over worst cases at 100 to 200 ms a call under `-race`. Is that acceptable, or should those cases skip under `-race`? The 1x step holds the budget either way.
+
+## Round 2 (Go review, request changes)
+
+Commit `799957f`, [CI run 36189812049](https://github.com/fathomgate/fathomgate/actions/runs/36189812049), all green.
+
+1. Worst-case p50 is enforced only with `FATHOMGATE_OVERHEAD_STRICT=1`, which is set in the `-p 1 -v` step `gate overhead budget (M1-23)` in the Linux, Windows and macOS jobs. A full parallel run logs it. Typical p99 is enforced everywhere. Locally, `go test ./...` ran green four times after the change.
+2. `Proxy.decideAndRespond` (`internal/proxy/gate.go`) is a pure extract with no behaviour change. `gated` calls it and the proxy test times it. I ran the conformance recipe by hand: all 8 legs passed. Era pairs first failed because my Windows launcher used a relative binary path; they passed with absolute paths.
+3. Under `-race`, worst cases get a verdict check only, and the end-to-end worst block is skipped under `-race` or `-short`. Linux `-race` job: `internal/gate` 8.4 s → 2.0 s; `internal/proxy` 59 s → 31 s (main: 25 s). macOS `-race` for `internal/proxy`: 40 s.
+4. `KnownOverBudget(what, name) (finding string, ok bool)` and `Worst(known []string)` are exported; the map and `InventoryNames` are unexported. The tests load device names with `inventory.LoadFile("inventory.example.yaml")`. **This API is stable for M1-39.**
+5. In the strict step, a known case whose p50 is back under budget fails with "now under budget; remove it from KnownOverBudget".
+
+Nits are done, and `TestNotInBinary` checks that `go list -deps ./cmd/fathomgate` excludes gatetest. All three strict steps logged `KNOWN OVER BUDGET` for the same five cases, and nothing unknown was over budget. Typical p99 in the strict steps: Linux 19 µs gate / 87 µs proxy stage, macOS arm64 54 / 182 µs, Windows 527 / 740 µs (clock step 0.3 ms).
