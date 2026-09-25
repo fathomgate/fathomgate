@@ -216,6 +216,81 @@ your Cursor version expands, or put the value in `~/.cursor/mcp.json`,
 which is not shared. Then open Cursor Settings, go to MCP, check that
 `netdev` has a green dot, and confirm it lists five tools.
 
+## Remote agents over HTTP
+
+Instead of letting the client start fathomgate, you can start fathomgate
+yourself and have clients connect to it over HTTP. That helps when an app
+cannot start programs, or when several clients should share one fathomgate.
+
+In M0 this has three limits, on purpose:
+
+- fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
+  `[::1]`). Other machines cannot connect, and it refuses any other
+  address. Listening on a network waits for M1, when a policy runs in
+  front of your devices.
+- Every request must carry a token, a long random password that you make.
+  Anyone who has the token can use your devices through fathomgate, so
+  treat it like a device password.
+- fathomgate still checks nothing. Use it against lab devices only.
+
+**1. Make a token file that only you can read.** On macOS or Linux:
+
+```sh
+mkdir -p ~/.config/fathomgate
+(umask 077; openssl rand -hex 32 > ~/.config/fathomgate/agent.token)
+```
+
+On Windows, in PowerShell (not as administrator, because a file an
+administrator shell creates can belong to the Administrators group, and
+fathomgate refuses a token file that does not belong to you):
+
+```powershell
+$bytes = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$token = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+Set-Content -NoNewline -Path "$HOME\fathomgate-agent.token" -Value $token
+icacls "$HOME\fathomgate-agent.token" /inheritance:r /grant:r "${env:USERNAME}:F"
+```
+
+fathomgate refuses to start if other users could read or change the file,
+and tells you which command fixes it (`chmod 600` or `icacls`).
+
+**2. Start fathomgate with `--listen`.** Use the same `serve` flags as in
+the sections above, plus `--listen` and the token file:
+
+```sh
+fathomgate serve --listen 127.0.0.1:8931 \
+  --listen-token-file me=$HOME/.config/fathomgate/agent.token \
+  --server netdev-ssh-mcp \
+  --upstream /Users/you/go/bin/netdev-ssh-mcp \
+  --upstream-env DEVICE_USERNAME=netops \
+  --upstream-env-pass SSH_AUTH_SOCK
+```
+
+It prints `listening url=http://127.0.0.1:8931/mcp`. Port `0` picks a free
+port, and the line then shows which one. `me` is a name for the token: it
+appears in fathomgate's log so that you can tell clients apart. Give each
+client its own token by repeating `--listen-token-file` with another name.
+The name is only a label. It does not prove which person is using it.
+
+If your system hands secrets to programs in environment variables instead
+of files, put the token in `FATHOMGATE_LISTEN_TOKEN` and leave out
+`--listen-token-file`. Its name in the log is `env`. Never put the token on
+the command line: fathomgate has no flag for it.
+
+**3. Point the client at the URL.** The client connects to the URL from
+the `listening` line, as a Streamable HTTP (sometimes just "HTTP") MCP
+server, and sends the header `Authorization: Bearer <token>` with every
+request. Browser-based clients cannot connect: fathomgate refuses every
+request that comes from a web page. Tested client settings for Claude Code
+and others will be added here.
+
+**4. Stop it** with Ctrl+C (or SIGTERM). fathomgate gives calls in progress
+up to 5 seconds to finish, then stops. If the upstream server exits,
+fathomgate stops too and exits with status 1, so run it under something that
+restarts it (systemd, launchd, a Windows service wrapper) if clients depend
+on it.
+
 ## If the client can't find fathomgate or the upstream
 
 When you start Cursor or Claude Desktop from the Dock or Finder, it does not
