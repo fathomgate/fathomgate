@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build unix || windows
+
 package audit
 
 import (
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"os"
@@ -38,9 +41,11 @@ func TestKeygenOutputPassesLoadKey(t *testing.T) {
 	}
 }
 
-// ADR 0028: LoadPublicKey accepts one PUBLIC KEY block and nothing else;
-// any private key block is ErrPrivateKey.
+// ADR 0028: LoadPublicKey accepts one PUBLIC KEY block with only white
+// space around it; any file with "PRIVATE KEY" in it, wherever, is
+// ErrPrivateKey (security review of PR #155, L1).
 func TestLoadPublicKeyRefusesPrivateKey(t *testing.T) {
+	t.Parallel()
 	pub, priv, err := NewKey()
 	if err != nil {
 		t.Fatal(err)
@@ -66,11 +71,21 @@ func TestLoadPublicKeyRefusesPrivateKey(t *testing.T) {
 		{"pkcs8 private key", block("PRIVATE KEY", pkcs8), ErrPrivateKey, ""},
 		{"encrypted private key", block("ENCRYPTED PRIVATE KEY", pkcs8), ErrPrivateKey, ""},
 		{"openssh private key", block("OPENSSH PRIVATE KEY", pkcs8), ErrPrivateKey, ""},
-		{"private key after the public key", block("PUBLIC KEY", pkix) + block("PRIVATE KEY", pkcs8), nil, "more than the one PEM block"},
+		{"private key after the public key", block("PUBLIC KEY", pkix) + block("PRIVATE KEY", pkcs8), ErrPrivateKey, ""},
+		{"private key before the public key", block("PRIVATE KEY", pkcs8) + block("PUBLIC KEY", pkix), ErrPrivateKey, ""},
+		// pem.Decode skips a block it cannot parse and returns the next one.
+		{"corrupted private block before the public key", "-----BEGIN PRIVATE KEY-----\nMC4C!!not base64\n" + block("PUBLIC KEY", pkix), ErrPrivateKey, ""},
+		{"private key text before the public key", "PRIVATE KEY " + base64.StdEncoding.EncodeToString(pkcs8) + "\n" + block("PUBLIC KEY", pkix), ErrPrivateKey, ""},
+		{"private key der before the public key", base64.StdEncoding.EncodeToString(pkcs8) + "\n" + block("PUBLIC KEY", pkix), nil, "text before the PEM block"},
+		{"corrupted other block before the public key", "-----BEGIN JUNK-----\n!!\n" + block("PUBLIC KEY", pkix), nil, "more than the one PEM block"},
+		{"text after the public key", block("PUBLIC KEY", pkix) + "trailing\n", nil, "text after the PEM block"},
+		{"white space around the public key", "\n  \n" + block("PUBLIC KEY", pkix) + "\n\n", nil, ""},
+		{"malformed public block", "-----BEGIN PUBLIC KEY-----\n!!\n", nil, "malformed"},
 		{"certificate", block("CERTIFICATE", pkix), nil, "not a PUBLIC KEY PEM block"},
 		{"no PEM", "not a key\n", nil, "no PEM block"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			p := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-"))
 			if err := os.WriteFile(p, []byte(tc.content), 0o600); err != nil {
 				t.Fatal(err)
@@ -138,6 +153,7 @@ func saveTestKey(t *testing.T, dir, name string) string {
 // A second hard link to the key is refused through either name: another
 // user who can link the file into a directory they control keeps it.
 func TestLoadKeyRefusesHardLink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kp := saveTestKey(t, dir, "audit.key")
 	link := filepath.Join(dir, "linked.key")
@@ -150,6 +166,7 @@ func TestLoadKeyRefusesHardLink(t *testing.T) {
 
 // A missing key is an error, but not a refusal of an unsafe file.
 func TestLoadKeyMissing(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "absent.key")
 	_, err := LoadKey(p)
 	if err == nil || errors.Is(err, secretfile.ErrUnsafe) {
@@ -157,5 +174,17 @@ func TestLoadKeyMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cannot open the signing key "+p) {
 		t.Fatalf("err = %v, want it to name the key", err)
+	}
+}
+
+// A directory at the public key path is refused, not read.
+func TestLoadPublicKeyRefusesDirectory(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "audit.pub")
+	if err := os.Mkdir(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPublicKey(p); err == nil {
+		t.Fatal("LoadPublicKey accepted a directory")
 	}
 }

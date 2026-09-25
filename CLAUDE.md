@@ -40,7 +40,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 
 ## Toolchain facts
 
-- `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key-file DACL, by `cmd/fathomgate` for the `--listen-token-file` DACL check and by `internal/proxy` for the upstream's Job Object, ADR 0021). Never add `gopkg.in/yaml.v3` (unmaintained).
+- `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key and log DACL on create and log resume, by `internal/secretfile` for the owner and DACL check on reading the audit signing key and `--listen-token-file` files (ADR 0028), by `internal/proxy` for the upstream's Job Object (ADR 0021) and by `cmd/fathomgate` for Winsock error codes in `listen_windows.go`). Never add `gopkg.in/yaml.v3` (unmaintained).
 - `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
@@ -87,6 +87,7 @@ internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
 internal/fileacl/    one question: does this open file carry a macOS extended ACL (refuse it); no-op elsewhere
+internal/secretfile/ owner-only read of a secret file (audit signing key, listen token files; redaction key in M2), ADR 0028
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (M2)
 internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)

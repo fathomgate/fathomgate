@@ -56,6 +56,23 @@ jobs:
             fi
           done
           exit "$missing"
+      # The other-owner tests need root to chown a file to another uid, and
+      # skip otherwise. The test binary is built as the runner user, so no
+      # root-owned file lands in the Go build or module cache; only the
+      # binary runs under sudo (hosted runners have passwordless sudo).
+      # M1-09, security review of PR #155 (N3).
+      - name: other-owner tests ran as root
+        run: |
+          go test -c -o "$RUNNER_TEMP/audit.test" ./internal/audit/
+          sudo "$RUNNER_TEMP/audit.test" -test.count=1 -test.v -test.run 'OtherOwner' | tee owner.log
+          missing=0
+          for t in TestNewWriterRefusesOtherOwner TestLoadKeyUnixRefusesOtherOwner; do
+            if ! grep -qF -- "--- PASS: $t (" owner.log; then
+              echo "::error::$t did not print --- PASS"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - name: policy suites
         run: make policy-test
       - name: redaction fixtures
@@ -329,7 +346,7 @@ jobs:
       - run: go test -race -count=1 ./internal/proxy/
       - name: ACL, token file, audit file and H1 tests ran on macOS
         run: |
-          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|LoadKey|NewWriter|Writer|TestRead|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
+          go test -count=1 -v -run 'Extended|ParseAttrBuf|ReadTokenFile|Darwin|SaveKey|LoadKey|KeyLoaders|NewWriter|Writer|TestRead|TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken' \
             ./internal/fileacl/ ./internal/secretfile/ ./cmd/fathomgate/ ./internal/audit/ | tee macos.log
           missing=0
           for t in \
@@ -346,7 +363,11 @@ jobs:
             TestLoadKeyUnixMode \
             TestLoadKeyUnixRefusesSymlink \
             TestReadOwnerOnly \
-            TestReadErrors; do
+            TestReadErrors \
+            TestLoadKeyUnixRefusesDirectory \
+            TestReadHardLink \
+            TestReadFIFO \
+            TestKeyLoadersRefuseFIFO; do
             if ! grep -qF -- "--- PASS: $t (" macos.log; then
               echo "::error::$t did not print --- PASS"
               missing=1

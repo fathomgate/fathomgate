@@ -18,9 +18,13 @@ func read(path, what string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("the path of %s contains a NUL character", what)
 	}
 	// Share mode FILE_SHARE_READ: nobody can write, rename or delete the
-	// file while it is open here.
+	// file while it is open here. SECURITY_SQOS_PRESENT with
+	// SECURITY_IDENTIFICATION: if the path names a named pipe (\\.\pipe\...,
+	// or a UNC path to one on another host), its server can identify this process but not
+	// impersonate it, before the disk-file check below refuses the handle.
 	h, err := windows.CreateFile(name, windows.GENERIC_READ|windows.READ_CONTROL, windows.FILE_SHARE_READ, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT|
+			windows.SECURITY_SQOS_PRESENT|windows.SECURITY_IDENTIFICATION, 0)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open %s: %w", what, err)
 	}
@@ -64,11 +68,14 @@ func check(h windows.Handle, what string) error {
 	}
 	user := me.User.Sid
 	owner, _, err := sd.Owner()
-	if err != nil || owner == nil {
+	if err != nil {
+		return refuseCause(err, "the owner of %s cannot be read: %v", what, err)
+	}
+	if owner == nil {
 		return refuse("the owner of %s cannot be read", what)
 	}
 	if !owner.Equals(user) {
-		return refuse("%s is owned by %v, not the user running fathomgate (%v)", what, owner, user)
+		return refuse(`%s is owned by %v, not the user running fathomgate (%v); if you trust the file, take it with: icacls <file> /setowner "%%USERNAME%%"`, what, owner, user)
 	}
 	control, _, err := sd.Control()
 	if err != nil {
@@ -79,13 +86,16 @@ func check(h windows.Handle, what string) error {
 		return refuse("%s inherits permissions from its folder%s", what, fix)
 	}
 	dacl, _, err := sd.DACL()
-	if err != nil || dacl == nil {
+	if err != nil {
+		return refuseCause(err, "the access control list of %s cannot be read: %v%s", what, err, fix)
+	}
+	if dacl == nil {
 		return refuse("%s has no access control list, so everyone can open it%s", what, fix)
 	}
 	for i := range uint32(dacl.AceCount) {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
-			return refuse("cannot read the permissions of %s: %v", what, err)
+			return refuseCause(err, "cannot read the permissions of %s: %v", what, err)
 		}
 		switch ace.Header.AceType {
 		case windows.ACCESS_DENIED_ACE_TYPE:

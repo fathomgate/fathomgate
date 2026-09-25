@@ -57,7 +57,7 @@ func check(f *os.File, what string) error {
 	// review of PR #109); fileacl reads it on the open descriptor.
 	switch ext, err := fileacl.Extended(f); {
 	case err != nil:
-		return refuse("cannot check the access control list of %s: %v", what, pathless(err))
+		return refuseCause(err, "cannot check the access control list of %s: %v", what, pathless(err))
 	case ext:
 		return refuse("%s has an extended ACL, which can give other users access the mode does not show; remove it with chmod -N", what)
 	}
