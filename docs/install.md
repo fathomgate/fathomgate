@@ -288,7 +288,10 @@ In M0 this has three limits, on purpose:
 - fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
   `[::1]`). Other machines cannot connect, and it refuses any other
   address. Listening on a network waits for M1, when a policy runs in
-  front of your devices.
+  front of your devices. Whichever of the three you give, Fathomgate takes
+  the port on both `127.0.0.1` and `[::1]`, so that no other user of this
+  computer can take the other one and collect tokens from clients that try
+  it first.
 - Every request must carry a token, a long random password that you make.
   Anyone who has the token can use your devices through fathomgate, so
   treat it like a device password.
@@ -314,7 +317,8 @@ icacls "$HOME\fathomgate-agent.token" /inheritance:r /grant:r "${env:USERNAME}:F
 ```
 
 fathomgate refuses to start if other users could read or change the file,
-and tells you which command fixes it (`chmod 600` or `icacls`).
+and tells you which command fixes it (`chmod 600`, `chmod -N` for a macOS
+access control list, or `icacls`).
 
 **2. Start fathomgate with `--listen`.** Use the same `serve` flags as in
 the sections above, plus `--listen` and the token file:
@@ -328,8 +332,19 @@ fathomgate serve --listen 127.0.0.1:8931 \
   --upstream-env-pass SSH_AUTH_SOCK
 ```
 
-It prints `listening url=http://127.0.0.1:8931/mcp`. Port `0` picks a free
-port, and the line then shows which one. `me` is a name for the token: it
+It prints one `listening` line for each address it listens on:
+
+```text
+level=INFO msg=listening url=http://127.0.0.1:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
+level=INFO msg=listening url=http://[::1]:8931/mcp server=netdev-ssh-mcp principals=me policy="none (M0 pass-through: every call is forwarded)"
+```
+
+Port `0` picks a free port, and the lines then show which one. If another
+program already holds the port on either address, Fathomgate stops with
+status 1 and names the address: stop that program or pick another port. On
+a computer without IPv6 it prints a warning and one `listening` line.
+
+`me` is a name for the token: it
 appears in fathomgate's log so that you can tell clients apart. Give each
 client its own token by repeating `--listen-token-file` with another name.
 The name is only a label. It does not prove which person is using it.
@@ -339,18 +354,29 @@ of files, put the token in `FATHOMGATE_LISTEN_TOKEN` and leave out
 `--listen-token-file`. Its name in the log is `env`. Never put the token on
 the command line: fathomgate has no flag for it.
 
-**3. Point the client at the URL.** The client connects to the URL from
-the `listening` line, as a Streamable HTTP (sometimes just "HTTP") MCP
-server, and sends the header `Authorization: Bearer <token>` with every
-request. Browser-based clients cannot connect: fathomgate refuses every
+**3. Point the client at the URL.** Paste the exact URL from a `listening`
+line into the client config, for example `http://127.0.0.1:8931/mcp`,
+rather than typing `localhost`: an address written out means the client
+connects where Fathomgate listens and nowhere else. The client connects to
+it as a Streamable HTTP (sometimes just "HTTP") MCP server, and sends the
+header `Authorization: Bearer <token>` with every request. Browser-based clients cannot connect: fathomgate refuses every
 request that comes from a web page. Tested client settings for Claude Code
 and others will be added here.
 
 **4. Stop it** with Ctrl+C (or SIGTERM). fathomgate gives calls in progress
-up to 5 seconds to finish, then stops. If the upstream server exits,
-fathomgate stops too and exits with status 1, so run it under something that
-restarts it (systemd, launchd, a Windows service wrapper) if clients depend
-on it.
+up to 5 seconds to finish, then stops. Press Ctrl+C a second time to stop
+it at once; the upstream server may then be left running. If the upstream
+server exits, fathomgate stops too and exits with status 1, so run it under
+something that restarts it (systemd, launchd, a Windows service wrapper) if
+clients depend on it.
+
+Have that supervisor restart Fathomgate straight away, with no delay or
+back-off. While Fathomgate is not running, another user of this computer
+can take its port, and a client that keeps retrying will send that program
+its token: the client has no way to tell it is not Fathomgate. Fathomgate
+refuses to start if it finds its port taken, so the log shows it when this
+happens. M1 closes the gap with TLS and a pinned certificate, or a socket
+file that only you can open.
 
 ## If the client can't find fathomgate or the upstream
 
