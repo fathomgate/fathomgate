@@ -43,3 +43,12 @@ python tests/conformance/era_pairs.py --fathomgate <abs>/bin/fathomgate.exe --up
 ## Questions for the receiver
 
 - Should the discovered-upstream refusal also replace the attribution reason when zero or several calls are in flight?
+
+## Review round 1 (security and Go, approve on the code), addressed
+
+- (0) Merged `origin/main`; the only conflict, `STATUS.md`, was re-rendered.
+- (1) `TestHybridRefusalIsNotRestarted`: the test hook `afterAbort` (nil in production) runs the ADR 0018 bound out after the refusal and before go-sdk's close. It checks that one transport was built and that the error has the `connect:` prefix, with no restart. It fails without the cause guard in `connectAttempt` (checked, then reverted).
+- (2) The middleware also refuses any stateless answer, `eraOf(answered) == eraStateless`, even when it equals the request. The error then says `the stateless version`. `TestHandshakeMiddleware` calls the middleware directly with an equal 2026-07-28 request and answer. It fails without the clause (checked, then reverted).
+- (3) The `upstream.version` and `upstream.era` comments in `proxy.go` now say that a handshake session never carries a later or a stateless version.
+- (4) The threat-model row "Upstream prints the secret on stderr" gains the clip-before-scrub residual: `hybridError` clips at 200 bytes before `redactingWriter`. profile-schema 8.4 points to it.
+- `go test ./...` passes, `golangci-lint` reports 0 issues, and conformance passes on all legs and era pairs with baselines unchanged.

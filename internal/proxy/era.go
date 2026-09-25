@@ -104,8 +104,12 @@ func (h *handshakes) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		}
 		// Versions compare as strings (YYYY-MM-DD). go-sdk always names a
 		// version in its request; were it ever empty, any answer would count
-		// as later and be refused: the safe direction.
-		if answered > requested {
+		// as later and be refused: the safe direction. A stateless version
+		// is refused even when it equals the request: no session opened
+		// with the handshake may carry one (go-sdk keys the _meta
+		// self-description on the version), so upstreamEra's stateful label
+		// for a handshake session is always true to the version.
+		if answered > requested || eraOf(answered) == eraStateless {
 			herr := &hybridError{requested: requested, answered: answered}
 			abortAttempt(ctx, herr)
 			return nil, herr
@@ -121,16 +125,21 @@ func (h *handshakes) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 }
 
 // hybridError is the refusal of an upstream that answered the initialise
-// request with a later protocol version than fathomgate asked for (M1-32).
+// request with a later protocol version than fathomgate asked for, or with
+// a stateless one (M1-32).
 // answered is upstream text: it is quoted and clipped here, and connect
 // escapes the whole error (escapedError) before it reaches the operator.
 type hybridError struct{ requested, answered string }
 
 func (e *hybridError) Error() string {
-	return fmt.Sprintf("the upstream answered the %s request for protocol %s with the later version %q; "+
+	kind := "later"
+	if e.answered <= e.requested {
+		kind = "stateless" // equal to the request, and 2026-07-28 or later
+	}
+	return fmt.Sprintf("the upstream answered the %s request for protocol %s with the %s version %q; "+
 		"fathomgate refuses a hybrid upstream, which opens a stateful session and then speaks a later version on it, "+
 		"so the session was closed and the upstream stopped (ADR 0008)",
-		methodInitialize, e.requested, clip(e.answered))
+		methodInitialize, e.requested, kind, clip(e.answered))
 }
 
 // abortKey is the context key under which connectAttempt stores its
@@ -151,7 +160,16 @@ func abortAttempt(ctx context.Context, cause error) {
 	if cancel, ok := ctx.Value(abortKey{}).(context.CancelCauseFunc); ok {
 		cancel(cause)
 	}
+	if afterAbort != nil {
+		afterAbort()
+	}
 }
+
+// afterAbort, when not nil, runs once abortAttempt has cancelled the
+// attempt and before go-sdk closes the session. It is a test hook, nil
+// in production: a test uses it to run the ADR 0018 bound out inside that
+// window (TestHybridRefusalIsNotRestarted).
+var afterAbort func()
 
 // take reports whether cs was opened with the initialise handshake, and
 // forgets every session recorded so far.

@@ -721,3 +721,94 @@ func TestExitStatus(t *testing.T) {
 		t.Errorf("withExit without a status changed the error: %v", got)
 	}
 }
+
+// TestHybridRefusalIsNotRestarted (M1-32, the cause guard in
+// connectAttempt): the ADR 0018 bound runs out after the middleware has
+// refused a hybrid answer and before go-sdk has begun closing the session.
+// The attempt was answered, so it is not restarted: one transport, the
+// first attempt's connect: prefix, no restart warning.
+func TestHybridRefusalIsNotRestarted(t *testing.T) {
+	e := newProbeExpiry()
+	afterAbort = func() {
+		e.fire()
+		// Hold go-sdk's close back so the watcher reads the expiry before
+		// any close is requested: without the cause guard this attempt
+		// would count as unanswered and be restarted.
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Cleanup(func() { afterAbort = nil })
+	logs := newSyncBuffer()
+	r := newRebuildable(t, answers2026Attempt, serverAttempt(v2025))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: r.build}},
+		Options{Logger: slog.New(slog.NewTextHandler(logs, nil)), discoverExpired: e.ch})
+	if err == nil {
+		_ = p.Close()
+		t.Fatal("New succeeded against a hybrid upstream")
+	}
+	if got := r.builds(); got != 1 {
+		t.Errorf("transports built: %d, want 1 (a refused answer is never restarted)", got)
+	}
+	if want := "proxy: upstream netdev-ssh-mcp: connect: " + hybridRefusal; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error %q\nwant it to start %q", err, want)
+	}
+	if strings.Contains(err.Error(), "restarted") || strings.Contains(logs.String(), restartWarning) {
+		t.Errorf("restarted after a refused answer: %q\n%s", err, logs.String())
+	}
+}
+
+// TestHandshakeMiddleware: the middleware refuses an initialise answer
+// naming a later version than requested, or any stateless version even
+// when equal to the request (no handshake session may carry one), aborts
+// the attempt with the refusal as its cause, and marks only sessions it
+// let through.
+func TestHandshakeMiddleware(t *testing.T) {
+	cases := []struct {
+		requested, answered string
+		refused             string // "", "later" or "stateless"
+	}{
+		{v2025, v2025, ""},
+		{v2025, "2025-06-18", ""},
+		{v2025, "2024-11-05", ""},
+		{v2025, v2026, "later"},
+		{"2025-06-18", v2025, "later"},
+		{v2026, v2026, "stateless"},
+		{v2026, v2025, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.requested+"/"+tc.answered, func(t *testing.T) {
+			h := &handshakes{}
+			next := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+				return &mcp.InitializeResult{ProtocolVersion: tc.answered}, nil
+			}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			req := &mcp.InitializeRequest{Params: &mcp.InitializeParams{ProtocolVersion: tc.requested}}
+			res, err := h.middleware(next)(withAbort(ctx, cancel), methodInitialize, req)
+			h.mu.Lock()
+			marked := len(h.byHandshake)
+			h.mu.Unlock()
+			if tc.refused == "" {
+				if err != nil || res == nil || context.Cause(ctx) != nil || marked != 1 {
+					t.Fatalf("got %v, %v (cause %v, marked %d); want the answer through and the session marked", res, err, context.Cause(ctx), marked)
+				}
+				return
+			}
+			var herr *hybridError
+			if !errors.As(err, &herr) || res != nil {
+				t.Fatalf("got %v, %v; want a hybridError", res, err)
+			}
+			want := fmt.Sprintf("the upstream answered the %s request for protocol %s with the %s version %q; ", methodInitialize, tc.requested, tc.refused, tc.answered)
+			if !strings.HasPrefix(err.Error(), want) || !strings.HasSuffix(err.Error(), "(ADR 0008)") {
+				t.Errorf("error %q, want it to start %q", err, want)
+			}
+			if !errors.Is(context.Cause(ctx), err) {
+				t.Errorf("attempt not aborted with the refusal: cause %v", context.Cause(ctx))
+			}
+			if marked != 0 {
+				t.Error("a refused session was marked as opened with the handshake")
+			}
+		})
+	}
+}

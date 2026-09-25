@@ -179,14 +179,18 @@ type upstream struct {
 	// tries server/discover first and falls back to the initialise
 	// handshake, or connect restarts the upstream and connects with the
 	// initialise handshake only (ADR 0018). It is the version the upstream
-	// answered, which after an initialise handshake can be 2026-07-28.
+	// answered. After an initialise handshake it is never later than the
+	// version requested and never a stateless one: such an answer is a
+	// hybrid, refused at connect (handshakes.middleware, M1-32).
 	version string
 	// era is the upstream session's era label (upstreamEra): from version
 	// and from the handshake request go-sdk had answered on the session,
 	// never from which connect attempt fathomgate made. A session opened
-	// with the initialise handshake is labelled stateful even at 2026-07-28
-	// (T0.47, N6). It is a label for logs and the audit, not a capability:
-	// no control may read it as what the upstream can or cannot send.
+	// with the initialise handshake is labelled stateful, and since M1-32
+	// its version is always a stateful one, so the label and the version
+	// agree. It is a label for logs and the audit, not a capability: no
+	// control may read it as what the upstream can or cannot send
+	// (handshake is how the session was opened).
 	era string
 	// handshake reports that go-sdk opened the session with the initialise
 	// handshake, not with server/discover (handshakes.take). It is how the
