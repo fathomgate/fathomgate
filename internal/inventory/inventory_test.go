@@ -80,13 +80,13 @@ func TestPatterns(t *testing.T) {
 		want Target
 		ok   bool
 	}{
-		{"border-rtr-02", Target{Name: "border-rtr-02", Role: "core", Status: "pattern"}, true},
-		{"CORE-dfw1-03", Target{Name: "CORE-dfw1-03", Role: "core", Site: "dfw1", Status: "pattern"}, true},
-		{"lab-spine-01", Target{Name: "lab-spine-01", Tags: []string{"lab"}, Status: "pattern"}, true},
+		{"border-rtr-02", Target{Name: "border-rtr-02", Role: "core"}, true},
+		{"CORE-dfw1-03", Target{Name: "CORE-dfw1-03", Role: "core", Site: "dfw1"}, true},
+		{"lab-spine-01", Target{Name: "lab-spine-01", Tags: []string{"lab"}}, true},
 		{"acc-sw-01", Target{}, false},
 	}
 	for _, tc := range cases {
-		got, ok := ps.Resolve(tc.name)
+		got, ok := ps.Attributes(tc.name)
 		if ok != tc.ok || !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v %v, want %+v %v", tc.name, got, ok, tc.want, tc.ok)
 		}
@@ -113,23 +113,31 @@ func TestChainOrder(t *testing.T) {
 	}
 	// Static wins over pattern for a listed device.
 	got, ok := chain.Resolve("lab-leaf-01")
-	if !ok || got.Role != "leaf" || got.Site != "lab" {
+	if !ok || got.Role != "leaf" || got.Site != "lab" || got.Source != SourceStatic {
 		t.Fatalf("static should win: %+v", got)
 	}
-	// Pattern fills in unlisted devices.
-	got, ok = chain.Resolve("lab-leaf-09")
-	if !ok || got.Role != "" || !reflect.DeepEqual(got.Tags, []string{"lab"}) {
-		t.Fatalf("pattern should resolve: %+v %v", got, ok)
+	// A pattern never resolves an unlisted device (ADR 0031).
+	if got, ok = chain.Resolve("lab-leaf-09"); ok {
+		t.Fatalf("a pattern made lab-leaf-09 known: %+v", got)
 	}
-	// Nothing resolves an unknown name; NetBox stub never answers.
-	chain = append(chain, &NetBox{URL: "https://netbox.example"}, nil)
+	// Nothing resolves an unknown name; NetBox stub never answers; nil
+	// providers are skipped.
+	chain.Authorities = append(chain.Authorities, &NetBox{URL: "https://netbox.example"}, nil)
+	chain.Enrichers = append(chain.Enrichers, nil)
 	if _, ok := chain.Resolve("mystery"); ok {
 		t.Fatal("unknown resolved")
 	}
+	if got, ok := chain.Resolve("core-rtr-01"); !ok || got.Role != "core" {
+		t.Fatalf("nil providers broke the chain: %+v %v", got, ok)
+	}
 	// Func adapter.
-	chain = Chain{Func(func(n string) (Target, bool) { return Target{Name: n, Role: "fn"}, n == "fn-1" })}
+	chain = Chain{Authorities: []Resolver{Func(func(n string) (Target, bool) { return Target{Name: n, Role: "fn"}, n == "fn-1" })}}
 	if got, ok := chain.Resolve("fn-1"); !ok || got.Role != "fn" {
 		t.Fatal("Func resolver failed")
+	}
+	// The zero Chain knows nothing.
+	if _, ok := (Chain{}).Resolve("core-rtr-01"); ok {
+		t.Fatal("empty chain resolved")
 	}
 }
 
@@ -212,11 +220,81 @@ func TestSplitTags(t *testing.T) {
 	}
 }
 
-func TestRepoExampleInventory(t *testing.T) {
-	chain, err := LoadChain(filepath.Join("..", "..", "inventory.example.yaml"))
-	if err != nil {
-		t.Skip("inventory.example.yaml not present:", err)
+// exampleWithPatterns returns inventory.example.yaml with its commented-out
+// roles: block (the last "# roles:" line and the comment lines after it)
+// turned on.
+func exampleWithPatterns(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+	start := -1
+	for i, l := range lines {
+		if l == "# roles:" {
+			start = i
+		}
 	}
+	if start < 0 {
+		t.Fatal("inventory.example.yaml has no commented-out roles: block")
+	}
+	var b strings.Builder
+	b.WriteString(strings.Join(lines[:start], "\n"))
+	b.WriteString("\n")
+	for _, l := range lines[start:] {
+		if !strings.HasPrefix(l, "#") {
+			break
+		}
+		b.WriteString(strings.TrimPrefix(strings.TrimPrefix(l, "#"), " "))
+		b.WriteString("\n")
+	}
+	return []byte(b.String())
+}
+
+// TestRepoExampleInventory: the shipped example, once as shipped and once
+// with its commented-out pattern block turned on (ADR 0031 test 2). The
+// listed devices resolve either way, and no name the agent makes up does.
+func TestRepoExampleInventory(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "inventory.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, withPatterns := range []bool{false, true} {
+		t.Run(map[bool]string{false: "as shipped", true: "patterns on"}[withPatterns], func(t *testing.T) {
+			b := raw
+			if withPatterns {
+				b = exampleWithPatterns(t, raw)
+			}
+			f, err := ParseFile(b)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, b)
+			}
+			if withPatterns != (len(f.Roles) > 0) {
+				t.Fatalf("patterns on %v, roles %d", withPatterns, len(f.Roles))
+			}
+			// Every pattern in the example matches a listed device, so
+			// inventory lint passes it.
+			if w := f.PatternWarnings(); len(w) != 0 {
+				t.Fatalf("example pattern matches no listed device: %q", w)
+			}
+			// An example pattern sets only a site or a tag no rule
+			// unlocks writes on (security review of PR #184, L3): a copied
+			// example must not hand out lab or a write-unlocking role.
+			for i, p := range f.Roles {
+				if p.Role != "" || slices.ContainsFunc(p.Tags, func(tag string) bool {
+					return tag == "lab" || tag == "canary" || tag == "change-frozen"
+				}) {
+					t.Errorf("example roles[%d] %q sets role %q tags %v", i, p.Match, p.Role, p.Tags)
+				}
+			}
+			chain, err := f.Chain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkRepoExample(t, chain)
+		})
+	}
+}
+
+func checkRepoExample(t *testing.T, chain Chain) {
+	t.Helper()
 	for _, name := range []string{"core-rtr-01", "lab-leaf-01"} {
 		if _, ok := chain.Resolve(name); !ok {
 			t.Errorf("%s should resolve from the example inventory", name)
@@ -238,9 +316,9 @@ func TestRepoExampleInventory(t *testing.T) {
 			t.Errorf("%s: resolved with tag lab (%+v); lab devices must be listed statically", name, tg)
 		}
 	}
-	// The example ships no active hostname pattern (security review of PR
-	// #154, H2): a pattern makes any matching name the agent sends a known
-	// device, so a read reaches it. None of these may resolve at all.
+	// None of these may resolve at all, with or without the patterns
+	// (security review of PR #154, H1 and H2; ADR 0031): a pattern never
+	// makes a name the agent sends known.
 	for _, name := range []string{
 		"ghost-99", "lab-x.attacker.example", "core-x.attacker.example", "fw-evil.example",
 		"lab-ghost-99", "LAB-core-rtr-01", "lab-x@core-rtr-01", "lab-leaf-01.evil", "core-rtr-01.attacker.example",

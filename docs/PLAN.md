@@ -114,7 +114,7 @@ A source of truth is not a requirement. Role resolution is a lookup from target 
 | Order | Provider | Needs | Typical user |
 | --- | --- | --- | --- |
 | 1 | Static `inventory.yaml` (or `fathomgate inventory import devices.csv`) | Nothing | Most shops; MSP clients; anyone with a spreadsheet |
-| 2 | Optional hostname patterns under `roles:` in `inventory.yaml`, off in the shipped example. A match makes any name the agent sends a known device, so reads reach it; tags or roles that unlock writes come from devices listed by name, never from a pattern ([inventory-schema section 4](specs/inventory-schema.md#4-hostname-patterns)) | A naming convention, anchored at both ends | Networks whose every matching name is a device the agent may read |
+| 2 | Optional hostname patterns under `roles:` in `inventory.yaml`, off in the shipped example. A pattern never makes a name known: it only fills in the role or site and adds tags on a device another provider lists ([ADR 0031](adr/0031-hostname-patterns-never-make-a-target-known.md), [inventory-schema section 4](specs/inventory-schema.md#4-hostname-patterns)) | A naming convention, anchored as tightly as it allows | A list of names with no role column (a spreadsheet, IPAM export or, from M2, the upstream's own inventory) |
 | 3 | The upstream server's own inventory, read through its `INVENTORY_READ` tools at startup (ntunes `devices.yaml` tags, eos-mcp tags, junos `devices.json`) | The server already configured | Anyone already running one of those servers |
 | 4 | Paid edition: NetBox or Nautobot REST, cached with a TTL and synced into a snapshot. In the core, a CSV export of either loads through row 1, and a snapshot loads in the static-file format | A source of truth | Shops that have one |
 
