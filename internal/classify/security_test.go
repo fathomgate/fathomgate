@@ -391,6 +391,15 @@ func TestSecurityConfigSessionEscape(t *testing.T) {
 		// Security review of PR #170, H1: NX-OS runs ";"-separated commands.
 		{"NX-OS separator", []any{"hostname x ; end ; reload", "y"}, "config element 1 line 1 failed the config payload check (separator)"},
 		{"NX-OS separator, no spaces", "hostname x;end", "(separator)"},
+		// Round 2, R2-M1: a comment does not hide a separator from NX-OS.
+		{"separator after a comment", []any{"! x ; reload"}, "(separator)"},
+		{"separator glued to a comment", []any{"!;reload"}, "(separator)"},
+		// Round 2, R2-H1: a login autocommand is exec delayed to the next
+		// session, and upa, ntunes and netdev-ssh-mcp open one per call.
+		{"vty autocommand", []any{"line vty 0 15", " autocommand reload"}, "config element 2 line 1 failed the config payload check (exec-config)"},
+		{"username autocommand", []any{"username netops autocommand reload"}, "(exec-config)"},
+		{"abbreviated autocommand", []any{"line vty 0 4", " autoc reload"}, "(exec-config)"},
+		{"quoted autocommand", []any{"username netops privilege 15 \"autocommand\" reload"}, "(exec-config)"},
 		// H2: an alias defines an exec word for a later call.
 		{"IOS alias", []any{"alias configure hn do reload"}, "(escape-word)"},
 		{"EOS alias", []any{"alias hn reload now"}, "(escape-word)"},
@@ -486,6 +495,9 @@ func TestConfigLinesThatStayWrites(t *testing.T) {
 		// Persistence and lock-out by configuration stays WRITE_CONFIG (held
 		// on prod, allowed on lab by design; threat model).
 		"username backdoor privilege 15 nopassword", "aaa authorization exec default none",
+		// "auto" words shorter than the autocommand abbreviation, and a
+		// longer word that is not a prefix of it, stay writes.
+		" auto-cost reference-bandwidth 100000", " speed auto", " switchport mode auto", " autocommand-options nohangup",
 		"management api http-commands", "monitor session 1 source Ethernet1", "exec-timeout 5 0",
 		"control-plane", "errdisable recovery cause bpduguard", "event-monitor", "crypto key generate rsa",
 		"! a comment", "!", "  ! reload in a comment is a comment", "", "   ", "\t",
@@ -557,6 +569,12 @@ func TestSecurityJunosLoadConfig(t *testing.T) {
 		{"abbreviated event-options", map[string]any{"config_text": "set event-o policy P then execute-commands commands x"}, ExecArbitrary, "(exec-config)"},
 		{"set system extensions", map[string]any{"config_text": "set system extensions providers p"}, ExecArbitrary, "(exec-config)"},
 		{"quoted hierarchy", map[string]any{"config_text": "set system \"scripts\" op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		// Round 2, R2-L1: any punctuation at either end of a word is trimmed.
+		{"backslash after hierarchy", map[string]any{"config_text": "set event-options\\ x"}, ExecArbitrary, "(exec-config)"},
+		{"punctuation around hierarchy", map[string]any{"config_text": "set system (scripts) op file x.slax"}, ExecArbitrary, "(exec-config)"},
+		// Accepted cost (spec 11.3): a one-letter word abbreviates a hierarchy.
+		{"one-letter description", map[string]any{"config_text": "set interfaces ge-0/0/0 description e"}, ExecArbitrary, "(exec-config)"},
+		{"one-letter policy-statement", map[string]any{"config_text": "set policy-options policy-statement s term t then accept"}, ExecArbitrary, "(exec-config)"},
 		{"text event-options", map[string]any{"config_format": "text", "config_text": "event-options {\n policy P { then { execute-commands { commands \"request system reboot\"; } } }\n}"}, ExecArbitrary, "(exec-config)"},
 		{"text scripts, mixed case", map[string]any{"config_format": "text", "config_text": "system {\n Scripts { op { file x.slax; } }\n}"}, ExecArbitrary, "(exec-config)"},
 		{"xml extensions", map[string]any{"config_format": "xml", "config_text": "<configuration><system><extensions/></system></configuration>"}, ExecArbitrary, "(exec-config)"},

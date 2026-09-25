@@ -215,10 +215,12 @@ func checkBytes(line string) string {
 }
 
 // checkCLIConfigLine applies dialectCLI to one line. Blank lines and "!"
-// comments pass. Any other line must be at most maxConfigLineLen bytes, hold
-// no ";" (NX-OS runs "hostname x ; end ; reload" as three commands), start
-// with a letter or digit, and its first word (letters, digits, "-" and "_")
-// must not abbreviate an escape word.
+// comments pass. Every line must be at most maxConfigLineLen bytes and hold
+// no ";" (NX-OS runs "hostname x ; end ; reload" as three commands), comments
+// included. Any other line must hold no word abbreviating "autocommand" (at
+// least minAutocommandAbbrev letters), start with a letter or digit, and its
+// first word (letters, digits, "-" and "_") must not abbreviate an escape
+// word.
 func checkCLIConfigLine(line string) string {
 	if len(line) > maxConfigLineLen {
 		return checkTooLong
@@ -227,11 +229,22 @@ func checkCLIConfigLine(line string) string {
 		return c
 	}
 	t := strings.ToLower(strings.Trim(line, " \t"))
+	// The separator check comes before the comment return: "! x ; reload"
+	// is a comment to IOS but two commands to NX-OS.
+	if strings.Contains(t, ";") {
+		return checkSeparator
+	}
 	if t == "" || t[0] == '!' {
 		return ""
 	}
-	if strings.Contains(t, ";") {
-		return checkSeparator
+	// IOS runs a login autocommand at the next login, and upa, ntunes and
+	// netdev-ssh-mcp open a session per call, so "line vty 0 15" then
+	// " autocommand reload", or "username u autocommand reload", is an exec
+	// command delayed to the agent's next read. Any word of the line counts.
+	for _, w := range strings.Fields(t) {
+		if w = trimWord(w); len(w) >= minAutocommandAbbrev && strings.HasPrefix(autocommand, w) {
+			return checkExecConfig
+		}
 	}
 	if !isLowerAlnum(t[0]) {
 		return checkLeadingSymbol
@@ -289,7 +302,7 @@ func checkJunosSetLine(line string) string {
 		}
 	}
 	for _, w := range words[1:] {
-		w = strings.Trim(w, `"'`)
+		w = trimWord(w)
 		if w == "" {
 			continue
 		}
@@ -319,6 +332,29 @@ func checkJunosDataLine(line, format string) string {
 		return checkDTD
 	}
 	return ""
+}
+
+// minAutocommandAbbrev is the shortest abbreviation of "autocommand" the
+// CLI dialect refuses in any word position ("autoc"): shorter ones collide
+// with "auto" (auto-negotiation, auto-cost, "switchport mode auto").
+const (
+	autocommand          = "autocommand"
+	minAutocommandAbbrev = 5
+)
+
+// trimWord strips every character outside [a-z0-9-] from both ends of a
+// lower-cased word, so quotes, backslashes and punctuation cannot hide a
+// hierarchy or keyword ("event-options\", "'scripts'").
+func trimWord(w string) string {
+	keep := func(b byte) bool { return isLowerAlnum(b) || b == '-' }
+	i, j := 0, len(w)
+	for i < j && !keep(w[i]) {
+		i++
+	}
+	for j > i && !keep(w[j-1]) {
+		j--
+	}
+	return w[i:j]
 }
 
 func allDigits(s string) bool {

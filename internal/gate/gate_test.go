@@ -253,6 +253,10 @@ func TestConfigSessionEscape(t *testing.T) {
 			{"schedule s interval 1 max-log-files 1 command bash reboot"},
 			{"daemon d", " exec /mnt/flash/x"},
 			{"scheduler job name j"},
+			// Round 2 (R2-H1): a login autocommand runs at the agent's
+			// next session, which upa opens per call.
+			{"line vty 0 15", " autocommand reload"},
+			{"username netops autocommand reload"},
 		} {
 			label := tl.server + "." + tl.tool + " payload " + string(rune('a'+i))
 			v := g.Decide(context.Background(), call(tl.server, tl.tool, map[string]any{tl.target: "lab-sw-01", tl.param: lines}))
