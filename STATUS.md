@@ -90,11 +90,11 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 
 | Date | From | To | Task | Note |
 | --- | --- | --- | --- | --- |
+| 2026-09-25 | upstream-server-scout | policy-engineer | M1.13 | [M1.13: upa/mcp-netmiko-server profile drafted from source at 96e8ff3; verify and sign](docs/handoffs/2026-09-25-upstream-server-scout-to-policy-engineer-M1.13.md) |
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
 | 2026-09-25 | test-engineer | docs-writer | T0.33 | [T0.33: matrix row 23 runs the HTTP listener against the real netdev-ssh-mcp; Claude Code `"type": "http"` tested and documented](docs/handoffs/2026-09-25-test-engineer-to-docs-writer-T0.33.md) |
 | 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.57 | [T0.57 ready for review: evict a principal's idle session at the session cap; orphan rule kept](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.57.md) |
-| 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.52 | [T0.52 ready for review: `--listen` binds both loopback families, plus the rest of the PR #109 reviews](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.52.md) |
 
 ## How to update
 
