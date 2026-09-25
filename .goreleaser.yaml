@@ -53,6 +53,28 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# cosign keyless (Sigstore) signature of checksums.txt, which covers every
+# archive and SBOM. The Fulcio certificate names this repository's
+# .github/workflows/release.yaml at the tag, so only a tag run can produce a
+# bundle that verifies (release.yaml grants id-token: write to that job only;
+# snapshot.yaml runs --skip=sign). One Sigstore bundle holds the signature,
+# the certificate and the Rekor entry. Verify with:
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
+#     --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/vX.Y.Z \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     --certificate-github-workflow-trigger push checksums.txt
+signs:
+  - id: checksum-cosign
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "--yes"
+      - "${artifact}"
+    output: true
+
 sboms:
   - id: archive
     artifacts: archive
@@ -68,24 +90,35 @@ release:
   draft: false
   prerelease: auto
   footer: |
-    Verify a download with `sha256sum -c checksums.txt`.
+    Verify `checksums.txt` with `cosign verify-blob --bundle checksums.txt.sigstore.json --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/{{ .Tag }} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-trigger push checksums.txt`, then a download with `sha256sum -c checksums.txt --ignore-missing`.
 
-# Homebrew tap placeholder: create fathomgate/homebrew-tap and set
-# HOMEBREW_TAP_GITHUB_TOKEN before the first tagged release.
+# Homebrew tap: fathomgate/homebrew-tap does not exist yet, so the formula is
+# generated into dist/homebrew/ and never uploaded. Uploading with no tap (or
+# with GITHUB_TOKEN, which cannot write to another repository) fails the
+# release job after the GitHub release is already public. To turn it on:
+# create the tap, add a fine-grained HOMEBREW_TAP_GITHUB_TOKEN (contents: write
+# on the tap only) as a repository secret, pass it in release.yaml's
+# goreleaser step env, and set skip_upload back to auto.
 brews:
   - name: fathomgate
     repository:
       owner: fathomgate
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      # `index` gives "" when the variable is unset (release.yaml does not
+      # pass it until the tap exists) instead of a template error.
+      token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
     directory: Formula
     homepage: https://github.com/fathomgate/fathomgate
     description: Policy-enforcing MCP proxy for network-device MCP servers
     license: Apache-2.0
     test: |
       system "#{bin}/fathomgate", "version"
-    skip_upload: auto
+    skip_upload: true
 
+# The image is built (snapshot.yaml checks it runs as nonroot with no shell)
+# but not pushed yet: it is amd64 only, tagged only `<version>-amd64`, and
+# unsigned. It is pushed once there is an arm64 build, a manifest tagged
+# vX.Y.Z, vX.Y and latest, and cosign signing; until then skip_push is true.
 dockers:
   - image_templates:
       - "ghcr.io/fathomgate/fathomgate:{{ .Version }}-amd64"
@@ -98,4 +131,4 @@ dockers:
     goarch: amd64
     use: buildx
     build_flag_templates: ["--platform=linux/amd64"]
-    skip_push: auto
+    skip_push: true

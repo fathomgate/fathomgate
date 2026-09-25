@@ -27,8 +27,40 @@ redaction and no audit log yet; those come in M1 to M4 (see
 
 ## What you need
 
-1. **fathomgate.** Build it with `make build` (the binary is `bin/fathomgate`)
-   and copy it somewhere permanent, such as `/usr/local/bin/fathomgate`.
+1. **fathomgate.** Download it from a
+   [release](https://github.com/fathomgate/fathomgate/releases), or build it
+   with `make build` (the binary is `bin/fathomgate`). Either way, copy it
+   somewhere permanent, such as `/usr/local/bin/fathomgate`.
+
+   A release has one archive per platform
+   (`fathomgate_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows), plus
+   `checksums.txt` and `checksums.txt.sigstore.json`. Before you unpack
+   anything, check the signature on `checksums.txt` with
+   [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) v3.
+   Then check your archive against `checksums.txt`. For v0.1.0 on
+   linux/amd64:
+
+   ```sh
+   v=0.1.0
+   base=https://github.com/fathomgate/fathomgate/releases/download/v$v
+   curl -LO $base/fathomgate_${v}_linux_amd64.tar.gz
+   curl -LO $base/checksums.txt
+   curl -LO $base/checksums.txt.sigstore.json
+   cosign verify-blob --bundle checksums.txt.sigstore.json \
+     --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/v$v \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+     --certificate-github-workflow-trigger push \
+     checksums.txt                                  # must print: Verified OK
+   sha256sum -c checksums.txt --ignore-missing      # macOS: shasum -a 256 -c checksums.txt --ignore-missing
+   tar -xzf fathomgate_${v}_linux_amd64.tar.gz fathomgate
+   ```
+
+   The certificate identity pins the signature to this repository's release
+   workflow at that exact tag, and the trigger flag to a run started by the
+   tag push. For another version, change `v` in both
+   places. If cosign prints anything but `Verified OK`, do not use the
+   download. On Windows, `Get-FileHash -Algorithm SHA256` gives the hash to
+   compare with the zip's line in `checksums.txt`.
 2. **An upstream MCP server.** This guide uses
    [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) v1.7.1, the
    version fathomgate is tested against. Download
