@@ -20,7 +20,7 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 ### 1. Pick the milestone and hold the exit criteria
 
-Read `ROADMAP.md`, then the matching row in the Milestones table of `docs/PLAN.md` (M0 Pass-through, M1 Classify + allow/deny, M2 Role-aware policy + redaction, M3 Dry-run, diff, approval hold, M4 Audit chain + blast radius, M5 Console + watchdog drivers). A milestone is open until every exit criterion is met and the named upstream server (netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp, junos-mcp-server, ntunes/netmiko-mcp-server, netbox-mcp-server, Palo-MCP, mcfortigate) has validated it. You never start M(n+1) while M(n) has an unvalidated criterion.
+Read `ROADMAP.md`, then the matching row in the Milestones table of `docs/PLAN.md` (M0 Pass-through, M1 Classify + allow/deny, M2 Role-aware policy + redaction, M3 Dry-run, diff, approval hold, M4 Audit chain + blast radius, M5 Local console + watchdog drivers). A milestone is open until every exit criterion is met and the named upstream server (netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp, junos-mcp-server, ntunes/netmiko-mcp-server, netbox-mcp-server, Palo-MCP, mcfortigate) has validated it. You never start M(n+1) while M(n) has an unvalidated criterion.
 
 ### 2. Decompose into tasks that name a package and an owner
 

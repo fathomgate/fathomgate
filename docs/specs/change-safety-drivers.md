@@ -92,7 +92,7 @@ For `checkpoint_watchdog`, `snapshot_watchdog` and `revision_watchdog`, the prox
 2. A single goroutine wakes at the earliest deadline. It is also run at startup, so a proxy restart does not lose a pending rollback.
 3. At deadline, if `state` is still `armed`, the goroutine calls `Abort` through the upstream, records `rollback_fired: true` on a follow-up audit event, and sets `state: fired`.
 4. `Confirm` sets `state: confirmed` and, for NX-OS, schedules checkpoint deletion after 24 hours.
-5. If `Abort` fails (upstream down), the watchdog retries with exponential backoff up to `watchdog.max_retries` (default 5) and then writes an audit event with `error_class: rollback_failed` and `status: failed`. The console shows it as Failed with the rollback command the operator must run by hand.
+5. If `Abort` fails (upstream down), the watchdog retries with exponential backoff up to `watchdog.max_retries` (default 5) and then writes an audit event with `error_class: rollback_failed` and `status: failed`. `fathomgate pending` and the local console show it as Failed with the rollback command the operator must run by hand.
 
 The watchdog uses the upstream MCP server to send the rollback, so an upstream outage at the deadline is the one case the proxy cannot save alone. That is recorded, never hidden.
 

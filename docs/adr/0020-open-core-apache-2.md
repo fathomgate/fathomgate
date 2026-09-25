@@ -3,6 +3,8 @@
 - Status: accepted
 - Date: 2026-09-24
 - Deciders: Josh Scott (maintainer; chose open core, Apache-2.0 and DCO on 2026-09-24); proposed by docs-writer. The boundary table and the contested rows below are recommendations for the maintainer to accept or change. Reviewers: security-reviewer (boundary rule, extension invariants), release-engineer (LICENSE, NOTICE, artefacts), policy-engineer and network-safety-engineer (the core/commercial split of their packages), mcp-protocol-engineer (MRTR approval, `Proxy.dispatch`)
+- Console row superseded, and the OCSF and CEF exporter row settled, by: [ADR 0025](0025-split-the-console.md) (see *Amendments*)
+- `design/` row settled by: [ADR 0024](0024-local-console-embedded-loopback-only.md) (see *Amendments*)
 
 ## Context
 
@@ -177,6 +179,16 @@ The commercial repository stays private and keeps self-hosted CI. The security r
 | MIT core | Permissive like Apache-2.0, but with no explicit patent grant and no trademark clause. Apache-2.0 costs nothing more for users and protects contributors and users against patent claims |
 | AGPL core | Many enterprise legal teams ban AGPL outright. That hurts adoption among exactly the platform and security teams the commercial features are for, and it complicates the commercial repository's own linking to the core |
 | A CLA | Friction at the first contribution, and many contributors refuse to sign one for an open-core project because it permits the relicensing this record gives up. DCO is enough for inbound=outbound Apache-2.0 |
+
+## Amendments
+
+This section records factual corrections and pointers (GOVERNANCE.md). It does not change the decision.
+
+| Date | What changed | Why |
+| --- | --- | --- |
+| 2026-09-25 | Pointer: the *Approval console* contested row and the M5 row "Approval console and audit viewer (R29)" are superseded by [ADR 0025](0025-split-the-console.md) (accepted 2026-09-25). A local console for one operator on one machine is core, in M5 (R29); the team console (SSO, RBAC, multi-approver, fleet view, central policy, retention and search, SIEM export) is in the paid edition. The row's condition is kept: the core CLI shows the diff, the rule trace and the rule for every pending record (PRD R35). *Negative*'s "M5's console" item is carried out in ROADMAP.md, PLAN.md and PRD.md by the same pull request. The boundary rule and every other row are unchanged | Maintainer decision, Josh Scott, 2026-09-25. It departs from the row's recommendation (whole console commercial), so it is its own record rather than an amendment here |
+| 2026-09-25 | Pointer: the M4 row "OCSF and CEF exporters (R27)", a commercial candidate, is settled as **Commercial** by [ADR 0025](0025-split-the-console.md) decision 2. The audit chain, the Ed25519 checkpoints and `fathomgate audit verify` stay core, as the row above them already says; the exporters read the chain and never write it. The *Audit exporters* seam in section 3 is unchanged | Maintainer decision, Josh Scott, 2026-09-25 |
+| 2026-09-25 | Pointer: the `design/` contested row is settled by the maintainer's answer to question 4 of [ADR 0024](0024-local-console-embedded-loopback-only.md) (accepted 2026-09-25). `design/` (`tokens.css`, `policy.css`, `preview.html`, `DESIGN.md` and the reference mockups in `design/reference/`) is under Apache-2.0 like the rest of the core, and the Fathom files do not move to a repository of their own. Fonts keep their own licence, the SIL Open Font License 1.1. The logo in `design/brand/` and the name are governed by [TRADEMARKS.md](../../TRADEMARKS.md), not by the code licence. The boundary rule and every other row are unchanged | Maintainer decision, Josh Scott, 2026-09-25. The row left the choice to the maintainer; a core console built on `design/` (ADR 0024) ships these files in the Apache-2.0 binary, so it had to be made |
 
 ## References
 

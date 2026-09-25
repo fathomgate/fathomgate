@@ -129,8 +129,13 @@ type Proxy struct {
 	// to wait for a connecting Run. Nil outside tests.
 	testHookConnected  func()
 	testHookKeyWaiting func()
-	closeOnce          sync.Once
-	closeErr           error
+	// testHookBeforeAdmit runs in the tool handler over the listener after
+	// go-sdk has delivered the call and before callLimits.admit (T0.57: the
+	// window in which a session can be evicted or expire under a call).
+	// Nil outside tests.
+	testHookBeforeAdmit func()
+	closeOnce           sync.Once
+	closeErr            error
 	// exited is closed, once (exitedOnce), when the first upstream session
 	// ends on its own rather than through Close (UpstreamExited).
 	exited     chan struct{}
@@ -1087,9 +1092,16 @@ func (p *Proxy) handler(r route) mcp.ToolHandler {
 		// PR #63). The call's context is also cancelled when its session is
 		// deleted or the proxy closes (calls.go).
 		if l := p.limits.Load(); l != nil {
-			actx, release, refused := l.admit(ctx, c.principal, req.Session, prefixName(r.up.name, r.tool))
+			if p.testHookBeforeAdmit != nil {
+				p.testHookBeforeAdmit()
+			}
+			actx, release, refused, why := l.admit(ctx, c.principal, req.Session, prefixName(r.up.name, r.tool))
 			if refused != nil {
-				p.logger.Warn("call refused: too many in flight", "server", r.up.name, "tool", r.tool, "principal", c.principal)
+				if errors.Is(why, errSessionRetired) {
+					p.logger.Info("call refused: its agent session is being closed", "server", r.up.name, "tool", r.tool, "principal", c.principal)
+				} else {
+					p.logger.Warn("call refused: too many in flight", "server", r.up.name, "tool", r.tool, "principal", c.principal)
+				}
 				return refused, nil
 			}
 			defer release()

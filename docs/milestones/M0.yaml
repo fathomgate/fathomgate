@@ -299,17 +299,17 @@ tasks:
     package: tests/conformance
     owner: test-engineer
     reviewers: [go-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.31, T0.52]
     adr: "0016"
     matrix: [1, 2]
-    notes: 'ADR 0016 expects 11 of the 12 HTTP-transport baseline entries to clear. File an upstream request for a suite header option and a tool-name map; drop the shim when both exist.'
+    notes: 'ADR 0016 expects 11 of the 12 HTTP-transport baseline entries to clear. File an upstream request for a suite header option and a tool-name map; drop the shim when both exist. Merged in PR #116 2026-09-25 (9dd264d) after Go review and one fix round. relay.py is deleted; the suite runs against fathomgate serve --listen through shim.py (bearer token and the conf. prefix); the control legs run everything-server over HTTP directly. Fresh-process runs recover server-session-lifecycle and the two 2025 elicitation scenarios; era_pairs.py also runs both cells over the listener. Findings: the session cap locks out a client that never DELETEs (13 x 503 per 2025 run) and the orphan rule refuses a reconnected client''s prompts, both T0.57; server-sse-retry-field WARNING on the 2025 legs, also T0.57. Upstream suite requests (terminate sessions on every exit path, a header option, a tool-name map) are drafted in the T0.32 handoff; filed only with the maintainer''s go-ahead.'
   - id: T0.33
     title: Matrix row 23 (tier 2 over HTTP, Claude Code type http), profile-schema 8.5 HTTP listener, SECURITY.md gap rows, README and install.md snippets
     package: tests/integration
     owner: test-engineer
     reviewers: [docs-writer, security-reviewer]
-    state: open
+    state: merged
     blocked_by: [T0.31, T0.52]
     adr: "0016"
     matrix: [23]
@@ -502,9 +502,28 @@ tasks:
     package: design
     owner: design-guardian
     reviewers: [docs-writer]
-    state: open
+    state: in review
     matrix: []
-    notes: 'From the design review of PR #113. design/DESIGN.md (the class chip section, about line 54) says INVENTORY_READ chips use muted text, but design/tokens.css:119 sets --class-inventory: var(--info). Decide which is right and make the spec and the tokens agree.'
+    notes: 'From the design review of PR #113. design/DESIGN.md (the class chip section, about line 54) says INVENTORY_READ chips use muted text, but design/tokens.css:119 sets --class-inventory: var(--info). Decide which is right and make the spec and the tokens agree. Decided muted: --class-inventory and its selector removed, so every class but WRITE_CONFIG and EXEC_ARBITRARY takes --class-read; DESIGN.md lists all seven classes.'
+  - id: T0.57
+    title: Stop the listener's session cap and orphan rule locking out an agent that restarts without ending its session
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in review
+    adr: "0016"
+    matrix: [23]
+    notes: 'From T0.32 (PR #116). Each principal may hold 4 stateful sessions with a 30-minute idle timeout. A client that never sends DELETE (a crashed or restarted agent; the TypeScript SDK close() does not DELETE, only terminateSession() does) leaves its session behind, so the fifth initialize gets 503 for up to 30 minutes. Conformance shows it: 13 x 503 per 2025-11-25 run. Options: evict the principal''s oldest idle session (no POST in flight, no GET stream) when a new initialize would exceed the cap, or a shorter idle timeout for such sessions; whichever, keep the cap as a bound on live sessions and state the change in ADR 0016 by amendment. Same task: the orphan rule (ended_calls_of) refuses a reconnected client''s stateful-upstream prompts for OrphanTTL (5 min) because of calls its own earlier session ended; decide with security review whether the same principal''s new session may inherit them. Also look at the server-sse-retry-field WARNING (no retry: field on the SSE stream) on the fathomgate 2025-11-25 legs. Update the conformance baselines if the 503s go away. Recommended before the v0.1.0 tag, since --listen is new in it. In review on branch fix/session-cap-lockout (2026-09-25): at a session cap the principal''s least recently used idle session (no POST, no GET stream, no call in flight) is evicted, with 404 for its later requests; another principal''s never; otherwise 503, now logged with the reason. Orphan rule unchanged: a principal''s new session does not inherit its old session''s ended calls (reasoning in the handoff to security-reviewer). SSE retry field recorded, not changed (go-sdk writes it only with an event store). The conformance 503s stay: the suite leaves each failed scenario''s GET stream open, so no baseline entry changed. ADR 0016 amendment of 2026-09-25. PR #121. Fix round from its security and Go reviews: eviction claims the session atomically (callLimits.claimIdle) and admit refuses calls on a retired session, closing the delivered-but-not-admitted race; the idle expiry retires the same way; least recently used is a counter, not a clock; the cap Warn is rate-limited per principal; L1 test for the orphan rule across an eviction; one token per agent documented.'
+  - id: T0.58
+    title: Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [T0.57]
+    adr: "0016"
+    matrix: [23]
+    notes: 'M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"

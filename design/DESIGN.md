@@ -8,12 +8,12 @@ Fathom reference: the tokens in [`tokens.css`](tokens.css); open [`preview.html`
 
 | File | What it is | Consumed by |
 | --- | --- | --- |
-| `tokens.css` | Fathom semantic tokens (Midnight Zone dark, Chart Room light) plus the Fathomgate policy tokens | Console, docs site, README screenshots |
-| `policy.css` | The `fg-*` components: decision badge, class chip, redacted token, diff view, approval card, TTL bar, blast-radius meter, audit timeline, rule trace | Console |
+| `tokens.css` | Fathom semantic tokens (Midnight Zone dark, Chart Room light) plus the Fathomgate policy tokens | Local console, team console (paid edition), docs site, README screenshots |
+| `policy.css` | The `fg-*` components: decision badge, class chip, redacted token, diff view, approval card, TTL bar, blast-radius meter, audit timeline, rule trace | Local console, team console (paid edition) |
 | `preview.html` | One approval-console screen rendered in both themes, using only the two files above | Design review, contributor onboarding |
 | `brand/` | The logo: the gateway mark, wordmark and lockups as transparent SVGs, in dark, light and one-colour versions (see Brand below) | README, docs site, console, release pages |
 
-The console is the only UI Fathomgate ships in v1 (milestone M5). The CLI and the audit log are text; their conventions are in the Voice section because words are the interface there too.
+The local console, for one operator on one machine, is the UI the core ships (milestone M5), built from these files. The team console in the paid edition builds on the same open tokens and components ([ADR 0025](../docs/adr/0025-split-the-console.md)); the design system and its specs stay here. The CLI and the audit log must show everything the local console shows. They are text; their conventions are in the Voice section because words are the interface there too.
 
 ## Brand
 
@@ -55,7 +55,7 @@ A call has exactly one decision. The word is always shown; colour is reinforceme
 
 Redaction is not a decision. A masked secret renders as the `fg-redacted` token in `--redacted` (Fathom `accent`): dashed edge, `hmac:` prefix, first 12 hex characters. It reads as "something comparable was here", not as an error.
 
-Command classes are chips with an outline only: `READ_OPERATIONAL`, `READ_CONFIG` and `INVENTORY_READ` in muted text; `WRITE_CONFIG` in warning; `EXEC_ARBITRARY` in danger. The chip never has a filled ground, so it never competes with the decision badge next to it.
+Command classes are chips with an outline only: `READ_OPERATIONAL`, `READ_CONFIG`, `INVENTORY_READ`, `LAB_LIFECYCLE` and `LOCAL_ADMIN` in muted text (`--class-read`); `WRITE_CONFIG` in warning (`--class-write`); `EXEC_ARBITRARY` in danger (`--class-exec`). There is no other class colour: info belongs to the blast meter and diff hunks. The chip never has a filled ground, so it never competes with the decision badge next to it.
 
 ## Components
 

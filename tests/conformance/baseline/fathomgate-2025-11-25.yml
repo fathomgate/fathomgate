@@ -16,6 +16,9 @@
 # `initialize` from the one principal gets 503 "too many sessions open for
 # this principal" (at most 4 stateful sessions per principal, idle ones
 # closed after 30 minutes: ADR 0016 limit 7 and profile-schema 8.5 limit 8).
+# Since T0.57 an idle session of the principal is evicted to make room, but
+# the suite keeps each abandoned client's GET stream open, so those four
+# sessions are in use and none is evicted (README, "One process").
 # The later resources-* and prompts-* entries below therefore fail with 503
 # before they reach the -32601 they would get anyway (T0.3). One more scored
 # scenario runs after that point: dns-rebinding-protection. Its

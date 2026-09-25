@@ -116,7 +116,6 @@
   --class-read: var(--text-muted);
   --class-write: var(--warning);
   --class-exec: var(--danger);
-  --class-inventory: var(--info);
 }
 
 /* Chart Room (light) — system preference, unless the page pins dark */
