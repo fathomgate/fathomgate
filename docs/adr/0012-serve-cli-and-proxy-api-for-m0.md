@@ -4,6 +4,7 @@
 - Date: 2026-09-23
 - Deciders: Josh Scott (maintainer; accepted 2026-09-23); proposed by mcp-protocol-engineer in T0.2
 - Extended by: [ADR 0017](0017-keep-upstream-secrets-off-the-command-line.md) (`--upstream-env-pass NAME`, `NETGUARD_*` refused on both environment flags, `Command.Secrets` scrubbed from upstream stderr). The current flag table is [profile-schema section 8.3](../specs/profile-schema.md#83-netguard-serve-flags).
+- Amended by: [ADR 0027](0027-serve-policy-inventory-profiles-flags.md) (2026-09-25; the reserved-flag clause: `--policy`, `--inventory` and `--profiles` are accepted from M1, `--policy` or `--no-policy` is required, `--audit` stays refused until M4)
 
 ## Context
 

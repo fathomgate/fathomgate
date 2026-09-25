@@ -1,8 +1,8 @@
 # ADR 0028: Audit signing key custody: an owner-only file checked on every open, and a verifier that trusts only a public key
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer; to accept); proposed by the orchestrator for M1 (board task M1-03, for M1-09, carried from T0.55); owner policy-engineer; reviewers security-reviewer, go-reviewer
+- Deciders: Josh Scott (maintainer), accepted by the maintainer 2026-09-25 with the answers under *Decisions on the open questions*; proposed by the orchestrator for M1 (board task M1-03, for M1-09, carried from T0.55); owner policy-engineer; reviewers security-reviewer, go-reviewer
 - Answers in part: the [PLAN.md open question](../PLAN.md#open-questions-and-risks) "Key custody for audit checkpoints and the redaction HMAC: file, OS keyring or KMS", for the audit signing key only
 
 ## Context
@@ -21,7 +21,7 @@ We will keep the audit signing key in a file for the open-source core, open it w
 1. **Loading the private key** (`LoadKey`, and whatever `serve --audit` uses in M4) opens the file without following a final symbolic link (`O_NOFOLLOW` on Unix; `FILE_FLAG_OPEN_REPARSE_POINT` on Windows) and refuses it unless it is a regular file with one link, owned by the current user, with no group or other permission bits (`0600` or `0400`), no macOS extended ACL (`fileacl.Extended`), and on Windows a protected DACL whose allow entries name only the owner and `SYSTEM`. The checks run on the open handle, not the path. The error names the path and the failed check, never the content. There is no flag to skip the checks.
 2. **Verification** (`LoadPublicKey`, `audit verify --key`) accepts only a `PUBLIC KEY` PEM block. A `PRIVATE KEY` block is refused with `--key must be the public key (<path>.pub); a verifier never needs the signing key`. The public key file needs no owner check: it is not secret, and its integrity is the operator's to establish (for example by comparing it with the one published beside the log).
 3. **Custody beyond a file.** OS keyrings, PKCS#11 and cloud KMS are not in the core for now. When one is added it goes behind a `Signer` seam in `internal/audit` (a `crypto.Signer`), decided by its own record, and the file stays the default.
-4. **The redaction HMAC key** (`FATHOMGATE_REDACT_KEY`, ADR 0006) is out of scope here. It gets the same treatment in M2, when redaction is wired into `serve`, in that milestone's record.
+4. **The redaction HMAC key** (`FATHOMGATE_REDACT_KEY`, ADR 0006) is not built here. When it lands in M2, the file checks in point 1 apply to it whenever it is read from a file (decision 1); the M2 record decides how the key reaches `serve`, not whether it is checked.
 
 `docs/specs/audit-event-schema.md` (key handling and verify), the `audit` CLI help, `docs/security/threat-model.md` (a row for key substitution and for verifying with the signing key) and `SECURITY.md` change in the implementing PR.
 
@@ -51,11 +51,13 @@ We will keep the audit signing key in a file for the open-source core, open it w
 | Warn instead of refusing a loose key file | A warning on stderr in a supervised process is read by nobody; a signing key with the wrong owner is a compromise, not a nit. |
 | Keep accepting a private key in `verify` for convenience | It is the finding: a verification that needs the signer's secret is not independent. |
 
-## Open questions for the maintainer
+## Decisions on the open questions
 
-1. **Same record for the redaction key?** This record leaves `FATHOMGATE_REDACT_KEY` to M2. Pull it in now so one record covers the PLAN open question for both keys?
-2. **`0400` as well as `0600`.** The listen token check accepts both (no group or other bits). Same here, as written?
-3. **Group-owned service accounts.** Some deployments run fathomgate as a service user with the key owned by root and group-readable to that user. Refuse (as written), or allow a key owned by root with `0640` and a named group? Refusing is simpler and matches the token file rule.
+Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
+
+1. **The redaction key: same checks.** The file checks in point 1 apply to the redaction key when it lands in M2 (point 4).
+2. **`0400` as well as `0600`: accepted,** as written and as the listen token file allows.
+3. **Group-owned service accounts: refused for now.** No group-owned keys; a later record may add them.
 
 ## References
 
