@@ -102,7 +102,7 @@ tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview
 docs/                PLAN, PRD, adr/, specs/, testing/, agents/, milestones/ (board), handoffs/ (notes), research/, glossary
 tools/licences/      third_party.py (THIRD_PARTY_LICENSES/, `make licences`), spdx.py (SPDX lines); CI `licences-check`
-tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`)
+tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`make status`, CI `status-check`); issues.py: issue labels and closures follow the boards (CI `issue-hygiene`)
 .claude/             agents/ (11 specialists) and commands/ (8 slash commands)
 ```
 

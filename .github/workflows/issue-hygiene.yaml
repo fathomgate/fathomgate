@@ -1,0 +1,93 @@
+# Issue hygiene (M1-38): the GitHub issues follow the board. tools/status/issues.py
+# sets each task issue's state:, milestone: and agent: labels from
+# docs/milestones/*.yaml, closes the issues of merged, validated and dropped
+# tasks with a one-line comment, and writes the drift report (issues for task
+# ids on no board, active tasks with no issue, 30 days without activity) to the
+# job summary.
+#
+# This job holds an issues: write token, so it never runs on pull_request or
+# pull_request_target (the repository is public; docs/ci-runners.md): only on
+# a push to main that changes the board, weekly, and by hand. It runs on a
+# hosted runner, checks out without persisting credentials, and gives the
+# token to the one step that needs it. uv is pinned by version and PyYAML is
+# installed from a hash-checked requirements file. Issue titles are untrusted
+# input (threat model, boundary CI <-> GitHub Issues): the script only reads
+# them, drops control, format and separator characters before printing, puts
+# them in code spans in the summary, never touches a task-id issue opened by
+# someone who is not an owner, member or collaborator, and its output runs
+# between stop-commands markers so a title cannot issue a workflow command.
+#
+# Closures are capped: more than max_close (5 unless a workflow_dispatch run
+# asks for more) closes nothing, sets labels only and fails the job. A push
+# run closes only tasks whose state changed in that push (--since the push's
+# `before`); older closures wait for the weekly run.
+name: issue-hygiene
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/milestones/**
+  schedule:
+    - cron: "41 6 * * 1" # Mondays 06:41 UTC
+  workflow_dispatch:
+    inputs:
+      max_close:
+        description: "Close at most this many issues; more closes none and fails the run"
+        type: number
+        default: 5
+
+permissions: {}
+
+concurrency:
+  group: issue-hygiene
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: issues follow the board
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, so --since can read the boards at the push's `before`.
+          fetch-depth: 0
+      # uv, not setup-python, as in ci.yaml's status job.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+      - name: PyYAML from the hash-checked requirements file
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/hygiene"
+          uv pip install --python "$RUNNER_TEMP/hygiene" --require-hashes -r tools/status/requirements.txt
+      - name: labels, closures and drift report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_CLOSE: ${{ inputs.max_close || 5 }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$MAX_CLOSE" in ''|*[!0-9]*) echo "max_close must be a whole number"; exit 2;; esac
+          args=(--apply --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --max-close "$MAX_CLOSE")
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            case "$BEFORE" in
+              *[!0-9a-f]*|''|0000000000000000000000000000000000000000) echo "no usable push before; closures capped only" ;;
+              *)
+                if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                  args+=(--since "$BEFORE")
+                else
+                  echo "push before $BEFORE is not in the history; closures capped only"
+                fi
+                ;;
+            esac
+          fi
+          stop="$(openssl rand -hex 16)"
+          echo "::stop-commands::$stop"
+          status=0
+          "$RUNNER_TEMP/hygiene/bin/python" tools/status/issues.py "${args[@]}" || status=$?
+          echo "::$stop::"
+          exit "$status"
