@@ -1,9 +1,9 @@
 # ADR 0035: Policy test cases that carry arguments run the gate path
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
-- Deciders: Josh Scott (maintainer), to decide; proposed by policy-engineer (board task M1-33, from the security reviews of PR #152 and PR #154); reviewers security-reviewer, go-reviewer
-- Amends (when accepted): [policy-schema.md](../specs/policy-schema.md) sections 7 and 9; the `fathomgate policy test` and `fathomgate policy eval` CLI surface
+- Deciders: Josh Scott (maintainer), who accepted the record on 2026-09-25 with every open-question recommendation; proposed by policy-engineer (board task M1-33, from the security reviews of PR #152 and PR #154); reviewers security-reviewer, go-reviewer
+- Amends: [policy-schema.md](../specs/policy-schema.md) sections 7 and 9; the `fathomgate policy test` and `fathomgate policy eval` CLI surface
 
 ## Context
 
@@ -188,6 +188,8 @@ cases:
 ## Open questions for the maintainer
 
 Each has a recommendation. Accepting the record with no answer means accepting the recommendation.
+
+Accepted by the maintainer, Josh Scott, on 2026-09-25, with all nine recommendations as written.
 
 1. **Profile choice per run, not per case or per file.** Should a test file be able to name a profile directory itself? *Recommendation: no.* The embedded set, or `--profiles` for the whole run, as `serve` works. A third-party profile author runs `policy test --profiles <dir>`.
 2. **Inventory in the file, not on the command line.** Should `policy test` also take `--inventory`? *Recommendation: no.* A case's expectation depends on its inventory, so the inventory belongs with the case. A flag would let the same file pass or fail depending on how it was run. Profiles are different: they are the product's shipped data, and `serve` has a default set, while `serve` has no default inventory.
