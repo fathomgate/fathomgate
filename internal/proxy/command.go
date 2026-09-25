@@ -15,7 +15,10 @@ import (
 
 // waitDelay bounds how long reaping the upstream waits for its stderr pipe
 // to drain after the process exits; a grandchild that inherited the pipe
-// must not hang shutdown.
+// must not hang shutdown. Killing the whole tree (ADR 0021) closes the pipe
+// first on every kill path; this remains for a descendant that escaped the
+// group or job, and for a launcher that exits on its own while its child
+// still holds the pipe, until the post-reap sweep.
 const waitDelay = 2 * time.Second
 
 // terminateDuration is how long go-sdk's Close waits, after closing the
@@ -25,20 +28,32 @@ const waitDelay = 2 * time.Second
 // startup gives an upstream to end on its own, must stay shorter, so that
 // an upstream still running when that grace ends is killed by fathomgate,
 // not signalled by go-sdk first, and an exit status go-sdk caused is never
-// reported as the upstream's (proxy.go, trackedTransport.kill).
+// reported as the upstream's (proxy.go, trackedTransport.kill). The
+// upstream's process group is signalled at the same points (mirrorShutdown,
+// ADR 0021), keyed off this constant.
 const terminateDuration = 5 * time.Second
 
 // Command describes a stdio upstream: the process the proxy spawns and talks
 // to over its stdin and stdout.
 //
-// Lifetime: the process starts when [New] connects the transport. On
+// Lifetime: the process starts when [New] connects the transport, in a
+// process group of its own on Unix and in a Job Object of its own on Windows,
+// so that everything it starts (the Python server behind `uvx`, the Node
+// server behind `npx`) is its tree and is stopped with it (ADR 0021). On
 // [Proxy.Close] go-sdk closes its stdin and waits up to 5 seconds for it to
-// exit, then sends SIGTERM and waits another 5 seconds, then kills it. On
-// Windows SIGTERM cannot be sent, so it goes straight to Kill after the first
-// 5 seconds. Only the direct child is signalled: grandchildren (the Python
-// server behind `uvx`, the Node server behind `npx`) are not killed and may
-// outlive the proxy if they ignore the closed stdin. If [New] fails after the
-// process started, the process is killed at once.
+// exit, then sends SIGTERM and waits another 5 seconds, then kills it; the
+// group gets the same signals just after the process does. On Windows
+// SIGTERM cannot be sent, so after the first 5 seconds the process is killed
+// and the job terminated. Once the process has been reaped, whatever is left
+// of its tree is swept: SIGTERM, up to 2 seconds, then SIGKILL on Unix;
+// the job is terminated on Windows. If [New] fails after the process
+// started, or it is restarted (ADR 0018), the whole tree is killed at once. A
+// descendant that deliberately leaves the group (setsid) escapes on Unix, and
+// a container started by `docker run -i` is never in the tree.
+//
+// On Windows the process is created suspended and resumed only once it is in
+// its job, which [New] does as it connects: connect this transport through
+// [New] only, never directly.
 type Command struct {
 	// Path is the executable. A bare name is looked up on the proxy's PATH;
 	// MCP hosts that launch with an empty PATH need an absolute path here.
@@ -96,7 +111,10 @@ func (c Command) Transport() *mcp.CommandTransport {
 		}
 		cmd.Stderr = &lineWriter{w: w, prefix: c.StderrPrefix, red: red, scrub: red.newStream()}
 	}
+	// A backstop now: a descendant that escaped the tree may still hold the
+	// stderr pipe (ADR 0021).
 	cmd.WaitDelay = waitDelay
+	prepareTree(cmd)
 	return &mcp.CommandTransport{Command: cmd, TerminateDuration: terminateDuration}
 }
 

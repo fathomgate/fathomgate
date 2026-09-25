@@ -4,14 +4,18 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -30,8 +34,24 @@ import (
 // server/discover (ADR 0018) and "silent" answers nothing at all; "die"
 // exits 3 at once, "dielist" exits 4 on tools/list, "listerror" answers
 // tools/list with an error, and "garbage" prints a line that is not
-// JSON-RPC (T0.25).
+// JSON-RPC (T0.25). "launcher" stands in front of another mode as `uvx` or
+// `npx` stands in front of a server (ADR 0021, runLauncher).
 const fakeUpstreamEnv = "FATHOMGATE_TEST_FAKE_UPSTREAM"
+
+// Launcher fixture (ADR 0021). launchChildEnv is the mode of the launcher's
+// child, the upstream's grandchild; launcherEOFEnv is "exit" for a launcher
+// that exits when its stdin reaches EOF, anything else for one that ignores
+// it. fakeLingerEnv makes a fake ignore SIGTERM and, where it would exit
+// once its stdin closes, sleep instead, as the T0.34 server does once its
+// receive loop has died: only a kill ends it. launcherExitArg in a line the
+// launcher relays makes it exit at once without relaying the line.
+const (
+	launchChildEnv  = "FATHOMGATE_TEST_LAUNCH_CHILD"
+	launcherEOFEnv  = "FATHOMGATE_TEST_LAUNCHER_EOF"
+	fakeLingerEnv   = "FATHOMGATE_TEST_LINGER"
+	launcherExitArg = "FAKE-launcher-exit"
+	launcherPIDLine = "fake launcher: child pid "
+)
 
 // childRaceEnv stops a -race child from sleeping a second at exit to let
 // the race detector report; every spawned fake exits several times per
@@ -39,6 +59,15 @@ const fakeUpstreamEnv = "FATHOMGATE_TEST_FAKE_UPSTREAM"
 const childRaceEnv = "GORACE=atexit_sleep_ms=0"
 
 func TestMain(m *testing.M) {
+	if os.Getenv(fakeUpstreamEnv) == "launcher" {
+		// First, before anything else runs: the child must be started at
+		// the launcher's first instruction (ADR 0021, the Windows race).
+		runLauncher()
+		return
+	}
+	if os.Getenv(fakeLingerEnv) == "1" {
+		signal.Ignore(syscall.SIGTERM)
+	}
 	switch os.Getenv(fakeUpstreamEnv) {
 	case "1":
 		runFakeStdioUpstream(false)
@@ -122,7 +151,7 @@ func runFakeStdioUpstream(legacy bool) {
 	if err := s.Run(context.Background(), t); err != nil {
 		os.Exit(1)
 	}
-	os.Exit(0)
+	exitOrLinger()
 }
 
 // runBadVersionUpstream answers server/discover with method-not-found (so
@@ -160,7 +189,68 @@ func runNoDiscoverUpstream() {
 	if err := s.Run(context.Background(), noDiscover{&mcp.StdioTransport{}}); err != nil {
 		os.Exit(1)
 	}
+	exitOrLinger()
+}
+
+// exitOrLinger ends a fake whose stdin has closed: exit 0, or with
+// fakeLingerEnv set, sleep until killed.
+func exitOrLinger() {
+	if os.Getenv(fakeLingerEnv) == "1" {
+		time.Sleep(time.Hour)
+	}
 	os.Exit(0)
+}
+
+// runLauncher is the launcher fixture (ADR 0021). It re-executes the test
+// binary as its child in the launchChildEnv mode, with fakeLingerEnv set,
+// reports the child's PID on stderr, and relays its own stdin to the
+// child's, line by line, and the child's stdout to its own. The child
+// inherits the launcher's stderr, as a real launcher's child does, so it
+// holds the upstream's stderr pipe; it does not hold the upstream's stdout,
+// so the launcher's exit ends the session (the exit watcher case). The
+// launcher ignores SIGTERM, and stdin EOF unless launcherEOFEnv is "exit";
+// it exits 5 on a line containing launcherExitArg.
+func runLauncher() {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake launcher:", err)
+		os.Exit(1)
+	}
+	child := exec.Command(exe, "-test.run=^$")
+	child.Env = append(os.Environ(), fakeUpstreamEnv+"="+os.Getenv(launchChildEnv), fakeLingerEnv+"=1")
+	child.Stderr = os.Stderr
+	in, err := child.StdinPipe()
+	if err != nil {
+		os.Exit(1)
+	}
+	out, err := child.StdoutPipe()
+	if err != nil {
+		os.Exit(1)
+	}
+	if err := child.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "fake launcher:", err)
+		os.Exit(1)
+	}
+	signal.Ignore(syscall.SIGTERM)
+	fmt.Fprintf(os.Stderr, "%s%d\n", launcherPIDLine, child.Process.Pid)
+	go func() { _, _ = io.Copy(os.Stdout, out) }()
+	r := bufio.NewReader(os.Stdin)
+	for {
+		line, err := r.ReadBytes('\n')
+		if bytes.Contains(line, []byte(launcherExitArg)) {
+			os.Exit(5)
+		}
+		if len(line) > 0 {
+			_, _ = in.Write(line)
+		}
+		if err != nil {
+			break
+		}
+	}
+	if os.Getenv(launcherEOFEnv) == "exit" {
+		os.Exit(0)
+	}
+	time.Sleep(time.Hour)
 }
 
 type noDiscover struct{ mcp.Transport }

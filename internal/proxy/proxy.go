@@ -469,6 +469,7 @@ type trackedTransport struct {
 	mu             sync.Mutex
 	conn           mcp.Connection
 	proc           *os.Process
+	tree           *procTree // proc's process group or Job Object (ADR 0021)
 	killed         bool      // killProcess has run: a process recorded later is killed at once
 	closeRequested bool      // a close of the connection has been requested
 	closeDone      time.Time // when that close first returned: the process has been reaped
@@ -515,17 +516,30 @@ func (t *trackedTransport) Connect(ctx context.Context) (mcp.Connection, error) 
 		return c, err
 	}
 	var proc *os.Process
+	var tree *procTree
 	if ct, ok := t.Transport.(*mcp.CommandTransport); ok && ct.Command != nil {
 		proc = ct.Command.Process // set by Start inside Connect, on this goroutine
+		// go-sdk has started the process and written nothing to it yet. On
+		// Windows it is still suspended: it runs only once it is in its job.
+		tree, err = attachTree(ct.Command)
+		if err != nil {
+			// Fail closed: an upstream never runs outside its tree.
+			if proc != nil {
+				_ = proc.Kill()
+			}
+			_ = c.Close() // reaps it
+			return nil, fmt.Errorf("proxy: upstream process tree (ADR 0021): %w", err)
+		}
 	}
 	if tracksConn(t.Transport) {
 		c = trackedConn{Connection: c, t: t}
 	}
 	t.mu.Lock()
-	t.conn, t.proc = c, proc
+	t.conn, t.proc, t.tree = c, proc, tree
 	kill := t.killed
 	t.mu.Unlock()
 	if kill && proc != nil {
+		tree.kill()
 		_ = proc.Kill()
 	}
 	return c, nil
@@ -561,16 +575,19 @@ func (t *trackedTransport) endedOnItsOwn() bool {
 	return t.hungUp && t.reapedUnkilled && t.closeDone.Sub(t.hungUpAt) <= exitGrace
 }
 
-// killProcess kills the process behind a CommandTransport, now or, if it
-// has not been started yet, as soon as Connect records it. Other transports
+// killProcess kills the process behind a CommandTransport and its whole
+// tree (SIGKILL to its process group, or TerminateJobObject; ADR 0021), now
+// or, if it has not been started yet, as soon as Connect records it. The
+// process itself is killed too, in case it left its group. Other transports
 // own no process. It is safe from any goroutine: it never calls Wait or
 // reads ProcessState, and Process.Kill is safe while another goroutine is
 // in Wait.
 func (t *trackedTransport) killProcess() {
 	t.mu.Lock()
 	t.killed = true
-	proc := t.proc
+	proc, tree := t.proc, t.tree
 	t.mu.Unlock()
+	tree.kill()
 	if proc != nil {
 		_ = proc.Kill()
 	}
@@ -610,17 +627,27 @@ func (c trackedConn) Write(ctx context.Context, m jsonrpc.Message) error {
 }
 
 // Close implements [mcp.Connection]. go-sdk's own closes, inside Connect
-// and on a failed read or write, come through here too.
+// and on a failed read or write, come through here too: so do Proxy.Close
+// and the upstream exiting mid-session, which go-sdk answers by closing.
+//
+// For a CommandTransport the inner Close is go-sdk's shutdown (stdin, 5 s,
+// SIGTERM, 5 s, kill), and returns once the process has been reaped. While
+// it runs, the process's tree gets go-sdk's signals too (mirrorShutdown);
+// once it has returned, the tree is swept once (ADR 0021).
 func (c trackedConn) Close() error {
 	c.t.mu.Lock()
 	c.t.closeRequested = true
+	tree := c.t.tree
 	c.t.mu.Unlock()
+	stop := tree.mirrorShutdown()
 	err := c.Connection.Close()
+	stop()
 	c.t.mu.Lock()
 	if c.t.closeDone.IsZero() {
 		c.t.closeDone, c.t.reapedUnkilled = time.Now(), !c.t.killed
 	}
 	c.t.mu.Unlock()
+	tree.sweep(exitGrace)
 	return err
 }
 
@@ -629,8 +656,10 @@ func (c trackedConn) Close() error {
 // then flushes the process's partial last stderr line. With a grace above
 // zero the process gets that long to end on its own before it is killed;
 // with none it is killed first, so the close reaps at once rather than
-// after go-sdk's 5-second shutdown grace. Only the direct child is killed;
-// see the Command godoc on grandchildren.
+// after go-sdk's 5-second shutdown grace. A kill ends the process's whole
+// tree, and the close sweeps what is left of it once the process has been
+// reaped (killProcess, trackedConn.Close; ADR 0021), so a launcher's child
+// neither outlives the attempt nor holds its stderr open past it.
 //
 // It returns the exit status ("exit status 3") of a process that hung up
 // and ended on its own (endedOnItsOwn), and "" otherwise. The status comes
