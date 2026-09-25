@@ -1,0 +1,26 @@
+------------- show version detail -------------
+
+Arista vEOS-lab
+Hardware version:
+Serial number: FAKE0000SN01
+Software image version: 4.32.2F
+Internal build version: 4.32.2F-FAKE
+
+------------- show running-config sanitized -------------
+
+! Command: show running-config sanitized
+! device: fake-eos (vEOS-lab, EOS-4.32.2F-FAKE)
+!
+hostname fake-eos
+!
+username admin privilege 15 role network-admin secret sha512 <removed>
+!
+management api http-commands
+   no shutdown
+!
+end
+
+------------- show ip bgp summary -------------
+
+BGP summary information for VRF default
+Router identifier 192.0.2.1, local AS number 64512

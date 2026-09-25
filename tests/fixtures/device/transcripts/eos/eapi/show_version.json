@@ -1,0 +1,20 @@
+{
+  "mfgName": "Arista",
+  "modelName": "vEOS-lab",
+  "hardwareRevision": "",
+  "serialNumber": "FAKE0000SN01",
+  "systemMacAddress": "02:00:00:00:00:01",
+  "hwMacAddress": "02:00:00:00:00:01",
+  "configMacAddress": "00:00:00:00:00:00",
+  "version": "4.32.2F",
+  "architecture": "x86_64",
+  "internalVersion": "4.32.2F-FAKE",
+  "internalBuildId": "FAKE-build",
+  "imageFormatVersion": "1.0",
+  "imageOptimization": "None",
+  "bootupTimestamp": 1790000000.0,
+  "uptime": 93780.0,
+  "memTotal": 4005400,
+  "memFree": 2500000,
+  "isIntlVersion": false
+}

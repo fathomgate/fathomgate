@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 14 · blocked 3 · merged 17 · dropped 3
+Tasks: open 13 · blocked 3 · in review 1 · merged 17 · dropped 3
 
 ## In flight
 
@@ -30,7 +30,7 @@ Tasks: open 14 · blocked 3 · merged 17 · dropped 3
 | M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | merged | M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
 | M1-20 | fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4 | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian, release-engineer | merged | M1-19 | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |
 | M1-21 | Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval | `policies` | policy-engineer | security-reviewer | merged | — | 3, 4, 6 | — |
-| M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | open | — | 4 | — |
+| M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | in review | — | 4 | — |
 | M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | open | M1-18 | — | — |
 | M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | open | — | 5, 6 | — |
 | M1-27 | Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
@@ -65,9 +65,9 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`, `eos-mcp run_comm
 | --- | --- | --- | --- | --- |
 | 2026-09-25 | upstream-server-scout | policy-engineer | M1.14 | [M1.14: netdev-ssh-mcp and eos-mcp profiles checked against their pinned source; upa added to the coverage test](docs/handoffs/2026-09-25-upstream-server-scout-to-policy-engineer-M1.14.md) |
 | 2026-09-25 | upstream-server-scout | policy-engineer | M1.13 | [M1.13: upa/mcp-netmiko-server profile drafted from source at 96e8ff3; verify and sign](docs/handoffs/2026-09-25-upstream-server-scout-to-policy-engineer-M1.13.md) |
+| 2026-09-25 | test-engineer | upstream-server-scout | M1.22 | [M1-22: eos-mcp 1.3.0 runs in tier 2 behind fathomgate against a fake eAPI device; one profile finding](docs/handoffs/2026-09-25-test-engineer-to-upstream-server-scout-M1.22.md) |
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
-| 2026-09-25 | test-engineer | docs-writer | T0.33 | [T0.33: matrix row 23 runs the HTTP listener against the real netdev-ssh-mcp; Claude Code `"type": "http"` tested and documented](docs/handoffs/2026-09-25-test-engineer-to-docs-writer-T0.33.md) |
 
 ## How to update
 

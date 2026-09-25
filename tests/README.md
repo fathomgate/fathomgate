@@ -12,7 +12,7 @@ tests/
   integration/          tier 2: spawn `fathomgate serve` + real MCP server + fake device
     upstreams/          pinned install recipes for upstreams without a release binary
   fixtures/configs/     sanitised running-configs with annotated FAKE secrets
-  fixtures/device/      fake SSH device (asyncssh) and its canned transcripts
+  fixtures/device/      fake SSH device (asyncssh), fake eAPI device (HTTPS), canned transcripts
   conformance/          official MCP conformance suite vs fathomgate serve --listen: shim.py, era_pairs.py, baselines (make conformance)
 ```
 
@@ -29,10 +29,15 @@ FATHOMGATE_UPSTREAM=/abs/path/to/netdev-ssh-mcp uv run --extra integration pytes
 # FATHOMGATE_UPA_* variables the tests read
 export $(integration/upstreams/upa-mcp-netmiko-server/install.sh /tmp/upa)
 uv run --extra integration pytest integration -m "tier2 and upa_mcp_netmiko_server" -v
+# tier 2 against shigechika/eos-mcp 1.3.0: install.sh (uv) prints
+# FATHOMGATE_EOS_MCP; the fake eAPI device needs 127.0.0.1:443 (on Linux:
+# sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443)
+export $(integration/upstreams/eos-mcp/install.sh /tmp/eos-mcp)
+uv run --extra integration pytest integration -m "tier2 and eos_mcp" -v
 ```
 
-Each upstream's cases skip when its variables are unset, so either set runs
-alone; `-m tier2` runs both.
+Each upstream's cases skip when its variables are unset, so any one set runs
+alone; `-m tier2` runs them all.
 
 Policy *behaviour* is tested by the Go binary, not by Python:
 `fathomgate policy test policies/examples/prod-approval.test.yaml` (or
@@ -87,4 +92,26 @@ a mock.
   answers `server/discover`, fathomgate restarts it once and connects with
   `initialize` only, at 2024-11-05 (ADR 0018; test-matrix.md row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
   at 2026-07-28 stateless).
+- Tier 2: live for shigechika/eos-mcp 1.3.0 (PyPI wheel, hash-pinned; each
+  module checked against commit `bffb893`), CI job `tier2-eos-mcp`, no
+  Docker (M1-22). `integration/test_eos_mcp.py` runs it behind
+  `fathomgate serve` over stdio against the fake eAPI device
+  (`fixtures/device/fake_eapi.py`):
+  - `--no-policy`: the 17 tools as `eos-mcp.<tool>` at 2025-11-25 stateful,
+    `show version` via `run_command` once on the device; push_config with
+    `dry_run` left at true still sends `end` and `reload now` in the same
+    eAPI call as `configure session mcp-push`; `verify = true` in its
+    config.ini does not stop it talking to a self-signed impostor.
+  - `--policy` read-only.yaml with the embedded profile: `show version`
+    and `show ip bgp summary` allowed by `reads-anywhere` (READ_OPERATIONAL,
+    downgraded by the command) and run; `reload` denied
+    by `no-exec`; `localhost` and `10.99.99.99` denied by
+    `default:unknown_target`; `config_path` (any value, `""` included)
+    denied by `default:bad_arguments`; push_config `["end", "reload now"]`
+    denied by `no-exec` as EXEC_ARBITRARY and a plain line by `no-writes`;
+    `collect_tech_support` allowed as READ_CONFIG, and denied as
+    READ_CONFIG, like `run_command show tech-support`, under a policy that
+    denies config reads. Each denial is the exact tool error and decision
+    line, and the device's connection log shows eos-mcp never connected.
+  - This is the eos-mcp half of matrix row 4 in CI; M1-28 closes the row.
 - Tier 3: workflow skeleton only.

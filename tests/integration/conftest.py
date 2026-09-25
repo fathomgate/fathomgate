@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: FSL-1.1-ALv2
 """Tier 2 fixtures: spawn `fathomgate serve` in front of a real upstream, with
 the fake SSH device (tests/fixtures/device/fake_ssh.py) standing in for the
-router. Two upstreams, each pinned, each skipped on its own when not
-installed (CI requires both):
+router (and the fake eAPI device, tests/fixtures/device/fake_eapi.py, for
+eos-mcp). Three upstreams, each pinned, each skipped on its own when not
+installed (CI requires all three, one job each):
 
 - krisiasty/netdev-ssh-mcp, pinned to NETDEV_SSH_MCP_VERSION (go-sdk, 2026
   era; FATHOMGATE_UPSTREAM, below);
 - upa/mcp-netmiko-server, pinned to UPA_COMMIT (FastMCP, 2025 era;
   FATHOMGATE_UPA_*, see upa_install and
-  integration/upstreams/upa-mcp-netmiko-server/install.sh).
+  integration/upstreams/upa-mcp-netmiko-server/install.sh);
+- shigechika/eos-mcp, pinned to EOS_MCP_VERSION and EOS_MCP_COMMIT (FastMCP,
+  pyeapi over HTTPS; FATHOMGATE_EOS_MCP, see eos_mcp_install and
+  integration/upstreams/eos-mcp/install.sh).
 
 netdev-ssh-mcp setup (the CI job `client-smoke` does the same):
 
@@ -70,10 +74,35 @@ UPA_LOCKED_MCP = "1.6.0"
 UPA_SERVER = "upa"
 
 
+# shigechika/eos-mcp (M1-22, matrix row 4). PyPI eos-mcp 1.3.0, the upload of
+# tag v1.3.0 at EOS_MCP_COMMIT, which profiles/eos-mcp.yaml was read at. The
+# wheel is hash-pinned in integration/upstreams/eos-mcp/requirements.txt; the
+# sha256 of each installed module below is the same file at EOS_MCP_COMMIT,
+# so the code that runs is the code the profile cites. Bump these, the
+# requirements and test-matrix.md together.
+EOS_MCP_VERSION = "1.3.0"
+EOS_MCP_COMMIT = "bffb89377b3fa6b544b45b0cab44d5191cf8981a"
+EOS_MCP_SHA256 = {
+    "__init__.py": "cf066b9732163fdedb7028d6e8954f056c473349053ac6b847db289a7748dfa6",
+    "__main__.py": "db4f25c14ad46542974f4fe2fff513a4b96dba7cbde79c80a9c1ed1d738fc2f8",
+    "config.py": "c7dc8e72887001fe75d6fb7a428107688be94fe877b66e669c9aa7da320ef2bd",
+    "eapi.py": "b52a1787d794260ccc3279cdf0a6ce9429ece76078fd86d95a031296d83ee805",
+    "server.py": "7ca4fdfdbff7841688ed4829b56abca1545e691142ab539b99b0ca99f2e12cf2",
+}
+# The versions the upstream's own uv.lock resolves at EOS_MCP_COMMIT.
+EOS_MCP_DEPS = {"mcp": "1.28.1", "pyeapi": "1.0.4"}
+# The profile's `server` key, and so the tool prefix.
+EOS_SERVER = "eos-mcp"
+FAKE_EAPI = REPO / "tests" / "fixtures" / "device" / "fake_eapi.py"
+EAPI_USERNAME = "admin"
+EAPI_PASSWORD = "FAKE-eapi-pass"
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "tier2: real MCP server, fake device")
     config.addinivalue_line("markers", "netdev_ssh_mcp: validated against krisiasty/netdev-ssh-mcp")
     config.addinivalue_line("markers", "upa_mcp_netmiko_server: validated against upa/mcp-netmiko-server")
+    config.addinivalue_line("markers", "eos_mcp: validated against shigechika/eos-mcp")
 
 
 @pytest.fixture(scope="session")
@@ -171,6 +200,133 @@ def upa_install() -> UpaInstall:
         python=Path(values["FATHOMGATE_UPA_PYTHON"]),
         locked_python=Path(values["FATHOMGATE_UPA_LOCKED_PYTHON"]),
     )
+
+
+def owner_only_file(path: Path, content: str) -> Path:
+    """Write a configuration file only its owner can change, as `serve
+    --policy` requires of the policy and inventory (mode 0600 on Unix; on
+    Windows a DACL for the user alone)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+    if sys.platform == "win32":
+        user = os.environ["USERNAME"]
+        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"], check=True, capture_output=True)
+    return path
+
+
+def _tier2_absent(message: str) -> None:
+    if os.environ.get("FATHOMGATE_TIER2_REQUIRED") == "1":
+        pytest.fail(f"FATHOMGATE_TIER2_REQUIRED=1 but {message}")
+    pytest.skip(message)
+
+
+@pytest.fixture(scope="session")
+def eos_mcp_install() -> Path:
+    """The `eos-mcp` entry point install.sh made, checked against the pins:
+    the distribution version, mcp and pyeapi as the upstream locks them, and
+    every eos_mcp module byte for byte as at EOS_MCP_COMMIT."""
+    env = os.environ.get("FATHOMGATE_EOS_MCP", "")
+    if not env:
+        _tier2_absent("FATHOMGATE_EOS_MCP is not set (integration/upstreams/eos-mcp/install.sh DEST prints it)")
+    exe = Path(env)
+    if not exe.is_file():
+        pytest.fail(f"FATHOMGATE_EOS_MCP={env!r} does not exist")
+    python = exe.parent / ("python.exe" if sys.platform == "win32" else "python")
+    probe = (
+        "import hashlib, importlib.metadata as m, json, pathlib, eos_mcp\n"
+        "d = pathlib.Path(eos_mcp.__file__).parent\n"
+        "print(json.dumps({'versions': {n: m.version(n) for n in ('eos-mcp', 'mcp', 'pyeapi')},"
+        " 'sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.glob('*.py'))}}))\n"
+    )
+    out = subprocess.run([str(python), "-c", probe], capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        pytest.fail(f"cannot inspect the eos-mcp install next to {exe}: {out.stderr[-500:]}")
+    got = json.loads(out.stdout)
+    want_versions = {"eos-mcp": EOS_MCP_VERSION, **EOS_MCP_DEPS}
+    if got["versions"] != want_versions:
+        pytest.fail(f"{python} has {got['versions']}; row 4 is pinned to {want_versions}")
+    if got["sha256"] != EOS_MCP_SHA256:
+        pytest.fail(f"the installed eos_mcp modules are not those of {EOS_MCP_COMMIT}: {got['sha256']}")
+    return exe.resolve()
+
+
+@dataclass
+class FakeEapi:
+    """The fake eAPI device's logs (tests/fixtures/device/fake_eapi.py)."""
+
+    port: int
+    state: Path
+
+    def commands(self) -> list[str]:
+        text = (self.state / "commands.log").read_text(encoding="utf-8")
+        return [line.split("\t", 1)[1] for line in text.splitlines() if "\t" in line]
+
+    def requests(self) -> list[dict]:
+        text = (self.state / "requests.log").read_text(encoding="utf-8")
+        return [json.loads(line) for line in text.splitlines()]
+
+    def connections(self) -> list[str]:
+        """Every line of connections.log: one peer address per TCP accept,
+        then `tls <sni>` or `tls-failed ...`, and `auth-failed <user>`."""
+        return (self.state / "connections.log").read_text(encoding="utf-8").splitlines()
+
+    def accepts(self) -> int:
+        """TCP connections accepted, before TLS or authentication."""
+        return sum(1 for line in self.connections() if not line.startswith(("tls", "auth-failed")))
+
+
+@pytest.fixture
+def fake_eapi(tmp_path: Path):
+    """The fake eAPI device on 127.0.0.1:443, one per test. eos-mcp gives
+    pyeapi no port, so 443 it is (see fake_eapi.py). A host that may not bind
+    it skips here, or fails with FATHOMGATE_TIER2_REQUIRED=1."""
+    state = tmp_path / "eapi"
+    env = dict(os.environ, FAKE_EAPI_PASSWORD=EAPI_PASSWORD)
+    proc = subprocess.Popen(
+        [sys.executable, str(FAKE_EAPI), "--state-dir", str(state), "--username", EAPI_USERNAME],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    try:
+        line = _readline(proc.stdout, timeout=20)
+        if line.startswith("BIND-FAILED"):
+            proc.wait(timeout=5)
+            _tier2_absent(
+                f"the fake eAPI device cannot listen on 127.0.0.1:443 ({line}); on Linux run "
+                "`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443`, as CI does"
+            )
+        if not line.startswith("READY "):
+            proc.kill()
+            pytest.fail(f"fake eAPI device did not start: {line!r} {proc.stderr.read()!r}")
+        yield FakeEapi(port=int(line.split()[1]), state=state)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
+def eos_mcp_config(tmp_path: Path, *, verify: str = "false") -> Path:
+    """eos-mcp's config.ini: the FAKE eAPI credentials in [DEFAULT] (where
+    the upstream's example puts them) and one device, the fake at 127.0.0.1,
+    tagged lab. No real credential is ever written here."""
+    path = tmp_path / "eos-mcp-config.ini"
+    path.write_text(
+        "[DEFAULT]\n"
+        f"username = {EAPI_USERNAME}\n"
+        f"password = {EAPI_PASSWORD}\n"
+        "transport = https\n"
+        f"verify = {verify}\n"
+        "\n[127.0.0.1]\n"
+        "tags = lab\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 @dataclass
