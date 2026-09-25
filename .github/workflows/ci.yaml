@@ -57,6 +57,17 @@ jobs:
             fi
           done
           exit "$missing"
+      # Proof in the log that a POSIX ACL named-user write is refused
+      # (configfile; security review of PR #172, L5). Under CI the test
+      # fails instead of skipping when setfacl or ACLs are missing.
+      - name: configfile POSIX ACL test ran
+        run: |
+          command -v setfacl >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q acl; }
+          go test -count=1 -v -run 'TestLinuxPOSIXACLWrite' ./internal/configfile/ | tee acl.log
+          if ! grep -qF -- "--- PASS: TestLinuxPOSIXACLWrite (" acl.log; then
+            echo "::error::TestLinuxPOSIXACLWrite did not print --- PASS"
+            exit 1
+          fi
       # The other-owner tests need root to chown a file to another uid, and
       # skip otherwise. The test binary is built as the runner user, so no
       # root-owned file lands in the Go build or module cache; only the

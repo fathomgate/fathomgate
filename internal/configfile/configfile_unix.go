@@ -14,7 +14,7 @@ import (
 
 // unixDirClause ends the permission refusals: fixing the file is not
 // enough if others can write the directory that holds it.
-const unixDirClause = ". Users who can write the directory that holds it can still replace it, so keep policies in a directory only you can write, such as ~/.config/fathomgate at mode 0700"
+const unixDirClause = ". Users who can write the directory that holds it can still replace it, so keep these files in a directory only you can write, such as ~/.config/fathomgate at mode 0700"
 
 // open opens path and checks the open descriptor.
 func open(path, what string, dir bool) (*os.File, error) {

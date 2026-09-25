@@ -150,13 +150,21 @@ start without `--policy` or `--no-policy`. See
    On Windows, only you, SYSTEM and Administrators may be able to write
    the files. Keep them in `%USERPROFILE%\.config\fathomgate`, or for a
    service in `C:\ProgramData\fathomgate` writable only by Administrators
-   and SYSTEM. If Fathomgate names other accounts, it names every one of
-   them and prints the command that fixes the file, to run in Command
-   Prompt (not PowerShell, which does not expand `%USERNAME%`), for example:
+   and SYSTEM. If other accounts can write a file, Fathomgate names every
+   one of them and prints the commands that fix it, one per line, for
+   example:
 
-   ```bat
-   icacls "C:\Users\you\.config\fathomgate\policy.yaml" /inheritance:r /grant:r "%USERNAME%:F" SYSTEM:F Administrators:F && icacls "C:\Users\you\.config\fathomgate\policy.yaml" /remove:g *S-1-5-11
+   ```text
+   icacls "C:\Users\you\.config\fathomgate\policy.yaml" /inheritance:r /grant:r "*S-1-5-21-...-1001:F" "*S-1-5-18:F" "*S-1-5-32-544:F"
+   icacls "C:\Users\you\.config\fathomgate\policy.yaml" /remove:g "*S-1-5-11"
    ```
+
+   The accounts are named by SID, so the lines work in Command Prompt and
+   in PowerShell; run them one at a time. The second line appears only
+   when an account was given access to the file itself rather than
+   through its folder. If the path holds `%`, `!` or another character a
+   shell would change, Fathomgate describes the fix instead of printing a
+   command.
 
 4. **Full paths to all of these.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example

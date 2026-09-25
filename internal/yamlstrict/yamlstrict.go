@@ -25,9 +25,15 @@ import (
 	"github.com/goccy/go-yaml/parser"
 )
 
-// Unmarshal decodes b into v strictly. More than one YAML document is an
-// error, since the decoder would read the first and ignore the rest.
+// Unmarshal decodes b into v strictly. More than one YAML document with
+// content is an error, since a decoder reads one and ignores the rest.
+// So is an empty document before the content (`---` twice before it):
+// goccy/go-yaml then parses nothing at all, and the file would load as an
+// empty policy or inventory (security review of PR #172, L4).
 func Unmarshal(b []byte, v any) error {
+	if err := layout(b); err != nil {
+		return err
+	}
 	f, err := parser.ParseBytes(b, 0)
 	if err != nil {
 		return clean(err, b)
@@ -37,6 +43,48 @@ func Unmarshal(b []byte, v any) error {
 	}
 	if err := yaml.UnmarshalWithOptions(b, v, yaml.Strict()); err != nil {
 		return clean(err, b)
+	}
+	return nil
+}
+
+// marker is a document start marker: `---` at column 0, alone or followed
+// by a space. A `---` inside a block scalar is indented, so it never
+// matches.
+var marker = regexp.MustCompile(`^---(?:[ \t].*)?$`)
+
+// layout checks the document structure from the lines themselves, since
+// the parser drops content after an empty document. The text is cut at
+// every marker; a segment has content when it holds a line that is not
+// blank, a comment or an end marker (`...`). Allowed: content only before
+// the first marker, or only right after it (a leading `---`). Anything
+// else is two documents, or an empty one before the content.
+func layout(b []byte) error {
+	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	segment, contentIn, count := 0, -1, 0
+	for _, l := range lines {
+		if marker.MatchString(l) {
+			segment++
+			if strings.TrimSpace(strings.TrimPrefix(l, "---")) != "" && !strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(l, "---")), "#") {
+				// Content on the marker line itself (`--- {a: 1}`).
+				if contentIn != segment {
+					contentIn, count = segment, count+1
+				}
+			}
+			continue
+		}
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "#") || t == "..." {
+			continue
+		}
+		if contentIn != segment {
+			contentIn, count = segment, count+1
+		}
+	}
+	switch {
+	case count > 1:
+		return fmt.Errorf("the file holds %d YAML documents; it must hold one", count)
+	case count == 1 && contentIn > 1:
+		return errors.New("the file starts with an empty YAML document (--- with nothing after it); remove the extra ---")
 	}
 	return nil
 }

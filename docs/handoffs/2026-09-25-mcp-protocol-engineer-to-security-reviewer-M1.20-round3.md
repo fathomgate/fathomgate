@@ -18,6 +18,16 @@
   - install.md covers file placement for Unix (0700, `chmod go-w`, the umask 002 note for Debian and Ubuntu) and Windows (the Command Prompt fix).
   - The threat-model rows are updated, including residuals, the M2 follow-up for parent directories, and the open conformance leg owned by M1-28.
 
+## Security review of PR #172 (lows, same PR)
+
+- **L1:** `/remove:g` names only the SIDs of explicit (not inherited) entries, and is omitted when there are none (`TestWindowsInheritedOnlyWriters`).
+- **L3:** the commands grant the user, SYSTEM and Administrators by SID and print one command per line, so they run in Command Prompt and PowerShell. `TestWindowsRefusalNamesEveryWriterAndFixes` runs them in both.
+- **L2:** a path with `%`, `!`, `"`, `$`, a backquote or a control character gets prose, not a command (`TestWindowsNoCommandForUnsafePath`). An other-owner refusal is prose only.
+- **L4:** yamlstrict refuses an empty document before the content. goccy/go-yaml parses nothing after `---
+---`, so the check reads the marker lines.
+- **L5:** `TestLinuxPOSIXACLWrite` fails instead of skipping under `CI`. A ci.yaml step installs `acl` if needed, runs the test with `-v`, and greps for `--- PASS`.
+- **Nit:** "keep these files". profile-schema 8.3, install.md and the CHANGELOG match the new commands.
+
 ## Look at this first
 
 - `TestWindowsRefusalNamesEveryWriterAndFixes`: it runs the printed command through `cmd /c` and then checks that the file passes.
