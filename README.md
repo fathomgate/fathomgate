@@ -62,7 +62,8 @@ Fathomgate is early. The parts are built and tested on their own, but they are n
 | Tamper-evident audit log | Done |
 | Device lookup from an inventory file or hostname patterns (NetBox is optional and comes later) | Done |
 | **The checkpoint itself** (`fathomgate serve`) | **Passes every request through unchanged for now.** The rules are wired in during the next milestone, M1 |
-| Approvals, dry runs, automatic rollback, a web console | Later milestones |
+| Approvals, dry runs, automatic rollback, a local web console for one operator | Later milestones |
+| A team console: single sign-on, roles, many Fathomgate instances in one view | Part of the paid edition |
 
 The full plan is in [ROADMAP.md](ROADMAP.md).
 
