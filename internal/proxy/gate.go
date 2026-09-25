@@ -108,16 +108,32 @@ func (p *Proxy) gated(ctx context.Context, c call) (*mcp.CallToolResult, error) 
 	if c.up.exited() {
 		return upstreamDown(c.up), nil
 	}
-	d, err := p.decide(ctx, c)
+	d, refused, err := p.decideAndRespond(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	p.logDecision(ctx, d.v)
-	if !d.v.Forward {
-		return toolError(d.v.Error), nil
+	if refused != nil {
+		return refused, nil
 	}
 	c.gated, c.upArguments = true, d.args
 	return p.forward(ctx, c)
+}
+
+// decideAndRespond is the decision stage of gated: decide, the decision
+// line, and for a call that is not forwarded the tool error the agent gets
+// (refused non-nil). It is everything fathomgate adds to a call before the
+// upstream sees it, and the unit TestDispatchOverhead times (M1-23). err
+// is decide's: ctx ended while the call waited for its counter key's lock.
+func (p *Proxy) decideAndRespond(ctx context.Context, c call) (d decision, refused *mcp.CallToolResult, err error) {
+	d, err = p.decide(ctx, c)
+	if err != nil {
+		return decision{}, nil, err
+	}
+	p.logDecision(ctx, d.v)
+	if !d.v.Forward {
+		return d, toolError(d.v.Error), nil
+	}
+	return d, nil, nil
 }
 
 // decide is steps 5 to 7 around Gate.Decide: the argument cap, the session
