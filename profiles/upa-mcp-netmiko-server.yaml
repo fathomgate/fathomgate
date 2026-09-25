@@ -57,6 +57,24 @@
 #   --debug turns on Starlette debug mode (main.py:248-285).
 # - Upstream has no LICENSE file (GitHub reports no licence). Fathomgate does
 #   not vendor or ship it; tier 2 fetches it at test time.
+#
+# Operator warnings (security review of PR #150; docs/security/threat-model.md):
+# 1. Log exposure (open, M2). upa logs every command, every config command
+#    list and the first 100 characters of device output to stderr
+#    (main.py:187, 202, 234), and fathomgate relays that into its own log.
+#    fathomgate scrubs only --upstream-env-pass values there. Until M2 redacts
+#    relayed stderr, treat fathomgate's log as holding device configuration
+#    and secrets, and restrict it accordingly.
+# 2. Target alias drift (open, M2). Policy sees the device name; upa connects
+#    to whatever hostname its TOML maps that name to, re-read on every call.
+#    Keep the TOML's device names one-to-one with fathomgate's inventory, and
+#    keep the TOML where neither the agent nor any tool it can call can write
+#    it; otherwise an edited entry can point lab-leaf-01 at a core router and
+#    a write lands under the lab rule instead of the prod hold.
+# 3. Transport (accepted). No SSH host-key checking, and --sse serves with no
+#    authentication (--debug adds tracebacks). Fathomgate supports upa only
+#    over stdio as `fathomgate serve --upstream ...`; do not run it with
+#    --sse or --debug.
 server: upa
 source: https://github.com/upa/mcp-netmiko-server
 description: Single-file netmiko server; TOML inventory, three tools, auto-commit and save on config

@@ -47,5 +47,5 @@ bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml --inven
 
 ## Questions for the receiver
 
-- Matrix row 6 names the rule `defaults.unknown_target`, but `policy eval` prints `default:unknown_target`. Which one should the row use?
+- (Settled in this PR after the security review: matrix row 6 now reads `default:unknown_target`, the rule id at `internal/policy/types.go:235`; `defaults.unknown_target` is the YAML key that sets it.) The security review also added four threat-model rows for upa: stderr log exposure (M2), target alias drift (M2), transport hazards accepted (stdio only), and the requirement that an obligation a tool cannot meet becomes `deny` (M3). Do you want the alias cross-check as an M2 board task?
 - For tier 2 fixtures (test-engineer): error shapes are plain-text results, not `isError`. An unknown name returns `Error: no device named '<name>'`. With `--secured`, a blocked command returns `Error: destructive command '<cmd>' is prohibited.`. With `--disable-config`, the write tool returns `changing configuration is prohibited`. A netmiko `ConnectionException` returns `Connection Error: …`. Any other exception comes back as an MCP tool error. Should a later task pass these through to the agent unchanged?
