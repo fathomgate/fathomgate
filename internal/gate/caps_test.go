@@ -3,8 +3,8 @@
 package gate
 
 import (
-	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -83,7 +83,7 @@ func TestPerCallCaps(t *testing.T) {
 		{"257 targets, one string", call(eos, "daily_brief", map[string]any{"hostnames": strings.Join(manyNames(257), ",")}),
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL", text: fmt.Sprintf(tooManyTargets, "eos-mcp.daily_brief", "READ_OPERATIONAL")}, parseTooManyTargets},
 		// Repeats count: the cap is on names as sent.
-		{"257 repeats of one name", call(eos, "daily_brief", map[string]any{"hostnames": anyOf(slicesRepeat("lab-sw-01", 257))}),
+		{"257 repeats of one name", call(eos, "daily_brief", map[string]any{"hostnames": anyOf(slices.Repeat([]string{"lab-sw-01"}, 257))}),
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL", text: fmt.Sprintf(tooManyTargets, "eos-mcp.daily_brief", "READ_OPERATIONAL")}, parseTooManyTargets},
 		// Group selectors count with the names.
 		{"256 names and one tag", call(eos, "daily_brief", map[string]any{"hostnames": anyOf(manyNames(256)), "tags": []any{"lab"}}),
@@ -91,25 +91,19 @@ func TestPerCallCaps(t *testing.T) {
 		{"255 names and one tag", call(eos, "daily_brief", map[string]any{"hostnames": anyOf(manyNames(255)), "tags": []any{"lab"}}),
 			want{effect: "deny", rule: policy.RuleBadArguments, class: "READ_OPERATIONAL", text: "fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): " + reasonGroup}, ""},
 	} {
-		v := g.Decide(context.Background(), tc.in)
-		check(t, tc.name, v, tc.w)
-		line := logLine(v)
-		if strings.Contains(v.Error, capMark) || (v.RuleID == policy.RuleBadArguments && strings.Contains(line, capMark)) {
-			t.Errorf("%s: a refusal quotes a command or name:\n%s\n%s", tc.name, v.Error, line)
-		}
-		gotCode := strings.Contains(line, `"parse_error":"`+tc.parseCode+`"`)
-		if tc.parseCode != "" && !gotCode || tc.parseCode == "" && strings.Contains(line, `"parse_error":"too_many`) {
-			t.Errorf("%s: parse_error, want %q: %s", tc.name, tc.parseCode, line)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			v := g.Decide(t.Context(), tc.in)
+			check(t, tc.name, v, tc.w)
+			line := logLine(v)
+			if strings.Contains(v.Error, capMark) || (v.RuleID == policy.RuleBadArguments && strings.Contains(line, capMark)) {
+				t.Errorf("a refusal quotes a command or name:\n%s\n%s", v.Error, line)
+			}
+			gotCode := strings.Contains(line, `"parse_error":"`+tc.parseCode+`"`)
+			if tc.parseCode != "" && !gotCode || tc.parseCode == "" && strings.Contains(line, `"parse_error":"too_many`) {
+				t.Errorf("parse_error, want %q: %s", tc.parseCode, line)
+			}
+		})
 	}
-}
-
-func slicesRepeat(s string, n int) []string {
-	out := make([]string, n)
-	for i := range out {
-		out[i] = s
-	}
-	return out
 }
 
 // TestPerCallCapConstants: the refusal text, the worst-case corpus of the
@@ -159,6 +153,49 @@ func TestCountedTargets(t *testing.T) {
 		{"counted but not in the call", read(5, counted("lab-sw-01"), "core-rtr-01"), capped},
 		{"never below zero", read(0, counted("core-rtr-01", "lab-sw-01"), "core-rtr-01", "lab-sw-01"), allow},
 	} {
-		check(t, tc.name, g.Decide(context.Background(), tc.in), tc.w)
+		t.Run(tc.name, func(t *testing.T) {
+			check(t, tc.name, g.Decide(t.Context(), tc.in), tc.w)
+		})
+	}
+}
+
+// TestCountValues (security review of PR #185): countValues counts at
+// least what classify flattens, for every value shape, including a
+// []string, which JSON never decodes to but a Go caller may pass.
+func TestCountValues(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		v      any
+		commas bool
+		want   int
+	}{
+		{"null", nil, false, 0},
+		{"string", "show version", false, 1},
+		{"string with commas, commands", "a,b,c", false, 1},
+		{"string with commas, targets", "a,b,c", true, 3},
+		{"empty string, targets", "", true, 0},
+		{"array", []any{"a", "b"}, false, 2},
+		{"nested array", []any{"a", []any{"b", []any{"c"}}}, false, 3},
+		{"non-string", 42.0, false, 1},
+		{"non-string in array", []any{"a", 42.0, true}, false, 3},
+		{"[]string, commands", []string{"a,b", "c"}, false, 2},
+		{"[]string, targets", []string{"a,b", "c", ""}, true, 3},
+		{"[]string over the cap", slices.Repeat([]string{"show version"}, maxCommandsPerCall+1), false, maxCommandsPerCall + 1},
+	} {
+		if got := countValues(tc.v, tc.commas); got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	// And through overCaps: 65 commands as a []string are over the cap, 64
+	// are not.
+	spec := repoProfiles(t)[eos].Tools["run_commands"]
+	args := map[string]any{"hostname": "lab-sw-01", "commands": slices.Repeat([]string{"show version"}, maxCommandsPerCall+1)}
+	if code, _ := overCaps(spec, args); code != parseTooManyCommands {
+		t.Errorf("65 commands as []string: code %q, want %q", code, parseTooManyCommands)
+	}
+	args["commands"] = slices.Repeat([]string{"show version"}, maxCommandsPerCall)
+	if code, _ := overCaps(spec, args); code != "" {
+		t.Errorf("64 commands as []string: code %q, want none", code)
 	}
 }

@@ -304,13 +304,13 @@ func argumentFindings(res classify.Result) (unnamed, malformed []string) {
 // commands or names fit in the proxy's 64 KiB argument cap.
 //
 //   - maxCommandsPerCall: 64 commands, counted over every command_params
-//     value (a string is one command, an array one per element). With the
-//     classifier's 1 KiB cap per command, 64 commands fill the argument cap
-//     exactly. The surveyed tools take one command (eos-mcp run_command,
-//     upa send_command_and_get_output, junos execute_junos_command_batch)
-//     or a short list sent to every device (eos-mcp run_commands and
-//     run_commands_batch, ntunes send_command_parallel); a longer list is a
-//     script, not a read.
+//     value (a string is one command, an array one per element, nested
+//     arrays flattened). With the classifier's 1 KiB cap per command, 64
+//     commands fill the argument cap exactly. Every surveyed command tool
+//     takes one command, or a list run in order on each device (eos-mcp
+//     run_commands and run_commands_batch, ntunes send_commands_sequence);
+//     a longer list is a script, not a read. profile-schema 2.4 has the
+//     survey.
 //   - maxTargetsPerCall: 256 names, counted as sent over every
 //     target_params, targets_params and group_params value, a string one
 //     per comma-separated part (as classify.Normalize splits it), repeats
@@ -358,19 +358,22 @@ func overCaps(spec classify.ToolSpec, args map[string]any) (code, reason string)
 // the count of each element for an array, at any depth (classify's
 // rawValues flattens nested arrays, and the closed argument list refuses
 // them only after classification), and one for anything else. With commas,
-// a string counts one per comma-separated part and "" counts none.
+// a string counts one per comma-separated part and "" counts none. A
+// []string (never decoded from JSON, but a Go caller may pass one, and
+// rawValues takes it) counts each element as a string. The recursion depth
+// is bounded by encoding/json's nesting limit (10,000).
 func countValues(v any, commas bool) int {
 	switch t := v.(type) {
 	case nil:
 		return 0
 	case string:
-		if !commas {
-			return 1
+		return countString(t, commas)
+	case []string:
+		n := 0
+		for _, e := range t {
+			n += countString(e, commas)
 		}
-		if t == "" {
-			return 0
-		}
-		return strings.Count(t, ",") + 1
+		return n
 	case []any:
 		n := 0
 		for _, e := range t {
@@ -380,4 +383,15 @@ func countValues(v any, commas bool) int {
 	default:
 		return 1
 	}
+}
+
+// countString is countValues for one string.
+func countString(s string, commas bool) int {
+	if !commas {
+		return 1
+	}
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, ",") + 1
 }

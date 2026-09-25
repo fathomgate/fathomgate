@@ -48,11 +48,14 @@ func normalisedWords(cmd string) (fields []string, c string) {
 // against the regular expression it replaced, on every command that
 // reaches the blocklist (printable ASCII, checkBytes passed).
 func TestBlocklistWordsMatchRegexp(t *testing.T) {
+	t.Parallel()
 	for _, s := range equivSeeds {
 		checkBlocklistEquiv(t, s)
 	}
 }
 
+// FuzzBlocklistWords fuzzes blocked against blocklistRegexp on any
+// command that passes checkBytes, seeded with equivSeeds.
 func FuzzBlocklistWords(f *testing.F) {
 	for _, s := range equivSeeds {
 		f.Add(s)
@@ -74,11 +77,14 @@ func checkBlocklistEquiv(t *testing.T, cmd string) {
 // the regular expression it replaced, on any string: it must agree beyond
 // the printable ASCII a command is held to by then.
 func TestShellMetaMatchesRegexp(t *testing.T) {
+	t.Parallel()
 	for _, s := range equivSeeds {
 		checkShellMetaEquiv(t, s)
 	}
 }
 
+// FuzzShellMeta fuzzes hasShellMeta against shellMetaRegexp on any string,
+// seeded with equivSeeds.
 func FuzzShellMeta(f *testing.F) {
 	for _, s := range equivSeeds {
 		f.Add(s)

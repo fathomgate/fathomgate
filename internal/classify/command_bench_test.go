@@ -5,6 +5,8 @@ package classify
 import (
 	"strings"
 	"testing"
+
+	"github.com/fathomgate/fathomgate/internal/gate/gatetest"
 )
 
 // BenchmarkClassifyCommand is the cost of one command through the
@@ -22,5 +24,14 @@ func BenchmarkClassifyCommand(b *testing.B) {
 				_, _ = classifyCommand(c.cmd)
 			}
 		})
+	}
+}
+
+// TestCommandWidthIsCommandCap ties the overhead corpus's longest command
+// (gatetest.CommandWidth, M1-39) to the classifier's maxCommandLen: the
+// worst cases must be commands the classifier reads in full.
+func TestCommandWidthIsCommandCap(t *testing.T) {
+	if gatetest.CommandWidth != maxCommandLen {
+		t.Errorf("gatetest.CommandWidth %d, maxCommandLen %d", gatetest.CommandWidth, maxCommandLen)
 	}
 }

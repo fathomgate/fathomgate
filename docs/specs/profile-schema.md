@@ -73,8 +73,8 @@ Optional arguments need nothing extra: named means allowed whether present or ab
 
 | Cap | Counted | Reason the agent sees | `parse_error` in the log line |
 | --- | --- | --- | --- |
-| 64 commands (`maxCommandsPerCall`) | every `command_params` value: a string is one command, an array one per string in it, nested arrays included (the classifier flattens them; the closed argument list then refuses them) | `a call may carry at most 64 commands; split it into smaller calls` | `too_many_commands` |
-| 256 targets (`maxTargetsPerCall`) | every `target_params`, `targets_params` and `group_params` value: a string is one name per comma-separated part (`""` is none), an array one per string in it; repeats count | `a call may name at most 256 targets; split it into smaller calls` | `too_many_targets` |
+| 64 commands (`maxCommandsPerCall`) | every `command_params` value: a string is one command, an array one per element, a non-string element counting as one and a nested array flattened (as the classifier flattens it; the closed argument list refuses both after the count) | `a call may carry at most 64 commands; split it into smaller calls` | `too_many_commands` |
+| 256 targets (`maxTargetsPerCall`) | every `target_params`, `targets_params` and `group_params` value: a string is one name per comma-separated part (`""` is none), an array one per element, each string element split the same way and a non-string element one; repeats count | `a call may name at most 256 targets; split it into smaller calls` | `too_many_targets` |
 
 The text names the cap, which is fathomgate's constant, and no argument, command or name. The class in the tool error is the one the tool gets with no arguments, as for a parse failure (`EXEC_ARBITRARY` for a command tool).
 

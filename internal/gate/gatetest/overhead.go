@@ -116,7 +116,8 @@ const (
 // maxCommandsPerCall and maxTargetsPerCall, profile-schema 2.4), and
 // CommandWidth and TargetWidth the longest command and name the gate reads
 // in full (classify's maxCommandLen; a hostname's 253 bytes). The worst
-// cases sit exactly at the caps.
+// cases sit exactly at the caps. TestPerCallCapConstants (internal/gate) and
+// TestCommandWidthIsCommandCap (internal/classify) hold these to the code.
 const (
 	CommandCap   = 64
 	CommandWidth = 1024
