@@ -34,7 +34,7 @@ Your rules start to count. Fathomgate works out what each request really does (a
 
 ### 3. Know your network (M2)
 
-Fathomgate learns device roles from wherever you keep them: a spreadsheet, a naming convention, the MCP server's own inventory, or NetBox and Nautobot. Passwords, keys and SNMP communities are masked in everything that comes back. And if an MCP server quietly changes what its tools claim to do, Fathomgate notices and stops trusting it.
+Fathomgate learns device roles from wherever you keep them: a spreadsheet, a naming convention, or the MCP server's own inventory. If your devices live in NetBox or Nautobot, export them to CSV and load the file. That's free, and it's all in this repository. The paid edition will add live NetBox and Nautobot connectors that look devices up as requests arrive, stay in sync and check that the data is fresh; if NetBox or Nautobot can't be reached, Fathomgate falls back to the last snapshot and marks every decision made from it. Either way, a device Fathomgate doesn't know is denied by default. Passwords, keys and SNMP communities are masked in everything that comes back. And if an MCP server quietly changes what its tools claim to do, Fathomgate notices and stops trusting it.
 
 ### 4. Ask first (M3)
 
@@ -77,7 +77,7 @@ Fathomgate is source-available, not open source. Its licence, the [Functional So
 
 We changed this on 2026-09-25, a day after first publishing under Apache-2.0 and promising it would stay that way. Fathomgate is a commercial product, and we'd rather say so plainly than have it resold by someone else. What that promise was for still holds: the proxy, the policy engine, classification, secret masking, approvals from the command line and the local console, the safe-change drivers and the audit log are all in this public repository, and you can audit every line.
 
-The paid edition that funds the work is proprietary, and it's for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. The team console shows nothing about a request that you can't get from the public command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays in the public repository.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md) and [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
+The paid edition that funds the work is proprietary, and it's for teams: the team console, with single sign-on, roles, approvals by more than one person, a view across many Fathomgate instances, central policy, long-term retention and search, and ready-made OCSF and CEF exporters for SIEMs. It also has live NetBox and Nautobot connectors; exporting from either to CSV and loading the file stays free. The team console shows nothing about a request that you can't get from the public command line and the local console. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays in the public repository.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md) and [ADR 0034](docs/adr/0034-source-available-under-fsl.md).
 
 ## For the details
 

@@ -2,15 +2,15 @@
 
 package inventory
 
-// NetBox is the source-of-truth provider for NetBox and Nautobot. It is the
-// last link in the chain and never a dependency: the proxy works with a
-// static file and hostname patterns alone.
+// NetBox is a stub for the source-of-truth provider for NetBox and Nautobot.
+// It is the last link in the chain and never a dependency: the proxy works
+// with a static file, a CSV import and hostname patterns alone.
 //
-// TODO(M2): implement the REST lookup (GET /api/dcim/devices/?name=<name>
-// for NetBox, /api/dcim/devices/?name=<name> for Nautobot), a TTL cache, a
-// snapshot written by `fathomgate inventory sync`, and stale marking so that an
-// unreachable source of truth never silently loosens policy. Until then this
-// type satisfies Resolver and resolves nothing.
+// The live connectors (API lookup, auto-sync, caching and freshness checks)
+// are in the paid edition (ADR 0034, Amendments, 2026-09-25). The core keeps
+// the Resolver interface, the snapshot format and stale marking. This type
+// satisfies Resolver and resolves nothing; it stays until the paid resolver
+// exists, then leaves the core. The seam is Resolver, not this stub.
 type NetBox struct {
 	// URL is the base URL of the NetBox or Nautobot instance.
 	URL string
@@ -21,8 +21,8 @@ type NetBox struct {
 	Flavor string
 }
 
-// Resolve implements Resolver. It returns false until M2 lands so that a
-// misconfigured chain fails closed rather than inventing roles.
+// Resolve implements Resolver. It always returns false, so a chain that
+// includes the stub fails closed rather than inventing roles.
 func (n *NetBox) Resolve(string) (Target, bool) {
 	return Target{}, false
 }

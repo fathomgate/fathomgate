@@ -2,7 +2,7 @@
 
 Normative specification for how `internal/inventory` turns a target name into `{role, site, tags, status, vendor}`. Resolution runs through an ordered provider chain; the first provider that knows the target wins. A target no provider knows is `unknown`. A source of truth is optional.
 
-Decision record: [ADR 0007](../adr/0007-role-resolver-chain-sot-optional.md).
+Decision record: [ADR 0007](../adr/0007-role-resolver-chain-sot-optional.md). The live NetBox and Nautobot connectors are in the paid edition ([ADR 0034](../adr/0034-source-available-under-fsl.md), *Amendments*, 2026-09-25); section 6 says what stays in the core.
 
 ## 1. Device record
 
@@ -17,7 +17,7 @@ Every provider returns the same shape.
 | `status` | string | no | `active` (default), `planned`, `staged`, `failed`, `offline`, `decommissioning`. NetBox and Nautobot values map one to one. |
 | `vendor` | string | no | `ios`, `iosxe`, `nxos`, `eos`, `junos`, `panos`, `fortios`, `srlinux`, `iosxr`, `other`. Selects the `ChangeSafety` driver and the redaction pattern set. |
 | `mgmt_addr` | string | no | Accepted for import; never written to the audit log. |
-| `source` | string | set by resolver | `static`, `pattern`, `upstream:<id>`, `netbox`, `nautobot`, `snapshot`. |
+| `source` | string | set by resolver | `static`, `pattern`, `upstream:<id>`, `netbox`, `nautobot`, `snapshot`. `netbox` and `nautobot` are set only by the paid edition's live connectors (section 6). |
 | `stale` | boolean | set by resolver | True when `source` is `snapshot` because the live source of truth was unreachable. |
 
 ## 2. Resolver chain
@@ -27,7 +27,7 @@ Every provider returns the same shape.
 | 1 | Static `inventory.yaml` | File configured | Target name present |
 | 2 | Hostname patterns | `roles:` in `inventory.yaml` is non-empty | A pattern matches |
 | 3 | Upstream inventory | The upstream profile has `inventory_tool` (planned, M2) | The upstream listed the target at startup or last refresh |
-| 4 | Source of truth | `sot` configured | REST lookup succeeds, or a snapshot exists |
+| 4 | Source of truth (live connector in the paid edition; the core ships a stub that resolves nothing, section 6) | A resolver registered through the `Resolver` interface | REST lookup succeeds, or a snapshot exists |
 
 Merging: the first provider that returns a record supplies `role`, `site`, `status` and `vendor`. `tags` are the union from every provider that knows the target, so a pattern can add `lab` to a device the static file already describes. A field the winning provider leaves empty is filled from the next provider that has it.
 
@@ -73,6 +73,8 @@ devices:
 
 Import merges into an existing file by `name`; the CSV row wins for every column it supplies.
 
+CSV import is the core's path from NetBox or Nautobot (section 6). A round trip from a real export of each is M2 work, and the column list above grows there if an export needs it.
+
 ## 4. Hostname patterns
 
 Patterns are optional. They live under `roles:` in `inventory.yaml` (`internal/inventory/patterns.go`), next to the devices they describe, and are not part of the policy file. `inventory.example.yaml` ships none active: every device it knows is listed by name (section 3). Read the hazard below before turning one on.
@@ -109,7 +111,27 @@ Sources per upstream: ntunes `list_devices` (names, tags, `device_type`), eos-mc
 
 A record from this provider has `role: unknown` unless the upstream carries a role field, which none of the surveyed servers do. It exists so that `tags` such as ntunes `lab` can drive policy, and so that `targets_all_when_empty` and `@group` expansion have a device list to expand into.
 
-## 6. Source of truth provider
+## 6. Source of truth
+
+A source of truth such as NetBox or Nautobot reaches the chain in one of two ways. The export path is in the core; the live connectors are in the paid edition ([ADR 0034](../adr/0034-source-available-under-fsl.md), *Amendments*, 2026-09-25).
+
+| Path | Edition | What it does |
+| --- | --- | --- |
+| Export and import | Core | Export the devices from NetBox or Nautobot as CSV and load them with `fathomgate inventory import` (section 3.1). The result is a static file, served by provider 1 |
+| Live connector | Paid edition | API lookup, auto-sync, caching and freshness checks against NetBox or Nautobot, plugged into the chain at order 4 through the `Resolver` interface |
+
+The core keeps what makes any connector behave the same:
+
+- the `Resolver` interface and the chain order (section 2);
+- the snapshot format: the static-file format of section 3, with every record from it carrying `source: snapshot`;
+- `stale` marking: a record served from a snapshot because the live source was unreachable has `stale: true`, and every decision that used one carries `sot: stale` in its audit event;
+- failing closed: a resolver that fails or times out yields `unknown`, never a guessed role ([ADR 0020](../adr/0020-open-core-apache-2.md) section 3, invariant 7).
+
+`internal/inventory/netbox.go` is a stub in the core. It satisfies `Resolver` and resolves nothing, so a chain that includes it fails closed. It stays until the paid resolver exists, then leaves the core.
+
+### 6.1 Live connector (paid edition)
+
+The rest of this section describes the paid edition's connector, so that its records and its `sot: stale` marking match the core's. The core does not read the `sot` block.
 
 ```yaml
 sot:
@@ -130,7 +152,7 @@ sot:
 | `snapshot` | Written by `fathomgate inventory sync`, which pages through every device and writes the static-file format with `source: snapshot`. |
 | `stale_max_age` | If non-zero and the snapshot is older, resolution from it fails and the target is `unknown`. |
 
-Lookup order inside the provider: cache, then live REST, then snapshot. A live failure (connection error, 5xx, timeout) is logged once per `cache_ttl` and the snapshot is used. Every record from the snapshot has `stale: true`, and every decision that used one carries `sot: stale` in its audit event. A 404 from a live lookup is a definitive `unknown` and is not overridden by the snapshot.
+Lookup order inside the connector: cache, then live REST, then snapshot. A live failure (connection error, 5xx, timeout) is logged once per `cache_ttl` and the snapshot is used. Every record from the snapshot has `stale: true`, and every decision that used one carries `sot: stale` in its audit event. A 404 from a live lookup is a definitive `unknown` and is not overridden by the snapshot.
 
 Platform mapping to `vendor`: NetBox `platform.slug` or `manufacturer.slug` are matched case-insensitively against `ios|iosxe|ios-xe|nxos|nx-os|eos|junos|panos|pan-os|fortios|srlinux|sr-linux|iosxr|ios-xr`. Anything else is `other`.
 
@@ -164,6 +186,6 @@ In M1 there is no upstream inventory provider, so only the first two rows apply,
 | Command | Effect |
 | --- | --- |
 | `fathomgate inventory import <csv> [--out file]` | Section 3.1 |
-| `fathomgate inventory sync` | Section 6, writes the snapshot |
+| `fathomgate inventory sync` | Paid edition (section 6.1): writes the snapshot from the live source of truth |
 | `fathomgate inventory resolve <name>...` | Prints the record and which provider supplied each field; the debugging tool for "why was this denied as unknown" |
 | `fathomgate inventory lint <file>` | Validates the static file |

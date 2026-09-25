@@ -17,8 +17,9 @@ instead, each with its own LICENSE file:
 Earlier versions remain under the Apache License, Version 2.0:
 Fathomgate v0.1.0, and every commit on the main branch of
 github.com/fathomgate/fathomgate before the commit that added this
-paragraph, were made available under Apache-2.0 and stay so. The
-decision is recorded in docs/adr/0034-source-available-under-fsl.md.
+paragraph (08d0970762844b7ca1fafcb195e0aedecb9de862), were made
+available under Apache-2.0 and stay so. The decision is recorded in
+docs/adr/0034-source-available-under-fsl.md.
 
 A copy of the Apache License, Version 2.0, is at
 

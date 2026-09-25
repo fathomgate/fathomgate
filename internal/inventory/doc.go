@@ -10,7 +10,7 @@
 //  1. StaticFile   inventory.yaml, or a CSV imported with ImportCSV
 //  2. Patterns     hostname regexes (^core-|^border- -> role core)
 //  3. (M2)         the upstream server's own INVENTORY_READ tools
-//  4. NetBox       NetBox or Nautobot REST with a cached snapshot (stub)
+//  4. NetBox       stub (live NetBox and Nautobot connectors: paid edition)
 //
 // A name no provider resolves is unknown, and the policy's
 // defaults.unknown_target decides what happens to it. Resolvers compare
