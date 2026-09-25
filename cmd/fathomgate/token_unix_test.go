@@ -5,10 +5,10 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -48,23 +48,26 @@ func TestReadTokenFileUnix(t *testing.T) {
 		{"group writable", 0o620, "mode 0620"},
 		{"everyone", 0o666, "chmod 600"},
 	} {
-		path := filepath.Join(dir, tc.name)
-		writeOwnerOnly(t, path, tok)
-		if err := os.Chmod(path, tc.mode); err != nil {
-			t.Fatal(err)
-		}
-		got, err := readTokenFile(path)
-		switch {
-		case tc.want == "" && err != nil:
-			t.Errorf("%s: %v", tc.name, err)
-		case tc.want == "" && string(got) != string(tok):
-			t.Errorf("%s: read %q", tc.name, got)
-		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
-			t.Errorf("%s: error %v, want %q", tc.name, err, tc.want)
-		}
-		if err != nil && strings.Contains(err.Error(), dir) {
-			t.Errorf("%s: the error quotes the path: %v", tc.name, err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(dir, tc.name)
+			writeOwnerOnly(t, path, tok)
+			if err := os.Chmod(path, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			got, err := readTokenFile(path)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Error(err)
+			case tc.want == "" && string(got) != string(tok):
+				t.Errorf("read %q", got)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("error %v, want %q", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), dir) {
+				t.Errorf("the error quotes the path: %v", err)
+			}
+		})
 	}
 
 	target := filepath.Join(dir, "target")
@@ -77,24 +80,32 @@ func TestReadTokenFileUnix(t *testing.T) {
 	if err := os.Link(target, hard); err != nil {
 		t.Fatal(err)
 	}
+	cases := []struct{ name, path, want string }{
+		{"symbolic link", link, "symbolic link"},
+		{"hard link", hard, "2 hard links"},
+		{"directory", dir, "not a regular file"},
+		{"missing", filepath.Join(dir, "no-such-file"), "cannot open the token file"},
+	}
 	fifo := filepath.Join(dir, "fifo")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+	switch err := mkfifo(fifo); {
+	case err == nil:
+		// Opened without blocking for a writer, then refused.
+		cases = append(cases, struct{ name, path, want string }{"named pipe", fifo, "not a regular file"})
+	case errors.Is(err, errors.ErrUnsupported):
+		t.Log("named pipe case left out: no mkfifo on this platform")
+	default:
 		t.Fatal(err)
 	}
-	for path, want := range map[string]string{
-		link: "symbolic link",
-		hard: "2 hard links",
-		dir:  "not a regular file",
-		// Opened without blocking for a writer, then refused.
-		fifo:                               "not a regular file",
-		filepath.Join(dir, "no-such-file"): "cannot open the token file",
-	} {
-		_, err := readTokenFile(path)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%s: error %v, want %q", filepath.Base(path), err, want)
-		}
-		if err != nil && strings.Contains(err.Error(), dir) {
-			t.Errorf("%s: the error quotes the path: %v", filepath.Base(path), err)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := readTokenFile(tc.path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %v, want %q", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), dir) {
+				t.Errorf("the error quotes the path: %v", err)
+			}
+		})
 	}
 }

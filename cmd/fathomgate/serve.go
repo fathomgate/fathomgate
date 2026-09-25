@@ -71,10 +71,9 @@ type serveConfig struct {
 	// value.
 	secrets []proxy.Secret
 
-	// listenAddr is the address to bind for --listen (parseListenAddr),
-	// or "" to serve the agent on stdio. The two agent sides are exclusive
-	// (ADR 0016).
-	listenAddr string
+	// listen is the --listen address (parseListenAddr), or nil to serve
+	// the agent on stdio. The two agent sides are exclusive (ADR 0016).
+	listen *listenAddr
 	// tokens are the listener's bearer tokens by principal, read from the
 	// --listen-token-file files or FATHOMGATE_LISTEN_TOKEN. They are never
 	// passed to the upstream, and serve scrubs them from its stderr.
@@ -114,7 +113,7 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 	}
 	var listen string
 	var tokenFiles, listenHosts stringList
-	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.x.y.z or [::1] (loopback only); port 0 picks a free port")
+	fs.StringVar(&listen, "listen", "", "serve Streamable HTTP at http://`addr:port`/mcp instead of stdio: localhost, 127.x.y.z or [::1] (loopback only), with the other loopback family bound on the same port too; port 0 picks a free port")
 	fs.Var(&tokenFiles, "listen-token-file", "`NAME=PATH` of an owner-only file holding the bearer token of principal NAME (repeatable); or set FATHOMGATE_LISTEN_TOKEN instead (principal env)")
 	fs.Bool("listen-remote", false, "reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
 	fs.Var(&listenHosts, "listen-host", "allowed `host` name: reserved for M1; refused: the listener is loopback-only until the policy pipeline is wired")
@@ -241,7 +240,7 @@ func parseServe(args []string, usageOut io.Writer, lookup lookupEnvFunc, goos st
 		if err != nil {
 			return cfg, err
 		}
-		cfg.listenAddr, cfg.tokens = addr, tokens
+		cfg.listen, cfg.tokens = &addr, tokens
 	case len(tokenFiles) > 0:
 		return cfg, errors.New("--listen-token-file is only used with --listen")
 	}
@@ -348,6 +347,13 @@ func cmdServe(args []string) int {
 func serve(args []string, stderr io.Writer, lookup lookupEnvFunc) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// The first signal starts the shutdown; stopping the notification then
+	// gives a second signal its default action, so it ends fathomgate at
+	// once instead of being ignored while the shutdown runs (N2 in the
+	// security review of PR #109). Nothing is cleaned up after that second
+	// signal: the upstream is not stopped (threat-model row on orphaned
+	// upstream processes).
+	context.AfterFunc(ctx, stop)
 	return serveContext(ctx, args, stderr, lookup)
 }
 
@@ -376,14 +382,15 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 
 	// The listener's pre-flight, before anything is bound or spawned: the
 	// MCPGODEBUG refusal (S6 in the security review of T0.40), then the
-	// bind, so a port in use fails before the upstream starts.
-	var ln net.Listener
-	if cfg.listenAddr != "" {
+	// bind of both loopback families, so a port in use on either fails
+	// before the upstream starts.
+	var lns []net.Listener
+	if cfg.listen != nil {
 		if err := checkListenEnvironment(lookup); err != nil {
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitUsage
 		}
-		ln, err = net.Listen("tcp", cfg.listenAddr)
+		lns, err = bindLoopback(*cfg.listen, net.Listen, logger)
 		if err != nil {
 			_, _ = fmt.Fprintf(out, "fathomgate: serve: --listen: %v\n", err)
 			return exitFail
@@ -408,7 +415,7 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 	p, err := proxy.New(startCtx, []proxy.Upstream{up}, proxy.Options{Version: version, Logger: logger})
 	cancel()
 	if err != nil {
-		if ln != nil {
+		for _, ln := range lns {
 			_ = ln.Close()
 		}
 		_, _ = fmt.Fprintf(out, "fathomgate: %v\n", err)
@@ -418,9 +425,9 @@ func serveContext(ctx context.Context, args []string, stderr io.Writer, lookup l
 	if len(cfg.passNames) > 0 {
 		attrs = append(attrs, "upstream_env_pass", strings.Join(cfg.passNames, ","))
 	}
-	if ln != nil {
+	if cfg.listen != nil {
 		// Neither stdin nor stdout is touched from here on (ADR 0016).
-		return runListener(ctx, p, ln, listenRun{tokens: cfg.tokens, server: cfg.server, passNames: cfg.passNames}, logger, out)
+		return runListener(ctx, p, lns, listenRun{tokens: cfg.tokens, server: cfg.server, passNames: cfg.passNames}, logger, out)
 	}
 	logger.Info("serving on stdio; M0 pass-through, no policy enforced", attrs...)
 

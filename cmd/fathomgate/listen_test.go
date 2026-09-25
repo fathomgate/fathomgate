@@ -33,8 +33,8 @@ func TestCheckListenEnvironment(t *testing.T) {
 func TestNewHTTPServer(t *testing.T) {
 	t.Parallel()
 	s := newHTTPServer(http.NotFoundHandler(), io.NopCloser(nil), shutdownGrace, nil)
-	if shutdownGrace != 5*time.Second || maxConnections != 128 {
-		t.Fatalf("grace %v, connection cap %d", shutdownGrace, maxConnections)
+	if shutdownGrace != 5*time.Second || maxConnections != 128 || firstHeaderTimeout != 3*time.Second {
+		t.Fatalf("grace %v, connection cap %d, first header timeout %v", shutdownGrace, maxConnections, firstHeaderTimeout)
 	}
 	if s.MaxHeaderBytes != 64<<10 || s.ReadHeaderTimeout != 10*time.Second || s.IdleTimeout != 120*time.Second || s.ReadTimeout != 0 || s.WriteTimeout != 0 {
 		t.Fatalf("server limits %+v", s)
@@ -47,7 +47,7 @@ func TestLimitListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := limitListener(inner, 2)
+	l := limitListener(inner, 2, 0)
 	accepted := make(chan net.Conn, 3)
 	go func() {
 		for {
@@ -100,10 +100,10 @@ func TestLimitListenerPanicsBelowOne(t *testing.T) {
 		func() {
 			defer func() {
 				if recover() == nil {
-					t.Errorf("limitListener(l, %d) did not panic", n)
+					t.Errorf("limitListener(l, %d, 0) did not panic", n)
 				}
 			}()
-			_ = limitListener(nil, n)
+			_ = limitListener(nil, n, 0)
 		}()
 	}
 }
@@ -141,7 +141,7 @@ func TestShutdownWithStatefulGET(t *testing.T) {
 	}
 	srv := newHTTPServer(h, p, shutdownGrace, nil)
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(limitListener(inner, maxConnections)) }()
+	go func() { served <- srv.Serve(limitListener(inner, maxConnections, firstHeaderTimeout)) }()
 	url := "http://" + inner.Addr().String() + proxy.HTTPPath
 	tr := &http.Transport{}
 	defer tr.CloseIdleConnections()
