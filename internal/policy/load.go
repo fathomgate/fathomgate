@@ -22,6 +22,11 @@ func Parse(b []byte) (*Policy, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
+	// An unset unknown_target is deny for every class (ADR 0032). Filling
+	// it in here makes the loaded policy say what Evaluate enforces.
+	if p.Defaults.UnknownTarget == "" {
+		p.Defaults.UnknownTarget = Deny
+	}
 	return &p, nil
 }
 

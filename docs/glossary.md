@@ -72,7 +72,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | Closed argument list | Every tool's profile entry names each argument it accepts (`target_params` and the other mapped lists, plus `args`). A call carrying any other argument is denied with `default:bad_arguments`, never forwarded with the argument stripped. `refused_args` records the arguments a profile deliberately leaves out. ADR 0033. |
 | Resolver chain | The ordered inventory providers: static file, hostname patterns, upstream inventory, source of truth. |
 | Source of truth (SoT) | NetBox or Nautobot. Optional. |
-| Unknown target | A target no provider resolved. Denied for writes and exec by default. |
+| Unknown target | A target no provider resolved. Denied for every class unless the policy sets `unknown_target: allow` (ADR 0032). |
 | Stale | A device record served from a snapshot because the source of truth was unreachable. Marked `sot: stale` in audit. |
 | Snapshot | The static-format file written by `fathomgate inventory sync`. |
 | Pending record | The SQLite row that is the source of truth for a held call. |

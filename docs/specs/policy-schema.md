@@ -56,7 +56,7 @@ Hostname patterns are not part of the policy file. They live under `roles:` in `
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `unknown_target` | `allow`, `deny`, or unset | unset | What happens when any target is unknown (no inventory provider resolved it). `deny` denies every class. Unset denies `WRITE_CONFIG` and `EXEC_ARBITRARY` and lets reads and the other classes continue to the rules. `allow` lets the rules decide for every class. `hold` is rejected at load. |
+| `unknown_target` | `allow`, `deny`, or unset | `deny` | What happens when any target the request names is unknown (no inventory provider resolved it). `deny`, or the key left unset, denies every class ([ADR 0032](../adr/0032-unset-unknown-target-denies-every-class.md)); the loader fills an unset value in as `deny`. `allow` lets the rules decide for every class. `hold` is rejected at load. There is no class-scoped form. A request with no targets is not affected (section 4, step 1). `policy-lint` warns on an explicit `allow`, and `serve` will log the same warning at startup (M1-19). |
 | `session.max_devices` | integer, 0 or more | `0` (unlimited) | Cap on distinct devices one session may touch, counting the targets of the request being evaluated. |
 | `session.max_pending` | integer, 0 or more | `0` (unlimited) | Cap on simultaneously pending holds in one session. |
 
@@ -124,8 +124,10 @@ Enforcement of `dry_run`, `diff`, `timed_rollback` is specified in [change-safet
 `Evaluate` is deterministic and has no side effects. Session counters are inputs on the request, supplied by the proxy. A nil policy denies with rule id `default:no-match` and reason `no policy loaded`.
 
 1. Unknown targets. If any target has `known: false`:
-   - if `defaults.unknown_target` is `deny`, or it is unset and the class is `WRITE_CONFIG` or `EXEC_ARBITRARY`: return deny with rule id `default:unknown_target`. Rules do not run.
-   - otherwise (unset with a read, `LAB_LIFECYCLE` or `LOCAL_ADMIN`; or `allow` with any class): record a trace entry and continue.
+   - if `defaults.unknown_target` is `allow`: record an unmatched trace entry and continue, for every class.
+   - otherwise (`deny` or unset, for every class; ADR 0032): return deny with rule id `default:unknown_target`. Rules do not run. `Evaluate` treats any value other than `allow` as `deny`, so a policy built without the loader also fails closed.
+
+   The step applies only to targets the request names. A request with no targets (an `INVENTORY_READ` that lists the upstream's own devices, a `LOCAL_ADMIN` call) has no unknown target, skips this step and records no trace entry for it. A call to a tool that declares a target parameter but arrives with no targets is to be refused before `Evaluate` by the normaliser with `default:bad_arguments` (open, M1-18). A target a hostname pattern matches is known and never reaches this step (open until the ADR 0031 change lands, M1-34).
 2. Session device cap. If `defaults.session.max_devices` is greater than 0 and `session.devices_touched + len(targets)` exceeds it: return deny with rule id `default:session.max_devices`.
 3. Rules, in file order. For each rule, test `match` then `when`. The first rule that matches supplies `effect`, `id`, `reason`, `obligations` and `approval`. Later rules are not evaluated. There is no specificity ranking and no precedence between effects; order in the file is the only priority.
 4. Pending cap. If the winning effect is `hold`, `defaults.session.max_pending` is greater than 0, and `session.pending_holds` is already at or above it: the decision becomes deny with rule id `default:session.max_pending` and `approval` is cleared. The rule's obligations are kept in the decision.
@@ -220,7 +222,7 @@ Implemented in `load.go`:
 
 - Reject unknown keys at every level (strict YAML).
 - Reject `version` other than `1`.
-- Reject `defaults.unknown_target` that is not `allow` or `deny` (including `hold`).
+- Reject `defaults.unknown_target` that is not `allow` or `deny` (including `hold`); fill an unset value in as `deny` (ADR 0032).
 - Reject negative `session.max_devices` or `session.max_pending`.
 - Reject an empty `rules` list.
 - Reject a rule with an empty id, a duplicate id, or an id starting with `default:`.

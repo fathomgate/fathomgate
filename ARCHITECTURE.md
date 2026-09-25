@@ -124,7 +124,7 @@ Fathomgate assumes the following. Everything it enforces follows from them.
 | Source of truth (NetBox, Nautobot) | Trusted data, unreliable availability | A stale snapshot is used when unreachable, and every decision made from it is marked `sot: stale` in the audit event. An outage never loosens policy silently. |
 | Proxy host | Trusted | Keys for the redaction HMAC and the audit checkpoints live outside the log directory. Key custody beyond a file is an open question. |
 
-Unknown targets are denied for `WRITE_CONFIG` and `EXEC_ARBITRARY` and allowed for reads, unless `defaults.unknown_target` says otherwise. A device absent from every resolver is not a device the agent may change.
+Unknown targets are denied for every class unless the policy sets `defaults.unknown_target: allow` ([ADR 0032](docs/adr/0032-unset-unknown-target-denies-every-class.md)). A device absent from every resolver is not a device the agent may touch: many upstreams log in to whatever host they are given, so even a read would hand it the operator's credentials.
 
 ## Out of scope
 

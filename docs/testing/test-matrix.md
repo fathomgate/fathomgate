@@ -9,7 +9,7 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix), plus row 23 from [ADR 0016]
 | 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
 | 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
 | 5 | `show running-config` through free-form tool | 2 | ntunes `send_command` | Reclassified `READ_CONFIG`; output redacted; `class_source: reclassify` | M1, M2 | planned |
-| 6 | Unknown host | 1, 2 | netdev-ssh-mcp (free-form `host`) | Denied for writes and exec; audit event shows `unknown_target: true` and rule `default:unknown_target` (set by the policy's `defaults.unknown_target` key) | M1 | planned |
+| 6 | Unknown host | 1, 2 | netdev-ssh-mcp (free-form `host`) | Denied for every class, reads included, whether `defaults.unknown_target` is `deny` or unset (ADR 0032); audit event shows `unknown_target: true` and rule `default:unknown_target` (set by the policy's `defaults.unknown_target` key) | M1 | planned |
 | 7 | Device tagged `lab`, config write | 2, 3 | eos-mcp `push_config` | Allowed with `dry_run` and `diff` obligations; commit timer set | M3 | planned |
 | 8 | Device role `core`, config write | 2, 3 | junos-mcp-server `load_and_commit_config` | Held; pending record created; diff shown; rule `prod-core-needs-approval` | M3 | planned |
 | 9 | Approve via CLI within TTL | 2 | junos-mcp-server | Executed once; audit carries `approver` and `approval_channel: cli` | M3 | planned |

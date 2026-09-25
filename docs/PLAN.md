@@ -118,7 +118,7 @@ A source of truth is not a requirement. Role resolution is a lookup from target 
 | 3 | The upstream server's own inventory, read through its `INVENTORY_READ` tools at startup (ntunes `devices.yaml` tags, eos-mcp tags, junos `devices.json`) | The server already configured | Anyone already running one of those servers |
 | 4 | NetBox or Nautobot REST, cached with a TTL; `fathomgate inventory sync` snapshots it into the static file | A source of truth | Shops that have one |
 
-A target no provider resolves is `unknown`. The default policy for unknown targets is deny for `WRITE_CONFIG` and `EXEC_ARBITRARY` and allow for reads; `defaults.unknown_target` in the policy file flips it. When NetBox is configured but unreachable, the proxy uses the last snapshot and marks every decision made from it with `sot: stale` in the audit event, so an outage never silently loosens policy.
+A target no provider resolves is `unknown`. The default policy for unknown targets is deny for every class ([ADR 0032](adr/0032-unset-unknown-target-denies-every-class.md), which replaced the earlier deny-writes-and-exec, allow-reads default); `defaults.unknown_target: allow` in the policy file lets the rules decide. When NetBox is configured but unreachable, the proxy uses the last snapshot and marks every decision made from it with `sot: stale` in the audit event, so an outage never silently loosens policy.
 
 ### Policy schema
 

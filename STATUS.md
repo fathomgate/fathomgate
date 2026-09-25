@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 11 · blocked 10 · in review 5 · merged 5 · dropped 3
+Tasks: open 11 · blocked 9 · in progress 2 · in review 6 · merged 6 · dropped 3
 
 ## In flight
 
@@ -14,7 +14,7 @@ Tasks: open 11 · blocked 10 · in review 5 · merged 5 · dropped 3
 | M1-02 | Accept ADR 0027, serve --policy, --inventory and --profiles; --audit refused until M4 | `docs/adr` | joshscott13 | mcp-protocol-engineer, security-reviewer, design-guardian, release-engineer | merged | — | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |
 | M1-03 | Accept ADR 0028, audit signing key custody | `docs/adr` | joshscott13 | policy-engineer, security-reviewer | merged | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-04 | Accept ADR 0029, remote listening with built-in TLS and loopback authentication | `docs/adr` | joshscott13 | mcp-protocol-engineer, security-reviewer, release-engineer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
-| M1-06 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in review | — | 2 | — |
+| M1-06 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
 | M1-07 | Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2 | `docs/security` | security-reviewer | docs-writer | open | — | 15, 16 | — |
 | M1-08 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | M1-09 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | in review | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
@@ -22,7 +22,7 @@ Tasks: open 11 · blocked 10 · in review 5 · merged 5 · dropped 3
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | M1-12 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | M1-19 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 | M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | merged | — | 4 | — |
-| M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | open | M1-13 | 3, 4 | — |
+| M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | in review | M1-13 | 3, 4 | — |
 | M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | open | — | — | — |
 | M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in review | — | 3, 5 | — |
 | M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | open | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
@@ -38,9 +38,12 @@ Tasks: open 11 · blocked 10 · in review 5 · merged 5 · dropped 3
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | docs-writer | test-engineer | open | — | — | — |
-| M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
+| M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | blocked | M1-18 | 3, 4, 6 | — |
-| M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | open | — | 6 | — |
+| M1-34 | Decide whether a hostname pattern alone may make a target known (inventory ADR) | `internal/inventory` | network-safety-engineer | security-reviewer, policy-engineer | in review | — | 6 | — |
+| M1-35 | Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | in progress | — | 4 | — |
+| M1-36 | Config lines that leave the configure session make a write EXEC_ARBITRARY | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | open | — | 4 | — |
+| M1-37 | Make an unset unknown_target deny every class (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | in progress | — | 6 | — |
 
 ## Done this milestone
 

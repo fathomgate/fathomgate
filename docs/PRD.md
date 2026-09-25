@@ -79,7 +79,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R9 | YAML policy with `Evaluate`; strict first match in file order; implicit deny when no rule matches; obligations | P0 | M1 | [policy-schema](specs/policy-schema.md) |
 | R10 | `fathomgate policy test` over `*.test.yaml` | P0 | M1 | [policy-schema](specs/policy-schema.md) |
 | R11 | Denied calls return a tool error naming rule id and reason | P0 | M1 | [ADR 0009](adr/0009-fathom-design-system-policy-layer.md) |
-| R12 | Static inventory file and CSV import; hostname patterns; unknown targets denied for writes and exec | P0 | M1 | [inventory-schema](specs/inventory-schema.md) |
+| R12 | Static inventory file and CSV import; hostname patterns; unknown targets denied for every class by default (ADR 0032) | P0 | M1 | [inventory-schema](specs/inventory-schema.md) |
 | R13 | Meta-tool classification through capability tables | P1 | M1 | [profile-schema](specs/profile-schema.md) |
 | R14 | Upstream inventory provider via `INVENTORY_READ` tools | P1 | M2 | [inventory-schema](specs/inventory-schema.md) |
 | R15 | NetBox and Nautobot resolver with cache, snapshot sync and `sot: stale` marking | P0 | M2 | [inventory-schema](specs/inventory-schema.md) |
