@@ -34,7 +34,13 @@ Every provider returns the same shape.
 
 Two kinds of provider ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 1). A *name authority* decides whether a target is known. An *enricher* runs only after an authority has listed the target, and never makes a target known on its own; hostname patterns are the only enricher. In M1 the only name authority is the static file (with CSV import); a target no authority lists is `unknown` whatever patterns it matches.
 
-Merging (ADR 0031 decision 2): an authority's record counts only when its `name` is the name looked up (case-insensitively, as the static file matches); a record for another name is ignored. The first authority that lists the target supplies its `name`, `source`, its `tags` and every field its record sets. A later authority that lists the same target only fills a `role`, `site` or `status` still empty; it never adds tags. The reason: from M2 the later authorities include the upstream's own device list, which is untrusted data (invariant 7), and a tag such as `lab` unlocks writes, so a tag reaches a target only from the first authority that lists it or from an operator-written pattern (security review of PR #184, L1). Then the enrichers run on the name as the authority stores it: each fills a field still empty (`role`, `site`; the first matching pattern in file order wins each field) and adds its `tags`. `tags` are the union of the first authority's and the patterns', without duplicates, in that order, so a pattern can add `lab` to a device the static file already describes. An enricher never sets `status`. Each field's provider is recorded in `sources` (section 1).
+Merging (ADR 0031 decision 2), in this order:
+
+1. **First authority.** An authority's record counts only when its `name` is the name looked up (case-insensitively and trimmed, as the static file matches); a record for another name is ignored. The first authority that lists the target supplies its `name`, `source`, `role`, `tags` and every other field its record sets.
+2. **Enrichers.** The hostname patterns run on the name as that authority stores it: each fills a `role` or `site` still empty (the first matching pattern in file order wins each field) and adds its `tags`. An enricher never sets `status`.
+3. **Later authorities.** Any later authority that lists the same target only fills a `site` or `status` still empty. It never sets `role` and never adds tags.
+
+The reason for step 3 (security review of PR #184, L1 and R2-L1): a role unlocks writes through `device_roles` just as a tag does through `device_tags`, and from M2 the later authorities include the upstream's own device list, which is untrusted data (invariant 7). Untrusted data must never raise a target's standing, so `role` and `tags` come only from the first authority that lists the target and from operator-written patterns; the patterns run before any later authority so a pattern, not an upstream, fills an empty role. `tags` are the union of the first authority's and the patterns', without duplicates, in that order, so a pattern can add `lab` to a device the static file already describes. Each field's provider is recorded in `sources` (section 1).
 
 A role or tags a pattern gives a listed target count for every rule, write rules included (ADR 0031, decision 2 of its open questions): the operator vouched for the name by listing it.
 
@@ -114,7 +120,7 @@ At startup, and every `refresh` interval (default 10m), the proxy calls the prof
 
 Sources per upstream: ntunes `list_devices` (names, tags, `device_type`), eos-mcp `get_router_list` (names, tags), junos `get_router_list` (names), upa `get_network_device_list` (names, `device_type`), mcp-telecom `list_devices`.
 
-A record from this provider has `role: unknown` unless the upstream carries a role field, which none of the surveyed servers do, or a hostname pattern gives it one (section 4). It exists so that `tags` such as ntunes `lab` can drive policy, and so that `targets_all_when_empty` and `@group` expansion have a device list to expand into.
+A record from this provider has `role: unknown` unless the upstream carries a role field, which none of the surveyed servers do, or a hostname pattern gives it one (section 4). For a target the static file also lists, the upstream is a later authority and contributes only an empty `site` or `status`, never `role` or `tags` (section 2). It exists so that `tags` such as ntunes `lab` can drive policy, and so that `targets_all_when_empty` and `@group` expansion have a device list to expand into.
 
 ## 6. Source of truth
 

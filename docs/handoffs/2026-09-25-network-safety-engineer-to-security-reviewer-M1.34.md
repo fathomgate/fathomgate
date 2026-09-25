@@ -17,7 +17,7 @@
 ## Look at this first
 
 - `internal/inventory/resolver.go` `Chain.Resolve`. Enrichers run on `out.Name`, the name as the authority stores it, not on the agent's string. An authority that reports `Source: pattern` is relabelled `resolver[i]`, and an enricher's `Status` is dropped.
-- A later authority only fills an empty role, site or status and never adds tags; a record for another name is ignored (round 1, L1, orchestrator ruling). Section 2 says so.
+- The chain merges in three steps: the first authority's record, then the patterns, then later authorities. A later authority only fills an empty site or status; it never sets role and never adds tags. A record for another name is ignored. This comes from round 1, L1, and round 2, R2-L1 (orchestrator option 1), and section 2 now describes it.
 - ADR 0031 decision 2 (accepted): a role or tag that a pattern gives to a listed device counts for write rules.
 
 ## Deliberately unfinished
@@ -68,3 +68,11 @@ bin/fathomgate policy eval --policy policies/examples/lab-open.yaml --inventory 
   - `TestAttackerHostNames` and `TestPatternEnrichesListedDevice` (gate), each ending in `default:bad_arguments`;
   - `TestKnown` and the fuzz seeds (inventory);
   - `TestEvalPatternsEnrichOnly` (CLI).
+
+## Review round 2 (security approves round 1; CI red on Linux and macOS), addressed
+
+- **1 (blocking):** the "others can write" case in `TestInventoryLint` expected the Windows-only text `can be changed by`. It now asserts exit 2 and the file path, which both platforms print. `readInventory` returning `configfile.ErrUnsafe` is now checked through `errors.Is`. The `FAIL  wrong: effect deny (rule no-writes), want allow` line in the CI log is expected: it is the deliberately failing case in `TestPolicyTest` (`main_test.go:69`), and that test asserts exit 1.
+- **R2-L1 (option 1):** `Chain.Resolve` now runs in this order: the first authority, then the enrichers, then later authorities.
+  - A later authority fills only `site` and `status`, never `role` or tags (`fields*` in `resolver.go`).
+  - `TestLaterAuthorityNeverRaisesStanding` covers the reviewer's probe. Static lists `sw-1` with no role, `^sw-` sets core, and the second authority returns `{Name: "SW-1 ", Role: lab, Site: lab, Tags: [lab]}`. The result is role core (from the pattern), site lab (from the later authority) and no tags. With no pattern the role stays empty.
+  - Inventory-schema sections 2 and 5, the package doc, the threat-model row and CHANGELOG are updated.

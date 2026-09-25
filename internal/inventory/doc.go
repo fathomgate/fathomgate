@@ -14,10 +14,11 @@
 //	4      NetBox       name authority  stub (live NetBox and Nautobot connectors: paid edition)
 //
 // Name authorities (Resolver) decide whether a name is known. The first to
-// list the name supplies every field it sets; a later authority that also
-// lists it fills an empty field and adds its tags. Enrichers (Enricher) run
-// only after an authority has listed the name, fill a field still empty and
-// add their tags.
+// list the name supplies every field it sets. Enrichers (Enricher) then run,
+// only for a listed name, and fill an empty role or site and add their tags.
+// A later authority that also lists the name runs last and fills only an
+// empty site or status: never role or tags, which unlock writes, because
+// from M2 a later authority may be an upstream's untrusted device list.
 //
 // A hostname pattern never makes a name known: a name no authority lists is
 // unknown whatever patterns it matches, and the policy's

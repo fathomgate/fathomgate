@@ -221,15 +221,62 @@ func TestChainMergesAuthorities(t *testing.T) {
 			t.Errorf("%s: known through a record for another name: %+v", n, got)
 		}
 	}
-	// A later authority fills only what is still empty.
+	// A later authority fills only an empty site or status: never role,
+	// never tags (R2-L1).
 	empty := Func(func(n string) (Target, bool) { return Target{Name: n}, n == "sw-2" })
 	full := Func(func(n string) (Target, bool) {
 		return Target{Name: n, Role: "leaf", Site: "lab", Status: "planned", Tags: []string{"lab"}}, n == "sw-2"
 	})
 	got, ok = (Chain{Authorities: []Resolver{empty, full}}).Resolve("sw-2")
-	if !ok || got.Role != "leaf" || got.Site != "lab" || got.Status != "planned" || len(got.Tags) != 0 ||
-		got.Sources.Role != "resolver[1]" || got.Sources.Name != "resolver[0]" {
+	if !ok || got.Role != "" || got.Site != "lab" || got.Status != "planned" || len(got.Tags) != 0 ||
+		got.Sources.Role != "" || got.Sources.Site != "resolver[1]" || got.Sources.Name != "resolver[0]" {
 		t.Fatalf("empty-field fill: %+v %+v", got, got.Sources)
+	}
+}
+
+// TestLaterAuthorityNeverRaisesStanding: the security re-review of PR #184
+// (R2-L1). The static file lists sw-1 with no role; ^sw- sets role core; a
+// second authority (from M2, perhaps an upstream's listing) returns
+// {Name: "SW-1 ", Role: lab, Site: lab, Tags: [lab]}. Patterns run before
+// the later authority, so the role comes from the pattern; the later
+// authority fills only the empty site, and adds no tag. With no pattern the
+// role stays empty: a later authority never sets role.
+func TestLaterAuthorityNeverRaisesStanding(t *testing.T) {
+	t.Parallel()
+	upstream := Func(func(n string) (Target, bool) {
+		return Target{Name: "SW-1 ", Role: "lab", Site: "lab", Tags: []string{"lab"}, Source: "upstream:eos"}, true
+	})
+	for _, tc := range []struct {
+		name     string
+		patterns []Pattern
+		role     string
+		roleSrc  string
+	}{
+		{"pattern sets role", []Pattern{{Match: "^sw-", Role: "core"}}, "core", SourcePattern},
+		{"no pattern matches", []Pattern{{Match: "^rtr-", Role: "core"}}, "", ""},
+		{"no patterns", nil, "", ""},
+	} {
+		static, err := NewStatic([]Target{{Name: "sw-1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ps, err := NewPatterns(tc.patterns)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := Chain{Authorities: []Resolver{static, upstream}, Enrichers: []Enricher{ps}}
+		got, ok := Known(c, "sw-1")
+		if !ok {
+			t.Fatalf("%s: sw-1 unknown", tc.name)
+		}
+		if got.Role != tc.role || got.Site != "lab" || len(got.Tags) != 0 ||
+			got.Sources.Role != tc.roleSrc || got.Sources.Site != "upstream:eos" || got.Source != SourceStatic {
+			t.Errorf("%s: got %+v %+v; want role %q from %q, site lab from upstream:eos, no tags", tc.name, got, got.Sources, tc.role, tc.roleSrc)
+		}
+		// The later authority alone lists nothing the first did not.
+		if _, ok := Known(c, "sw-2"); ok {
+			t.Errorf("%s: sw-2 known through a record named %q", tc.name, "SW-1 ")
+		}
 	}
 }
 

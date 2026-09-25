@@ -73,15 +73,18 @@ type Enricher interface {
 // authority listed.
 type Chain struct {
 	// Authorities are tried in order. The first to list the name supplies
-	// its name, its tags and every field it sets. A later authority that
-	// lists the same device (same name, case-insensitively) only fills a
-	// role, site or status still empty; it never adds tags, because later
-	// authorities include, from M2, an upstream's own device list, which is
-	// untrusted data (invariant 7), and a tag such as lab unlocks writes.
-	// A record whose name is not the name looked up is ignored.
+	// its name, its role, its tags and every field it sets. A later
+	// authority that lists the same device (same name, case-insensitively)
+	// runs after the enrichers and only fills a site or status still empty:
+	// it never sets role or adds tags, because from M2 the later
+	// authorities include an upstream's own device list, which is untrusted
+	// data (invariant 7), and a role (device_roles) or a tag (device_tags)
+	// can unlock writes. A record whose name is not the name looked up is
+	// ignored.
 	Authorities []Resolver
-	// Enrichers run after an authority has hit, in order, and fill a field
-	// still empty and add their tags. They never run for an unlisted name.
+	// Enrichers run after the first authority has hit and before any later
+	// one, in order, and fill a role or site still empty and add their tags.
+	// They never run for an unlisted name.
 	Enrichers []Enricher
 }
 
@@ -89,12 +92,15 @@ type Chain struct {
 // whatever an enricher would say about it. Resolve matches as its
 // authorities do (case-insensitively for the static file); use Known for the
 // exact-name rule the gate applies.
+//
+// Order: the first authority's record; then each enricher (role, site,
+// tags); then each later authority (site and status only).
 func (c Chain) Resolve(name string) (Target, bool) {
-	var (
-		out Target
-		src Sources
-		hit bool
-	)
+	type hit struct {
+		t     Target
+		label string
+	}
+	var hits []hit
 	for i, r := range c.Authorities {
 		if r == nil {
 			continue
@@ -111,27 +117,30 @@ func (c Chain) Resolve(name string) (Target, bool) {
 			// by position so provenance never claims one.
 			label = "resolver[" + strconv.Itoa(i) + "]"
 		}
-		out.Stale = out.Stale || t.Stale
-		if !hit {
-			hit = true
-			out.Name, out.Source = t.Name, label
-			src.Name = label
-			merge(&out, &src, t, label, true)
-			continue
-		}
-		merge(&out, &src, t, label, false)
+		hits = append(hits, hit{t, label})
 	}
-	if !hit {
+	if len(hits) == 0 {
 		return Target{}, false
 	}
+	var (
+		out Target
+		src Sources
+	)
+	first := hits[0]
+	out.Name, out.Source, out.Stale = first.t.Name, first.label, first.t.Stale
+	src.Name = first.label
+	merge(&out, &src, first.t, first.label, fieldsAll)
 	for _, e := range c.Enrichers {
 		if e == nil {
 			continue
 		}
 		if t, ok := e.Attributes(out.Name); ok {
-			t.Status = "" // an enricher never sets device status
-			merge(&out, &src, t, SourcePattern, true)
+			merge(&out, &src, t, SourcePattern, fieldsEnricher)
 		}
+	}
+	for _, h := range hits[1:] {
+		out.Stale = out.Stale || h.t.Stale
+		merge(&out, &src, h.t, h.label, fieldsLaterAuthority)
 	}
 	out.Sources = &src
 	return out, true
@@ -153,20 +162,33 @@ func Known(r Resolver, name string) (Target, bool) {
 	return t, true
 }
 
-// merge fills the role, site and status of out that are still empty from t,
-// recording label as their source, and, when tags is true, adds t's tags that
-// out lacks.
-func merge(out *Target, src *Sources, t Target, label string, tags bool) {
-	if out.Role == "" && t.Role != "" {
+// fields says which fields a provider may contribute in merge.
+type fields struct{ role, site, status, tags bool }
+
+var (
+	// fieldsAll: the first name authority.
+	fieldsAll = fields{role: true, site: true, status: true, tags: true}
+	// fieldsEnricher: a hostname pattern never sets device status.
+	fieldsEnricher = fields{role: true, site: true, tags: true}
+	// fieldsLaterAuthority: never role or tags, which unlock writes
+	// (security review of PR #184, L1 and R2-L1).
+	fieldsLaterAuthority = fields{site: true, status: true}
+)
+
+// merge fills the fields of out that are still empty from t, for the fields
+// f allows, recording label as their source; tags t has that out lacks are
+// added when f allows tags.
+func merge(out *Target, src *Sources, t Target, label string, f fields) {
+	if f.role && out.Role == "" && t.Role != "" {
 		out.Role, src.Role = t.Role, label
 	}
-	if out.Site == "" && t.Site != "" {
+	if f.site && out.Site == "" && t.Site != "" {
 		out.Site, src.Site = t.Site, label
 	}
-	if out.Status == "" && t.Status != "" {
+	if f.status && out.Status == "" && t.Status != "" {
 		out.Status, src.Status = t.Status, label
 	}
-	if !tags {
+	if !f.tags {
 		return
 	}
 	for _, tag := range t.Tags {

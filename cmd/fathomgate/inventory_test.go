@@ -5,12 +5,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/fathomgate/fathomgate/internal/configfile"
 	"github.com/fathomgate/fathomgate/internal/policy"
 )
 
@@ -235,7 +237,10 @@ func TestInventoryLint(t *testing.T) {
 		{"status pattern", statusPattern, exitFail, "", "status pattern is not a device status"},
 		{"unreachable", unreachable, exitFail, "", `devices[1] "lab-sw-09." is not a name the gate accepts`},
 		{"csv", csv, exitUsage, "", "convert a CSV first"},
-		{"others can write", loose, exitUsage, "", "can be changed by"},
+		// The wording differs by platform (Windows names the ACE, Unix the
+		// mode); the exit code and the path are common, and the error is
+		// configfile.ErrUnsafe (checked below).
+		{"others can write", loose, exitUsage, "", "the inventory file " + loose},
 		{"missing", filepath.Join(dir, "missing.yaml"), exitUsage, "", "inventory lint"},
 	}
 	for _, tc := range cases {
@@ -257,6 +262,15 @@ func TestInventoryLint(t *testing.T) {
 				t.Errorf("unreachable: raw name echoed:\n%q", errb.String())
 			}
 		}
+	}
+
+	// lint and resolve refuse a file others can change for the same reason
+	// serve does, on every platform.
+	if _, err := readInventory(loose); !errors.Is(err, configfile.ErrUnsafe) {
+		t.Errorf("readInventory(others can write): %v, want configfile.ErrUnsafe", err)
+	}
+	if _, err := readInventory(clean); err != nil {
+		t.Errorf("readInventory(clean): %v", err)
 	}
 
 	// L3: what each pattern adds to each listed device is a warning, with
