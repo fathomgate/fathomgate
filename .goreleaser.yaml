@@ -53,6 +53,27 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# cosign keyless (Sigstore) signature of checksums.txt, which covers every
+# archive and SBOM. The Fulcio certificate names this repository's
+# .github/workflows/release.yaml at the tag, so only a tag run can produce a
+# bundle that verifies (release.yaml grants id-token: write to that job only;
+# snapshot.yaml runs --skip=sign). One Sigstore bundle holds the signature,
+# the certificate and the Rekor entry. Verify with:
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
+#     --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/vX.Y.Z \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+signs:
+  - id: checksum-cosign
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "--yes"
+      - "${artifact}"
+    output: true
+
 sboms:
   - id: archive
     artifacts: archive
@@ -68,7 +89,7 @@ release:
   draft: false
   prerelease: auto
   footer: |
-    Verify a download with `sha256sum -c checksums.txt`.
+    Verify `checksums.txt` with `cosign verify-blob --bundle checksums.txt.sigstore.json --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/{{ .Tag }} --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`, then a download with `sha256sum -c checksums.txt --ignore-missing`.
 
 # Homebrew tap: fathomgate/homebrew-tap does not exist yet, so the formula is
 # generated into dist/homebrew/ and never uploaded. Uploading with no tap (or
