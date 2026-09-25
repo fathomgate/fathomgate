@@ -16,7 +16,7 @@ Generic MCP gateways do authentication and tool-name allow-lists but do not know
 | --- | --- | --- |
 | Network engineer running agents in a lab | Runs Claude Code or Cursor against a containerlab or home lab through eos-mcp, netdev-ssh-mcp or a netmiko server. Wants to let the agent do real work without a `reload` surprise. | One binary, one `mcp.json` entry, a read-only policy on day one, lab writes with dry-run and diff on day two. |
 | MSP engineer fronting client devices | Runs one proxy per client. Has a spreadsheet, not NetBox. Must show the client what the agent did. | Static inventory from CSV, per-client policy, an audit log a client can verify, approval by a second engineer for production writes. |
-| Platform or security team governing agent access | Owns NetBox or Nautobot. Runs agentgateway or ContextForge for auth. Needs evidence for audit and a hard stop on unknown devices. | Role resolution from the source of truth with stale marking, an audit log any log shipper can forward to their SIEM (ready-made OCSF or CEF export in the paid edition), HMAC webhook approval from the ticketing system, an optional OPA backend. |
+| Platform or security team governing agent access | Owns NetBox or Nautobot. Runs agentgateway or ContextForge for auth. Needs evidence for audit and a hard stop on unknown devices. | Role resolution from the source of truth: a CSV export or snapshot loaded into the core, or live sync in the paid edition, whose outages the core marks `sot: stale`; an audit log any log shipper can forward to their SIEM (ready-made OCSF or CEF export in the paid edition), HMAC webhook approval from the ticketing system, an optional OPA backend. |
 
 ## 3. Jobs to be done
 
@@ -82,7 +82,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R12 | Static inventory file and CSV import; hostname patterns; unknown targets denied for every class by default (ADR 0032) | P0 | M1 | [inventory-schema](specs/inventory-schema.md) |
 | R13 | Meta-tool classification through capability tables | P1 | M1 | [profile-schema](specs/profile-schema.md) |
 | R14 | Upstream inventory provider via `INVENTORY_READ` tools | P1 | M2 | [inventory-schema](specs/inventory-schema.md) |
-| R15 | NetBox and Nautobot resolver with cache, snapshot sync and `sot: stale` marking | P0 | M2 | [inventory-schema](specs/inventory-schema.md) |
+| R15 | The source-of-truth seam in the core: the `Resolver` interface, the snapshot format and `sot: stale` marking, with CSV import (R12) as the free path from a NetBox or Nautobot export. The live connectors are R37, in the paid edition. Until 2026-09-25 R15 was the whole NetBox and Nautobot resolver with cache, snapshot sync and `sot: stale` marking, P0 in M2; the maintainer's decision recorded in [ADR 0034](adr/0034-source-available-under-fsl.md) *Amendments* split it | P0 | M2 | [inventory-schema](specs/inventory-schema.md), [ADR 0034](adr/0034-source-available-under-fsl.md) |
 | R16 | Redaction with vendor grammar and keyed truncated HMAC at the serialiser | P0 | M2 | [redaction-patterns](specs/redaction-patterns.md) |
 | R17 | TOFU pinning of upstream tool descriptions; quarantine on change | P0 | M2 | [ADR 0008](adr/0008-dual-era-mcp-support.md) |
 | R18 | `ChangeSafety` drivers for Junos and EOS | P0 | M3 | [change-safety-drivers](specs/change-safety-drivers.md) |
@@ -104,6 +104,7 @@ Priority: P0 ships in the named milestone or the milestone does not ship; P1 shi
 | R34 | Python `tools/policy-lint` sharing the YAML schema and classifier tables | P1 | M1 | [CONTRIBUTING](../CONTRIBUTING.md) |
 | R35 | The CLI shows the diff, the rule trace and the rule for every pending record, so no one approves blind without a console | P0 | M3 | [approval-protocol](specs/approval-protocol.md), [ADR 0025](adr/0025-split-the-console.md) |
 | R36 | Team console: SSO, roles and RBAC, multi-approver and N-of-M approvals, fleet view across many instances, central policy management, long-term retention and search, SIEM export (R27) | n/a | Paid edition, not core | [ADR 0025](adr/0025-split-the-console.md) |
+| R37 | Live NetBox and Nautobot connectors: API lookup, auto-sync, caching and freshness checks, plugged into the chain through the `Resolver` interface (R15). Until 2026-09-25 they were part of R15, P0 in M2 | Was P0 | Paid edition, not core (was M2) | [inventory-schema](specs/inventory-schema.md), [ADR 0034](adr/0034-source-available-under-fsl.md) |
 
 ## 7. Open questions
 

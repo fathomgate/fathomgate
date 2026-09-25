@@ -59,7 +59,7 @@ Run: `make test-clab` on a host with containerlab, Docker and the images. The wo
 
 ## Containerlab notes
 
-- Topology: `tests/clab/fathomgate.clab.yml` with two cEOS nodes (`lab-sw-01`, `lab-sw-02`), one SR Linux node (`lab-srl-01`) and a Linux node running the fake NetBox stub. Management network `172.20.20.0/24`.
+- Topology: `tests/clab/fathomgate.clab.yml` with two cEOS nodes (`lab-sw-01`, `lab-sw-02`) and one SR Linux node (`lab-srl-01`). Management network `172.20.20.0/24`.
 - Startup: cEOS takes 60 to 120 seconds to reach a usable CLI; the helper `tests/clab/wait_ready.py` polls `show version` over scrapli before tests begin.
 - Assertion helpers: `tests/clab/assert_device.py` exposes `running_config_contains`, `session_exists`, `checkpoint_exists`, `commit_timer_active`. They connect with scrapli, never through the proxy, so a proxy bug cannot hide a device fact.
 - Cleanup: `containerlab destroy --cleanup` runs in an `always()` step so a failed night does not leave nodes for the next.
@@ -78,7 +78,7 @@ cEOS-lab images are downloaded from arista.com with an Arista account and cannot
 ## What is not tested
 
 - Performance under many concurrent agents. The target is a handful of sessions; a benchmark in tier 1 guards classify plus evaluate latency only.
-- Real NetBox. Tier 2 uses a recorded-response stub; the resolver's HTTP client is small enough for that to be sufficient. Shops with NetBox validate with `fathomgate inventory resolve`.
+- Real NetBox and Nautobot. The live connectors are paid-edition work and are tested there (ADR 0034 amendment). The core tests the `Resolver` interface, snapshots, stale marking and CSV import of an export; shops with NetBox validate with `fathomgate inventory resolve`.
 - The console's visual output beyond rendering both themes without console errors. Design review uses `design/preview.html`.
 
 ## Adding a test
