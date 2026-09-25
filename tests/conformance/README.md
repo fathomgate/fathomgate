@@ -27,7 +27,9 @@ Results are written to `tests/conformance/results/<leg>-<revision>/`: one
 `checks.json` per scenario, `chain.log` (fathomgate's stderr with the
 upstream's relayed into it, or on a control leg the upstream's own) and
 `shim.log` (one line per request: request line and status, never a header).
-CI uploads them when the job fails.
+A 2025-11-25 fathomgate leg also has `isolated-<scenario>/` for each
+fresh-process scenario ("One process" below), with its own logs and the
+suite's output in `suite.log`. CI uploads them when the job fails.
 
 ## What runs
 
@@ -116,7 +118,7 @@ pairs:
 | --- | --- | --- | --- |
 | 2025-11-25 | 2026-07-28 | `fathomgate` | The stateful agent over a stateless upstream |
 | 2026-07-28 | 2026-07-28 | `fathomgate` | MRTR `input_required` through fathomgate |
-| 2025-11-25 | 2025-11-25 | `fathomgate-up2025` | A stateful agent over a stateful upstream. The suite's elicitation checks are baselined here since T0.32 (the orphan rule, below); `era_pairs.py` checks the relayed prompt |
+| 2025-11-25 | 2025-11-25 | `fathomgate-up2025` | A stateful agent over a stateful upstream: an upstream `elicitation/create` relabelled and relayed to the agent. Since T0.32 `tools-call-elicitation` and `elicitation-sep1034-defaults` fail in the shared run (the orphan rule, below) and must pass in the fresh-process step |
 | 2026-07-28 | 2025-11-25 | `fathomgate-up2025` | A stateless agent over a stateful upstream: listing, calls, content types, errors and progress cross the era boundary |
 
 `era_pairs.py` drives two cells the suite does not score, against the 2025
@@ -126,10 +128,8 @@ no shim), each cell in a fathomgate of its own:
 
 - **agent 2025-11-25 x upstream 2025-11-25**: the prompt reaches the agent
   as `[from conf] <message>`, its field title labelled too; the agent's
-  `accept` goes back and the tool completes with it. Over the listener this
-  is the only check of the relayed prompt: the suite's own
-  `tools-call-elicitation` runs after other scenarios' calls have ended in
-  the same fathomgate and is refused by the orphan rule.
+  `accept` goes back and the tool completes with it. No suite check looks
+  at the label.
 - **agent 2026-07-28 x upstream 2025-11-25**: no server-initiated request
   reaches the agent; the call ends with `isError` and fathomgate's refusal,
   checked word for word: `fathomgate refused an input request (elicitation)
@@ -188,7 +188,7 @@ groups, and names the ADR or board task that decided it or owns the gap:
 | Not relayed | `tools-call-with-logging` (2025, both fathomgate legs) | No logging capability, so no log messages are relayed | T0.3 |
 | Unsolicited answers (SHOULD) | `ignore-extra-params` (2026, `fathomgate`) | `inputResponses` sent without fathomgate's `requestState` are ignored and never forwarded, so the upstream asks again instead of completing (profile-schema section 8.2) | T0.18, ADR 0014 |
 | Pairing and prefix | `tools-call-elicitation`, `elicitation-sep1034-defaults`, `elicitation-sep1330-enums` (2025, `fathomgate`); `server-stateless:sep-2575-server-rejects-undeclared-capability` and `sep-2575-missing-capability-http-400` (2026, both fathomgate legs) | The current fixture's legacy elicitation tools refuse on the 2026 session it has with fathomgate. The suite looks up the unprefixed `test_missing_capability` in `tools/list` (profile-schema section 8.1) and reports both checks untestable; the shim renames only `tools/call`, as ADR 0016 decides | ADR 0008 (pairing); ADR 0012, ADR 0016, T0.32 (prefix) |
-| Orphan rule | `tools-call-elicitation`, `elicitation-sep1034-defaults` (2025, `fathomgate-up2025`) | A stateful upstream's prompt names no call, so fathomgate refuses it while another agent session's call on that upstream ended less than `OrphanTTL` (5 minutes) ago. Every scenario is a new session of the same fathomgate, and earlier scenarios' calls have just ended. `era_pairs.py` checks the relayed prompt over the listener in a fathomgate of its own (profile-schema section 8.4) | ADR 0016 amendments (T0.40, T0.44) |
+| Orphan rule | `tools-call-elicitation`, `elicitation-sep1034-defaults` (2025, `fathomgate-up2025`) | A stateful upstream's prompt names no call, so fathomgate refuses it while another agent session's call on that upstream ended less than `OrphanTTL` (5 minutes) ago. Every scenario is a new session of the same fathomgate, and earlier scenarios' calls have just ended. Both scenarios run again in the fresh-process step, where they must pass (profile-schema section 8.4) | ADR 0016 amendments (T0.40, T0.44) |
 | Origin refused | `dns-rebinding-protection:localhost-host-valid-accepted` (every fathomgate leg and revision) | The check sends `Origin: http://127.0.0.1:<port>` with a matching `Host` and wants 2xx; fathomgate answers 403 to any request with an `Origin`, a same-host one included, since a DNS-rebinding page sends exactly that and MCP agents are not browsers (profile-schema 8.5 limit 3). The scenario's other check, a foreign `Host`, passes | ADR 0016 (request handling, step 3) |
 | Elicitation schema | `elicitation-sep1330-enums` (2025, `fathomgate-up2025`) | The fixture's `titledMulti` field has `items.type: "string"` and `items.anyOf` but no `items.enum`. go-sdk v1.8.0's client (fathomgate's upstream side) refuses the request with `-32602` before fathomgate sees it; behind that, fathomgate's allow-list needs `items.enum` on an array and drops the deprecated `enumNames` (profile-schema section 8.4) | T0.3, T0.35 |
 | Upstream predates 2026-07-28 | 13 checks on `fathomgate-up2025` 2026-07-28: the `input-required-result-*` scenarios and two `server-stateless` checks | go-sdk v1.6.1's server has none of the 2026-era diagnostic tools (`test_input_required_result_*`, `test_streaming_elicitation`, `test_logging_tool`, `test_missing_capability`); a 2025 server cannot return `input_required` at all. MRTR is scored on the `fathomgate` leg | T0.19 |
@@ -215,12 +215,33 @@ the 2025-11-25 runs, both deliberate:
   and every later `initialize` gets 503. The resources and prompts
   scenarios after that point fail with 503 before the `-32601` they would
   get anyway, so their baseline entries hold for both reasons (the files
-  say so). No other scored scenario runs after that point today. A suite
-  bump that reorders scenarios shows any casualty as an unexpected
-  failure. The unscored `server-session-lifecycle`, `json-schema-2020-12`
-  and `server-sse-polling` are among the 503s, so they report nothing
-  useful on these legs; they pass on the control legs.
+  say so). One more scored scenario runs after that point,
+  `dns-rebinding-protection`. So on the 2025-11-25 legs its
+  `localhost-host-valid-accepted` entry cannot go stale: if the Origin rule
+  changed, the check would still fail there, on the 503. Only the
+  2026-07-28 legs, which have no sessions, would notice. A suite bump that
+  reorders scenarios shows any other casualty as an unexpected failure.
+  The unscored `server-session-lifecycle`, `json-schema-2020-12` and
+  `server-sse-polling` are among the 503s, so they report nothing useful in
+  the shared run. On the control legs `server-session-lifecycle` and
+  `json-schema-2020-12` pass, and `server-sse-polling` passes but for a
+  `server-sse-priming-event` WARNING (a SHOULD: no priming event with an id
+  on the POST SSE stream), on both control legs; it is unscored, so no
+  baseline lists it.
 - **Orphan rule.** See the group above.
+
+**Fresh-process step.** After the shared run, `run.sh` runs some scenarios
+again on a 2025-11-25 fathomgate leg, each alone against a fathomgate of its
+own, as `conformance server --scenario <name> --spec-version 2025-11-25`
+(the suite does not combine `--scenario` with `--requirements`). No
+baseline applies: the scenario must pass outright, scored by the suite's
+exit code, and a failure fails the leg.
+
+| Scenario | Legs | Recovers |
+| --- | --- | --- |
+| `server-session-lifecycle` | `fathomgate`, `fathomgate-up2025` | `initialized` accepted on the issued session id, DELETE accepted, 404 for the terminated session, through fathomgate's listener |
+| `tools-call-elicitation` | `fathomgate-up2025` | The upstream's `elicitation/create` relayed to a 2025 agent over the listener and the answer returned (hidden by the orphan rule in the shared run) |
+| `elicitation-sep1034-defaults` | `fathomgate-up2025` | The same path with SEP-1034 default values |
 
 The relay started one fathomgate per 2025 session, so neither rule could
 show before T0.32.

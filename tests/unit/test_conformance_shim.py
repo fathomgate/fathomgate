@@ -20,14 +20,13 @@ import json
 import socket
 import sys
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "conformance"))
-import shim  # noqa: E402
+import shim
 
 pytestmark = pytest.mark.tier1
 
@@ -215,6 +214,39 @@ def test_mcp_name_prefixed_on_tools_call_only(target, fg_shim):
     assert target.header(2, "Mcp-Name") == ["conf.t"]
 
 
+def test_tools_call_body_under_another_mcp_method_keeps_names_matched(target, fg_shim):
+    # tasks-headers-reject-mismatched-method: the suite sends a tools/call
+    # body with a different Mcp-Method to test the method check only. The
+    # names must still match, so Mcp-Name is prefixed with the body's name.
+    send(fg_shim, "POST", "/mcp", call("greet"), {"Mcp-Method": "tasks/get", "Mcp-Name": "greet"})
+    assert json.loads(target.requests[0]["body"])["params"]["name"] == "conf.greet"
+    assert target.header(0, "Mcp-Name") == ["conf.greet"]
+    assert target.header(0, "Mcp-Method") == ["tasks/get"]
+
+
+def test_tools_call_body_without_mcp_method_keeps_names_matched(target, fg_shim):
+    send(fg_shim, "POST", "/mcp", call("greet"), {"Mcp-Name": "greet"})
+    assert json.loads(target.requests[0]["body"])["params"]["name"] == "conf.greet"
+    assert target.header(0, "Mcp-Name") == ["conf.greet"]
+    assert target.header(0, "Mcp-Method") == []
+
+
+def test_other_method_in_header_and_body_leaves_mcp_name(target, fg_shim):
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tasks/get", "params": {"taskId": "t1"}}).encode()
+    send(fg_shim, "POST", "/mcp", body, {"Mcp-Method": "tasks/get", "Mcp-Name": "t1"})
+    assert target.header(0, "Mcp-Name") == ["t1"]
+    assert target.requests[0]["body"] == body
+
+
+@pytest.mark.parametrize(
+    ("name", "want"),
+    [("t", "conf.t"), ("", ""), ("conf.t", "conf.t"), ("=?base64?dA==?=", "=?base64?dA==?=")],
+)
+def test_prefixed(name, want):
+    assert shim.prefixed(name, "conf") == want
+    assert shim.prefixed(name, "") == name
+
+
 def test_deliberate_mismatch_stays_a_mismatch(target, fg_shim):
     send(fg_shim, "POST", "/mcp", call("a"), {"Mcp-Method": "tools/call", "Mcp-Name": "b"})
     assert json.loads(target.requests[0]["body"])["params"]["name"] == "conf.a"
@@ -293,10 +325,34 @@ def test_client_leaving_ends_the_upstream_stream(target, fg_shim):
 def test_token_is_never_logged(target, fg_shim, capfd):
     send(fg_shim, "POST", "/mcp", call("t"))
     send(fg_shim, "POST", "/deny", b"{}")
-    time.sleep(0.1)
     out, err = capfd.readouterr()
     assert "POST /mcp" in err  # the request line is logged ...
     assert TOKEN not in out + err  # ... the token never
+
+
+def test_unreachable_target_gets_502():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        dead = s.getsockname()[1]  # closed again before the shim connects
+    httpd = shim.serve(f"http://127.0.0.1:{dead}/mcp", "conf", TOKEN)
+    threading.Thread(target=httpd.serve_forever, args=(0.05,), daemon=True).start()
+    try:
+        resp, data = send(httpd.server_address[1], "POST", "/mcp", b"{}")
+        assert resp.status == 502
+        assert TOKEN.encode() not in data
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+@pytest.mark.parametrize("framing", [b"zz\r\n{}\r\n0\r\n\r\n", b"-1\r\n{}\r\n0\r\n\r\n"])
+def test_malformed_chunked_body_gets_400(target, fg_shim, framing):
+    sock = socket.create_connection(("127.0.0.1", fg_shim), timeout=10)
+    sock.sendall(b"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n" + framing)
+    got = sock.recv(1024)
+    sock.close()
+    assert got.startswith(b"HTTP/1.1 400 ")
+    assert target.requests == []
 
 
 def test_target_must_be_http_with_a_port():

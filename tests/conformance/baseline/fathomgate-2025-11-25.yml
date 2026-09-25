@@ -17,11 +17,16 @@
 # this principal" (at most 4 stateful sessions per principal, idle ones
 # closed after 30 minutes: ADR 0016 limit 7 and profile-schema 8.5 limit 8).
 # The later resources-* and prompts-* entries below therefore fail with 503
-# before they reach the -32601 they would get anyway (T0.3). No other scored
-# scenario runs after that point today, but a suite bump that reorders the
-# scenarios would show any casualty as an unexpected failure, not hide it.
-# The unscored server-session-lifecycle, json-schema-2020-12 and
-# server-sse-polling are among them (see the README).
+# before they reach the -32601 they would get anyway (T0.3). One more scored
+# scenario runs after that point: dns-rebinding-protection. Its
+# localhost-host-valid-accepted entry (last group) can therefore not go
+# stale on the 2025-11-25 legs: if the Origin rule changed, the check would
+# still fail here, on the 503. Only the 2026-07-28 legs, which have no
+# sessions, would notice. A suite bump that reorders the scenarios shows any
+# other casualty as an unexpected failure, not hides it. The unscored
+# server-session-lifecycle, json-schema-2020-12 and server-sse-polling are
+# among the 503s too; run.sh runs server-session-lifecycle again, alone on a
+# fresh fathomgate, where it must pass (README, "One process").
 server:
   # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # toward the agent and answers -32601 for prompts/*, resources/*,
@@ -59,10 +64,11 @@ server:
   # while serving a request on protocol version 2026-07-28: return an
   # InputRequests map instead`), and the tool returns that error before
   # fathomgate sees a prompt. The path these checks mean, a 2025 upstream
-  # prompting a 2025 agent through fathomgate, is checked by era_pairs.py
-  # over stdio and over the listener (the [from conf] label and the answer
-  # going back); on fathomgate-up2025 the suite's own checks now fail for a
-  # different reason (the orphan rule; see fathomgate-up2025-2025-11-25.yml).
+  # prompting a 2025 agent through fathomgate, is scored on fathomgate-up2025:
+  # there tools-call-elicitation and elicitation-sep1034-defaults fail in the
+  # shared run (the orphan rule; see fathomgate-up2025-2025-11-25.yml) and
+  # must pass in run.sh's fresh-process step, and era_pairs.py checks the
+  # [from conf] label over stdio and over the listener.
   - tools-call-elicitation:tools-call-elicitation
   - elicitation-sep1034-defaults:elicitation-sep1034-general
   - elicitation-sep1330-enums:elicitation-sep1330-general
@@ -74,4 +80,7 @@ server:
   # DNS-rebinding page sends exactly that (Origin equal to Host) and MCP
   # agents are not browsers. The other check in the scenario
   # (localhost-host-rebinding-rejected, `Host: evil.example.com`) passes.
+  # On this leg the check runs after the session cap is reached, so it
+  # would fail on a 503 even without the Origin rule and cannot go stale
+  # here; fathomgate-2026-07-28.yml is where a change would show.
   - dns-rebinding-protection:localhost-host-valid-accepted

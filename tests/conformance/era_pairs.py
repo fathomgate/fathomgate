@@ -168,7 +168,10 @@ class FathomgateHTTP:
                 break
             time.sleep(0.05)
         self.close()
-        raise Failure("fathomgate serve --listen printed no `listening url=` line")
+        time.sleep(0.2)  # let the stderr pump drain what the process wrote
+        raise Failure(
+            "fathomgate serve --listen printed no `listening url=` line; its stderr:\n" + "".join(self.stderr)
+        )
 
     def _headers(self, msg: dict) -> dict[str, str]:
         h = {
@@ -368,8 +371,11 @@ def main() -> int:
                 if ng is not None:
                     ng.close()
                     sys.stdout.write("".join(ng.stderr))
-                continue
-            ng.close()
+            finally:
+                # Always stopped, whatever ended the cell (a Failure, another
+                # exception, Ctrl+C). close() is safe to call twice.
+                if ng is not None:
+                    ng.close()
     return 1 if failed else 0
 
 

@@ -14,14 +14,17 @@ listed here and nowhere else:
    request gets `Authorization: Bearer <token>`, replacing any the suite
    sent. The token is read from the environment only (never argv, so it is
    not in the process list) and never logged.
-2. `--tool-prefix P`. A request whose `Mcp-Method` header is `tools/call`
-   gets `P.` in front of an `Mcp-Name` value that has no `.`; a JSON-RPC
-   request body whose `method` is `tools/call` gets `P.` in front of a
-   `params.name` that has no `.`. The two are rewritten separately, by the
-   same rule, so a deliberate header/body mismatch stays a mismatch
-   (`a` vs `b` becomes `P.a` vs `P.b`). A body is re-serialised only when
-   its name changes; every other body is forwarded as the bytes that
-   arrived. An `Mcp-Name` in `=?base64?...?=` form is left alone.
+2. `--tool-prefix P`. A request is a tool call when its `Mcp-Method`
+   header or its JSON-RPC body's `method` is `tools/call` (either one, so
+   the shim never creates a header/body mismatch the suite did not send,
+   as it would for a tools/call body under `Mcp-Method: tasks/get`). A
+   tool call gets `P.` in front of an `Mcp-Name` value and of a
+   `params.name` (body `method` `tools/call` only) that have no `.`. The
+   two names are rewritten separately, by the same rule, so a deliberate
+   name mismatch stays a mismatch (`a` vs `b` becomes `P.a` vs `P.b`). A
+   body is re-serialised only when its name changes; every other body is
+   forwarded as the bytes that arrived. An empty name and an `Mcp-Name` in
+   `=?base64?...?=` form are left alone.
 
 Everything else passes through: method, path and query, status, reason,
 headers (hop-by-hop headers aside, as for any HTTP/1.1 proxy; `Host` as the
@@ -77,44 +80,56 @@ HOP_BY_HOP = frozenset(
 )
 
 
-def prefixed(name: str, prefix: str) -> str | None:
-    """The name with `prefix.` in front, or None when it is left alone."""
-    if not prefix or "." in name or (name.startswith("=?") and name.endswith("?=")):
-        return None
+def prefixed(name: str, prefix: str) -> str:
+    """The name with `prefix.` in front, or the name itself when it is left
+    alone (no prefix, empty, already dotted, or base64-encoded)."""
+    if not prefix or not name or "." in name or (name.startswith("=?") and name.endswith("?=")):
+        return name
     return f"{prefix}.{name}"
+
+
+def parse_call(body: bytes) -> dict | None:
+    """The JSON-RPC message when body is a single tools/call request."""
+    if not body:
+        return None
+    try:
+        msg = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if isinstance(msg, dict) and msg.get("method") == "tools/call":
+        return msg
+    return None
 
 
 def rewrite_body(body: bytes, prefix: str) -> bytes:
     """Prefix params.name of a single tools/call request; else the same bytes."""
-    if not prefix or not body:
-        return body
-    try:
-        msg = json.loads(body)
-    except (ValueError, UnicodeDecodeError):
-        return body
-    if not isinstance(msg, dict) or msg.get("method") != "tools/call":
+    msg = parse_call(body) if prefix else None
+    if msg is None:
         return body
     params = msg.get("params")
     if not isinstance(params, dict) or not isinstance(params.get("name"), str):
         return body
     new = prefixed(params["name"], prefix)
-    if new is None:
+    if new == params["name"]:
         return body
     params["name"] = new
     return json.dumps(msg, ensure_ascii=False, separators=(",", ":")).encode()
 
 
-def rewrite_headers(headers: list[tuple[str, str]], prefix: str, token: str) -> list[tuple[str, str]]:
+def rewrite_headers(
+    headers: list[tuple[str, str]], prefix: str, token: str, body_is_call: bool = False
+) -> list[tuple[str, str]]:
     """Request headers to send upstream: hop-by-hop dropped, Mcp-Name
-    prefixed on a tools/call, Authorization set when there is a token."""
-    tools_call = any(k.lower() == "mcp-method" and v == "tools/call" for k, v in headers)
+    prefixed on a tool call (the Mcp-Method header or, body_is_call, the
+    body says tools/call), Authorization set when there is a token."""
+    tools_call = body_is_call or any(k.lower() == "mcp-method" and v == "tools/call" for k, v in headers)
     out: list[tuple[str, str]] = []
     for k, v in headers:
         low = k.lower()
         if low in HOP_BY_HOP or (token and low == "authorization"):
             continue
         if low == "mcp-name" and tools_call:
-            v = prefixed(v, prefix) or v
+            v = prefixed(v, prefix)
         out.append((k, v))
     if token:
         out.append(("Authorization", f"Bearer {token}"))
@@ -130,7 +145,7 @@ def make_handler(target: str, prefix: str, token: str):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, format: str, *args) -> None:  # noqa: A002 - base class name
+        def log_message(self, format: str, *args) -> None:
             # Request line and status only; headers (the token) are never logged.
             sys.stderr.write("shim: " + (format % args) + "\n")
             sys.stderr.flush()
@@ -142,10 +157,13 @@ def make_handler(target: str, prefix: str, token: str):
                 pass  # the suite closed its connection; there is no one to answer
 
         def _read_body(self) -> bytes:
+            """The request body; ValueError when its framing is malformed."""
             if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
                 chunks = []
                 while True:
                     size = int(self.rfile.readline().split(b";")[0].strip(), 16)
+                    if size < 0:
+                        raise ValueError("negative chunk size")
                     if size == 0:
                         while self.rfile.readline() not in (b"\r\n", b"\n", b""):
                             pass
@@ -153,13 +171,21 @@ def make_handler(target: str, prefix: str, token: str):
                     chunks.append(self.rfile.read(size))
                     self.rfile.readline()
             n = int(self.headers.get("Content-Length") or 0)
+            if n < 0:
+                raise ValueError("negative Content-Length")
             return self.rfile.read(n) if n else b""
 
         def _forward(self) -> None:
-            body = self._read_body()
+            try:
+                body = self._read_body()
+            except ValueError:
+                self.close_connection = True
+                self.send_error(400, "shim: malformed request body framing")
+                return
             has_body = body or self.headers.get("Content-Length") is not None
+            body_is_call = parse_call(body) is not None
             body = rewrite_body(body, prefix)
-            headers = rewrite_headers(list(self.headers.items()), prefix, token)
+            headers = rewrite_headers(list(self.headers.items()), prefix, token, body_is_call)
             conn = http.client.HTTPConnection(host, port, timeout=None)
             try:
                 conn.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)

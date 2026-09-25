@@ -15,9 +15,14 @@
 #   fathomgate-2025-11-25.yml), the four scenarios that throw on an
 #   undeclared method leave their sessions open, and from resources-read-text
 #   on every `initialize` gets 503 (4 stateful sessions per principal: ADR
-#   0016 limit 7, profile-schema 8.5 limit 8).
+#   0016 limit 7, profile-schema 8.5 limit 8). dns-rebinding-protection runs
+#   after that point too, so its entry cannot go stale on this leg (see
+#   fathomgate-2025-11-25.yml); only the 2026-07-28 legs would notice.
 # - The orphan rule. tools-call-elicitation and elicitation-sep1034-defaults
-#   passed through the relay and fail here (last group).
+#   passed through the relay and fail here (orphan group below).
+# run.sh then runs tools-call-elicitation, elicitation-sep1034-defaults and
+# server-session-lifecycle again, each alone on a fresh fathomgate, where
+# they must pass outright (README, "One process").
 server:
   # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # toward the agent and answers -32601 for prompts/*, resources/*,
@@ -70,14 +75,16 @@ server:
   # attributed to one call: another agent session's call on this upstream
   # has ended recently", Warn in chain.log) and the suite sees no
   # elicitation. Refusing is the documented safe answer when fathomgate
-  # cannot tell whose prompt it is. The path itself, a 2025 agent getting the
-  # prompt relabelled `[from conf]` and its answer going back, is checked by
-  # era_pairs.py over the listener and over stdio, each in a fathomgate of
-  # its own.
+  # cannot tell whose prompt it is. Both checks are still scored: run.sh
+  # runs each scenario again alone on a fresh fathomgate, where one session
+  # holds the only call and both must pass (SEP-1034 defaults included).
+  # era_pairs.py adds the `[from conf]` label on the message and field title,
+  # which no suite check looks at, over the listener and over stdio.
   - tools-call-elicitation:tools-call-elicitation
   - elicitation-sep1034-defaults:elicitation-sep1034-general
   # ADR 0016 (Request handling, step 3; profile-schema 8.5 limit 3), new with
   # T0.32: fathomgate answers 403 to any request with an Origin, a same-host
   # one included (a DNS-rebinding page sends exactly that). See
-  # fathomgate-2025-11-25.yml.
+  # fathomgate-2025-11-25.yml. On this leg it runs after the session cap is
+  # reached and cannot go stale (header comment).
   - dns-rebinding-protection:localhost-host-valid-accepted

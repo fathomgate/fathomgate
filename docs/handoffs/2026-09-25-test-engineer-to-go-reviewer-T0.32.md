@@ -2,7 +2,7 @@
 
 - **Task:** T0.32 — Conformance against the HTTP listener — auth-and-prefix shim, control leg on everything-server -http, delete relay.py, reconcile all four baselines
 - **From → To:** test-engineer → go-reviewer
-- **State now:** in review. `docs/milestones/M0.yaml` is not edited here; the orchestrator syncs the board.
+- **State now:** in review (fix round 1 applied, see the end). `docs/milestones/M0.yaml` is not edited here; the orchestrator syncs the board.
 - **Branch / PR:** `test/conformance-over-listener` · see the PR that carries this note
 - **Date:** 2026-09-25
 
@@ -27,19 +27,20 @@
 | `fathomgate-up2025-2026-07-28` | **−11**, **move** of 1, **+** dns-rebinding | Same as above. The moved entry sits beside `server-rejects-undeclared-capability` |
 | `fathomgate-2025-11-25` | **+** dns-rebinding | Same Origin rule |
 | | comments on the resources/prompts entries | From `resources-read-text` on, they fail with 503 before reaching the `-32601` (the session cap, below) |
-| `fathomgate-up2025-2025-11-25` | **+** `tools-call-elicitation`, `elicitation-sep1034-defaults:elicitation-sep1034-general` | The orphan rule (ADR 0016 amendments T0.40 and T0.44; profile-schema 8.4): another scenario's session ended a call less than `OrphanTTL` ago. Warn line in `chain.log`. era_pairs covers the path |
+| `fathomgate-up2025-2025-11-25` | **+** `tools-call-elicitation`, `elicitation-sep1034-defaults:elicitation-sep1034-general` | The orphan rule (ADR 0016 amendments T0.40 and T0.44; profile-schema 8.4): another scenario's session ended a call less than `OrphanTTL` ago. Warn line in `chain.log`. Since the fix round both scenarios also run alone on a fresh fathomgate and must pass |
 | | **+** dns-rebinding; 503 comments | as above |
 
 Outcome: 11 of the 12 HTTP-transport entries clear, as ADR 0016 expected. Every remaining or new entry cites an ADR or a board task.
 
 ## Look at this first
 
-- `tests/conformance/README.md` "One process". The suite does not DELETE the session of a scenario that throws. On a single fathomgate, the first four scenarios that fail on an undeclared method use up the principal's 4 stateful sessions, and every later `initialize` in the 2025-11-25 run gets 503. Today only already-baselined scored scenarios fall after that point, and the unscored `server-session-lifecycle`, `json-schema-2020-12` and `server-sse-polling`. They pass on the control legs.
+- `tests/conformance/README.md` "One process". The suite does not DELETE the session of a scenario that throws. On a single fathomgate, the first four scenarios that fail on an undeclared method use up the principal's 4 stateful sessions, and every later `initialize` in the 2025-11-25 run gets 503. After that point run the already-baselined resources and prompts scenarios, `dns-rebinding-protection` (whose entry therefore cannot go stale on the 2025 legs), and the unscored `server-session-lifecycle`, `json-schema-2020-12` and `server-sse-polling`. The fresh-process step (fix round) recovers `server-session-lifecycle` and the two elicitation scenarios.
 - `shim.py` `_watch_client` and `test_client_leaving_ends_the_upstream_stream`. Without the watcher, a GET stream the suite dropped stayed open on fathomgate's side.
 
 ## Findings for other owners (not fixed here)
 
-- **mcp-protocol-engineer, proposed board task:** the per-principal cap of 4 stateful sessions and the 30-minute idle timeout can lock out a client that never DELETEs. A crashing or restarting agent is one example (the TypeScript SDK's `close()` does not DELETE; only `terminateSession()` does). The fifth `initialize` gets 503 for up to 30 minutes. Conformance shows it: 13 × 503 per 2025 run. Options: evict the oldest idle session of that principal, or a shorter idle timeout for a session with no POST in flight and no GET stream.
+- **mcp-protocol-engineer, proposed board task:** the per-principal cap of 4 stateful sessions and the 30-minute idle timeout can lock out a client that never DELETEs. A crashing or restarting agent is one example (the TypeScript SDK's `close()` does not DELETE; only `terminateSession()` does). The fifth `initialize` gets 503 for up to 30 minutes. Conformance shows it: 13 × 503 per 2025 run. Options: evict the oldest idle session of that principal, or a shorter idle timeout for a session with no POST in flight and no GET stream. The same task should cover the orphan rule's effect on one principal that reconnects. With `ended_calls_of=[env]`, a reconnected client's new session has its stateful upstream's prompts refused for 5 minutes, because of calls its own earlier session ended.
+- **mcp-protocol-engineer, SHOULD gap:** on the fathomgate 2025-11-25 legs the unscored `server-sse-polling` scenario reports a `server-sse-retry-field` WARNING (no `retry:` field on the SSE stream), found by the Go reviewer; in the shared run the 503 hides it, and I have not reproduced it separately. Both control legs pass that check but warn on `server-sse-priming-event` (no priming event with an id on the POST SSE stream), a go-sdk SHOULD gap that fathomgate inherits.
 - The Origin rule refuses a same-host `Origin`, which the suite's `localhost-host-valid-accepted` treats as valid. ADR 0016 decides this deliberately, so it is recorded, not a defect.
 
 ## Upstream requests for the maintainer to file (modelcontextprotocol/conformance). Not filed.
@@ -56,7 +57,7 @@ When (1) and (2) exist, delete `shim.py` and its tests (ADR 0016).
 ## Deliberately unfinished
 
 - Matrix rows 1 and 2: no status change. The upstreams here are go-sdk fixtures, and a row is validated only against its named real server. Row 23 is T0.33's.
-- No per-scenario fathomgate restart to dodge the session cap. The suite cannot combine `--scenario` with `--requirements`, so doing that would mean re-implementing its scoring. One process is also what ADR 0016 describes and what an operator runs.
+- The whole suite stays on one fathomgate per leg, as ADR 0016 describes and an operator runs it. Only three scenarios get a fresh process (fix round). Running every scenario that way would mean re-implementing the suite's scoring, because `--scenario` cannot be combined with `--requirements`.
 
 ## Reproduce green
 
@@ -80,3 +81,32 @@ uv run --with pyyaml python tools/status/render.py --check
 ## Questions for the receiver
 
 - Is baselining the 2025 elicitation checks on `fathomgate-up2025` (orphan rule) acceptable when era_pairs.py carries the path, or should the proposed session-cap task also look at the orphan rule's effect on sequential single-agent clients?
+
+## Fix round (Go review of PR #116)
+
+The reviewer ran all 8 legs and era_pairs locally and confirmed every baseline reason. Applied on the same branch; main had not moved.
+
+1. **Blocking, `shim.py`:** a request is a tool call when the `Mcp-Method` header **or** the body says `tools/call`. `_forward` passes `body_is_call` into `rewrite_headers`. Before, a tools/call body under `Mcp-Method: tasks/get` (the suite's `tasks-headers-reject-mismatched-method`) or with no `Mcp-Method` got `conf.greet` in the body and `greet` in `Mcp-Name`, a mismatch the suite never sent. New tests: `test_tools_call_body_under_another_mcp_method_keeps_names_matched`, `test_tools_call_body_without_mcp_method_keeps_names_matched`, and `test_other_method_in_header_and_body_leaves_mcp_name` (a tasks/get taskId is never prefixed).
+2. **README "One process" and both 2025 fathomgate baseline headers:** they now say that `dns-rebinding-protection` runs after the 503s start. So `localhost-host-valid-accepted` cannot go stale on the 2025 legs (it would fail on the 503 even if the Origin rule changed), and only the 2026 legs would notice.
+3. **Coverage recovered, `run.sh`:** after the shared run, a 2025-11-25 fathomgate leg runs these again, each alone on a fresh fathomgate and shim, as `--scenario X --spec-version 2025-11-25`, scored by the suite's exit code with no baseline:
+   - `server-session-lifecycle` on both legs (3/3 checks);
+   - `tools-call-elicitation` (2/2) and `elicitation-sep1034-defaults` (6/6) on `fathomgate-up2025`.
+   Output goes to `isolated-<scenario>/`. I checked that a failing scenario exits 1 (`tools-call-sampling` through fathomgate) and a passing one exits 0. The baseline comment that said era_pairs covers the SEP-1034 defaults is corrected: era_pairs checks the `[from conf]` label, which no suite check looks at. The README era table, the orphan-rule group, test-strategy and CHANGELOG say the same.
+4. **`era_pairs.py` `main()`:** `try/finally` always stops fathomgate. A listener that prints no `listening url=` line raises a Failure that carries fathomgate's stderr (checked with a missing upstream path).
+5. **`run.sh`:** `${prefix[@]+"${prefix[@]}"}` (and the same for the new `isolated` array), for bash < 4.4 on macOS `/bin/bash`.
+6. **Nits:**
+   - The token reaches grep on stdin (`printf '%s\n' "$token" | grep -rqF -f - "$out"`), never on its command line.
+   - `stop_pid` sends SIGTERM, waits up to 10 s, then sends SIGKILL.
+   - `prefixed()` returns the name itself when it leaves it alone, so `prefixed("")` is `""` (`test_prefixed`).
+   - Malformed chunked framing (bad hex, a negative size) and a negative `Content-Length` get 400 (`test_malformed_chunked_body_gets_400`).
+   - The 502 for an unreachable target is tested (`test_unreachable_target_gets_502`).
+   - The sleep in the logging test is gone.
+   - The two unused `noqa` comments are removed; `ruff check --extend-select RUF100` passes.
+7. **ADR 0016:** a dated 2026-09-25 amendment row says the harness passes the token in `FATHOMGATE_LISTEN_TOKEN`, not `--listen-token-file`, and why. It also records the shim's tool-call rule and the fresh-process step.
+8. Handoff findings updated above: the reconnecting principal and the orphan rule, `server-sse-retry-field`, and `server-sse-priming-event` on both control legs (also in the README).
+
+Re-run after the round (Windows):
+- Unit tests: 69 passed (3 runs).
+- `run.sh`: all 8 leg/rev pairs exit 0, and all 4 fresh-process runs pass.
+- `era_pairs.py`: 4/4 ok.
+- `render.py --check`: current.
