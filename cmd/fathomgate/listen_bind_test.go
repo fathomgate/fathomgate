@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -128,9 +129,139 @@ func TestBindLoopbackHoldsBothFamilies(t *testing.T) {
 	}
 }
 
+// squatAttempts bounds how many squatter ports a test tries before it
+// gives up on finding one whose other family's address is free.
+//
+// A test that makes a squatter hold one loopback family on an OS-chosen
+// port, then points bindLoopback or serve at that port, needs the other
+// family's address on it to be free. The OS picked the port as free for
+// the squatter's family only; any other socket, of a test running in
+// parallel in this binary, of another package's test binary (go test ./...
+// runs them side by side) or of any other program on the host, may already
+// hold the other family's address on it, or take it at any moment. macOS
+// hands out ephemeral ports in sequence per family, so a port just picked
+// for [::1] is often the next one picked for 127.0.0.1. Such a collision
+// says nothing about fathomgate: the test sees it (the first bind fails,
+// before the refusal under test is reached) and tries a new port.
+const squatAttempts = 50
+
+// bindRecorder gives bindLoopback listenTCP and a holdFunc that record
+// every socket they bind, so a test can check that bindLoopback released
+// each one. The listeners are returned unwrapped. It sees only the sockets
+// bound through the listenFunc and holdFunc it injects, nothing else.
+type bindRecorder struct {
+	mu    sync.Mutex
+	binds []recordedBind
+	holds []*recordedHold
+}
+
+// recordedBind is one call of bindRecorder.listen.
+type recordedBind struct {
+	addr string
+	l    net.Listener // nil when the bind failed
+	err  error
+}
+
+// recordedHold is what one successful call of the recorded holdFunc held.
+type recordedHold struct {
+	c      io.Closer
+	mu     sync.Mutex
+	closes int
+	err    error
+}
+
+// Close closes what the holdFunc held and records the call and its error.
+func (h *recordedHold) Close() error {
+	err := h.c.Close()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closes++
+	h.err = errors.Join(h.err, err)
+	return err
+}
+
+func (r *bindRecorder) listen(network, address string) (net.Listener, error) {
+	l, err := listenTCP(network, address)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.binds = append(r.binds, recordedBind{addr: address, l: l, err: err})
+	return l, err
+}
+
+// hold wraps h (nil stays nil) so that what it holds is recorded.
+func (r *bindRecorder) hold(h holdFunc) holdFunc {
+	if h == nil {
+		return nil
+	}
+	return func(port uint16) (io.Closer, error) {
+		c, err := h(port)
+		if err != nil || c == nil {
+			return c, err
+		}
+		rh := &recordedHold{c: c}
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.holds = append(r.holds, rh)
+		return rh, nil
+	}
+}
+
+// recorded is a copy of the binds so far.
+func (r *bindRecorder) recorded() []recordedBind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]recordedBind(nil), r.binds...)
+}
+
+// socketClosed reports whether l's socket is closed. Go's Close returns
+// only after the close system call (poll.FD.Close waits for it), so a
+// closed descriptor is a socket the OS has released: a listening socket
+// with no connections leaves no TIME_WAIT behind.
+func socketClosed(t *testing.T, l net.Listener) bool {
+	t.Helper()
+	sc, ok := l.(syscall.Conn)
+	if !ok {
+		t.Fatalf("listener is %T, want a syscall.Conn", l)
+	}
+	rc, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = rc.Control(func(uintptr) {})
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("%s: %v, want nil or net.ErrClosed", l.Addr(), err)
+	}
+	return err != nil
+}
+
+// checkReleased fails t unless every socket bound through r is closed:
+// each listener's descriptor, and each hold, closed once without error.
+//
+// It stands in for binding the address again after the refusal, which
+// cannot tell a socket fathomgate leaked from one another test bound on
+// the freed port in between (squatAttempts), and so failed at random on
+// macOS and Linux. This asks the sockets fathomgate bound themselves.
+func (r *bindRecorder) checkReleased(t *testing.T) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, b := range r.binds {
+		if b.l != nil && !socketClosed(t, b.l) {
+			t.Errorf("%s is still bound: bindLoopback did not close it", b.addr)
+		}
+	}
+	for i, h := range r.holds {
+		h.mu.Lock()
+		if h.closes != 1 || h.err != nil {
+			t.Errorf("hold %d closed %d times (error %v), want once without error", i, h.closes, h.err)
+		}
+		h.mu.Unlock()
+	}
+}
+
 // TestBindLoopbackRefusesTakenOtherFamily: when another program holds the
 // other family's loopback on the port asked for, bindLoopback refuses and
-// leaves nothing bound.
+// leaves nothing bound: the first family's socket it bound is closed.
 func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 	t.Parallel()
 	needBothLoopbacks(t)
@@ -141,35 +272,62 @@ func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 	} {
 		t.Run(tc.flagHost, func(t *testing.T) {
 			t.Parallel()
-			squatter, err := net.Listen("tcp", tc.squat)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = squatter.Close() }()
-			port := portOf(t, squatter)
-			a, err := parseListenAddr(tc.flagHost + ":" + strconv.Itoa(int(port)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
-			if err == nil {
-				for _, l := range lns {
-					_ = l.Close()
+			for attempt := 1; ; attempt++ {
+				if refusesTakenOtherFamily(t, tc.squat, tc.flagHost) {
+					return
 				}
-				t.Fatalf("bound %d listeners next to a program holding %s", len(lns), squatter.Addr())
+				if attempt == squatAttempts {
+					t.Fatalf("%d squatter ports on %s all had %s's address taken by another socket", squatAttempts, tc.squat, tc.flagHost)
+				}
 			}
-			want := squatter.Addr().String() + ", the other loopback address on the same port, cannot be bound"
-			if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "refuses to start") {
-				t.Fatalf("error %q, want it to contain %q", err, want)
-			}
-			// The first family was released.
-			l, err := net.Listen("tcp", netip.AddrPortFrom(a.host, port).String())
-			if err != nil {
-				t.Fatalf("the address asked for is still bound after the refusal: %v", err)
-			}
-			_ = l.Close()
 		})
 	}
+}
+
+// refusesTakenOtherFamily is one attempt of
+// TestBindLoopbackRefusesTakenOtherFamily. It returns false when the first
+// family's address on the squatter's port was already in use by another
+// socket (squatAttempts); any other failure of that bind fails the test.
+// Every return checks that what bindLoopback bound was released.
+func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
+	t.Helper()
+	squatter, err := net.Listen("tcp", squat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = squatter.Close() }()
+	port := portOf(t, squatter)
+	a, err := parseListenAddr(flagHost + ":" + strconv.Itoa(int(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &bindRecorder{}
+	defer rec.checkReleased(t)
+	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
+	if err == nil {
+		for _, l := range lns {
+			_ = l.Close()
+		}
+		t.Fatalf("bound %d listeners next to a program holding %s", len(lns), squatter.Addr())
+	}
+	binds := rec.recorded()
+	first := netip.AddrPortFrom(a.host, port).String()
+	if len(binds) == 1 && binds[0].addr == first && binds[0].err != nil {
+		if !addrTaken(binds[0].err) {
+			t.Fatalf("binding %s: %v, want success or address in use", first, binds[0].err)
+		}
+		t.Logf("another socket holds %s; trying another port: %v", first, binds[0].err)
+		return false
+	}
+	want := squatter.Addr().String() + ", the other loopback address on the same port, cannot be bound"
+	if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "refuses to start") {
+		t.Fatalf("error %q, want it to contain %q", err, want)
+	}
+	// The first family was bound, then released; the other was refused.
+	if len(binds) != 2 || binds[0].addr != first || binds[0].err != nil || binds[1].addr != squatter.Addr().String() || binds[1].err == nil || len(rec.holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want %s bound, then %s refused, and nothing held", binds, len(rec.holds), first, squatter.Addr())
+	}
+	return true
 }
 
 // TestServeListenOtherFamilyTaken: serve exits 1 before the upstream starts
@@ -179,6 +337,22 @@ func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 func TestServeListenOtherFamilyTaken(t *testing.T) {
 	t.Parallel()
 	needBothLoopbacks(t)
+	for attempt := 1; ; attempt++ {
+		if serveListenOtherFamilyTaken(t) {
+			return
+		}
+		if attempt == squatAttempts {
+			t.Fatalf("%d squatter ports on [::1] all had 127.0.0.1's address taken by another socket", squatAttempts)
+		}
+	}
+}
+
+// serveListenOtherFamilyTaken is one attempt of
+// TestServeListenOtherFamilyTaken. It returns false when serve's first
+// bind, of 127.0.0.1 on the squatter's port, found it taken by another
+// socket (squatAttempts).
+func serveListenOtherFamilyTaken(t *testing.T) bool {
+	t.Helper()
 	squatter, err := net.Listen("tcp", "[::1]:0")
 	if err != nil {
 		t.Fatal(err)
@@ -191,10 +365,15 @@ func TestServeListenOtherFamilyTaken(t *testing.T) {
 		"--listen", "localhost:" + port,
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
 	out := stderr.String()
+	checkNoCanary(t, "stderr", out)
+	if code == exitFail && strings.Contains(out, "fathomgate: serve: --listen: listen tcp 127.0.0.1:"+port+":") {
+		t.Logf("another socket holds 127.0.0.1:%s; trying another port", port)
+		return false
+	}
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::1]:"+port+", the other loopback address") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
 	}
-	checkNoCanary(t, "stderr", out)
+	return true
 }
 
 // fakeListener is a listener that accepts nothing, for bindLoopback's

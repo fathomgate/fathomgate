@@ -369,7 +369,7 @@ jobs:
           exit "$missing"
       - name: H1 loopback tests ran
         run: |
-          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken|TestBindLoopbackExclusiveWindows|TestBindControlFailsClosedWindows|TestBindLoopbackRefusesHeldWildcardWindows|TestServeListenWildcardHeldWindows|TestHoldWildcardsNotInherited|TestBindLoopbackHoldInjected' ./cmd/fathomgate/ | tee h1.log
+          go test -count=1 -v -run 'TestBindLoopbackHoldsBothFamilies|TestBindLoopbackRefusesTakenOtherFamily|TestServeListenOtherFamilyTaken|TestBindLoopbackExclusiveWindows|TestBindControlFailsClosedWindows|TestBindLoopbackRefusesHeldWildcardWindows|TestServeListenWildcardHeldWindows|TestHoldWildcardsNotInherited|TestHeldSocketsCloseReleasesWindows|TestBindLoopbackHoldInjected' ./cmd/fathomgate/ | tee h1.log
           missing=0
           for t in \
             TestBindLoopbackHoldsBothFamilies \
@@ -380,6 +380,7 @@ jobs:
             TestBindLoopbackRefusesHeldWildcardWindows \
             TestServeListenWildcardHeldWindows \
             TestHoldWildcardsNotInherited \
+            TestHeldSocketsCloseReleasesWindows \
             TestBindLoopbackHoldInjected; do
             if ! grep -qF -- "--- PASS: $t (" h1.log; then
               echo "::error::$t did not print --- PASS"

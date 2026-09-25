@@ -46,6 +46,14 @@ func TestLoopbackFamilyMissingWindows(t *testing.T) {
 	}
 }
 
+// addrTaken reports a bind error that means another socket holds the
+// address (squatAttempts): WSAEADDRINUSE, or WSAEACCES, which Winsock
+// returns when that socket set SO_EXCLUSIVEADDRUSE or SO_REUSEADDR. Any
+// other error fails the test.
+func addrTaken(err error) bool {
+	return errors.Is(err, windows.WSAEADDRINUSE) || errors.Is(err, windows.WSAEACCES)
+}
+
 // squatTarget is an address a squatter binds: a loopback address or one of
 // the three wildcards.
 type squatTarget struct {
@@ -167,8 +175,10 @@ func reachesFathomgate(t *testing.T, l net.Listener) {
 // loopback sockets carry SO_EXCLUSIVEADDRUSE; no other socket can bind the
 // port on either loopback address or on any of the three wildcards, with
 // SO_REUSEADDR (the squatting technique) or without; agents still reach
-// fathomgate on both addresses; and closing the listeners frees the port
-// on every wildcard.
+// fathomgate on both addresses; and closing the listeners closes every
+// socket bindLoopback bound, the wildcards with them (checkReleased;
+// TestHeldSocketsCloseReleasesWindows proves at the OS level that the port
+// is then free).
 func TestBindLoopbackExclusiveWindows(t *testing.T) {
 	t.Parallel()
 	needBothLoopbacks(t)
@@ -179,7 +189,8 @@ func TestBindLoopbackExclusiveWindows(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
+			rec := &bindRecorder{}
+			lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -221,16 +232,88 @@ func TestBindLoopbackExclusiveWindows(t *testing.T) {
 				_ = l.Close()
 			}
 			closed = true
-			for _, w := range wildcards {
-				s, err := bindWildcard(w, port)
-				if err != nil {
-					t.Errorf("%s:%d%s still held after the listeners closed: %v", w.host, port, w.kind, err)
-					continue
-				}
-				_ = windows.Closesocket(s)
+			if len(rec.holds) != 1 {
+				t.Fatalf("%d wildcard holds, want 1", len(rec.holds))
 			}
+			if hs, ok := rec.holds[0].c.(heldSockets); !ok || len(hs) != len(wildcards) {
+				t.Fatalf("held %T %v, want %d wildcard sockets", rec.holds[0].c, rec.holds[0].c, len(wildcards))
+			}
+			rec.checkReleased(t)
 		})
 	}
+}
+
+// TestHeldSocketsCloseReleasesWindows: closing bindLoopback's listeners
+// releases the port at the OS level, on both loopback addresses and every
+// wildcard kind. checkReleased in TestBindLoopbackExclusiveWindows proves
+// the hold was closed once without error; this proves what that close did,
+// so a heldSockets.Close that skipped a socket fails here. Binding the
+// addresses again races other sockets on the freed port (squatAttempts),
+// so a failed rebind tries a fresh port; a genuine leak fails every
+// attempt.
+func TestHeldSocketsCloseReleasesWindows(t *testing.T) {
+	t.Parallel()
+	needBothLoopbacks(t)
+	for attempt := 1; ; attempt++ {
+		if heldSocketsCloseReleases(t) {
+			return
+		}
+		if attempt == squatAttempts {
+			t.Fatalf("on %d fresh ports an address stayed bound after the listeners closed", squatAttempts)
+		}
+	}
+}
+
+// heldSocketsCloseReleases is one attempt of
+// TestHeldSocketsCloseReleasesWindows. It returns false when an address
+// could not be bound again after the close, with address in use: a leak,
+// or another socket that took the freed port.
+func heldSocketsCloseReleases(t *testing.T) bool {
+	t.Helper()
+	a, err := parseListenAddr("localhost:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &bindRecorder{}
+	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := portOf(t, lns[0])
+	for _, l := range lns {
+		_ = l.Close()
+	}
+	if len(rec.holds) != 1 {
+		t.Fatalf("%d wildcard holds, want 1", len(rec.holds))
+	}
+	if hs, ok := rec.holds[0].c.(heldSockets); !ok || len(hs) != len(wildcards) {
+		t.Fatalf("held %T %v, want %d wildcard sockets", rec.holds[0].c, rec.holds[0].c, len(wildcards))
+	}
+	rec.checkReleased(t)
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		addr := netip.AddrPortFrom(netip.MustParseAddr(host), port).String()
+		l, err := net.Listen("tcp", addr)
+		if err != nil {
+			if !addrTaken(err) {
+				t.Fatalf("binding %s after the listeners closed: %v, want success or address in use", addr, err)
+			}
+			t.Logf("%s still bound after the listeners closed (%v); trying a fresh port", addr, err)
+			return false
+		}
+		_ = l.Close()
+	}
+	for _, w := range wildcards {
+		s, err := bindWildcard(w, port)
+		if err != nil {
+			if !addrTaken(err) {
+				t.Fatalf("binding %s:%d%s after the listeners closed: %v, want success or address in use", w.host, port, w.kind, err)
+			}
+			t.Logf("%s:%d%s still bound after the listeners closed (%v); trying a fresh port", w.host, port, w.kind, err)
+			return false
+		}
+		_ = windows.Closesocket(s)
+	}
+	return true
 }
 
 // TestBindLoopbackRefusesHeldWildcardWindows: when another socket already
@@ -243,36 +326,61 @@ func TestBindLoopbackRefusesHeldWildcardWindows(t *testing.T) {
 		target := squatTargets[2+i]
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
-			s, port, err := squatBind(target, 0, false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = windows.Closesocket(s) }()
-			a, err := parseListenAddr("localhost:" + strconv.Itoa(int(port)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
-			if err == nil {
-				for _, l := range lns {
-					_ = l.Close()
+			for attempt := 1; ; attempt++ {
+				if refusesHeldWildcard(t, target, w) {
+					return
 				}
-				t.Fatalf("bound %d listeners next to a socket holding %s on port %d", len(lns), target.name, port)
-			}
-			want := fmt.Sprintf("%s:%d%s, a wildcard address on the same port, cannot be held", w.host, port, w.kind)
-			if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "refuses to start") {
-				t.Fatalf("error %q, want it to contain %q", err, want)
-			}
-			for _, host := range []string{"127.0.0.1", "::1"} {
-				addr := netip.AddrPortFrom(netip.MustParseAddr(host), port).String()
-				l, err := net.Listen("tcp", addr)
-				if err != nil {
-					t.Fatalf("%s is still bound after the refusal: %v", addr, err)
+				if attempt == squatAttempts {
+					t.Fatalf("%d squatter ports on %s all had a loopback address taken by another socket", squatAttempts, target.name)
 				}
-				_ = l.Close()
 			}
 		})
 	}
+}
+
+// refusesHeldWildcard is one attempt of
+// TestBindLoopbackRefusesHeldWildcardWindows. It returns false when a
+// loopback address on the squatter's port was already in use by another
+// socket (squatAttempts); any other failure of that bind fails the test.
+// Every return checks that what bindLoopback bound was released.
+func refusesHeldWildcard(t *testing.T, target squatTarget, w wildcard) bool {
+	t.Helper()
+	s, port, err := squatBind(target, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = windows.Closesocket(s) }()
+	a, err := parseListenAddr("localhost:" + strconv.Itoa(int(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &bindRecorder{}
+	defer rec.checkReleased(t)
+	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
+	if err == nil {
+		for _, l := range lns {
+			_ = l.Close()
+		}
+		t.Fatalf("bound %d listeners next to a socket holding %s on port %d", len(lns), target.name, port)
+	}
+	binds := rec.recorded()
+	for _, b := range binds {
+		if b.err != nil {
+			if !addrTaken(b.err) {
+				t.Fatalf("binding %s: %v, want success or address in use", b.addr, b.err)
+			}
+			t.Logf("another socket holds %s; trying another port: %v", b.addr, b.err)
+			return false
+		}
+	}
+	want := fmt.Sprintf("%s:%d%s, a wildcard address on the same port, cannot be held", w.host, port, w.kind)
+	if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "refuses to start") {
+		t.Fatalf("error %q, want it to contain %q", err, want)
+	}
+	if len(binds) != 2 || len(rec.holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want both loopbacks bound and the hold refused", binds, len(rec.holds))
+	}
+	return true
 }
 
 // TestServeListenWildcardHeldWindows: serve exits 1 before the upstream
@@ -281,6 +389,22 @@ func TestBindLoopbackRefusesHeldWildcardWindows(t *testing.T) {
 func TestServeListenWildcardHeldWindows(t *testing.T) {
 	t.Parallel()
 	needBothLoopbacks(t)
+	for attempt := 1; ; attempt++ {
+		if serveListenWildcardHeld(t) {
+			return
+		}
+		if attempt == squatAttempts {
+			t.Fatalf("%d squatter ports on the dual-stack wildcard all had a loopback address taken by another socket", squatAttempts)
+		}
+	}
+}
+
+// serveListenWildcardHeld is one attempt of
+// TestServeListenWildcardHeldWindows. It returns false when serve found a
+// loopback address on the squatter's port taken by another socket
+// (squatAttempts).
+func serveListenWildcardHeld(t *testing.T) bool {
+	t.Helper()
 	s, port, err := squatBind(squatTargets[4], 0, true)
 	if err != nil {
 		t.Fatal(err)
@@ -293,10 +417,16 @@ func TestServeListenWildcardHeldWindows(t *testing.T) {
 		"--listen", "localhost:" + p,
 	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
 	out := stderr.String()
+	checkNoCanary(t, "stderr", out)
+	if code == exitFail && (strings.Contains(out, "fathomgate: serve: --listen: listen tcp 127.0.0.1:"+p+":") ||
+		strings.Contains(out, "fathomgate: serve: --listen: [::1]:"+p+", the other loopback address on the same port, cannot be bound")) {
+		t.Logf("another socket holds a loopback address on port %s; trying another port", p)
+		return false
+	}
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::]:"+p+" (dual-stack), a wildcard address on the same port, cannot be held") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
 	}
-	checkNoCanary(t, "stderr", out)
+	return true
 }
 
 var procGetHandleInformation = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetHandleInformation")
