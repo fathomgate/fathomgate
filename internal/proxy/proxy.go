@@ -78,6 +78,10 @@ type Options struct {
 	// Logger receives proxy and go-sdk diagnostics. Nil discards them. For a
 	// stdio proxy it must not write to stdout, which carries the protocol.
 	Logger *slog.Logger
+	// Gate decides every tools/call before it is forwarded (ADR 0026). nil
+	// keeps the M0 pass-through: every call is forwarded as the agent sent
+	// it, and nothing is checked, counted or logged as a decision.
+	Gate Gate
 
 	// discoverExpired, when set, replaces the discoverProbeTimeout timer:
 	// the first connect's bound runs out when it is closed. It is for tests
@@ -103,6 +107,10 @@ type Proxy struct {
 	progressWait time.Duration
 	upstreams    map[string]*upstream // by server name
 	routes       map[string]route     // by prefixed tool name
+	// gate is Options.Gate; nil forwards every call (M0). counters are the
+	// session counters it is given (gate.go).
+	gate     Gate
+	counters counters
 	// limits caps and tracks tool calls per agent session and principal.
 	// It is set by HTTPHandler and nil on stdio, where one agent owns the
 	// process (calls.go).
@@ -146,6 +154,10 @@ type Proxy struct {
 type route struct {
 	up   *upstream
 	tool string
+	// readOnly and destructive are the tool's readOnlyHint and
+	// destructiveHint as the upstream sent them, nil when it did not
+	// (untrusted; the gate may only raise a class on them, ADR 0010).
+	readOnly, destructive *bool
 }
 
 // upstream is one connected upstream session. done is closed, and err set,
@@ -229,6 +241,7 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 		states:       states,
 		now:          time.Now,
 		progressWait: progressFinalWait,
+		gate:         opts.Gate,
 		upstreams:    make(map[string]*upstream, len(upstreams)),
 		routes:       make(map[string]route),
 		exited:       make(chan struct{}),
@@ -266,7 +279,11 @@ func New(ctx context.Context, upstreams []Upstream, opts Options) (_ *Proxy, err
 			up.closing.Store(true)
 			return nil, withExit(err, up.tt.kill(graceFor(ctx)))
 		}
-		if err := p.addUpstreamTools(up, tools); err != nil {
+		hints, captured := up.tt.readOnlyHints()
+		if p.gate != nil && !captured {
+			p.logger.Warn("readOnlyHint cannot be read from this upstream's transport; the annotation raise uses destructiveHint only", "server", up.name)
+		}
+		if err := p.addUpstreamTools(up, tools, hints); err != nil {
 			return nil, err
 		}
 		p.logger.Info("upstream ready", "server", up.name, "tools", p.toolCount(up), "protocol", up.version, "era", up.era)
@@ -495,6 +512,9 @@ type trackedTransport struct {
 	reapedUnkilled bool      // that close returned before any kill
 	hungUp         bool      // a read or write failed before any close or kill was requested
 	hungUpAt       time.Time
+
+	// hints reads readOnlyHint from tools/list answers (hints.go).
+	hints hintCapture
 }
 
 // tracksConn reports whether t's connections are go-sdk's plain
@@ -552,6 +572,9 @@ func (t *trackedTransport) Connect(ctx context.Context) (mcp.Connection, error) 
 	}
 	if tracksConn(t.Transport) {
 		c = trackedConn{Connection: c, t: t}
+		t.hints.mu.Lock()
+		t.hints.wired = true
+		t.hints.mu.Unlock()
 	}
 	t.mu.Lock()
 	t.conn, t.proc, t.tree = c, proc, tree
@@ -630,6 +653,9 @@ func (c trackedConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 	if err != nil && ctx.Err() == nil && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		c.t.failed()
 	}
+	if err == nil {
+		c.t.hints.received(m)
+	}
 	return m, err
 }
 
@@ -638,6 +664,8 @@ func (c trackedConn) Read(ctx context.Context) (jsonrpc.Message, error) {
 // stdin is gone, so any such failure is a hang-up: go-sdk may write to an
 // upstream that has already exited before it reads the end of its stdout.
 func (c trackedConn) Write(ctx context.Context, m jsonrpc.Message) error {
+	// Noted before the write, so the answer cannot arrive first.
+	c.t.hints.sent(m)
 	err := c.Connection.Write(ctx, m)
 	if err != nil && ctx.Err() == nil {
 		c.t.failed()
@@ -785,10 +813,14 @@ func listTools(ctx context.Context, up *upstream) ([]*mcp.Tool, error) {
 
 // addUpstreamTools registers each upstream tool under its prefixed name.
 // Tool descriptions, schemas and annotations are untrusted and are passed
-// through unchanged: annotations are never used to decide anything here, and
-// descriptions are pinned by internal/redact from M2. _meta and icons are
+// through unchanged, with one exception: with a Gate, a tool whose argument
+// list is closed is advertised with only the properties its profile names
+// (narrowSchema, ADR 0033 section 4). Annotations are never used to decide
+// anything here; the gate may raise a class on them (ADR 0010). readOnly
+// holds each tool's readOnlyHint as sent, nil when absent (hints.go).
+// Descriptions are pinned by internal/redact from M2. _meta and icons are
 // dropped because the proxy does not forward resources or UI.
-func (p *Proxy) addUpstreamTools(up *upstream, tools []*mcp.Tool) error {
+func (p *Proxy) addUpstreamTools(up *upstream, tools []*mcp.Tool, readOnly map[string]*bool) error {
 	seen := make(map[string]bool, len(tools))
 	for _, t := range tools {
 		if t == nil {
@@ -810,15 +842,27 @@ func (p *Proxy) addUpstreamTools(up *upstream, tools []*mcp.Tool) error {
 		if _, dup := p.routes[name]; dup {
 			return fmt.Errorf("proxy: tool name %q collides across upstreams", name)
 		}
+		schema := t.InputSchema
+		if p.gate != nil {
+			if named, closed := p.gate.Arguments(up.name, t.Name); closed {
+				var dropped []string
+				if schema, dropped = narrowSchema(schema, named); len(dropped) > 0 {
+					p.logger.Info("advertising only the arguments the profile names", "server", up.name, "tool", t.Name, "dropped", dropped)
+				}
+			}
+		}
 		exposed := &mcp.Tool{
 			Name:         name,
 			Title:        t.Title,
 			Description:  t.Description,
-			InputSchema:  t.InputSchema,
+			InputSchema:  schema,
 			OutputSchema: t.OutputSchema,
 			Annotations:  t.Annotations,
 		}
-		r := route{up: up, tool: t.Name}
+		r := route{up: up, tool: t.Name, readOnly: readOnly[t.Name]}
+		if t.Annotations != nil {
+			r.destructive = t.Annotations.DestructiveHint
+		}
 		if err := safeAddTool(p.server, exposed, p.handler(r)); err != nil {
 			p.logger.Warn("skipping upstream tool", "server", up.name, "tool", t.Name, "error", err)
 			continue
@@ -939,8 +983,10 @@ func (p *Proxy) Run(ctx context.Context, t mcp.Transport) error {
 	}
 	defer func() {
 		p.localMu.Lock()
+		key := p.locals[ss]
 		delete(p.locals, ss)
 		p.localMu.Unlock()
+		p.counters.forgetSession(key)
 	}()
 
 	// As mcp.Server.Run: wait for the session to end, or close it when ctx
@@ -1075,6 +1121,13 @@ type call struct {
 	// requestState fathomgate issued. Both are empty on a first call.
 	inputResponses mcp.InputResponseMap
 	requestState   string
+
+	// gated is set when the Gate let the call through; upArguments are then
+	// the arguments the upstream receives, re-encoded from the object the
+	// gate checked (reencode), never the agent's bytes. arguments stays as
+	// the agent sent it: the sealed requestState binds that (argsDigest).
+	gated       bool
+	upArguments json.RawMessage
 }
 
 // binding is the agent side a requestState issued for c is bound to, and
@@ -1149,12 +1202,15 @@ func newCall(ctx context.Context, r route, req *mcp.CallToolRequest) (call, int)
 	return c, ignored
 }
 
-// dispatch is the seam where the M1 pipeline plugs in. From M1 it runs
-// normalize, classify, inventory and policy.Evaluate on c, sequences the
-// obligations, and only then forwards; on the way back the result passes
-// through redact and audit. In M0 there is no policy: every call is
-// forwarded as is.
+// dispatch is the seam of the M1 pipeline (ADR 0026). With a Gate, every
+// call, first calls and MRTR retries alike, is decided before anything
+// reaches the upstream, and is forwarded only when the Verdict says so
+// (gate.go); M2 adds redaction on the way back, M4 the audit event. With no
+// Gate every call is forwarded as is (M0, serve --no-policy).
 func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, error) {
+	if p.gate != nil {
+		return p.gated(ctx, c)
+	}
 	return p.forward(ctx, c)
 }
 
@@ -1177,8 +1233,12 @@ func (p *Proxy) dispatch(ctx context.Context, c call) (*mcp.CallToolResult, erro
 func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error) {
 	up := c.up
 	params := &mcp.CallToolParams{Name: c.tool}
-	if len(c.arguments) > 0 && string(c.arguments) != "null" {
-		params.Arguments = c.arguments
+	args := c.arguments
+	if c.gated {
+		args = c.upArguments
+	}
+	if len(args) > 0 && string(args) != "null" {
+		params.Arguments = args
 	}
 	round, prompts := 0, 0
 	// Only a retry with fathomgate's requestState carries answers; newCall
@@ -1245,6 +1305,8 @@ func (p *Proxy) forward(ctx context.Context, c call) (*mcp.CallToolResult, error
 		reqs, r := relabelInputRequests(up.name, c.tool, res.InputRequests)
 		switch {
 		case r != nil:
+		case p.argumentsClosed(up.name, c.tool):
+			r = newRefusal(up.name, c.tool, "input_required", errPromptsUnchecked)
 		case !c.agent.canElicit:
 			r = newRefusal(up.name, c.tool, "elicitation", errNoFormElicitation)
 		case round >= maxInputRounds:

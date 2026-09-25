@@ -556,7 +556,7 @@ func TestAddUpstreamTools(t *testing.T) {
 				upstreams: map[string]*upstream{},
 				routes:    map[string]route{},
 			}
-			err := p.addUpstreamTools(&upstream{name: "s"}, tc.tools)
+			err := p.addUpstreamTools(&upstream{name: "s"}, tc.tools, nil)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("error %v, want %q", err, tc.wantErr)

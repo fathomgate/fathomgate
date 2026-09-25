@@ -149,6 +149,29 @@ func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
 	return d.verdict()
 }
 
+// Arguments reports the argument names server's profile names for tool
+// (ADR 0033, the named set), sorted, and whether the tool's argument list is
+// closed. It is closed whenever the server has a profile: a tool the profile
+// does not list is closed with no names, so every argument it is sent is
+// refused. With no profile nothing is closed and Decide checks no argument
+// names. The proxy uses it to drop from the inputSchema it advertises every
+// property Decide would refuse (ADR 0033 section 4).
+func (g *Gate) Arguments(server, tool string) (named []string, closed bool) {
+	profile := g.profiles[server]
+	if profile == nil {
+		return nil, false
+	}
+	spec, ok := profile.Tools[tool] // exact, as Decide looks it up
+	if !ok {
+		return nil, true
+	}
+	for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams, spec.Args} {
+		named = append(named, l...)
+	}
+	sort.Strings(named)
+	return slices.Compact(named), true
+}
+
 // resolve looks one name up in the inventory. The name is known only when
 // the record carries exactly the string the upstream receives (the static
 // resolver matches case-insensitively; a case variant may be a different

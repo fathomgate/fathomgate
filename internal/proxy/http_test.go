@@ -163,6 +163,8 @@ type httpSetup struct {
 	// beforeAdmit, if set, is Proxy.testHookBeforeAdmit, installed before
 	// the handler serves anything, like now.
 	beforeAdmit func()
+	// policy, if set, is Options.Gate.
+	policy Gate
 }
 
 type httpHarness struct {
@@ -192,7 +194,7 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	if _, err := up.Connect(ctx, pinServer(s.upstream, upSrvT), nil); err != nil {
 		t.Fatal(err)
 	}
-	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test", Logger: s.logger})
+	p, err := New(ctx, []Upstream{{Server: testServer, NewTransport: reuse(upCliT)}}, Options{Version: "test", Logger: s.logger, Gate: s.policy})
 	if err != nil {
 		t.Fatal(err)
 	}

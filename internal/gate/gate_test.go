@@ -702,13 +702,9 @@ func TestNoProfile(t *testing.T) {
 
 // TestClosedArgumentListHook: with the closed argument list (M1-35, PR
 // #161), an argument the profile does not name is default:bad_arguments,
-// never stripped and never named. It skips until classify.Result has
-// ArgumentsOK, and must pass from the moment it does.
+// never stripped and never named.
 func TestClosedArgumentListHook(t *testing.T) {
 	t.Parallel()
-	if !hasFindings() {
-		t.Skip("classify.Result has no UnnamedArgs yet (M1-35, PR #161)")
-	}
 	g := newGate(t, examplePolicy(t, "read-only"), false)
 	for _, args := range []map[string]any{
 		{"hostname": "lab-sw-01", "config_path": "/proc/self/environ"},
@@ -736,23 +732,6 @@ func TestClosedArgumentListHook(t *testing.T) {
 		if line := logLine(v); !strings.Contains(line, `"malformed_args":[`) {
 			t.Errorf("malformed %s: record %s", tc.tool, line)
 		}
-	}
-}
-
-func hasFindings() bool {
-	_, ok := reflect.TypeOf(classify.Result{}).FieldByName("UnnamedArgs")
-	return ok
-}
-
-// TestArgumentFindingsInert: until classify.Result has the fields the hook
-// refuses nothing, so today's behaviour is unchanged.
-func TestArgumentFindingsInert(t *testing.T) {
-	t.Parallel()
-	if hasFindings() {
-		t.Skip("classify.Result has UnnamedArgs; TestClosedArgumentListHook covers it")
-	}
-	if u, m := argumentFindings(classify.Result{}); u != nil || m != nil {
-		t.Errorf("hook found %q %q with no signal", u, m)
 	}
 }
 

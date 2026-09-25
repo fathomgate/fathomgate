@@ -13,8 +13,16 @@
 // error with structured data. The prefix rules are in
 // docs/specs/profile-schema.md section 8.
 //
-// There is no policy in M0. Every call goes through Proxy.dispatch, which is
-// where M1 plugs in normalize, classify, inventory and policy.Evaluate.
+// Policy (M1-19, ADR 0026): every call goes through Proxy.dispatch. With
+// [Options.Gate] set, the gate (internal/gate, through the plain-data types
+// of internal/gate/seam) decides it first, with the session counters the
+// proxy keeps, and the call is forwarded only when the verdict says so,
+// with the arguments re-encoded from the object the gate checked; otherwise
+// the agent gets the gate's one-line tool error and the upstream sees
+// nothing. Each call writes one Info decision line. With no gate every call
+// is forwarded as the agent sent it (M0, serve --no-policy). gate.go and
+// hints.go hold this; the proxy imports none of classify, inventory or
+// policy.
 //
 // Dual era (T0.3, ADR 0008): go-sdk negotiates each side's protocol version
 // on its own, stateful (2025-11-25, initialise handshake) or stateless
