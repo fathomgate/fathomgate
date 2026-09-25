@@ -63,7 +63,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | `Evaluate` | The pure function `Evaluate(policy, request) -> Decision`. |
 | Decision | The struct returned by `Evaluate`: effect, rule id, reason, obligations, approval, trace. |
 | Rule trace | The ordered list of rules evaluated and whether each matched; shown on denied and held calls. |
-| Normaliser | `internal/normalize`; turns raw arguments into `target`, `targets[]`, `commands[]`, `config_payload`. |
+| Normaliser | The stage that turns raw arguments into `target`, `targets[]`, `commands[]`, `config_payload` using the server profile: `classify.Normalize` for commands and payload, and `internal/gate` for targets at the proxy. There is no `internal/normalize` package. |
 | Classifier | `internal/classify`; assigns the class from profile, capability table or fallback, then applies downgrade and reclassification. |
 | Downgrade | `EXEC_ARBITRARY` becoming `READ_OPERATIONAL` because every command passed the allow-list, blocklist and pipe rules. |
 | Reclassify | A `READ_OPERATIONAL` free-form command becoming `READ_CONFIG` because it reads configuration. |

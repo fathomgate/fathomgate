@@ -62,7 +62,7 @@ These appear in the plan and the exporter mappings below but are not in the Go s
 One `call` record, a denied `reload`. Wrapped here for reading; on disk it is one line as `encoding/json` marshals the struct (struct field order, not sorted; sorting happens only inside the hash computation).
 
 ```json
-{"type":"call","event_id":"7f3a9c1e2b4d6f8091a2b3c4d5e6f708","seq":4182,"ts":"2026-09-23T14:02:11.417338201Z","principal":"josh","session_id":"s-2b9c","server":"upa-mcp-netmiko-server","tool":"send_command_and_get_output","class":"EXEC_ARBITRARY","args_sha256":"9f2c...e1","targets":["core-rtr-01"],"roles":["core"],"decision":"deny","rule_id":"no-exec","reason":"","obligations":[],"status":"denied","duration_ms":3,"redactions":0,"prev_hash":"a1c0...09","hash":"3f9a...c7"}
+{"type":"call","event_id":"7f3a9c1e2b4d6f8091a2b3c4d5e6f708","seq":4182,"ts":"2026-09-23T14:02:11.417338201Z","principal":"josh","session_id":"s-2b9c","server":"upa","tool":"send_command_and_get_output","class":"EXEC_ARBITRARY","args_sha256":"9f2c...e1","targets":["core-rtr-01"],"roles":["core"],"decision":"deny","rule_id":"no-exec","reason":"","obligations":[],"status":"denied","duration_ms":3,"redactions":0,"prev_hash":"a1c0...09","hash":"3f9a...c7"}
 ```
 
 (`reason` is `omitempty`, so an empty reason is absent on disk; it is shown here for completeness.)

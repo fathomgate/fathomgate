@@ -6,10 +6,10 @@ The 22 cases from [PLAN.md](../PLAN.md#test-matrix), plus row 23 from [ADR 0016]
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tools/list` passes through with server prefix | 2 | netdev-ssh-mcp | Tools appear as `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config`, and so on (the prefix is the profile `server` key) | M0 | passing (client-smoke CI, netdev-ssh-mcp v1.7.1 since T0.51; Claude Code 2.1.236 and Claude Desktop 2.7032.0 by hand with v1.6.6, 2026-09-23; see [run notes](#run-notes)) |
 | 2 | Dual-era handshake | 2 | netdev-ssh-mcp (go-sdk, 2026 era); upa/mcp-netmiko-server (FastMCP, 2025 era) | Both upstreams initialise; conformance suite green on the client-facing side | M0 | passing: netdev-ssh-mcp v1.7.1 initialises behind Fathomgate at 2026-07-28 (tier 2 CI run 36088442110, T0.51); upa/mcp-netmiko-server `96e8ff3` (tier 2 CI on `main` at `51921ed`, 2026-09-24) initialises at 2025-11-25 with mcp 1.30.0, for a 2025-11-25 agent and a 2026-07-28 agent, and at 2024-11-05 on its own `uv.lock` (mcp 1.6.0) after Fathomgate restarts it once and connects with `initialize` only ([ADR 0018](../adr/0018-bound-server-discover-then-initialize-only.md)); `mcp-conformance` green. See [run notes](#run-notes) |
-| 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed; classified `READ_OPERATIONAL`; rule `reads-anywhere` | M1 | planned |
-| 4 | `reload` via free-form command | 1, 2 | upa `send_command_and_get_output`; eos-mcp `run_command` | Denied by `no-exec`; tool error names the rule id | M1 | planned |
-| 5 | `show running-config` through free-form tool | 2 | ntunes `send_command` | Reclassified `READ_CONFIG`; output redacted; `class_source: reclassify` | M1, M2 | planned |
-| 6 | Unknown host | 1, 2 | netdev-ssh-mcp (free-form `host`) | Denied for every class, reads included, whether `defaults.unknown_target` is `deny` or unset (ADR 0032); audit event shows `unknown_target: true` and rule `default:unknown_target` (set by the policy's `defaults.unknown_target` key) | M1 | planned |
+| 3 | `show ip bgp summary` on lab device | 1, 2 | netdev-ssh-mcp `run_show_command` | Allowed by `reads-anywhere`; classified `READ_OPERATIONAL` with `class_source: profile`; the device runs it once; the decision log line has `decision=allow`, `rule_id=reads-anywhere`, `forwarded=true` | M1 | planned |
+| 4 | `reload` via free-form command | 1, 2 | upa/mcp-netmiko-server `send_command_and_get_output` (server key `upa`); eos-mcp `run_command` | Denied by `no-exec`; classified `EXEC_ARBITRARY` (the downgrade fails `blocklist`); the agent gets one tool error, `fathomgate denied <server>.<tool>: rule no-exec (class EXEC_ARBITRARY): <the rule's reason>` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md#the-deny-tool-error)); the device never receives `reload`; the decision log line has `forwarded=false` | M1 | planned |
+| 5 | `show running-config` through free-form tool | 1, 2 | M1: upa/mcp-netmiko-server `send_command_and_get_output`, eos-mcp `run_command`; M2: ntunes `send_command` | M1, classification: reclassified `READ_CONFIG` with `class_source: reclassify`, whatever spaces or tabs separate the words, so a policy that denies `READ_CONFIG` denies it. M2, redaction: the output reaches the agent redacted | M1 (classification), M2 (redaction) | planned |
+| 6 | Unknown host | 1, 2 | netdev-ssh-mcp (free-form `host`) | Denied by rule `default:unknown_target` for every class, reads included, whether the policy's `defaults.unknown_target` is `deny` or unset ([ADR 0032](../adr/0032-unset-unknown-target-denies-every-class.md)); the tool error ends `target not in inventory` and names no host; the device is never contacted; the decision log line has `unknown_target=true` and `forwarded=false`. M4: the audit event carries the same (`unknown_target: true`, [ADR 0027](../adr/0027-serve-policy-inventory-profiles-flags.md) keeps `--audit` refused until then) | M1 (tool error and log line), M4 (audit event) | planned |
 | 7 | Device tagged `lab`, config write | 2, 3 | eos-mcp `push_config` | Allowed with `dry_run` and `diff` obligations; commit timer set | M3 | planned |
 | 8 | Device role `core`, config write | 2, 3 | junos-mcp-server `load_and_commit_config` | Held; pending record created; diff shown; rule `prod-core-needs-approval` | M3 | planned |
 | 9 | Approve via CLI within TTL | 2 | junos-mcp-server | Executed once; audit carries `approver` and `approval_channel: cli` | M3 | planned |
@@ -144,8 +144,8 @@ One entry per run that changed a row's status or added evidence for it. A row be
 
 | Component | Cases |
 | --- | --- |
-| `internal/proxy` | 1, 2, 12, 16, 17, 22, 23 |
-| `internal/normalize` | 5, 6, 13, 18 |
+| `internal/proxy` | 1, 2, 3, 4, 6, 12, 16, 17, 22, 23 |
+| `internal/gate` (parse, normalise targets, classify, resolve, `Evaluate`, deny text) | 3, 4, 5, 6, 13 |
 | `internal/classify` | 3, 4, 5, 18 |
 | `internal/inventory` | 6, 7, 8, 14 |
 | `internal/policy` | 3, 4, 6, 7, 8, 13, 14 |
@@ -160,9 +160,9 @@ One entry per run that changed a row's status or added evidence for it. A row be
 | --- | --- |
 | netdev-ssh-mcp | 1, 2, 3, 6, 15, 21, 22, 23 |
 | junos-mcp-server | 8, 9, 10, 11, 12, 13, 15, 17 |
-| upa/mcp-netmiko-server | 2, 4 |
+| upa/mcp-netmiko-server | 2, 4, 5 |
 | ntunes/netmiko-mcp-server | 5, 13, 14 |
-| eos-mcp | 4, 7, 20 |
+| eos-mcp | 4, 5, 7, 20 |
 | Meraki official (fixture) | 18 |
 
 Palo-MCP and mcfortigate validate the M5 firewall drivers and profiles; their cases are added to this table when M5 starts.

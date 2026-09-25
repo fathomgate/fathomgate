@@ -80,7 +80,7 @@ sequenceDiagram
   participant Approver
   participant Up as junos-mcp-server
 
-  Agent->>Proxy: tools/call junos.load_and_commit_config {router_name: core-rtr-01, config_text}
+  Agent->>Proxy: tools/call junos-mcp-server.load_and_commit_config {router_name: core-rtr-01, config_text}
   Proxy->>Proxy: normalize -> target=core-rtr-01, config_payload
   Proxy->>Proxy: classify -> WRITE_CONFIG
   Proxy->>Inv: resolve core-rtr-01
