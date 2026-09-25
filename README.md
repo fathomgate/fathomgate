@@ -1,6 +1,8 @@
 # Fathomgate
 
-**A safety checkpoint between your AI assistant and your network.**
+**Safe passage for AI on your network.**
+
+Fathomgate is a safety checkpoint between your AI assistant and your network. Where it's headed, and how to help: [ROADMAP.md](ROADMAP.md).
 
 AI assistants such as Claude Code and Cursor can now work on routers, switches and firewalls. They do it through small plug-in programs called **MCP servers**: one might log in over SSH and run commands, another might talk to Junos or Arista EOS directly.
 

@@ -1,36 +1,79 @@
 # Roadmap
 
-Milestones from `docs/PLAN.md`, with the state of this tree. Each milestone
-is shippable and validated against at least one real upstream server before
-the next starts.
+**Safe passage for AI on your network.**
 
-| Milestone | Scope | Status |
-| --- | --- | --- |
-| **M1 building blocks** (this tree) | `internal/policy` DSL + `Evaluate` + `fathomgate policy test`; `internal/classify` profiles, normaliser and fallback command classifier; `internal/redact` vendor patterns with keyed HMAC and the fixture corpus; `internal/audit` hash chain, Ed25519 checkpoints and `audit verify`; `internal/inventory` static file, hostname patterns and CSV import; CLI, GoReleaser, Dockerfile, CI | done, no proxy yet |
-| **M0 pass-through** | Go proxy that spawns one stdio upstream, forwards `tools/list` and `tools/call` with the server prefix, speaks both the 2025 (stateful) and 2026 (stateless, MRTR) protocol eras | **in progress**: `go.mod` is on Go 1.26 (toolchain go1.26.8; ADR 0015) with `github.com/modelcontextprotocol/go-sdk` v1.8.0. `fathomgate serve` spawns one stdio upstream and forwards `tools/list` and `tools/call` with the `<server>.` prefix, pass-through only (T0.2). Dual-era negotiation, `_meta` isolation and origin-labelled MRTR and elicitation passthrough are merged (T0.3; [ADR 0014](docs/adr/0014-stateful-upstream-prompts-to-stateless-agents.md)). `make conformance` and the `mcp-conformance` CI job run the official suite for both eras with a per-check baseline (T0.4); open gaps are T0.17 to T0.19. Client smoke (T0.5) is next. |
-| M1 classify + allow/deny (wire-up) | Run the pipeline inside the proxy: normalise, classify, resolve, evaluate, structured deny errors that name the rule; upstream `INVENTORY_READ` as a resolver | after M0 |
-| M2 role-aware policy + redaction | NetBox and Nautobot resolver with TTL cache, `inventory sync` snapshot and `sot: stale` marking; redactor at the response serialiser; TOFU description pinning | `internal/inventory/netbox.go` is the stub |
-| M3 dry-run, diff, approval hold | `ChangeSafety` drivers for Junos and EOS; SQLite pending queue with TTL; `fathomgate approve`/`deny`; HMAC webhook; MRTR elicitation; drift guard | not started |
-| M4 audit chain + blast radius | Wire `internal/audit` into the proxy; OCSF and CEF exporters; session counters, fan-out caps, canary-first rule, maintenance windows | chain and verify done; exporters and wiring pending |
-| M5 console + watchdog drivers | Approval console (Fathom policy layer in `design/`); IOS-XE, NX-OS, PAN-OS, FortiOS drivers with proxy-owned rollback watchdog; optional OPA backend | not started |
+AI assistants can already log in to routers, read configs and push changes. That is going to be one of the most useful things to happen to network operations in years, and one of the riskiest. Today the only thing standing between an assistant and `reload` on a core router is whatever guardrails each MCP server's author thought to add, and most added none.
 
-## Unblocking M0
+Fathomgate is the missing layer. It sits between the assistant and every network MCP server you run, reads each request before it reaches a device, and decides: **allow** it, **hold** it for a person to approve, or **deny** it with the rule that said no. It masks secrets on the way back and keeps a record of every decision that shows if anyone has edited it.
 
-1. Done (T0.1, T0.14, ADR 0015): `go.mod` is on `go 1.26.0` with toolchain `go1.26.8`.
-2. Done (T0.1, ADR 0011): `github.com/modelcontextprotocol/go-sdk` is pinned to one minor, currently v1.8.
-3. Done (T0.2, T0.3): `internal/proxy` with `mcp.Server` toward the client,
-   one `mcp.Client` per upstream using `CommandTransport`, tool-name
-   prefixing and both protocol eras. The pipeline call goes in
-   `Proxy.dispatch` in M1.
-4. Done (T0.4): the official conformance suite runs against the
-   client-facing side for both eras (`make conformance`, CI job
-   `mcp-conformance`), with expected failures listed per check in
-   `tests/conformance/baseline/`. Progress relay (T0.17) and retry
-   handling (T0.18) close the remaining gaps for exit criterion 1.
-5. Client smoke (T0.5): un-skip `tests/integration/test_passthrough.py`.
+We want a future where connecting an AI assistant to a production network is as ordinary, and as safe, as giving a new engineer read-only access on their first day and change access once they've earned it.
 
-## Open questions
+## What we believe
 
-Tracked in `docs/PLAN.md` "Open questions and risks": project name, MRTR
-timing, stale-snapshot cap, key custody for the audit and redaction keys,
-IOS-XR and SR Linux in the first driver set, agentgateway ext-proc plugin.
+- **Guardrails belong in one place, not in every tool.** You shouldn't have to wait for twenty MCP servers to each add a read-only mode. Put Fathomgate in front of them all and write your rules once.
+- **Nothing reaches a device that your rules didn't allow.** When Fathomgate isn't sure what a request does, it treats it as risky, not safe.
+- **People stay in the loop for the changes that matter.** Reads flow freely. Config changes on production gear wait for a human, show them the diff first, and can roll themselves back.
+- **Every decision can be explained and proved.** Each refusal names its rule. The audit log is chained so an edited line gives itself away.
+- **The parts that keep you safe are open, and stay open.** Everything that decides what's allowed, or proves what happened, is Apache-2.0 and always will be. You can read it, audit it and run it yourself.
+
+## The journey
+
+Each stage ships something you can use, and each is tested against real network MCP servers before the next one starts. Most of the building blocks for later stages (the policy language, command classification, secret masking, the audit chain, device inventory) already exist in the tree and are waiting to be wired in.
+
+### 1. Pass-through (M0) — *nearly there*
+
+Fathomgate sits between Claude Code, Cursor or any other MCP client and a network MCP server, and forwards everything faithfully. It speaks both generations of the MCP protocol, the older one where connections keep state and the 2026 one where they don't, and passes the official MCP conformance suite, with every known gap written down and tracked. Tested against [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) and [mcp-netmiko-server](https://github.com/upa/mcp-netmiko-server).
+
+Left to do: an HTTP listener so remote agents can connect, and the first tagged release with binaries for Linux, macOS and Windows.
+
+### 2. Say no (M1) — *next*
+
+Your rules start to count. Fathomgate works out what each request really does (a read, a config change, an arbitrary command), which device it touches and what role that device plays, then allows or denies it. A denial tells the assistant which rule refused it, so the assistant can try something safer.
+
+**This is the stage where Fathomgate becomes useful on its own:** a proxy that lets an assistant look at everything and stops `reload` from ever reaching a device. We'll announce it here.
+
+### 3. Know your network (M2)
+
+Fathomgate learns device roles from wherever you keep them: a spreadsheet, a naming convention, the MCP server's own inventory, or NetBox and Nautobot. Passwords, keys and SNMP communities are masked in everything that comes back. And if an MCP server quietly changes what its tools claim to do, Fathomgate notices and stops trusting it.
+
+### 4. Ask first (M3)
+
+The heart of it. A config change on a production device is held. A person sees exactly what would change, approves or denies it from the command line or a webhook, and the change runs once. If the device's config changed in the meantime, it doesn't run at all. Changes can be applied with a timer that rolls them back unless someone confirms. First for Junos and Arista EOS.
+
+### 5. Prove it (M4)
+
+Every decision lands in a tamper-evident audit log that you can verify and hand to an auditor. Limits on how much an assistant can touch at once: no more than N devices per session, a canary device first, changes only in maintenance windows.
+
+### 6. See it (M5)
+
+A console to watch what assistants are doing and approve changes in one place. Safe-change drivers with automatic rollback for Cisco IOS-XE and NX-OS, Palo Alto PAN-OS and Fortinet FortiOS.
+
+## Beyond
+
+- **Every network MCP server, profiled.** A shared library that tells Fathomgate what each tool of each server really does. Anyone can contribute one.
+- **Policy packs you can drop in:** read-only everywhere, change freeze, lab-open and production-closed, follow-the-sun approvals.
+- **More vendors and more ways to change safely**, starting with the platforms the community runs.
+- **A standard shape for AI safety on networks** that MCP server authors can point to, instead of each building their own.
+
+## Come build it with us
+
+You don't need to know Go to make a real difference.
+
+- **Profile an MCP server you use.** Tell Fathomgate what each of its tools does. There's an [issue template](.github/ISSUE_TEMPLATE/upstream_server_profile.yml) for it, and it's the single most valuable thing you can give the project.
+- **Found a secret that wasn't masked?** Report it with the [redaction gap template](.github/ISSUE_TEMPLATE/redaction_gap.yml), with fake values please. Every vendor's config dialect has corners we haven't seen.
+- **Write a policy for how your team actually works** and share it in `policies/examples/`.
+- **Try it in your lab** (containerlab is perfect for this) and tell us what broke or what surprised you.
+- **Improve the docs.** If something here confused you, it will confuse the next person too.
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are under Apache-2.0 with a DCO sign-off (`git commit -s`), and everyone is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Open source, and how it's funded
+
+The core of Fathomgate (the proxy, the policy engine, classification, secret masking, approvals from the command line, the safe-change drivers and the audit log) is open source under Apache-2.0. Some conveniences that larger teams want, such as a web console, single sign-on, SIEM exporters and managed integrations, may become paid add-ons that fund the work. The rule we hold ourselves to: **anything that decides what's allowed, or proves what happened, stays open.** The reasoning is in [ADR 0020](docs/adr/0020-open-core-apache-2.md).
+
+## For the details
+
+- What's happening this week: [STATUS.md](STATUS.md)
+- The full plan, with exit criteria for every stage and the real servers each is tested against: [docs/PLAN.md](docs/PLAN.md)
+- Why things were decided the way they were: [docs/adr/](docs/adr/README.md)
+- Questions we haven't answered yet: [docs/PLAN.md](docs/PLAN.md#open-questions-and-risks)
