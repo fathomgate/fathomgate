@@ -505,12 +505,18 @@ func TestGateCountersStdio(t *testing.T) {
 // touched is decided once, with the key's count and a Counted that knows
 // the target, which the gate takes off the count.
 func TestGateDecidesOnce(t *testing.T) {
+	// The spy runs on the proxy's handler goroutines; the test reads what
+	// it recorded under the same lock.
+	var mu sync.Mutex
 	var raw []int
 	var known []bool
 	g := &fakeGate{decide: allowAll}
 	spy := &spyGate{fakeGate: g, before: func(in seam.CallInfo) {
+		c := in.Counted != nil && in.Counted("a-01")
+		mu.Lock()
+		defer mu.Unlock()
 		raw = append(raw, in.DevicesTouched)
-		known = append(known, in.Counted != nil && in.Counted("a-01"))
+		known = append(known, c)
 	}}
 	h := newEraHarness(t, eraSetup{agent: v2026, upstream: v2026, policy: spy})
 	for _, host := range []string{"a-01", "b-01", "a-01"} {
@@ -521,8 +527,11 @@ func TestGateDecidesOnce(t *testing.T) {
 	if n := len(g.all()); n != 3 {
 		t.Errorf("Decide ran %d times for 3 calls, want 3", n)
 	}
-	if !slices.Equal(raw, []int{0, 1, 2}) || !slices.Equal(known, []bool{false, true, true}) {
-		t.Errorf("raw devices_touched %v, a-01 counted %v; want [0 1 2], [false true true]", raw, known)
+	mu.Lock()
+	gotRaw, gotKnown := slices.Clone(raw), slices.Clone(known)
+	mu.Unlock()
+	if !slices.Equal(gotRaw, []int{0, 1, 2}) || !slices.Equal(gotKnown, []bool{false, true, true}) {
+		t.Errorf("raw devices_touched %v, a-01 counted %v; want [0 1 2], [false true true]", gotRaw, gotKnown)
 	}
 	if got := g.all()[2].DevicesTouched; got != 1 {
 		t.Errorf("third call: devices_touched after Counted %d, want 1", got)

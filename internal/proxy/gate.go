@@ -160,9 +160,11 @@ func (p *Proxy) decideLocked(ctx context.Context, c call, in seam.CallInfo, sc *
 	// (policy-schema 2). The gate takes a target this key has already
 	// touched off the count (CallInfo.Counted), so one Decide suffices
 	// (M1-39); before, the proxy decided a second time with the lower count.
+	// Counted reads sc.touched unlocked: that is safe because safeDecide
+	// calls Decide synchronously, here, with the key's lock held, and a gate
+	// must not keep Counted past the call (seam.CallInfo.Counted).
 	in.DevicesTouched, in.Counted = sc.touchedCount(), sc.counted
 	v, ok := p.safeDecide(ctx, in)
-	in.Counted = nil // valid only under the lock, during Decide
 	if !ok {
 		return decision{v: p.refusalVerdict(in, ruleInternalError, reasonInternalError, "")}
 	}
