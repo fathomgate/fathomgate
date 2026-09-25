@@ -9,10 +9,12 @@
 //
 //  1. StaticFile   inventory.yaml, or a CSV imported with ImportCSV
 //  2. Patterns     hostname regexes (^core-|^border- -> role core)
-//  3. (M1)         the upstream server's own INVENTORY_READ tools
+//  3. (M2)         the upstream server's own INVENTORY_READ tools
 //  4. NetBox       NetBox or Nautobot REST with a cached snapshot (stub)
 //
 // A name no provider resolves is unknown, and the policy's
-// defaults.unknown_target decides what happens to it. Names are compared
-// case-insensitively because device hostnames are.
+// defaults.unknown_target decides what happens to it. Resolvers compare
+// names case-insensitively; internal/gate then counts a target as known only
+// when the record's stored name is the exact string the upstream receives
+// (inventory-schema section 7).
 package inventory

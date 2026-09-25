@@ -37,9 +37,9 @@ There is no eighth class. A new kind of operation is mapped to one of these; a n
 | `downgrade` | An `EXEC_ARBITRARY` call whose every command passed section 5 is `READ_OPERATIONAL`. | yes |
 | `reclassify` | The commands moved the class anywhere else: an `EXEC_ARBITRARY` or `READ_OPERATIONAL` call whose commands read configuration is `READ_CONFIG` (section 6), and a `READ_OPERATIONAL` call whose command fails section 5 is `EXEC_ARBITRARY` (defence in depth against a server whose own filter is weaker than its tool name). | yes |
 | `capability_table` | Step 1 through a capability table. | no, M1-17 |
-| `annotation_raise` | Step 3 raised the class. | no, M1-18 (ADR 0026, proposed) |
+| `annotation_raise` | Step 3 raised the class, and no command moved it back (section 4). | by `internal/gate`, not by `Classify` |
 
-What the code does not do yet: step 2 has no fallback classifier (section 3), so a tool missing from the profile is `EXEC_ARBITRARY` and is never downgraded; step 3 has no annotation input; step 6 is M3 (section 7). Those three are stricter than the design.
+What the code does not do yet: step 2 has no fallback classifier (section 3), so a tool missing from the profile is `EXEC_ARBITRARY` and is never downgraded; step 3 runs in `internal/gate`, not in `Classify` (section 4); step 6 is M3 (section 7). The first and last are stricter than the design.
 
 The code is looser than the design in one place: it does not know the vendor, so a FortiOS `show` whose second word is not a config keyword (`show vpn ipsec phase1-interface`, `show user local`, both carrying `ENC` secrets) is `READ_OPERATIONAL` where the design's FortiOS allow-list makes it `EXEC_ARBITRARY`. The same holds on every vendor for operational commands that print secrets (IOS and NX-OS `show snmp community`, `show key chain`, `show crypto isakmp key`). This is accepted and open until the vendor reaches `Classify`, which needs a decision record. Until then the mitigation depends on M2: redaction MUST run on every tool result, whatever the class and whether or not a rule carries the `redact` obligation (invariant 4), not only on `READ_CONFIG` calls.
 
@@ -70,13 +70,13 @@ The fallback exists so a new upstream works on day one with deny-by-default beha
 | Annotation | Effect |
 | --- | --- |
 | `readOnlyHint: false` on a tool classed `READ_OPERATIONAL`, `READ_CONFIG` or `INVENTORY_READ` | Raise to `EXEC_ARBITRARY`; audit `class_source: annotation_raise` |
-| `destructiveHint: true` on a tool classed `READ_*` | Same |
+| `destructiveHint: true` on a tool classed `READ_OPERATIONAL`, `READ_CONFIG` or `INVENTORY_READ` | Same |
 | `readOnlyHint: true` on anything | No effect |
 | `destructiveHint: false` on anything | No effect |
 
 Annotations are untrusted by the spec. They are used only in the direction that cannot be abused by a malicious server.
 
-Not implemented yet: `Classify` has no annotation input. The input arrives with M1-18 through `internal/gate` (ADR 0026, proposed), and can only raise.
+`internal/gate` applies this table (ADR 0026 step 3); `Classify` itself has no annotation input. The test is on the profile's class, and the raise happens before the commands are inspected, as section 2 orders it: the gate classifies the call again as if the profile said `EXEC_ARBITRARY`. A raised tool with no commands is `EXEC_ARBITRARY` with `class_source: annotation_raise`; a raised tool whose commands all pass section 5 is downgraded like any `EXEC_ARBITRARY` tool (`class_source: downgrade`), because its commands were checked. An annotation is taken as sent: the gate's input distinguishes an absent annotation from an explicit `false` or `true`, and only the explicit value counts. go-sdk decodes an absent `readOnlyHint` as `false`, so how the proxy maps go-sdk's `ToolAnnotations` onto that input is decided in the wiring task (M1-19). The zero-target rule of [profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate) exempts a tool by its profile class, so a raised `INVENTORY_READ` tool is decided by the rules as `EXEC_ARBITRARY`.
 
 ## 5. `EXEC_ARBITRARY` downgrade
 

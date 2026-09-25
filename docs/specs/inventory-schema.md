@@ -10,7 +10,7 @@ Every provider returns the same shape.
 
 | Field | Type | Required | Values |
 | --- | --- | --- | --- |
-| `name` | string | yes | Canonical hostname as the upstream expects it. Matching is case-insensitive; the stored form is what the upstream receives. |
+| `name` | string | yes | Canonical hostname as the upstream expects it. Resolvers match case-insensitively (and duplicates are case-insensitive), but the proxy counts a target as known only when the name the agent sent equals the stored form byte for byte (section 7). |
 | `role` | string | yes | Free text; `core`, `border`, `access`, `firewall` are conventions, not an enum. `unknown` is reserved. |
 | `site` | string | no | Free text. |
 | `tags` | list of string | no | Free text. `lab`, `canary`, `change-frozen` are conventions used by the example policies. |
@@ -141,6 +141,7 @@ Platform mapping to `vendor`: NetBox `platform.slug` or `manufacturer.slug` are 
 - An unknown target has no role, so it never matches a `device_roles` rule, and a read to it is allowed only by a rule that matches on class alone (such as `reads-anywhere`). Operators who want reads to unknown targets denied set `unknown_target: deny`.
 - The audit event lists the target in `targets[]` with an empty entry in `roles[]`; an `unknown_target` flag is planned (M4).
 - A free-form `host` value that is an IP address is looked up as a name first; if no provider matches, it is `unknown`. There is no implicit IP-to-name resolution through DNS, because DNS is not a source of truth.
+- Matching at the proxy is exact ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). `internal/gate` looks the name up as sent and counts it as known only when the record's stored name is the same string, case included, and the record did not come from a hostname pattern alone ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md)). `CORE-rtr-01`, ` core-rtr-01` and `core-rtr-01.corp.example` are not `core-rtr-01`: the first and last are `unknown`, the second is refused as a bad argument. DNS would treat the case variant as the same host, but an upstream that keys its own device table by name may not, and fathomgate cannot tell which the upstream does, so it fails closed. An operator who needs two spellings lists both.
 
 ## 8. Expansion before resolution
 
@@ -155,6 +156,8 @@ Platform mapping to `vendor`: NetBox `platform.slug` or `manufacturer.slug` are 
 | Empty with `targets_all_when_empty` (planned profile field) | `hostnames: null` | Every device the upstream inventory lists |
 
 After expansion, `targets_count` in `when` conditions is the expanded count, so a fan-out cap sees the real blast radius.
+
+In M1 there is no upstream inventory provider, so only the first two rows apply, and a CSV string is split but not trimmed (`"r1, r2"` is refused). A group token or a tag selector on a tool that reaches devices is refused with `default:bad_arguments`, and so is an empty selection on such a tool ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). The proxy never expands a group or tag from its own inventory for an upstream that expands it itself: the upstream's idea of the group is what reaches devices.
 
 ## 9. CLI
 

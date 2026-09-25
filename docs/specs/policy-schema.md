@@ -146,7 +146,9 @@ type Decision struct {
 }
 ```
 
-Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`.
+Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`, and `default:bad_arguments` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)). `Evaluate` never returns `default:bad_arguments`: `internal/gate` produces it before `Evaluate` runs, for arguments that are not one JSON object (or give a key twice, or are not UTF-8), a target that is not a hostname or IP literal, a tool with a target source called with no target or with a tag or group selector ([profile-schema section 2.1](profile-schema.md#21-normalisation-rules)), and an argument the profile does not name for the tool (board task M1-35). A policy rule may not use the `default:` prefix.
+
+The agent never sees `Evaluate`'s own reasons for the `default:` ids, which name targets and counts. `internal/gate` gives each a fixed text: `default:unknown_target` is "target not in inventory", `default:session.max_devices` "this session would touch more devices than its cap allows", `default:session.max_pending` "this session already has as many held calls as its cap allows", `default:no-match` "no rule matched" (or "no policy loaded"). A rule with no `reason` is shown as "the policy does not allow this call". The one-line tool error shape is in [profile-schema section 8.2](profile-schema.md#82-errors-toward-the-agent) and ADR 0026.
 
 `expired` is a fourth decision word that appears in the audit log and console. It is never returned by `Evaluate`; it is produced by the approval store when a hold's TTL elapses.
 
