@@ -1,0 +1,16 @@
+# ADR 0031 tests 7 and 8: hostname patterns that only enrich listed devices.
+# lab-sw-09 is listed with no tags and gets lab from ^lab-; core-rtr-09 is
+# listed with no role and gets core from ^core-. lab-ghost-99 and
+# core-x.attacker.example match a pattern but are not listed, so they are
+# unknown.
+devices:
+  - name: lab-sw-09
+    role: access
+  - name: core-rtr-09
+    site: dfw1
+    tags: [prod]
+roles:
+  - match: "^lab-"
+    tags: [lab]
+  - match: "^core-|^border-"
+    role: core

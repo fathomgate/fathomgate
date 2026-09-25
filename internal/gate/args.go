@@ -168,6 +168,16 @@ func targets(spec classify.ToolSpec, args map[string]any) (names []string, group
 // maxNameLen is the longest DNS name in text form.
 const maxNameLen = 253
 
+// ValidTargetName reports whether the gate accepts s as a target name. A
+// name it refuses is denied with default:bad_arguments before resolution, so
+// fathomgate policy eval applies the same check to --target, and fathomgate
+// inventory lint flags a listed device with such a name as unreachable.
+func ValidTargetName(s string) bool { return validTargetName(s) }
+
+// ReasonBadTarget is the reason the gate gives when ValidTargetName refuses
+// a target.
+const ReasonBadTarget = reasonBadTarget
+
 // validTargetName reports whether s is a hostname or an IP literal, byte for
 // byte as the upstream will receive it.
 //
