@@ -105,9 +105,14 @@ def test_handoff_name_accepts_hyphen_and_dot_task_ids(name, parsed):
     assert load_render().parse_handoff_name(name) == parsed
 
 
-def test_every_existing_note_parses_as_the_dot_only_pattern_did():
+def test_every_dot_form_note_parses_as_the_dot_only_pattern_did():
+    # Every note on disk that is not named with a hyphenated id (the notes
+    # written before M1-31, and README.md and _template.md) parses exactly
+    # as before, so render.py --check output is unchanged for them.
     render = load_render()
     for p in sorted(render.HANDOFFS.glob("*.md")):
+        if render.HANDOFF_HYPHEN_RE.match(p.name):
+            continue
         m = render.HANDOFF_RE.match(p.name)
         assert render.parse_handoff_name(p.name) == (m.groups() if m else None), p.name
 
