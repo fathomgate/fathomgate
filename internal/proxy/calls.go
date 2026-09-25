@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -37,6 +38,10 @@ type callLimits struct {
 	closed     bool
 	sessions   map[*mcp.ServerSession]*sessionCalls
 	principals map[string]int
+	// retired holds the stateful sessions fathomgate is closing (evicted at
+	// the session cap, or expired): admit refuses every call on them
+	// (claimIdle, retire). An entry is dropped when its session ends.
+	retired map[*mcp.ServerSession]struct{}
 	// wg tracks the goroutines that wait for a stateful session to end
 	// (httpHandler.settleSession); Proxy.Close joins them. Add happens only
 	// under mu while closed is false, so it never races with Wait.
@@ -63,6 +68,7 @@ func newCallLimits(perSession, perPrincipal int) *callLimits {
 		perPrincipal: perPrincipal,
 		sessions:     make(map[*mcp.ServerSession]*sessionCalls),
 		principals:   make(map[string]int),
+		retired:      make(map[*mcp.ServerSession]struct{}),
 	}
 }
 
@@ -70,18 +76,23 @@ func newCallLimits(perSession, perPrincipal int) *callLimits {
 // context (ctx, also cancelled by cancelSession and close) and the release
 // function the caller must run when the call ends; refused is nil. On
 // refusal it returns the tool error to send instead, and the call never
-// reaches the upstream. tool is the prefixed name, for the error text.
-func (l *callLimits) admit(ctx context.Context, principal string, ss *mcp.ServerSession, tool string) (context.Context, func(), *mcp.CallToolResult) {
+// reaches the upstream; why is errSessionRetired when the session is being
+// closed (the call arrived on a session evicted or expired while go-sdk was
+// delivering it), and nil for the other refusals. tool is the prefixed
+// name, for the error text.
+func (l *callLimits) admit(ctx context.Context, principal string, ss *mcp.ServerSession, tool string) (_ context.Context, _ func(), refused *mcp.CallToolResult, why error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	sc := l.sessions[ss]
 	switch {
 	case l.closed:
-		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: fathomgate is shutting down", tool))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: fathomgate is shutting down", tool)), nil
+	case l.isRetired(ss):
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %s", tool, errSessionRetired)), errSessionRetired
 	case sc != nil && len(sc.calls) >= l.perSession:
-		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight on this session (limit %d); retry when one finishes", tool, len(sc.calls), l.perSession))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight on this session (limit %d); retry when one finishes", tool, len(sc.calls), l.perSession)), nil
 	case l.principals[principal] >= l.perPrincipal:
-		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight for principal %s (limit %d); retry when one finishes", tool, l.principals[principal], principal, l.perPrincipal))
+		return nil, nil, toolError(fmt.Sprintf("fathomgate refused %s: %d calls are already in flight for principal %s (limit %d); retry when one finishes", tool, l.principals[principal], principal, l.perPrincipal)), nil
 	}
 	if sc == nil {
 		sc = &sessionCalls{principal: principal, calls: make(map[*admittedCall]struct{})}
@@ -106,7 +117,22 @@ func (l *callLimits) admit(ctx context.Context, principal string, ss *mcp.Server
 			}
 		})
 	}
-	return cctx, release, nil
+	return cctx, release, nil, nil
+}
+
+// errSessionRetired is the reason admit gives for a call on a session
+// fathomgate is closing. It is a sentinel so Proxy.handler can log the
+// refusal as what it is, not as a call cap.
+var errSessionRetired = errors.New("its agent session has been closed (evicted at the session cap or idle); start a new session and call again")
+
+// isRetired reports whether ss is being closed by fathomgate. Callers hold
+// l.mu. A nil session (no agent session) is never retired.
+func (l *callLimits) isRetired(ss *mcp.ServerSession) bool {
+	if ss == nil {
+		return false
+	}
+	_, ok := l.retired[ss]
+	return ok
 }
 
 // cancelSession cancels every call in flight on the stateful session whose
@@ -133,15 +159,63 @@ func (l *callLimits) cancelSession(sessionID, principal string) int {
 	return n
 }
 
-// busy reports whether ss has a call in flight. The session cap's eviction
-// (httpHandler.reserveSession) never takes a session that has one: a
-// 2025-era call keeps running after its POST is dropped, and evicting its
-// session would cancel it.
+// busy reports whether ss has a call in flight, for the log line of a
+// session-cap refusal. Eviction does not use it: it claims the session
+// with claimIdle, which checks and retires in one step.
 func (l *callLimits) busy(ss *mcp.ServerSession) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	sc := l.sessions[ss]
 	return sc != nil && len(sc.calls) > 0
+}
+
+// claimIdle retires ss if it has no call in flight and reports whether it
+// did (T0.57, the session cap's eviction). The check and the retirement
+// happen under one lock, so no call can be admitted in between: a
+// tools/call go-sdk has delivered but that has not reached admit yet (its
+// agent dropped the POST, so the session looked idle) is refused by admit
+// once it gets there, and never reaches the upstream. Callers may hold
+// httpHandler.mu (lock order: httpHandler.mu, then callLimits.mu).
+func (l *callLimits) claimIdle(ss *mcp.ServerSession) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if sc := l.sessions[ss]; sc != nil && len(sc.calls) > 0 {
+		return false
+	}
+	if ss != nil {
+		l.retired[ss] = struct{}{}
+	}
+	return true
+}
+
+// retire retires ss and cancels its calls in flight, in one step, and
+// returns how many it cancelled: the idle expiry (liveSession.expire)
+// closes the session whatever it is running, and a call admitted after the
+// cancellation would otherwise run on a closing session, which go-sdk's
+// Close then waits for, with no idle clock left to cancel it.
+func (l *callLimits) retire(ss *mcp.ServerSession) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if ss != nil {
+		l.retired[ss] = struct{}{}
+	}
+	n := 0
+	if sc := l.sessions[ss]; sc != nil {
+		for a := range sc.calls {
+			a.cancel()
+			n++
+		}
+	}
+	return n
+}
+
+// forget drops ss from the retired set once the session has ended
+// (settleSession's watcher), so the set holds only sessions go-sdk has not
+// finished closing.
+func (l *callLimits) forget(ss *mcp.ServerSession) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.retired, ss)
 }
 
 // track runs fn on a goroutine that Proxy.Close waits for, unless the

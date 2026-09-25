@@ -4,12 +4,16 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Session-cap eviction (T0.57; ADR 0016 amendment of 2026-09-25,
@@ -82,15 +86,17 @@ func sessionCounts(h *httpHarness, sid string) (live, evicted bool, gets, posts 
 }
 
 // openGET opens a GET stream on sid and waits until the listener counts
-// it. The stream closes when the test ends.
-func openGET(t *testing.T, h *httpHarness, token []byte, sid string) {
+// it. It returns the function that closes the stream and waits for the
+// listener to count it closed; the stream also closes when the test ends.
+func openGET(t *testing.T, h *httpHarness, token []byte, sid string) (closeGET func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	t.Cleanup(func() {
+	stop := func() {
 		cancel()
 		<-done
-	})
+	}
+	t.Cleanup(stop)
 	hdr := map[string]string{"Mcp-Protocol-Version": v2025, "Mcp-Session-Id": sid}
 	go func() {
 		defer close(done)
@@ -103,6 +109,14 @@ func openGET(t *testing.T, h *httpHarness, token []byte, sid string) {
 		_, _, gets := sessionState(h, sid)
 		return gets == 1
 	})
+	return func() {
+		t.Helper()
+		stop()
+		waitFor(t, "the GET stream to be counted closed", func() bool {
+			_, _, gets := sessionState(h, sid)
+			return gets == 0
+		})
+	}
 }
 
 func TestHTTPSessionCapEviction(t *testing.T) {
@@ -115,7 +129,8 @@ func TestHTTPSessionCapEviction(t *testing.T) {
 		s1 := rawSession(t, h, tokAlice)
 		s2 := rawSession(t, h, tokAlice)
 		// s1 is used after s2 was opened, so s2 is the least recently used.
-		time.Sleep(20 * time.Millisecond)
+		// The order is a sequence, not a clock reading, so no sleep is needed
+		// even where the clock is coarse (Windows).
 		if st := pingSession(t, h, tokAlice, s1); st != http.StatusOK {
 			t.Fatalf("ping s1: %d", st)
 		}
@@ -141,6 +156,22 @@ func TestHTTPSessionCapEviction(t *testing.T) {
 		buf.waitFor(t, "agent session evicted")
 		if logs := buf.String(); !strings.Contains(logs, "session="+shortHash(s2)) || strings.Contains(logs, s2) {
 			t.Fatalf("the eviction line must name s2 by its hash only:\n%s", logs)
+		}
+	})
+
+	t.Run("a closed GET stream counts as a use", func(t *testing.T) {
+		h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{MaxSessionsPerPrincipal: 2}})
+		s1 := rawSession(t, h, tokAlice)
+		s2 := rawSession(t, h, tokAlice)
+		// s1's stream closes after s2 was opened, so s2 is the least
+		// recently used although s1 was opened first.
+		openGET(t, h, tokAlice, s1)()
+		rawSession(t, h, tokAlice)
+		if st := pingSession(t, h, tokAlice, s2); st != http.StatusNotFound {
+			t.Fatalf("s2 answered %d, want 404 (evicted)", st)
+		}
+		if st := pingSession(t, h, tokAlice, s1); st != http.StatusOK {
+			t.Fatalf("s1 answered %d; its closed stream should have made it the more recent", st)
 		}
 	})
 
@@ -275,8 +306,9 @@ func TestEvictedSessionRefusedBeforeSDK(t *testing.T) {
 		sessionsPerPrincipal: map[string]int{"alice": 1},
 		sessions:             1,
 		live:                 make(map[string]*liveSession),
-		early:                make(map[earlyPOST]int),
-		earlyGets:            make(map[earlyPOST]int),
+		early:                make(map[earlySession]int),
+		earlyGets:            make(map[earlySession]int),
+		capLog:               make(map[string]*capLogState),
 	}
 	slot := &sessionSlot{h: hd, principal: "alice"}
 	ls := &liveSession{h: hd, sid: "s1", principal: "alice", slot: slot}
@@ -290,8 +322,11 @@ func TestEvictedSessionRefusedBeforeSDK(t *testing.T) {
 		t.Fatalf("after eviction: %d sessions, %d for alice; want the slot released", sessions, alice)
 	}
 	slot.release() // the session's own end later: a no-op
-	if hd.sessions != 0 {
-		t.Fatalf("a second release changed the count to %d", hd.sessions)
+	hd.mu.Lock()
+	sessions = hd.sessions
+	hd.mu.Unlock()
+	if sessions != 0 {
+		t.Fatalf("a second release changed the count to %d", sessions)
 	}
 	if _, ok := hd.beginPOST("s1", "alice"); ok {
 		t.Fatal("a POST on the evicted session was let through")
@@ -326,8 +361,9 @@ func TestGETBeforeRegistration(t *testing.T) {
 		logger:    p.logger,
 		opts:      HTTPOptions{SessionTimeout: time.Hour},
 		live:      make(map[string]*liveSession),
-		early:     make(map[earlyPOST]int),
-		earlyGets: make(map[earlyPOST]int),
+		early:     make(map[earlySession]int),
+		earlyGets: make(map[earlySession]int),
+		capLog:    make(map[string]*capLogState),
 	}
 	endAlice, ok := hd.beginGET("s1", "alice")
 	if !ok {
@@ -338,11 +374,11 @@ func TestGETBeforeRegistration(t *testing.T) {
 	hd.register(ls)
 	ls.arm()
 	defer ls.stop()
-	if _, idle := ls.idleSince(); idle {
+	if _, _, idle := ls.idleState(); idle {
 		t.Fatal("a session with a GET stream opened before registration reads as idle")
 	}
 	endAlice()
-	if _, idle := ls.idleSince(); !idle {
+	if _, _, idle := ls.idleState(); !idle {
 		t.Fatal("the session is not idle after its only stream closed")
 	}
 	endBob()
@@ -355,4 +391,212 @@ func TestGETBeforeRegistration(t *testing.T) {
 	if left != 0 || gets != 0 {
 		t.Fatalf("%d early GET entries left and %d GETs on the session; want none", left, gets)
 	}
+}
+
+// admitGate holds a tool call in Proxy.handler after go-sdk has delivered it
+// and before callLimits.admit (Proxy.testHookBeforeAdmit): the window in
+// which the agent can drop its POST, leaving a session that looks idle with
+// a call about to start on it.
+type admitGate struct {
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newAdmitGate(t *testing.T) *admitGate {
+	g := &admitGate{reached: make(chan struct{}, 4), release: make(chan struct{})}
+	// Registered before the harness, so it runs after the proxy has closed
+	// and no handler is left waiting at the gate.
+	t.Cleanup(g.open)
+	return g
+}
+
+func (g *admitGate) hook() {
+	g.reached <- struct{}{}
+	<-g.release
+}
+
+func (g *admitGate) open() { g.once.Do(func() { close(g.release) }) }
+
+// deliverAndDrop sends a tools/call for "block" on session sid, waits until
+// go-sdk has delivered it to the proxy's handler (held at the gate), then
+// drops the POST, so the session has no POST in progress and no admitted
+// call: it looks idle.
+func deliverAndDrop(t *testing.T, h *httpHarness, g *admitGate, sid string) {
+	t.Helper()
+	ctx, drop := context.WithCancel(context.Background())
+	body, hdr := call2025(sid, "netdev-ssh-mcp.block", "")
+	posted := make(chan struct{})
+	go func() {
+		defer close(posted)
+		if resp, err := h.raw.Do(h.request(ctx, "POST", tokAlice, hdr, body)); err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+	recvOrFail(t, g.reached, "the call to be delivered to the proxy's handler")
+	drop()
+	<-posted
+	waitFor(t, "the dropped POST to end", func() bool {
+		_, _, _, posts := sessionCounts(h, sid)
+		return posts == 0
+	})
+	if n := h.proxy.limits.Load().inFlight(); n != 0 {
+		t.Fatalf("%d calls admitted before the gate opened, want none", n)
+	}
+}
+
+// assertRefusedBeforeUpstream opens the gate and checks that the held call
+// is refused as a call on a retired session and never reaches the upstream.
+func assertRefusedBeforeUpstream(t *testing.T, h *httpHarness, g *admitGate, hooks *blockHooks, buf *syncBuffer) {
+	t.Helper()
+	g.open()
+	buf.waitFor(t, "call refused: its agent session is being closed")
+	select {
+	case <-hooks.blocked:
+		t.Fatal("a call on a retired session reached the upstream")
+	default:
+	}
+	if n := h.proxy.limits.Load().inFlight(); n != 0 {
+		t.Fatalf("%d calls in flight after the refusal, want none", n)
+	}
+}
+
+// TestEvictionRefusesUnadmittedCall is the admission race in the reviews of
+// PR #121: go-sdk has delivered a tools/call but the handler has not reached
+// admit, and the agent has dropped the POST. The session looks idle, a new
+// initialise evicts it, and without the claim the call would then be
+// admitted and run on a closed session with no idle clock while its slot
+// served another session. claimIdle retires the session in the same step
+// as it checks for calls, so admit refuses the call and nothing reaches the
+// upstream.
+func TestEvictionRefusesUnadmittedCall(t *testing.T) {
+	hooks := &blockHooks{blocked: make(chan struct{}, 4), cancelled: make(chan struct{}, 4)}
+	gate := newAdmitGate(t)
+	buf := newSyncBuffer()
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	h := newHTTPHarness(t, httpSetup{hooks: hooks, logger: logger, beforeAdmit: gate.hook, opts: HTTPOptions{MaxSessionsPerPrincipal: 1}})
+
+	s1 := rawSession(t, h, tokAlice)
+	deliverAndDrop(t, h, gate, s1)
+	rawSession(t, h, tokAlice) // evicts s1, the call on it still at the gate
+	// s1 is evicted: still listed while go-sdk's Close waits on the held
+	// call, or already gone.
+	if live, evicted, _ := sessionState(h, s1); live && !evicted {
+		t.Fatal("s1 was not evicted")
+	}
+	assertRefusedBeforeUpstream(t, h, gate, hooks, buf)
+}
+
+// TestIdleExpiryRefusesUnadmittedCall: the same window at the idle expiry.
+// liveSession.expire retires the session as it cancels its calls, so a call
+// delivered before and admitted after is refused rather than run on a
+// session that is closing with no idle clock left to cancel it.
+func TestIdleExpiryRefusesUnadmittedCall(t *testing.T) {
+	hooks := &blockHooks{blocked: make(chan struct{}, 4), cancelled: make(chan struct{}, 4)}
+	gate := newAdmitGate(t)
+	buf := newSyncBuffer()
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	h := newHTTPHarness(t, httpSetup{hooks: hooks, logger: logger, beforeAdmit: gate.hook, opts: HTTPOptions{SessionTimeout: 200 * time.Millisecond}})
+
+	s1 := rawSession(t, h, tokAlice)
+	deliverAndDrop(t, h, gate, s1)
+	buf.waitFor(t, "agent session idle; closing it")
+	assertRefusedBeforeUpstream(t, h, gate, hooks, buf)
+}
+
+// TestEvictedSessionOrphanStillBlocks (L1 in the security review of PR
+// #121): an agent's session S1 ends a call on a stateful upstream, the agent
+// restarts, and its new initialise evicts S1. S2, same principal, is then
+// the only session with a call in flight when the upstream sends
+// elicitation/create for S1's call. Evicting S1 must not clear its ended
+// call: the prompt is refused (errEndedElsewhere) until OrphanTTL, and
+// neither human sees it.
+func TestEvictedSessionOrphanStillBlocks(t *testing.T) {
+	o := newOrphanHooks(t)
+	h := newHTTPHarness(t, httpSetup{upstream: v2025, extra: o.tools, opts: HTTPOptions{MaxSessionsPerPrincipal: 1}})
+	up := h.proxy.upstreams[testServer]
+
+	s1 := rawSession(t, h, tokAlice) // no GET stream: evictable once idle
+	body, hdr := call2025(s1, "netdev-ssh-mcp.late", "")
+	if resp, reply := h.do(t, h.request(context.Background(), "POST", tokAlice, hdr, body)); resp.StatusCode != http.StatusOK || !strings.Contains(reply, "late done") {
+		t.Fatalf("S1's call: status %d, body %q", resp.StatusCode, clip(reply))
+	}
+	waitFor(t, "the proxy to record S1's ended call", func() bool {
+		n, idle := orphans(up)
+		return n == 1 && idle
+	})
+
+	prompts := &promptRecorder{answer: "FAKE-alice-yes"}
+	s2 := h.connect(t, v2025, tokAlice, prompts.opts()) // the restarted agent
+	if st := pingSession(t, h, tokAlice, s1); st != http.StatusNotFound {
+		t.Fatalf("S1 answered %d after S2's initialise, want 404 (evicted)", st)
+	}
+	if n, _ := orphans(up); n != 1 {
+		t.Fatalf("%d orphans after the eviction, want S1's one", n)
+	}
+
+	type out struct {
+		res *mcp.CallToolResult
+		err error
+	}
+	done := make(chan out, 1)
+	go func() {
+		res, err := s2.CallTool(context.Background(), &mcp.CallToolParams{Name: "netdev-ssh-mcp.b_work"})
+		done <- out{res, err}
+	}()
+	recvOrFail(t, o.bStarted, "S2's call to reach the upstream")
+
+	now := time.Now()
+	if f, err := attributed(up, now); f != nil || !errors.Is(err, errEndedElsewhere) {
+		t.Fatalf("with S1's ended call live: %v, %v; want errEndedElsewhere", f, err)
+	}
+	if f, err := attributed(up, now.Add(defaultOrphanTTL+time.Second)); f == nil || err != nil {
+		t.Fatalf("after OrphanTTL: %v, %v; want S2's call", f, err)
+	}
+
+	o.free()
+	var ans orphanAnswer
+	select {
+	case ans = <-o.answer:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the upstream's prompt was not answered or refused")
+	}
+	if ans.err == nil || !strings.Contains(ans.err.Error(), "ended recently") {
+		t.Fatalf("the upstream's prompt for S1's call: %+v, %v; want the orphan refusal", ans.res, ans.err)
+	}
+	if got := prompts.prompts(); len(got) != 0 {
+		t.Fatalf("the restarted agent's human was shown %q, the prompt of its earlier session's call", got)
+	}
+	o.bRelease <- struct{}{}
+	var b out
+	select {
+	case b = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("S2's call did not return")
+	}
+	if b.err != nil || b.res.IsError || !strings.Contains(text(b.res), "has ended recently") {
+		t.Fatalf("S2's call: %v %q; want its result with the refusal note", b.err, text(b.res))
+	}
+}
+
+// TestCapLogPerPrincipal: the session-cap refusal line is rate-limited per
+// principal, so one principal's refusals never hide another's, and the next
+// line for a principal reports how many were held back.
+func TestCapLogPerPrincipal(t *testing.T) {
+	hd := &httpHandler{capLog: make(map[string]*capLogState)}
+	t0 := time.Unix(1_000_000, 0)
+	step := func(principal string, at time.Time, wantLog bool, wantSuppressed int) {
+		t.Helper()
+		ok, n := hd.capLogAllowLocked(principal, at)
+		if ok != wantLog || n != wantSuppressed {
+			t.Fatalf("%s at +%s: log %v, suppressed %d; want %v and %d", principal, at.Sub(t0), ok, n, wantLog, wantSuppressed)
+		}
+	}
+	step("alice", t0, true, 0)
+	step("alice", t0.Add(capLogInterval/2), false, 0)
+	step("alice", t0.Add(capLogInterval/2), false, 0)
+	step("bob", t0.Add(capLogInterval/2), true, 0) // alice's limit does not hold bob back
+	step("alice", t0.Add(capLogInterval), true, 2)
+	step("alice", t0.Add(3*capLogInterval), true, 0)
 }

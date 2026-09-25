@@ -334,7 +334,7 @@ func TestPOSTBeforeRegistration(t *testing.T) {
 		logger: p.logger,
 		opts:   HTTPOptions{SessionTimeout: time.Hour},
 		live:   make(map[string]*liveSession),
-		early:  make(map[earlyPOST]int),
+		early:  make(map[earlySession]int),
 	}
 	active := func(ls *liveSession) (int, bool) {
 		ls.mu.Lock()

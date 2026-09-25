@@ -160,6 +160,9 @@ type httpSetup struct {
 	// now, if set, is the proxy's clock. It is installed before the
 	// handler serves anything, so no request can race with it.
 	now func() time.Time
+	// beforeAdmit, if set, is Proxy.testHookBeforeAdmit, installed before
+	// the handler serves anything, like now.
+	beforeAdmit func()
 }
 
 type httpHarness struct {
@@ -196,6 +199,7 @@ func newHTTPHarness(t *testing.T, s httpSetup) *httpHarness {
 	if s.now != nil {
 		p.now = s.now
 	}
+	p.testHookBeforeAdmit = s.beforeAdmit
 	opts := s.opts
 	if opts.Tokens == nil {
 		opts.Tokens = map[string][]byte{"alice": tokAlice, "bob": tokBob, "carol": tokCarol}
