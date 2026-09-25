@@ -3,7 +3,7 @@
 - **Task:** M1-17, Meta-tool classification through capability tables (Meraki execute_api)
 - **From → To:** policy-engineer → security-reviewer (go-reviewer and upstream-server-scout also review)
 - **State now:** in review
-- **Branch / PR:** `feat/capability-tables` · PR opened from this branch (link in the PR list; this note is in it)
+- **Branch / PR:** `feat/capability-tables` · [PR #196](https://github.com/fathomgate/fathomgate/pull/196)
 - **Date:** 2026-09-25
 
 ## Done
