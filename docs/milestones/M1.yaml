@@ -74,10 +74,10 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in review
+    state: merged
     matrix: [2]
     spec: docs/specs/profile-schema.md
-    notes: 'Carried from T0.47. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit. Kickoff 2026-09-25: The upstream era also goes into the M1 decision log line (ADR 0026), so this lands before M1-19. make conformance required (internal/proxy). PR #151 2026-09-25: the era follows the handshake (initialize ran -> stateful), new upstream.era set once at connect. Security and Go reviews approve; one docs round in progress (F1: era is a label, never a capability; threat-model rows). Security ruling on the author''s question: refuse a hybrid upstream at startup, in M1-32.'
+    notes: 'Carried from T0.47. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit. Kickoff 2026-09-25: The upstream era also goes into the M1 decision log line (ADR 0026), so this lands before M1-19. make conformance required (internal/proxy). PR #151 2026-09-25: the era follows the handshake (initialize ran -> stateful), new upstream.era set once at connect. Security and Go reviews approve; one docs round in progress (F1: era is a label, never a capability; threat-model rows). Security ruling on the author''s question: refuse a hybrid upstream at startup, in M1-32. Merged in PR #151 2026-09-25.'
   - id: M1-07
     title: "Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2"
     package: docs/security
@@ -144,11 +144,11 @@ tasks:
     package: profiles
     owner: upstream-server-scout
     reviewers: [policy-engineer, security-reviewer, go-reviewer]
-    state: open
+    state: in review
     blocked_by: [M1-13]
     matrix: [3, 4]
     spec: docs/specs/profile-schema.md
-    notes: 'Exit criterion 1 (PRD metric: 100 percent of the brief 02 tools for the first three upstreams). Check every tool of netdev-ssh-mcp v1.7.1 and the pinned eos-mcp against its profile entry; add a tier 1 test in internal/classify (profiles_repo_test.go) that fails when a listed surveyed tool of the three M1 upstreams has no profile entry. From T0.53: netdev-ssh-mcp run_ping and run_traceroute accept a leading - in destination, source, vrf or interface; decide the class or a profile note so fathomgate does not rely on the upstream.'
+    notes: 'Exit criterion 1 (PRD metric: 100 percent of the brief 02 tools for the first three upstreams). Check every tool of netdev-ssh-mcp v1.7.1 and the pinned eos-mcp against its profile entry; add a tier 1 test in internal/classify (profiles_repo_test.go) that fails when a listed surveyed tool of the three M1 upstreams has no profile entry. From T0.53: netdev-ssh-mcp run_ping and run_traceroute accept a leading - in destination, source, vrf or interface; decide the class or a profile note so fathomgate does not rely on the upstream. PR #158 2026-09-25: netdev-ssh-mcp v1.7.1 verified; eos-mcp pinned v1.3.0 (bffb893), collect_tech_support -> READ_CONFIG; coverage table covers all three M1 upstreams. Security review approves with doc fixes; it found eos-mcp hazards that became M1-35, M1-36 and M1-37 and a zero-target rule in M1-18.'
   - id: M1-15
     title: Tier 1 fallback-classification tests for every other surveyed tool in brief 02
     package: internal/classify
@@ -192,7 +192,7 @@ relo
     adr: "0026"
     matrix: [3, 4, 6]
     spec: docs/specs/policy-schema.md
-    notes: 'The pipeline stages behind the proxy seam, tier 1 only, no transport. Evaluate stays pure; the gate takes counters as input. Deny text exactly as ADR 0026; no argument value or upstream text in it. Reserved rule id default:bad_arguments. Fail-closed rows for hold and for the dry_run, diff and timed_rollback obligations. Also fix the internal/inventory package doc, which says the upstream INVENTORY_READ provider is M1 (PRD R14 says M2). Docs in the same PR: policy-schema section 5 (reserved id), ARCHITECTURE.md components table (internal/gate). From the reviews of PR #154 and #152: normalise must reject a target that is not a hostname or IP literal (@, whitespace, control characters, : outside IPv6) with default:bad_arguments, and match inventory names on the exact string the upstream receives (no trimming). Gate tests must carry the PR #152 injection inputs and the attacker-host names (core-x.attacker.example etc.) from arguments to decision (see M1-33).'
+    notes: 'The pipeline stages behind the proxy seam, tier 1 only, no transport. Evaluate stays pure; the gate takes counters as input. Deny text exactly as ADR 0026; no argument value or upstream text in it. Reserved rule id default:bad_arguments. Fail-closed rows for hold and for the dry_run, diff and timed_rollback obligations. Also fix the internal/inventory package doc, which says the upstream INVENTORY_READ provider is M1 (PRD R14 says M2). Docs in the same PR: policy-schema section 5 (reserved id), ARCHITECTURE.md components table (internal/gate). From the reviews of PR #154 and #152: normalise must reject a target that is not a hostname or IP literal (@, whitespace, control characters, : outside IPv6) with default:bad_arguments, and match inventory names on the exact string the upstream receives (no trimming). Gate tests must carry the PR #152 injection inputs and the attacker-host names (core-x.attacker.example etc.) from arguments to decision (see M1-33). From the security review of PR #158: the normaliser denies with default:bad_arguments any call to a tool that declares target, targets or group params, is not INVENTORY_READ or LOCAL_ADMIN, and arrives with zero targets (eos-mcp daily_brief with no hostnames runs on the upstream''s whole fleet while fathomgate counts 0, bypassing max_devices and the unknown-target default). Amends profile-schema §2; short ADR if the architect judges it a policy-semantics change. An @tag must never be expanded from fathomgate''s own inventory for an upstream that expands it itself. M1-35, M1-36 and M1-37 must land before eos-mcp is marked validated.'
   - id: M1-19
     title: Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list
     package: internal/proxy
@@ -341,3 +341,27 @@ relo
     state: open
     matrix: [6]
     notes: 'From the security review of PR #154 (H1, H2). internal/inventory/patterns.go Resolve returns known:true on any match, so a pattern switches off the unknown-target default for every string it matches (reads reach attacker-chosen hosts through free-form-host upstreams; tags from a pattern could unlock writes). inventory-schema originally intended that a tags-only pattern never makes a target known. ADR options: a pattern never makes a target known on its own (it only adds attributes to a listed device); or it may, but pattern-derived tags can never satisfy device_tags for WRITE_CONFIG, EXEC_ARBITRARY or LAB_LIFECYCLE (carry Target.Status pattern into policy.Target). The shipped example has no active patterns meanwhile. Threat-model row: Pattern-resolved target (reads and writes).'
+  - id: M1-35
+    title: Refuse tool arguments the profile does not name (eos-mcp config_path) (ADR)
+    package: internal/classify
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [4]
+    notes: 'From the security review of PR #158 (critical once enforced). Every eos-mcp tool takes config_path: an agent-chosen file the upstream parses with configparser, quoting malformed lines in the error (one-line files such as /proc/<ppid>/environ leak fathomgate''s whole environment, FATHOMGATE_LISTEN_TOKEN and every --upstream-env-pass value) and using it to replace the credentials for that call. Reproduced: get_version and get_router_list with config_path are allowed under read-only. ADR (profile schema): options are a per-tool forbidden_params list, or a closed list where any argument the profile does not name is denied with default:bad_arguments (also covers parameters an upstream adds in a later version); deny, never strip. Interim: operators put a deny rule for eos-mcp first or sandbox it (documented in the profile header). Blocks eos-mcp validation in M1-28.'
+  - id: M1-36
+    title: Config lines that leave the configure session make a write EXEC_ARBITRARY
+    package: internal/classify
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [4]
+    notes: 'From the security review of PR #158. eos-mcp push_config sends each config_lines element in the same eAPI call as configure session <name>; ["end", "reload now"] or ["end", "configure", "hostname x"] runs outside the session before any abort, turning WRITE_CONFIG into EXEC_ARBITRARY or a write with no commit timer. Reproduced under lab-open: push_config config_lines=end allowed by lab-writes-free. Check every config_params element: any control or non-ASCII byte, or a first word in a mode-exit or exec list (end, exit, configure/conf, reload, bash, copy, write/wr, delete, run, do, enable, clear, rollback, ...), makes the call EXEC_ARBITRARY. Classification spec update, no ADR. Tier 2 test on cEOS proves or disproves the escape. M3 note: a dry_run driver must never use the upstream''s push_config dry_run=True (it sends the payload before approval), and show session-config diffs hides anything after end.'
+  - id: M1-37
+    title: Make an unset unknown_target deny every class (ADR)
+    package: internal/policy
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [6]
+    notes: 'From the security reviews of PR #154, #158 and ADR 0031 (PR #157) question 4. A policy that leaves defaults.unknown_target unset still lets reads reach unknown hosts; for upstreams that send the fleet''s credentials to any host the agent names (eos-mcp: TLS verification off, TLS 1.0; netdev-ssh-mcp free-form host), reads are as dangerous as writes. ADR: the unset default denies every class (recommended), or a profile flag forces deny for that server. Awaiting the maintainer''s decision with ADR 0031.'
