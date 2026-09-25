@@ -37,3 +37,9 @@ func loopbackFamilyMissing(err error) bool {
 // So on Unix another local user can take the port only while fathomgate is
 // not bound to it (docs/security/threat-model.md, the port squatting row).
 var bindControl func(network, address string, c syscall.RawConn) error
+
+// holdWildcards is nil on Unix: bindLoopback holds no wildcard socket,
+// because the listening loopback sockets already stop an overlapping
+// wildcard bind by another user (above). The Windows version is in
+// listen_windows.go.
+var holdWildcards holdFunc

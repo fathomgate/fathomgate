@@ -99,7 +99,7 @@ func TestBindLoopbackHoldsBothFamilies(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lns, err := bindLoopback(a, listenTCP, discardLogger())
+			lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +151,7 @@ func TestBindLoopbackRefusesTakenOtherFamily(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lns, err := bindLoopback(a, listenTCP, discardLogger())
+			lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
 			if err == nil {
 				for _, l := range lns {
 					_ = l.Close()
@@ -227,6 +227,121 @@ func (f *fakeListener) isClosed() bool {
 	return f.closed
 }
 
+// countCloser counts Close calls.
+type countCloser struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *countCloser) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++
+	return nil
+}
+
+func (c *countCloser) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
+}
+
+// TestBindLoopbackHoldInjected: bindLoopback's handling of the wildcard
+// hold (M1-27), with every bind injected. The hold runs on the port both
+// loopbacks were bound on; its failure closes the loopbacks and refuses,
+// naming what it names, after retrying on new ports for port 0; what it
+// holds is closed once, by whichever listener closes first.
+func TestBindLoopbackHoldInjected(t *testing.T) {
+	t.Parallel()
+	errHeld := errors.New("0.0.0.0:8931, a wildcard address on the same port, cannot be held (bind: in use)")
+	for _, tc := range []struct {
+		name     string
+		flag     string
+		failures int    // holds that fail before one succeeds
+		want     string // error substring; "" binds
+		holds    int
+	}{
+		{name: "held", flag: "localhost:8931", holds: 1},
+		{name: "wildcard taken, fixed port", flag: "localhost:8931", failures: 1, want: errHeld.Error() + "; fathomgate refuses to start", holds: 1},
+		{name: "wildcard taken once, port 0", flag: "localhost:0", failures: 1, holds: 2},
+		{name: "wildcard always taken, port 0", flag: "localhost:0", failures: 1 << 30, want: "cannot be held", holds: bindAttempts},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, err := parseListenAddr(tc.flag)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var mu sync.Mutex
+			var all []*fakeListener
+			next := uint16(40000)
+			listen := func(_, address string) (net.Listener, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				ap := netip.MustParseAddrPort(address)
+				if ap.Port() == 0 {
+					next++
+					ap = netip.AddrPortFrom(ap.Addr(), next)
+				}
+				f := &fakeListener{addr: ap}
+				all = append(all, f)
+				return f, nil
+			}
+			held := &countCloser{}
+			holds := 0
+			hold := func(port uint16) (io.Closer, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				holds++
+				if want := all[len(all)-1].addr.Port(); port != want {
+					t.Errorf("hold on port %d, want %d", port, want)
+				}
+				if holds <= tc.failures {
+					return nil, errHeld
+				}
+				return held, nil
+			}
+			lns, err := bindLoopback(a, listen, hold, discardLogger())
+			if holds != tc.holds {
+				t.Errorf("%d holds, want %d", holds, tc.holds)
+			}
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("error %v, want %q", err, tc.want)
+				}
+				for _, f := range all {
+					if !f.isClosed() {
+						t.Errorf("%s left bound after the refusal", f.addr)
+					}
+				}
+				return
+			}
+			if err != nil || len(lns) != 2 {
+				t.Fatalf("%d listeners, %v; want 2", len(lns), err)
+			}
+			for _, f := range all[:len(all)-2] {
+				if !f.isClosed() {
+					t.Errorf("%s from a failed attempt left bound", f.addr)
+				}
+			}
+			if held.count() != 0 {
+				t.Fatal("the hold was closed while the listeners are open")
+			}
+			for _, l := range lns {
+				_ = l.Close()
+			}
+			if held.count() != 1 {
+				t.Errorf("the hold was closed %d times, want 1", held.count())
+			}
+			for _, f := range all[len(all)-2:] {
+				if !f.isClosed() {
+					t.Errorf("%s left bound after Close", f.addr)
+				}
+			}
+		})
+	}
+}
+
 // TestBindLoopbackInjected: bindLoopback's decisions, with every bind
 // injected. The first family always binds (port 0 gets 40001, 40002, ...);
 // otherErr decides the second bind of each attempt.
@@ -293,7 +408,7 @@ func TestBindLoopbackInjected(t *testing.T) {
 				return &fakeListener{addr: ap}, nil
 			}
 			var logs lockedBuffer
-			lns, err := bindLoopback(a, listen, slog.New(slog.NewTextHandler(&logs, nil)))
+			lns, err := bindLoopback(a, listen, nil, slog.New(slog.NewTextHandler(&logs, nil)))
 			if attempt != tc.attempts {
 				t.Errorf("%d attempts, want %d", attempt, tc.attempts)
 			}

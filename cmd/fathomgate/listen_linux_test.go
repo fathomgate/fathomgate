@@ -49,7 +49,7 @@ func TestBindLoopbackRefusesWildcardLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lns, err := bindLoopback(a, listenTCP, discardLogger())
+	lns, err := bindLoopback(a, listenTCP, holdWildcards, discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
