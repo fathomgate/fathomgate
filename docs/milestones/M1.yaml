@@ -154,10 +154,10 @@ tasks:
     package: internal/classify
     owner: test-engineer
     reviewers: [policy-engineer, security-reviewer, go-reviewer]
-    state: open
+    state: in review
     matrix: []
     spec: docs/specs/classification.md
-    notes: 'Exit criterion 1, second half of the PRD metric: every surveyed tool outside the three M1 upstreams is at least fallback-classified with a test. Table test from the brief 02 class table (section on classes, around line 450): tool name plus representative arguments, expected class and class_source fallback. A tool whose fallback class is less strict than brief 02 says is a finding for policy-engineer, not a test to loosen.'
+    notes: 'Exit criterion 1, second half of the PRD metric: every surveyed tool outside the three M1 upstreams is at least fallback-classified with a test. Table test from the brief 02 class table (section on classes, around line 450): tool name plus representative arguments, expected class and class_source fallback. A tool whose fallback class is less strict than brief 02 says is a finding for policy-engineer, not a test to loosen. 2026-09-25: internal/classify/fallback_brief02_test.go, TestFallbackBrief02 over 138 tools on 14 servers with no shipped profile (junos-mcp-server and ntunes stay in TestRepoProfiles; Meraki execute_api left to M1-17), each with no profile and with the empty profile serve gives such a server, bare and prefixed: class_source fallback, class at least as strict as brief 02 (EXEC_ARBITRARY for a tool the brief does not class), section 8 tools EXEC_ARBITRARY, every argument unnamed under the empty profile. TestFallbackBrief02Table guards the table (no shipped profile for a listed server). No finding against the code: the fallback is EXEC_ARBITRARY for every tool. Design findings for policy-engineer against the planned section 3 classifier (15 tools less strict than brief 02, 5 unclassed tools given a read class, and the section 8 tools downgradable with no profile) are in the handoff note. Tier 1 only; no matrix row.'
   - id: M1-16
     title: Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants
     package: internal/classify
