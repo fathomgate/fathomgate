@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package inventory resolves a target hostname to its role, site, tags and
 // status.
 //

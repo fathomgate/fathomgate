@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Command fathomgate is the Fathomgate CLI and (from M0 onward) the proxy itself.
 //
 // Subcommands:

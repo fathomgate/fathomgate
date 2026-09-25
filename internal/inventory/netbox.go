@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package inventory
 
 // NetBox is the source-of-truth provider for NetBox and Nautobot. It is the

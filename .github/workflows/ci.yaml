@@ -41,6 +41,10 @@ jobs:
         run: make policy-test
       - name: redaction fixtures
         run: make fixtures-check
+      # ADR 0020: THIRD_PARTY_LICENSES/ and NOTICE match the modules linked
+      # into fathomgate, and every Go, Python and shell file has its SPDX line.
+      - name: licences and SPDX headers
+        run: make licences-check PYTHON=python3
 
   # Official MCP conformance suite against the client-facing side of
   # `fathomgate serve`, both protocol eras (T0.4, M0 exit criterion 1). A

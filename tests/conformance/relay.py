@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Streamable HTTP front for a stdio MCP server, for the conformance suite.
 
 The official MCP conformance suite (@modelcontextprotocol/conformance) tests a

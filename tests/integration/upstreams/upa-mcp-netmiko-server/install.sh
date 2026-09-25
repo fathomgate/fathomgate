@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Install upa/mcp-netmiko-server, pinned, for the tier 2 tests (T0.34).
 #
 #   tests/integration/upstreams/upa-mcp-netmiko-server/install.sh DEST

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Render STATUS.md from docs/milestones/<current>.yaml and docs/handoffs/.
 
 Usage:

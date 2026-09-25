@@ -16,6 +16,11 @@ on:
       - go.sum
       - .github/workflows/release.yaml
       - .github/workflows/snapshot.yaml
+      - LICENSE
+      - NOTICE
+      - TRADEMARKS.md
+      - THIRD_PARTY_LICENSES/**
+      - tools/licences/**
 
 permissions:
   contents: read
@@ -60,6 +65,22 @@ jobs:
             test -f dist/fathomgate_*_"$t".zip.spdx.sbom.json
           done
           test -s dist/checksums.txt
+      - name: every archive carries LICENSE, NOTICE and THIRD_PARTY_LICENSES (ADR 0020)
+        run: |
+          set -eu
+          { printf '%s\n' LICENSE NOTICE TRADEMARKS.md; find THIRD_PARTY_LICENSES -type f; } | sort > want.txt
+          missing=0
+          for a in dist/fathomgate_*.tar.gz dist/fathomgate_*.zip; do
+            case "$a" in
+              *.zip) unzip -Z1 "$a" | sort > have.txt ;;
+              *) tar -tzf "$a" | sort > have.txt ;;
+            esac
+            if ! comm -23 want.txt have.txt | grep . ; then continue; fi
+            echo "::error::$a lacks the files above"
+            missing=1
+          done
+          rm -f want.txt have.txt
+          exit "$missing"
       - name: binaries are static, trimmed and built without cgo
         run: |
           set -eu
@@ -84,12 +105,26 @@ jobs:
           if docker run --rm --entrypoint sh "$image" -c true; then
             echo "image has a shell"; exit 1
           fi
+          # No shell to list with, so copy the licence folder out (ADR 0020).
+          cid="$(docker create "$image")"
+          docker cp "$cid:/usr/share/doc/fathomgate" image-doc
+          docker rm "$cid"
+          cmp LICENSE image-doc/LICENSE
+          cmp NOTICE image-doc/NOTICE
+          diff -r THIRD_PARTY_LICENSES image-doc/THIRD_PARTY_LICENSES
+          rm -rf image-doc
       - name: root Dockerfile builds a static binary on distroless
         run: |
           set -eu
           docker build -t fathomgate:snapshot-dockerfile .
           docker run --rm fathomgate:snapshot-dockerfile version
           test "$(docker inspect --format '{{.Config.User}}' fathomgate:snapshot-dockerfile)" = "nonroot:nonroot"
+          cid="$(docker create fathomgate:snapshot-dockerfile)"
+          docker cp "$cid:/usr/share/doc/fathomgate" dockerfile-doc
+          docker rm "$cid"
+          cmp NOTICE dockerfile-doc/NOTICE
+          diff -r THIRD_PARTY_LICENSES dockerfile-doc/THIRD_PARTY_LICENSES
+          rm -rf dockerfile-doc
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: goreleaser-snapshot

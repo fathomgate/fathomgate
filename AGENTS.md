@@ -21,7 +21,7 @@ Fathomgate is a policy-enforcing MCP proxy between AI agents and network-device 
 ## Verify before you hand back
 
 ```sh
-go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check
+go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check && make licences-check
 ```
 
 All six must pass. A change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod` also runs `make conformance` (needs Node.js and npm). `gofmt -l .` must print nothing. Run `golangci-lint run` if you have it.

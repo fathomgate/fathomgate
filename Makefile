@@ -60,7 +60,7 @@ CONFORMANCE_REVS         ?= 2025-11-25 2026-07-28
 CONFORMANCE_LEGS         ?= control fathomgate control-up2025 fathomgate-up2025
 NPM                 ?= npm
 
-.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check release-snapshot clean help
+.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check licences licences-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -199,6 +199,18 @@ status: ## Re-render STATUS.md from docs/milestones/<CURRENT>.yaml and docs/hand
 
 status-check: ## Fail if STATUS.md is stale relative to the board (CI)
 	$(PYTHON) tools/status/render.py --check
+
+# ADR 0020: THIRD_PARTY_LICENSES/ holds the licence text of every module linked
+# into fathomgate on every release target, and ships in each archive and
+# image. Regenerate after a dependency change; CI and the GoReleaser before
+# hook run the check. Standard-library Python plus the go and git commands;
+# no new Go dependency.
+licences: ## Regenerate THIRD_PARTY_LICENSES/ from the modules linked into fathomgate (ADR 0020)
+	$(PYTHON) tools/licences/third_party.py
+
+licences-check: ## Fail if THIRD_PARTY_LICENSES/ or NOTICE is stale, or a source file lacks its SPDX line (CI)
+	$(PYTHON) tools/licences/third_party.py --check
+	$(PYTHON) tools/licences/spdx.py
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
