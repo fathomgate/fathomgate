@@ -138,8 +138,11 @@ func cmdPolicyEval(args []string) int {
 		resolver = chain
 	}
 	for _, name := range targets {
+		// As internal/gate does: known only when a name authority lists the
+		// name exactly as sent (inventory-schema section 7); a hostname
+		// pattern only enriches a listed device (ADR 0031).
 		t := policy.Target{Name: name}
-		if inv, ok := resolver.Resolve(name); ok {
+		if inv, ok := resolver.Resolve(name); ok && inv.Name == name {
 			t.Role, t.Site, t.Tags, t.Known = inv.Role, inv.Site, inv.Tags, true
 		}
 		req.Targets = append(req.Targets, t)

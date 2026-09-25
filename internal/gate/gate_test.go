@@ -399,6 +399,62 @@ func TestAttackerHostNames(t *testing.T) {
 	}
 }
 
+// TestPatternEnrichesListedDevice: ADR 0031 decisions 1 and 2 through the
+// gate. With the attacker patterns active, a listed device the file gives no
+// tag or role gets them from a pattern, and the write rules honour them; the
+// same patterns make no unlisted name known, and matching stays exact.
+func TestPatternEnrichesListedDevice(t *testing.T) {
+	t.Parallel()
+	f, err := inventory.LoadFile(repoPath("inventory.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Devices = append(f.Devices,
+		inventory.Target{Name: "lab-sw-09", Role: "access"}, // no tags
+		inventory.Target{Name: "core-rtr-09", Site: "dfw1"}, // no role
+	)
+	f.Roles = append(f.Roles, attackerPatterns...)
+	chain, err := f.Chain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateFor := func(pol string) *Gate {
+		g, err := New(Config{Policy: examplePolicy(t, pol), Profiles: repoProfiles(t), Inventory: chain})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	push := func(host string) seam.CallInfo {
+		return call(eos, "push_config", map[string]any{"hostname": host, "config_lines": []any{"hostname x"}})
+	}
+	read := func(host string) seam.CallInfo {
+		return call(netdev, "get_config", map[string]any{"host": host})
+	}
+	unknown := func(class string) want { return want{effect: "deny", rule: "default:unknown_target", class: class} }
+
+	lab := gateFor("lab-open")
+	check(t, "lab-open lab-sw-09", lab.Decide(context.Background(), push("lab-sw-09")),
+		want{effect: "allow", rule: "lab-writes-free", class: "WRITE_CONFIG", source: "profile", forward: true})
+	for _, name := range []string{"lab-ghost-99", "LAB-sw-09", "lab-sw-09.attacker.example", "lab-leaf-01.evil"} {
+		check(t, "lab-open "+name, lab.Decide(context.Background(), push(name)), unknown("WRITE_CONFIG"))
+	}
+
+	prod := gateFor("prod-approval")
+	check(t, "prod-approval core-rtr-09", prod.Decide(context.Background(), push("core-rtr-09")),
+		want{effect: "hold", rule: "prod-core-needs-approval", class: "WRITE_CONFIG"})
+
+	for _, pol := range []string{"read-only", "lab-open", "prod-approval"} {
+		g := gateFor(pol)
+		for _, name := range []string{"core-x.attacker.example", "core-rtr-01.attacker.example", "fw-evil.example"} {
+			check(t, pol+" read "+name, g.Decide(context.Background(), read(name)), unknown("READ_CONFIG"))
+		}
+		if v := g.Decide(context.Background(), read("core-rtr-09")); v.Effect != "allow" {
+			t.Errorf("%s read core-rtr-09 (listed, role from a pattern): %s %s %s", pol, v.Effect, v.RuleID, v.Error)
+		}
+	}
+}
+
 // TestZeroTargets: a tool that declares a target source and is not
 // INVENTORY_READ or LOCAL_ADMIN must name a target. eos-mcp's batch tools
 // run on the upstream's whole fleet when hostnames is empty, and expand tags

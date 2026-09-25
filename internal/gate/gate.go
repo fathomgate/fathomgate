@@ -175,19 +175,18 @@ func (g *Gate) Arguments(server, tool string) (named []string, closed bool) {
 // resolve looks one name up in the inventory. The name is known only when
 // the record carries exactly the string the upstream receives (the static
 // resolver matches case-insensitively; a case variant may be a different
-// entry, or none, in the upstream's own device table, so it is unknown here)
-// and the record did not come from a hostname pattern alone (ADR 0031: a
-// pattern never makes a target known). An unknown name carries no role,
-// site or tags, not even a pattern's.
+// entry, or none, in the upstream's own device table, so it is unknown here).
+// Whether a name is listed at all is the resolver's answer: a hostname
+// pattern never makes a name known, and only enriches a device a name
+// authority lists (ADR 0031, inventory.Chain). The role, site and tags of a
+// known name may come from a pattern, and count for every rule (ADR 0031
+// decision 2). An unknown name carries no role, site or tags.
 func (g *Gate) resolve(name string) policy.Target {
 	if g.inventory == nil {
 		return policy.Target{Name: name}
 	}
 	t, ok := g.inventory.Resolve(name)
-	// TODO(M1-34 follow-up): when inventory.Target carries per-field
-	// provenance (ADR 0031 decision 3), test the name's source instead of
-	// Status.
-	if !ok || t.Name != name || t.Status == "pattern" {
+	if !ok || t.Name != name {
 		return policy.Target{Name: name}
 	}
 	return policy.Target{Name: name, Role: t.Role, Tags: slices.Clone(t.Tags), Site: t.Site, Known: true}

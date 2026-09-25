@@ -1,8 +1,8 @@
 # Inventory schema
 
-Normative specification for how `internal/inventory` turns a target name into `{role, site, tags, status, vendor}`. Resolution runs through an ordered provider chain; the first provider that knows the target wins. A target no provider knows is `unknown`. A source of truth is optional.
+Normative specification for how `internal/inventory` turns a target name into `{role, site, tags, status, vendor}`. Resolution runs through an ordered provider chain. Name authorities decide whether a target is known, and the first to list it wins; hostname patterns only add attributes to a target an authority lists. A target no authority lists is `unknown`. A source of truth is optional.
 
-Decision record: [ADR 0007](../adr/0007-role-resolver-chain-sot-optional.md). The live NetBox and Nautobot connectors are in the paid edition ([ADR 0034](../adr/0034-source-available-under-fsl.md), *Amendments*, 2026-09-25); section 6 says what stays in the core.
+Decision records: [ADR 0007](../adr/0007-role-resolver-chain-sot-optional.md), and [ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) for hostname patterns (it supersedes ADR 0007's provider row 2). The live NetBox and Nautobot connectors are in the paid edition ([ADR 0034](../adr/0034-source-available-under-fsl.md), *Amendments*, 2026-09-25); section 6 says what stays in the core.
 
 ## 1. Device record
 
@@ -17,21 +17,28 @@ Every provider returns the same shape.
 | `status` | string | no | `active` (default), `planned`, `staged`, `failed`, `offline`, `decommissioning`. NetBox and Nautobot values map one to one. |
 | `vendor` | string | no | `ios`, `iosxe`, `nxos`, `eos`, `junos`, `panos`, `fortios`, `srlinux`, `iosxr`, `other`. Selects the `ChangeSafety` driver and the redaction pattern set. |
 | `mgmt_addr` | string | no | Accepted for import; never written to the audit log. |
-| `source` | string | set by resolver | `static`, `pattern`, `upstream:<id>`, `netbox`, `nautobot`, `snapshot`. `netbox` and `nautobot` are set only by the paid edition's live connectors (section 6). |
-| `stale` | boolean | set by resolver | True when `source` is `snapshot` because the live source of truth was unreachable. |
+| `source` | string | set by resolver | The name authority that listed the target: `static`, `upstream:<id>`, `netbox`, `nautobot`, `snapshot`. Never `pattern`: a pattern never lists a target (section 4). `netbox` and `nautobot` are set only by the paid edition's live connectors (section 6). |
+| `sources` | map | set by resolver | Which provider supplied each field: `name`, `role`, `site`, `status`, and one entry per tag. Values are those of `source`, plus `pattern` for a field or tag a hostname pattern filled in. `fathomgate inventory resolve` prints it; the audit event records it (M4). |
+| `stale` | boolean | set by resolver | True when a record that contributed has `source: snapshot` because the live source of truth was unreachable. |
+
+`source`, `sources` and `stale` are set by the chain and never read from a file: a device record in `inventory.yaml` that carries one is an unknown key, a load error. `status` is device status only, never `pattern` (in code, `inventory.Target.Source`, `Sources` and `Stale`).
 
 ## 2. Resolver chain
 
-| Order | Provider | Enabled when | Wins when |
-| --- | --- | --- | --- |
-| 1 | Static `inventory.yaml` | File configured | Target name present |
-| 2 | Hostname patterns | `roles:` in `inventory.yaml` is non-empty | A pattern matches |
-| 3 | Upstream inventory | The upstream profile has `inventory_tool` (planned, M2) | The upstream listed the target at startup or last refresh |
-| 4 | Source of truth (live connector in the paid edition; the core ships a stub that resolves nothing, section 6) | A resolver registered through the `Resolver` interface | REST lookup succeeds, or a snapshot exists |
+| Order | Provider | Kind | Enabled when | Contributes when |
+| --- | --- | --- | --- | --- |
+| 1 | Static `inventory.yaml` (including what `fathomgate inventory import` writes) | Name authority | File configured | Target name present |
+| 2 | Hostname patterns | Enricher | `roles:` in `inventory.yaml` is non-empty | An authority listed the target and a pattern matches the listed name |
+| 3 | Upstream inventory | Name authority (standing for writes: M2 upstream-provider ADR) | The upstream profile has `inventory_tool` (planned, M2) | The upstream listed the target at startup or last refresh |
+| 4 | Source of truth (live connector in the paid edition; the core ships a stub that resolves nothing, section 6) | Name authority | A resolver registered through the `Resolver` interface | REST lookup succeeds, or a snapshot exists |
 
-Merging: the first provider that returns a record supplies `role`, `site`, `status` and `vendor`. `tags` are the union from every provider that knows the target, so a pattern can add `lab` to a device the static file already describes. A field the winning provider leaves empty is filled from the next provider that has it.
+Two kinds of provider ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 1). A *name authority* decides whether a target is known. An *enricher* runs only after an authority has listed the target, and never makes a target known on its own; hostname patterns are the only enricher. In M1 the only name authority is the static file (with CSV import); a target no authority lists is `unknown` whatever patterns it matches.
 
-The chain is evaluated per target. A batch call with four targets may resolve two from the static file, one from a pattern and one as `unknown`.
+Merging (ADR 0031 decision 2): the first authority that lists the target supplies its `name`, `source` and every field its record sets. A later authority that also lists it fills a field still empty and adds its tags. Then the enrichers run on the name as the authority stores it: each fills a field still empty (`role`, `site`; the first matching pattern in file order wins each field) and adds its `tags`. `tags` are the union, without duplicates, in that order, so a pattern can add `lab` to a device the static file already describes. An enricher never sets `status`. Each field's provider is recorded in `sources` (section 1).
+
+A role or tags a pattern gives a listed target count for every rule, write rules included (ADR 0031, decision 2 of its open questions): the operator vouched for the name by listing it.
+
+The chain is evaluated per target. A batch call with four targets may resolve three from the static file (one of them with its role from a pattern) and one as `unknown`.
 
 ## 3. Static file
 
@@ -77,33 +84,29 @@ CSV import is the core's path from NetBox or Nautobot (section 6). A round trip 
 
 ## 4. Hostname patterns
 
-Patterns are optional. They live under `roles:` in `inventory.yaml` (`internal/inventory/patterns.go`), next to the devices they describe, and are not part of the policy file. `inventory.example.yaml` ships none active: every device it knows is listed by name (section 3). Read the hazard below before turning one on.
+Patterns are optional. They live under `roles:` in `inventory.yaml` (`internal/inventory/patterns.go`), next to the devices they describe, and are not part of the policy file. A pattern is an enricher (section 2): it never makes a target known, and only fills in `role` and `site` and adds `tags` on a device a name authority lists ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md)). Its job is a naming convention: a CSV of 800 names and a few patterns give every device a role and site without editing 800 lines. `inventory.example.yaml` ships none active, with the shape commented out.
 
 ```yaml
-roles:                                  # the shape; anchored at both ends
-  - match: "^dfw1-acc-sw-[0-9]{2}$"
-    site: dfw1
+roles:
+  - match: "^core-|^border-"
+    role: core
+  - match: "^lab-[a-z]+-[0-9]{2}$"          # anchored at both ends
+    tags: [lab]
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `match` | RE2 regex | Applied to the lower-cased target name. Anchor explicitly. |
-| `role`, `site`, `status`, `vendor` | string | Set if the pattern is the winning provider or the field is otherwise empty |
-| `tags` | list | Always unioned |
+| `match` | RE2 regex | Tested case-insensitively against the listed device's name as the authority stores it. Required. |
+| `role`, `site` | string | Fill the field if the device's record and every earlier matching pattern leave it empty |
+| `tags` | list | Always unioned with the device's tags |
 
-A pattern that matches no device listed under `devices:` is a warning, never an error, when `fathomgate serve --inventory` loads the file ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 5; `File.PatternWarnings`): `inventory: roles[<i>] "<match>" matches no listed device and makes nothing known (ADR 0031); list the device under devices`.
+A pattern sets at least one of `role`, `site`, `tags`; one that sets none, has no `match` or does not compile is a load error. A pattern has no `status` or `vendor`: those come from a name authority.
 
-Every matching pattern contributes. The first pattern that sets `role` wins `role`. A target matched only by a pattern that sets no role remains `unknown` for `role`, and `device_roles: [unknown]` matches it.
+Every matching pattern contributes, in file order: the first that sets `role` wins `role`, the first that sets `site` wins `site`, and tags accumulate. The device's own record wins over every pattern. A listed device whose record and patterns set no role has no role, and `device_roles: [unknown]` matches it.
 
-Current code: `internal/inventory` still returns a pattern hit as a record (`status: pattern`), but the gate treats a name that only a pattern matched as unknown ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 1; `internal/gate` `resolve`), so the unknown-target default applies to it. Until the M1-34 follow-up lands per-field provenance, a pattern also adds nothing to a device listed under `devices:`: the chain returns the static record alone, so a pattern's `role`, `site` or `tags` do not reach a listed device (ADR 0031 decision 2 is not implemented yet). List what a rule needs on the device itself. `fathomgate policy eval --inventory` still counts a pattern-only name as known (M1-34).
+**A pattern that matches no listed device** resolves and enriches nothing, so an operator who wrote it probably expected something it does not do (ADR 0031 decision 5; `File.PatternWarnings`). The message is `inventory: roles[<i>] "<match>" matches no listed device and makes nothing known (ADR 0031); list the device under devices`. It is a warning when `fathomgate serve --inventory` loads the file, so a stale pattern never stops the proxy, and an error in `fathomgate inventory lint` (section 9).
 
-**Hazard.** The target name comes from the agent, and a pattern resolves any string the agent sends that matches it:
-
-- **Reads reach it.** Every shipped example allows reads on a known device. With `^core-` active, `core-x.attacker.example` is known, `get_config` is `allow` `reads-anywhere`, and an upstream that takes a free-form host (netdev-ssh-mcp) logs in to that host with the operator's device password or SSH agent. Config output is not redacted until M2.
-- **Matching is loose.** Patterns are case-insensitive and not anchored at the end unless you add `$`; names with `.`, `@` or `:` still match (`^lab-` matches `LAB-x`, `lab-x.attacker.example` and `lab-x@core-rtr-01`).
-- **Writes.** A tag or role that a rule allowing writes matches on must never come from a pattern: with `^lab-` adding `tags: [lab]`, any such name satisfies `lab-open`'s `device_tags: [lab]` and the write is allowed.
-
-Turn a pattern on only if every name it can match is a device the agent may read, anchor it at both ends, and give it no write-unlocking tag or role. List every device a policy allows writes to by name (section 3).
+**What a pattern can still get wrong.** The target name comes from the agent, but a name no authority lists is `unknown` whatever it matches, so `core-x.attacker.example`, `lab-ghost-99` and `LAB-core-rtr-01` never reach the rules through a pattern. What a loose pattern can do is mislabel a device you listed, and the role and tags it gives count for write rules too: `^lab-` with `tags: [lab]` makes a listed `lab-core-01` writable under `lab-open` even if it is a core router (the misclassification ADR 0007 accepted). Patterns are case-insensitive and not anchored at the end unless you add `$`; anchor them as tightly as the naming convention allows, and put a role or tag that unlocks writes on the device itself when in doubt. `fathomgate inventory resolve` shows which provider set each field.
 
 ## 5. Upstream inventory provider
 
@@ -111,7 +114,7 @@ At startup, and every `refresh` interval (default 10m), the proxy calls the prof
 
 Sources per upstream: ntunes `list_devices` (names, tags, `device_type`), eos-mcp `get_router_list` (names, tags), junos `get_router_list` (names), upa `get_network_device_list` (names, `device_type`), mcp-telecom `list_devices`.
 
-A record from this provider has `role: unknown` unless the upstream carries a role field, which none of the surveyed servers do. It exists so that `tags` such as ntunes `lab` can drive policy, and so that `targets_all_when_empty` and `@group` expansion have a device list to expand into.
+A record from this provider has `role: unknown` unless the upstream carries a role field, which none of the surveyed servers do, or a hostname pattern gives it one (section 4). It exists so that `tags` such as ntunes `lab` can drive policy, and so that `targets_all_when_empty` and `@group` expansion have a device list to expand into.
 
 ## 6. Source of truth
 
@@ -140,12 +143,12 @@ A resolver registered at order 4, such as the paid edition's connector, follows 
 
 ## 7. Unknown-target semantics
 
-- A target is unknown when no provider resolved its name. The policy request carries it as `known: false`.
+- A target is unknown when no name authority lists its name, whatever hostname patterns it matches (section 4). The policy request carries it as `known: false`.
 - `Evaluate` step 1 ([policy-schema.md](policy-schema.md#4-evaluation-order)): with `defaults.unknown_target: deny`, any unknown target denies the call for every class. With `unknown_target` unset the same happens: every class is denied ([ADR 0032](../adr/0032-unset-unknown-target-denies-every-class.md)). With `allow`, the rules decide for every class. A request that names no target has no unknown target and is not affected.
 - An unknown target has no role, so it never matches a `device_roles` rule. Under `unknown_target: allow`, a read to it is allowed only by a rule that matches on class alone (such as `reads-anywhere`); that setting sends the upstream's device credentials to any host the agent names on upstreams such as eos-mcp and netdev-ssh-mcp, so use it only where that is acceptable.
 - The audit event lists the target in `targets[]` with an empty entry in `roles[]`; an `unknown_target` flag is planned (M4).
 - A free-form `host` value that is an IP address is looked up as a name first; if no provider matches, it is `unknown`. There is no implicit IP-to-name resolution through DNS, because DNS is not a source of truth.
-- Matching at the proxy is exact ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). `internal/gate` looks the name up as sent and counts it as known only when the record's stored name is the same string, case included, and the record did not come from a hostname pattern alone ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md)). `CORE-rtr-01`, ` core-rtr-01` and `core-rtr-01.corp.example` are not `core-rtr-01`: the first and last are `unknown`, the second is refused as a bad argument. DNS would treat the case variant as the same host, but an upstream that keys its own device table by name may not, and fathomgate cannot tell which the upstream does, so it fails closed. An operator who needs two spellings lists both.
+- Matching at the proxy is exact ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). `internal/gate` looks the name up as sent and counts it as known only when a name authority lists it and the record's stored name is the same string, case included; a hostname pattern never makes a name known ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md)). `fathomgate policy eval --inventory` and `fathomgate inventory resolve` apply the same rule. `CORE-rtr-01`, ` core-rtr-01` and `core-rtr-01.corp.example` are not `core-rtr-01`: the first and last are `unknown`, the second is refused as a bad argument. DNS would treat the case variant as the same host, but an upstream that keys its own device table by name may not, and fathomgate cannot tell which the upstream does, so it fails closed. An operator who needs two spellings lists both.
 
 ## 8. Expansion before resolution
 
@@ -167,7 +170,9 @@ In M1 there is no upstream inventory provider, so only the first two rows apply,
 
 | Command | Effect |
 | --- | --- |
-| `fathomgate inventory import <csv> [--out file]` | Section 3.1 |
+| `fathomgate inventory import --csv <csv> [--out file]` | Section 3.1 |
 | `fathomgate inventory sync` | Paid edition: writes the snapshot from the live source of truth |
-| `fathomgate inventory resolve <name>...` | Prints the record and which provider supplied each field; the debugging tool for "why was this denied as unknown" |
-| `fathomgate inventory lint <file>` | Validates the static file |
+| `fathomgate inventory resolve [--inventory file] [--json] <name>...` | Prints, for each name, whether it is known exactly as `serve` counts it (section 7), the authority that listed it, and which provider supplied each field and tag (`static`, `pattern`, ...). For an unknown name it says why (no authority lists it, or it is listed with another spelling) and which patterns it matches, which never make it known. `--inventory` defaults to `inventory.yaml`. Exit 0 when every name is known, 1 when any is unknown, 2 on a usage or load error. The debugging tool for "why was this denied as unknown" |
+| `fathomgate inventory lint <file>` | Validates the static file: everything a load checks (unknown keys, duplicate names, patterns that do not compile or set nothing), and fails on a pattern that matches no listed device (section 4), which `serve` only warns about. Exit 0 clean, 1 with problems, 2 when the file cannot be read |
+
+In M1 the core has `import`, `lint` and `resolve`.

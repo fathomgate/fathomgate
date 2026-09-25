@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -44,13 +45,20 @@ func NewStatic(targets []Target) (*StaticFile, error) {
 	return s, nil
 }
 
-// Resolve implements Resolver.
+// Resolve implements Resolver. The static file is a name authority: a hit
+// makes the name known, with Source static. The record's Tags are cloned so
+// a caller cannot change the stored device.
 func (s *StaticFile) Resolve(name string) (Target, bool) {
 	if s == nil {
 		return Target{}, false
 	}
 	t, ok := s.byName[normalize(name)]
-	return t, ok
+	if !ok {
+		return Target{}, false
+	}
+	t.Tags = slices.Clone(t.Tags)
+	t.Source, t.Stale, t.Sources = SourceStatic, false, nil
+	return t, true
 }
 
 // Len returns the number of devices.
@@ -88,27 +96,29 @@ func LoadFile(path string) (*File, error) {
 	return f, nil
 }
 
-// LoadChain reads inventory.yaml and returns a Chain of its static devices
-// followed by its hostname patterns, in the order the plan prescribes.
+// LoadChain reads inventory.yaml and returns its Chain: the static devices as
+// the name authority, the hostname patterns as the enricher.
 func LoadChain(path string) (Chain, error) {
 	f, err := LoadFile(path)
 	if err != nil {
-		return nil, err
+		return Chain{}, err
 	}
 	return f.Chain()
 }
 
-// Chain builds the resolver chain for a decoded file.
+// Chain builds the resolver chain for a decoded file. The static device list
+// is the only name authority; the hostname patterns only enrich a device it
+// lists (ADR 0031).
 func (f *File) Chain() (Chain, error) {
 	static, err := NewStatic(f.Devices)
 	if err != nil {
-		return nil, err
+		return Chain{}, err
 	}
 	patterns, err := NewPatterns(f.Roles)
 	if err != nil {
-		return nil, err
+		return Chain{}, err
 	}
-	return Chain{static, patterns}, nil
+	return Chain{Authorities: []Resolver{static}, Enrichers: []Enricher{patterns}}, nil
 }
 
 // PatternWarnings returns one line for each hostname pattern under roles:
@@ -116,11 +126,12 @@ func (f *File) Chain() (Chain, error) {
 // decision 5; the wording, with what to do, is design review's, PR #171):
 // `inventory: roles[<i>] "<match>" matches no listed device and makes
 // nothing known (ADR 0031); list the device under devices`. Such a pattern
-// resolves nothing (a pattern never makes
-// a target known on its own), so an operator who wrote it probably
-// expected something it does not do. It is a warning at load, never an
-// error, so a stale pattern never stops `fathomgate serve`. A pattern that
-// does not compile is skipped here; Chain reports it.
+// enriches nothing and resolves nothing (a pattern never makes a target
+// known on its own), so an operator who wrote it probably expected
+// something it does not do. It is a warning when `fathomgate serve` loads
+// the file, so a stale pattern never stops the proxy, and an error in
+// `fathomgate inventory lint`. A pattern that does not compile is skipped
+// here; Chain reports it.
 func (f *File) PatternWarnings() []string {
 	var out []string
 	for i, p := range f.Roles {

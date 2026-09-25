@@ -749,9 +749,12 @@ do what it seems to: no `--inventory` (every device is unknown), a server
 with no profile (calls with arguments are denied), `unknown_target: allow`
 in the policy, a hostname pattern in the inventory that matches no listed
 device, an obligation that is not enforced yet, and a `hold` rule, whose
-calls are not run until approvals arrive (M3). A `roles:` pattern adds
-nothing to a device you list by name until M1-34: put the role and tags a
-rule needs on the device itself.
+calls are not run until approvals arrive (M3). A `roles:` pattern only
+adds a role, site or tags to a device you list by name; it never makes a
+name known ([ADR 0031](adr/0031-hostname-patterns-never-make-a-target-known.md)).
+`fathomgate inventory lint inventory.yaml` fails on a pattern that matches
+no listed device, and `fathomgate inventory resolve <name>` shows where
+each of a device's fields came from.
 
 ## Running fathomgate in a container
 
