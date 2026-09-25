@@ -418,9 +418,9 @@ tasks:
     package: internal/proxy
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     matrix: [2, 22]
-    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name. ADR drafted 2026-09-25 (proposed): process group on Unix, Job Object on Windows, widening ADR 0011''s x/sys scope to internal/proxy. Code waits on the maintainer''s acceptance. ADR 0021 accepted by the maintainer 2026-09-25 (PR #107). Code started.'
+    notes: 'S2, medium, from the security review of PR #77 (T0.39). When --upstream is a launcher (uvx, npx, uv run, a shell script, docker run -i), the ADR 0018 restart kills only the launcher. The real server, which by T0.34''s evidence never exits once its receive loop dies, keeps running beside the second copy with the same --upstream-env-pass credentials and any device sessions it opened. It cannot be driven (its stdio is closed), so this is credential and resource exposure, not a bypass. It also lets startup overrun its budget by up to WaitDelay (2 s) while a grandchild holds stderr. Fix: a process group on Unix (Setpgid, kill the group) and a Job Object with kill-on-close on Windows. Needs an ADR first: golang.org/x/sys/windows is a direct dependency, but ADR 0011 scopes it to internal/audit. Until then docs/install.md and the README say to point --upstream at the server, not a launcher, and the threat model carries an open row. Verified 2026-09-24 on Windows 11 with Python 3.13 (python -m venv and uv venv): the venv''s Scripts python.exe is a redirector whose child dies when the redirector is killed, so it is safe to name. ADR drafted 2026-09-25 (proposed): process group on Unix, Job Object on Windows, widening ADR 0011''s x/sys scope to internal/proxy. Code waits on the maintainer''s acceptance. ADR 0021 accepted by the maintainer 2026-09-25 (PR #107). Code started. Merged in PR #111 2026-09-25. ADR 0021 implemented: process group on Unix, Job Object with a suspended start on Windows, a macOS go test job (not yet required). Security and Go reviews approve after one fix round. Residuals recorded: setsid and parent-process spoofing on Windows escape by design; docker run -i; a Unix crash; PID reuse in the 2 s sweep window; setuid launchers (Warn on EPERM). Use docker run --init in containers.'
   - id: T0.47
     title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected, before M1 audits it (N6)
     package: internal/proxy
@@ -469,10 +469,10 @@ tasks:
     package: cmd/fathomgate
     owner: mcp-protocol-engineer
     reviewers: [security-reviewer, go-reviewer]
-    state: in progress
+    state: merged
     adr: "0016"
     matrix: [23]
-    notes: 'H1 (high): --listen localhost:P or 127.0.0.1:P binds only 127.0.0.1:P (listen.go:65-67); another local user can bind [::1]:P and an agent using http://localhost:P tries ::1 first, so it sends its bearer token to the attacker (reproduced). Fix: bind the other loopback family on the same port too, refuse to start if it is taken, regression test; install.md says to paste the exact listening URL. M1: port squatting while fathomgate is down or restarting, a threat-model row, Open until M1 TLS or a socket. L1: tokenless connections can fill the 128 slots. L2: macOS extended ACLs on token files (and the audit key) are not detected. L3: a short ADR restating the exported surface of internal/proxy instead of another ADR 0016 amendment. Notes N1 (same-user processes, the upstream included, can act as a principal), N2 (no overall shutdown deadline; second signal ignored). Blocks T0.32 and T0.33 and any tag.'
+    notes: 'H1 (high): --listen localhost:P or 127.0.0.1:P binds only 127.0.0.1:P (listen.go:65-67); another local user can bind [::1]:P and an agent using http://localhost:P tries ::1 first, so it sends its bearer token to the attacker (reproduced). Fix: bind the other loopback family on the same port too, refuse to start if it is taken, regression test; install.md says to paste the exact listening URL. M1: port squatting while fathomgate is down or restarting, a threat-model row, Open until M1 TLS or a socket. L1: tokenless connections can fill the 128 slots. L2: macOS extended ACLs on token files (and the audit key) are not detected. L3: a short ADR restating the exported surface of internal/proxy instead of another ADR 0016 amendment. Notes N1 (same-user processes, the upstream included, can act as a principal), N2 (no overall shutdown deadline; second signal ignored). Blocks T0.32 and T0.33 and any tag. Merged in PR #112 2026-09-25. H1 closed: --listen binds the same port on 127.0.0.1 and [::1], refuses to start if the other is taken, and accepts only localhost, 127.0.0.1 or [::1]; CI runs the H1 tests with FATHOMGATE_REQUIRE_BOTH_LOOPBACKS=1 on Linux, macOS and Windows. A new connection must send its first request within 3 s (ConnContext timer); 401 and 403 close the connection; macOS extended ACLs are refused on token files, the audit key and the audit log (internal/fileacl); a second signal forces exit. ADR 0022 (internal/proxy export surface) and ADR 0023 (both loopback families) accepted by the maintainer 2026-09-25. Security and Go reviews after one fix round each. M1 port squatting stays Open until TLS or a socket.'
   - id: T0.53
     title: Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2
     package: docs/security
@@ -480,7 +480,7 @@ tasks:
     reviewers: [docs-writer]
     state: open
     matrix: [15, 16]
-    notes: 'From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI.'
+    notes: 'From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI. Also from the security review of PR #111 (N5): on Windows an upstream can open fathomgate''s own process with at least PROCESS_CREATE_PROCESS and PROCESS_DUP_HANDLE, and probably PROCESS_VM_READ, which could read other upstreams'' secrets from fathomgate''s memory; give it its own row and consider a restrictive process DACL.'
   - id: T0.54
     title: Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule)
     package: docs
@@ -489,6 +489,22 @@ tasks:
     state: open
     matrix: []
     notes: 'From the docs review of PR #108. docs/install.md and other docs inherited lower-case netguard-in-prose and now say fathomgate in prose; ADR 0019 wants Fathomgate in prose and fathomgate in mono for the command and typed values. One sweep after T0.52 merges, not file by file.'
+  - id: T0.55
+    title: Check the audit signing key like every other secret file, and stop audit verify trusting a private key
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: []
+    notes: 'From the security review of PR #112 (medium, predates it, MCP08). audit.LoadKey (internal/audit/key.go:138) calls os.ReadFile: it follows symbolic links and checks no owner, mode, link count, Windows DACL or macOS ACL. LoadPublicKey (key.go:160-173) accepts a private key file and derives the public key from it, so audit verify --key <signing key> trusts the file the signer uses. Latent: nothing signs in production until M1 wires serve --audit. Fix: open the key like openExistingLog and readTokenFile (O_NOFOLLOW, regular file, one link, owned by the current user, 0600 or 0400, fileacl.Extended, protected DACL on Windows), and make verify refuse a private key as its trust anchor. Needs a short ADR on key custody (also PLAN.md open question on key custody). Blocks the M1 task that wires --audit.'
+  - id: T0.56
+    title: Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour
+    package: design
+    owner: design-guardian
+    reviewers: [docs-writer]
+    state: open
+    matrix: []
+    notes: 'From the design review of PR #113. design/DESIGN.md (the class chip section, about line 54) says INVENTORY_READ chips use muted text, but design/tokens.css:119 sets --class-inventory: var(--info). Decide which is right and make the spec and the tokens agree.'
 external:
   - kind: pr
     ref: "#2 dependabot go-yaml 1.18.0 -> 1.19.2"
