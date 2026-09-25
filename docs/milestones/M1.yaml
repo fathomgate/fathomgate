@@ -1,0 +1,331 @@
+# Milestone board — source of truth for STATUS.md.
+# Edit this file, then run `make status` to re-render STATUS.md; CI fails if the two disagree.
+# States: open | blocked | in progress | in review | merged | validated | dropped
+# Owners and reviewers are agent slugs from .claude/agents/ (or a GitHub handle for a human).
+#
+# Exit criteria and validates_against are copied verbatim from the M1 row of docs/PLAN.md#milestones.
+# The PRD M1 success metrics (docs/PRD.md section 5) and ROADMAP stage 2 ("a denial names its rule";
+# "we'll announce it here") are carried as tasks, not as extra criteria.
+# Tasks M1-01 to M1-05 are decision records: each is accepted by the maintainer, and the code tasks
+# that depend on it are blocked_by it until then.
+milestone: M1
+title: Classify + allow/deny
+status: 'open; ADRs 0026 to 0030 proposed, awaiting acceptance'
+opened: 2026-09-25
+exit_criteria:
+  - 100 percent of surveyed tools mapped
+  - policy test suite green
+  - '`EXEC_ARBITRARY` downgrade works on show commands'
+validates_against: [netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp run_command]
+blockers:
+  - id: B1
+    owner: joshscott13
+    text: 'ADR 0026 (pipeline) and ADR 0027 (serve flags) are proposed; the gate, the dispatch wiring and the serve flags (M1-18, M1-19, M1-20) wait on their acceptance. Open questions are listed in each record.'
+tasks:
+  - id: M1-01
+    title: Accept ADR 0026, the M1 policy pipeline at Proxy.dispatch
+    package: docs/adr
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer, policy-engineer, security-reviewer, go-reviewer, design-guardian]
+    state: in review
+    adr: "0026"
+    matrix: [3, 4, 6]
+    spec: docs/specs/policy-schema.md
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR (chore/m1-kickoff). Decides the stage order (parse, normalise, classify, resolve, session counters, Evaluate, enforce, record, redact in M2), the deny tool error text, fail-closed handling of hold and of the dry_run, diff and timed_rollback obligations before M3, the decision log line that M4 turns into the audit event, the new internal/gate package, and the internal/proxy exports Options.Gate, Gate, CallInfo, Verdict (supersedes the ADR 0022 table). Five open questions for the maintainer in the record.'
+  - id: M1-02
+    title: Accept ADR 0027, serve --policy, --inventory and --profiles; --audit refused until M4
+    package: docs/adr
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer, security-reviewer, design-guardian, release-engineer]
+    state: in review
+    adr: "0027"
+    matrix: [3, 4, 6]
+    spec: docs/specs/profile-schema.md
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. CLI surface change (amends ADR 0012). Embeds profiles/ with go:embed; serve without --policy stays a pass-through with a Warn (open question 1: require --policy instead). --audit stays refused because the audit chain is M4 (PLAN, PRD R26, and the reservedServeFlags comment in serve.go already say so); the M0 board notes that assumed M1 wires --audit (T0.47, T0.55) are superseded by this. Four open questions.'
+  - id: M1-03
+    title: Accept ADR 0028, audit signing key custody
+    package: docs/adr
+    owner: joshscott13
+    reviewers: [policy-engineer, security-reviewer]
+    state: in review
+    adr: "0028"
+    matrix: []
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR, as T0.55 asked (a short key-custody ADR). Owner-only file checks on every key open; verify accepts a public key only; keyring and KMS deferred behind a crypto.Signer seam; the redaction key is left to M2. Three open questions.'
+  - id: M1-04
+    title: Accept ADR 0029, remote listening with built-in TLS and loopback authentication
+    package: docs/adr
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer, security-reviewer, release-engineer]
+    state: in review
+    adr: "0029"
+    matrix: [23]
+    spec: docs/specs/profile-schema.md
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR. ADR 0016 put --listen-remote and --listen-host in M1 and already decided built-in TLS required off loopback; this record fixes the flags, allows TLS on loopback against port squatting (threat-model row, open for M1), and binds with SO_EXCLUSIVEADDRUSE on Windows. Not an M1 exit criterion; open question 1 asks whether to park it to M2.'
+  - id: M1-05
+    title: Accept ADR 0030, reloading the policy and inventory without a restart
+    package: docs/adr
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer, policy-engineer, security-reviewer, go-reviewer]
+    state: in review
+    adr: "0030"
+    matrix: []
+    spec: docs/specs/policy-schema.md
+    notes: 'Drafted by the orchestrator in the M1 kickoff PR for PRD R33 (P1, M1). SIGHUP on Unix, content polling on Windows, atomic swap only when both files load, profiles never reloaded, policy_version on every decision line. Not an exit criterion; open question 2 asks whether to park it to M2.'
+  - id: M1-06
+    title: Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6)
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in review
+    matrix: [2]
+    spec: docs/specs/profile-schema.md
+    notes: 'Carried from T0.47. N6, note, from the security reviews of PR #77 and #79. After an initialize-only connect (the ADR 0018 retry), an upstream may answer 2026-07-28; up.version and eraOf then label a stateful session era=stateless. In M0 this reaches only log lines. It becomes an audit-accuracy issue when M1 writes the upstream era into the audit event, so fix it before that wiring. Does not block M0 exit. Kickoff 2026-09-25: The upstream era also goes into the M1 decision log line (ADR 0026), so this lands before M1-19. make conformance required (internal/proxy). PR #151 2026-09-25: the era follows the handshake (initialize ran -> stateful), new upstream.era set once at connect. Security and Go reviews approve; one docs round in progress (F1: era is a label, never a capability; threat-model rows). Security ruling on the author''s question: refuse a hybrid upstream at startup, in M1-32.'
+  - id: M1-07
+    title: "Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2"
+    package: docs/security
+    owner: security-reviewer
+    reviewers: [docs-writer]
+    state: open
+    matrix: [15, 16]
+    notes: 'Carried from T0.53. From the security review of PR #108 (T0.51). Rows to add: upstream text addressed to the agent inside tool results (Open until M2 labelling of every content block); upstream instructions are not relayed (mitigated, pinned by the T0.51 test); an upstream obfuscation key readable by the agent (documented); whitespace variants such as show  running-config dodge netdev-ssh-mcp config-dump detection (M1 classify must collapse whitespace; add a tier 1 case); leading-dash arguments to run_ping and run_traceroute (upstream-server-scout); upstream tool description changes on version bump (M2 row 16 needs a re-pin workflow). Also: gitleaks is not in CI. Also from the security review of PR #111 (N5): on Windows an upstream can open fathomgate''s own process with at least PROCESS_CREATE_PROCESS and PROCESS_DUP_HANDLE, and probably PROCESS_VM_READ, which could read other upstreams'' secrets from fathomgate''s memory; give it its own row and consider a restrictive process DACL. Kickoff 2026-09-25: The whitespace tier 1 case is now in M1-16 and the run_ping and run_traceroute leading dash in M1-14.'
+  - id: M1-08
+    title: Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule)
+    package: docs
+    owner: docs-writer
+    reviewers: [design-guardian]
+    state: open
+    matrix: []
+    notes: 'Carried from T0.54. From the docs review of PR #108. docs/install.md and other docs inherited lower-case netguard-in-prose and now say fathomgate in prose; ADR 0019 wants Fathomgate in prose and fathomgate in mono for the command and typed values. One sweep after T0.52 merges, not file by file. Kickoff 2026-09-25: T0.52 has merged, so this is unblocked. ADRs 0001 to 0018, handoff notes and research briefs stay as written (CLAUDE.md).'
+  - id: M1-09
+    title: Check the audit signing key like every other secret file, and stop audit verify trusting a private key
+    package: internal/audit
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-03]
+    adr: "0028"
+    matrix: []
+    spec: docs/specs/audit-event-schema.md
+    notes: 'Carried from T0.55. From the security review of PR #112 (medium, predates it, MCP08). audit.LoadKey (internal/audit/key.go:138) calls os.ReadFile: it follows symbolic links and checks no owner, mode, link count, Windows DACL or macOS ACL. LoadPublicKey (key.go:160-173) accepts a private key file and derives the public key from it, so audit verify --key <signing key> trusts the file the signer uses. Latent: nothing signs in production until M1 wires serve --audit. Fix: open the key like openExistingLog and readTokenFile (O_NOFOLLOW, regular file, one link, owned by the current user, 0600 or 0400, fileacl.Extended, protected DACL on Windows), and make verify refuse a private key as its trust anchor. Needs a short ADR on key custody (also PLAN.md open question on key custody). Blocks the M1 task that wires --audit. Kickoff 2026-09-25: The key-custody record is ADR 0028 (M1-03). ADR 0027 keeps serve --audit refused until M4, so this blocks the M4 --audit wiring, not an M1 task.'
+  - id: M1-10
+    title: Decide whether the elicitation allow-list accepts titled multi-select (items.anyOf with const and title) and enumNames
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [2]
+    notes: 'Carried from T0.35. From T0.19: conformance elicitation-sep1330-enums sends a titled multi-select; netguard''s allow-list refuses items.anyOf and drops enumNames (a T0.3 follow-up). Decide with security review whether titles cross (they are upstream text: label, escape, cap), then update the baseline. Kickoff 2026-09-25: Not an M1 exit criterion. make conformance required (internal/proxy).'
+  - id: M1-11
+    title: Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects
+    package: docs
+    owner: joshscott13
+    reviewers: [mcp-protocol-engineer]
+    state: open
+    matrix: []
+    notes: 'Carried from T0.36. From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead. Kickoff 2026-09-25: Owner is the maintainer; .github/labels.yml has no agent label for a human, so no GitHub issue is opened for it.'
+  - id: M1-12
+    title: Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-19]
+    adr: "0016"
+    matrix: [23]
+    notes: 'Carried from T0.58. M1 follow-up from N3 in the security re-review of PR #121 (T0.57). A DELETE does not retire the session, so a tools/call go-sdk delivered before it but that admit had not yet let through runs after the DELETE''s cancelSession; go-sdk''s serveStatefulDELETE closes the session synchronously and waits for that call, and the idle expiry cancels it after SessionTimeout (30 min). That residual is accepted for M0 (threat model row 34, TestDeleteWindowBoundedByIdleExpiry). Retiring on DELETE was not done because go-sdk can still refuse the DELETE (400 on a bad header) after fathomgate has retired a live session. Revisit once per-call deadlines and WRITE_CONFIG enforcement exist: either fathomgate pre-checks what go-sdk checks on DELETE before retiring, or a go-sdk hook runs after its checks pass. Kickoff 2026-09-25: WRITE_CONFIG enforcement arrives with M1-19. No board task yet adds per-call deadlines, so the revisit starts from M1-19 and records whether deadlines are still needed.'
+  - id: M1-13
+    title: Profile for upa/mcp-netmiko-server, every surveyed tool mapped
+    package: profiles
+    owner: upstream-server-scout
+    reviewers: [policy-engineer, security-reviewer]
+    state: in review
+    matrix: [4]
+    spec: docs/specs/profile-schema.md
+    notes: 'Exit criterion 1. No profiles/upa-mcp-netmiko-server.yaml exists; research brief 02 section 1.3a lists three tools: send_command_and_get_output (EXEC_ARBITRARY, target name, command command), set_config_commands_and_commit_or_save (WRITE_CONFIG, auto-commit and save), get_network_device_list (INVENTORY_READ). Pin the commit tier 2 already runs (96e8ff3) and cite source lines as the other profiles do. Server key must match what tier 2 passes to --server. Public issue #100 (good first issue) asks for the same file: link it, and if an outside contributor claims it first, review their PR instead of writing a second one. ADR: none, uses only parsed profile fields. PR #150 2026-09-25 (closes #100): profiles/upa-mcp-netmiko-server.yaml, key upa, pinned 96e8ff3. Security review approves; its threat-model rows (log exposure, target alias drift, transport hazards, unmeetable obligation) and matrix row 6 rule-name fix are in the PR. The review also found two classifier bugs on main, fixed in M1-16.'
+  - id: M1-14
+    title: Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test
+    package: profiles
+    owner: upstream-server-scout
+    reviewers: [policy-engineer, security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-13]
+    matrix: [3, 4]
+    spec: docs/specs/profile-schema.md
+    notes: 'Exit criterion 1 (PRD metric: 100 percent of the brief 02 tools for the first three upstreams). Check every tool of netdev-ssh-mcp v1.7.1 and the pinned eos-mcp against its profile entry; add a tier 1 test in internal/classify (profiles_repo_test.go) that fails when a listed surveyed tool of the three M1 upstreams has no profile entry. From T0.53: netdev-ssh-mcp run_ping and run_traceroute accept a leading - in destination, source, vrf or interface; decide the class or a profile note so fathomgate does not rely on the upstream.'
+  - id: M1-15
+    title: Tier 1 fallback-classification tests for every other surveyed tool in brief 02
+    package: internal/classify
+    owner: test-engineer
+    reviewers: [policy-engineer, security-reviewer, go-reviewer]
+    state: open
+    matrix: []
+    spec: docs/specs/classification.md
+    notes: 'Exit criterion 1, second half of the PRD metric: every surveyed tool outside the three M1 upstreams is at least fallback-classified with a test. Table test from the brief 02 class table (section on classes, around line 450): tool name plus representative arguments, expected class and class_source fallback. A tool whose fallback class is less strict than brief 02 says is a finding for policy-engineer, not a test to loosen.'
+  - id: M1-16
+    title: Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants
+    package: internal/classify
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: in progress
+    matrix: [3, 5]
+    spec: docs/specs/classification.md
+    notes: 'Exit criterion 3. classification.md section 2 step 7 says the classifier emits the class and its source (profile, capability_table, fallback, annotation_raise, downgrade, reclassify); classify.Result has Class, ProfileClass and Reason but no source. Add it, with tier 1 cases for every worked example in section 9 and section 10 (one positive and one negative per allow-list and blocklist entry), show ip bgp summary downgraded to READ_OPERATIONAL through run_command and send_command_and_get_output, reload staying EXEC_ARBITRARY, and whitespace variants (show  running-config, tabs) reclassified READ_CONFIG (T0.53). Annotation raise needs the upstream annotations, which reach Classify through the gate (ADR 0026); add the input here only if it is a new parameter, and keep annotations able only to raise. Section 10 also names a classify/rules.yaml export shared with tools/policy-lint that does not exist; report which is right (M1-24 reconciles the doc). Security review of PR #150 found on main: CRITICAL, the downgrade rule accepts multi-line commands (strings.Fields turns newlines into spaces; netmiko sends each line), so ''show clock
+conf t
+...'' and ''show clock
+relo
+
+'' were allowed as READ_OPERATIONAL; HIGH, show run / show conf / show tech-support classified READ_OPERATIONAL. Not live in v0.1.0 (serve enforces no policy). Both fixed in this task with regression tests; blocks M1-19 wiring.'
+  - id: M1-17
+    title: Meta-tool classification through capability tables (Meraki execute_api)
+    package: internal/classify
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer, upstream-server-scout]
+    state: open
+    adr: "0010"
+    matrix: [18]
+    spec: docs/specs/profile-schema.md
+    notes: 'PRD R13 (P1, M1); matrix row 18 (M1, tier 1, Meraki official execute_api fixture). Parse the planned profile fields capability_param, capability_table and top-level capabilities as profile-schema section 3 specifies; ADR 0010 decided capability tables. If the field shape has to differ from the spec, stop and open a record first. class_source capability_table. An unknown capability_id is EXEC_ARBITRARY.'
+  - id: M1-18
+    title: internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026
+    package: internal/gate
+    owner: policy-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-01, M1-16]
+    adr: "0026"
+    matrix: [3, 4, 6]
+    spec: docs/specs/policy-schema.md
+    notes: 'The pipeline stages behind the proxy seam, tier 1 only, no transport. Evaluate stays pure; the gate takes counters as input. Deny text exactly as ADR 0026; no argument value or upstream text in it. Reserved rule id default:bad_arguments. Fail-closed rows for hold and for the dry_run, diff and timed_rollback obligations. Also fix the internal/inventory package doc, which says the upstream INVENTORY_READ provider is M1 (PRD R14 says M2). Docs in the same PR: policy-schema section 5 (reserved id), ARCHITECTURE.md components table (internal/gate).'
+  - id: M1-19
+    title: Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer, design-guardian]
+    state: open
+    blocked_by: [M1-01, M1-06, M1-18]
+    adr: "0026"
+    matrix: [3, 4, 6]
+    spec: docs/specs/profile-schema.md
+    notes: 'ROADMAP stage 2 promise: a denial names its rule so the agent can self-correct. Options.Gate nil keeps M0 pass-through, so every M0 test stands. MRTR retries run the gate again. Record the final CallInfo and Verdict fields and restate the export table (ADR 0026 supersedes ADR 0022). Docs in the same PR: profile-schema 8.2 (policy deny row), ARCHITECTURE.md (pipeline no longer M0 pass-through). make conformance required; with no gate the baselines must not move.'
+  - id: M1-20
+    title: fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4
+    package: cmd/fathomgate
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer, design-guardian, release-engineer]
+    state: open
+    blocked_by: [M1-02, M1-19]
+    adr: "0027"
+    matrix: [3, 4, 6]
+    spec: docs/specs/profile-schema.md
+    notes: 'CLI surface per ADR 0027: load and validate before spawning; start-up line names policy, inventory and profile source; one Warn per unenforced obligation; Warn without --policy. go:embed profiles/*.yaml; fathomgate version lists the embedded set. Docs in the same PR: profile-schema 8.3, docs/install.md, README snippets, the Things-that-look-wrong entry about serve in CLAUDE.md (maintainer edits CLAUDE.md). make conformance required.'
+  - id: M1-21
+    title: Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval
+    package: policies
+    owner: policy-engineer
+    reviewers: [security-reviewer]
+    state: open
+    blocked_by: [M1-01]
+    matrix: [3, 4, 6]
+    spec: docs/specs/policy-schema.md
+    notes: 'Exit criterion 2 (policy test suite green; PRD: at least three cases per example policy, met today with 25 cases). Add cases mirroring rows 3 (show ip bgp summary, READ_OPERATIONAL, reads-anywhere), 4 (reload, EXEC_ARBITRARY, no-exec) and 6 (unknown host, default:unknown_target). After ADR 0026 open question 1 is answered, say in lab-open.yaml and prod-approval.yaml comments what M1 does with their obligations and hold rule, or add an M1 variant.'
+  - id: M1-22
+    title: Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [upstream-server-scout, release-engineer]
+    state: open
+    matrix: [4]
+    notes: 'eos-mcp is an M1 validates_against server with no tier 2 job yet. Pin eos-mcp (sha256 or commit) as client-smoke pins netdev-ssh-mcp; fake eAPI endpoint with canned FAKE responses for show version, show ip bgp summary, and a recorder that proves reload never arrives. Pass-through first (M0 behaviour) so it is green before the gate lands.'
+  - id: M1-23
+    title: Classify plus evaluate overhead under 5 ms at p99, measured in tier 1
+    package: internal/gate
+    owner: test-engineer
+    reviewers: [go-reviewer]
+    state: open
+    blocked_by: [M1-18]
+    matrix: []
+    notes: 'PRD M1 success metric. Go benchmark over the gate with the shipped profiles and prod-approval, reporting p99 over a fixed corpus of calls (reads, downgraded exec, writes, unknown targets); fail the test above 5 ms on the CI runner.'
+  - id: M1-24
+    title: Reconcile the M1 test-matrix rows and specs with the code and PLAN
+    package: docs
+    owner: docs-writer
+    reviewers: [policy-engineer, test-engineer]
+    state: open
+    matrix: [5, 6]
+    notes: 'Discrepancies found at kickoff. Row 6 names rule defaults.unknown_target; the code and policy-schema reserve default:unknown_target. Row 6 expects an audit event with unknown_target true in M1; the audit chain is M4 (ADR 0027), so M1 asserts the tool error and the decision log line and the audit half moves to M4. Row 5 (ntunes send_command, M1 and M2): ntunes is not an M1 validates_against server; split the reclassify half (M1, tier 1 plus upa or eos-mcp free-form) from the redaction half (M2). classification.md section 10 names classify/rules.yaml, which does not exist (answer from M1-16). CLAUDE.md still says not to add proxy code outside T0.2 to T0.4: propose the wording to the maintainer, who edits CLAUDE.md.'
+  - id: M1-25
+    title: Reload the policy and inventory without a restart (SIGHUP on Unix, polling on Windows)
+    package: cmd/fathomgate
+    owner: mcp-protocol-engineer
+    reviewers: [policy-engineer, security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-05, M1-20]
+    adr: "0030"
+    matrix: []
+    notes: 'PRD R33 (P1, M1). Not an exit criterion; ADR 0030 open question 2 asks whether to park it to M2. Atomic swap, old policy kept on error, policy_version on every decision line.'
+  - id: M1-26
+    title: serve --listen-remote, --listen-host, --listen-tls-cert and --listen-tls-key (remote and loopback TLS)
+    package: cmd/fathomgate
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer, release-engineer]
+    state: open
+    blocked_by: [M1-04, M1-20]
+    adr: "0029"
+    matrix: [23]
+    spec: docs/specs/profile-schema.md
+    notes: 'ADR 0016 reserved the remote flags for M1 and decided built-in TLS required off loopback; ADR 0029 fixes the details and adds TLS on loopback. --listen-remote requires --policy, TLS and at least one --listen-host. Not an exit criterion. Docs: profile-schema 8.3 and 8.5, install.md, threat model.'
+  - id: M1-27
+    title: Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row
+    package: cmd/fathomgate
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-04]
+    adr: "0029"
+    matrix: [23]
+    notes: 'Threat-model row "Port squatting while fathomgate is down or restarting" is open and owned for M1 by mcp-protocol-engineer. On Windows another user can bind a wildcard address while fathomgate runs and receive its loopback connections (security review of PR #112). golang.org/x/sys/windows is already a dependency. The row stays partly open for plain-HTTP loopback while fathomgate is down (ADR 0029, residual).'
+  - id: M1-28
+    title: Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command
+    package: tests/integration
+    owner: test-engineer
+    reviewers: [go-reviewer, security-reviewer]
+    state: open
+    blocked_by: [M1-13, M1-14, M1-20, M1-21, M1-22]
+    matrix: [3, 4, 6]
+    notes: 'The milestone-closing validation. Tier 2 through fathomgate serve --policy policies/examples/read-only.yaml (and prod-approval) with the embedded profiles: row 3 show ip bgp summary on netdev-ssh-mcp allowed by reads-anywhere; row 4 reload through upa send_command_and_get_output and eos-mcp run_command denied by no-exec, tool error names the rule, the fake device never sees it; row 6 unknown host on netdev-ssh-mcp denied by default:unknown_target for writes and exec. Also confirm make policy-test green (criterion 2) and the downgrade on show commands on the real servers (criterion 3). Update test-matrix.md with run ids; only then may the exit criteria be ticked.'
+  - id: M1-29
+    title: Release v0.2.0 from the M1 CHANGELOG section
+    package: .goreleaser.yaml
+    owner: release-engineer
+    reviewers: [go-reviewer, docs-writer]
+    state: open
+    blocked_by: [M1-28]
+    matrix: []
+    notes: 'After every exit criterion is ticked. Ship profiles/ in the archives as well as embedded (ADR 0027). The release notes lead with what M1 denies and how the denial reads to the agent.'
+  - id: M1-30
+    title: Announce M1 - a proxy that lets an assistant read everything and stops reload
+    package: docs
+    owner: docs-writer
+    reviewers: [design-guardian, release-engineer]
+    state: open
+    blocked_by: [M1-29]
+    matrix: []
+    notes: 'PLAN: announce at M1, not M5; ROADMAP stage 2: we will announce it here. README quick start with read-only.yaml, a short post, and the good-first-issue list (issues #100 to #103). Handed over the day M1 closes.'
+  - id: M1-31
+    title: Let the status renderer read handoff notes whose task id has a hyphen (M1-06)
+    package: tools/status
+    owner: docs-writer
+    reviewers: [test-engineer]
+    state: open
+    matrix: []
+    notes: 'Found at kickoff. tools/status/render.py HANDOFF_RE takes the task id as the last hyphen-free part of the file name, so 2026-09-26-mcp-protocol-engineer-to-go-reviewer-M1-06.md renders with the receiver go-reviewer-M1 and the task 06. The /milestone procedure prescribes ids like M1-03. Fix the pattern (task id matches M<n>-<nn> or T<n>.<n>), add cases to tests/unit/test_status_render.py, and say it in docs/handoffs/README.md. Until it merges, name handoff files with the task id written M1.06; the note body uses M1-06. Do this first: every other M1 task ends with a handoff.'
+  - id: M1-32
+    title: Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover
+    package: internal/proxy
+    owner: mcp-protocol-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    blocked_by: [M1-06]
+    adr: "0008"
+    matrix: [2]
+    notes: 'From the security review of PR #151 (M1-06). (1) If initialize is answered with a later version than requested (the hybrid: go-sdk then attaches 2026 _meta self-description while a session exists), close the session, kill the upstream and exit with an error naming both versions and ADR 0008; no flag. Record the requested version in the handshake middleware. Real servers are unaffected: go-sdk servers cap initialize answers at 2025-11-25, TS and Python SDKs echo the requested version. The M1-06 hybrid tests flip to expect refusal. Factual amendment row on ADR 0008 and profile-schema 8.4 (orchestrator judged no new ADR: no CLI or export change). (2) F1: go-sdk accepts elicitation/create from an upstream in either era; refuse it (sampling is already refused) from an upstream fathomgate connected via server/discover, with a refusal naming the reason, per ADR 0008. Close the two threat-model rows M1-06 opens.'
