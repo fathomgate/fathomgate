@@ -236,8 +236,10 @@ Planned, not yet implemented: reload on SIGHUP with the previous policy kept on 
 
 | File | Purpose | Test cases |
 | --- | --- | --- |
-| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 5 |
-| `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices with `dry_run` and `diff`; everything else read-only. | 5 |
-| `policies/examples/prod-approval.yaml` | The example in section 1. | 15 |
+| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 |
+| `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices; everything else read-only. Until M3 its `lab-writes-free` rule carries no `dry_run` or `diff`: an `allow` with an obligation fathomgate cannot meet is not forwarded ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)), so with them every lab write would be refused. They return in M3. Lab devices must be listed statically by name (inventory-schema section 4). | 13 |
+| `policies/examples/prod-approval.yaml` | The example in section 1. Safe to load before M3: its holds, and its `lab-writes-free` allows (which carry `dry_run` and `diff`), are not forwarded until M3 (ADR 0026). | 20 |
 
 Run them all with `make policy-test` or `fathomgate policy test policies/examples/*.test.yaml`.
+
+Each suite carries cases for the M1 rows of the [test matrix](../testing/test-matrix.md): row 3 (`show ip bgp summary`, `READ_OPERATIONAL`, `reads-anywhere`), row 4 (`reload`, `EXEC_ARBITRARY`, `no-exec`, through netdev-ssh-mcp, upa and eos-mcp) and row 6 (unknown host, `default:unknown_target`, for writes and exec). A test case takes its class as given: `server` and `tool` name the call but are not classified, and a case cannot carry arguments or commands. The classification half of each row is pinned by the tier 1 tests in `internal/classify`, and `fathomgate policy eval --profile … --arg command=…` shows it for one call.

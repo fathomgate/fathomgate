@@ -29,7 +29,9 @@ import (
 // (2025-11-25), as a FastMCP 1.x upstream is; "badversion" is a raw JSON-RPC
 // peer that answers the initialise request with a protocol version go-sdk
 // rejects, and then never exits on its own. "nodiscover" stops reading at
-// server/discover (ADR 0018) and "silent" answers nothing at all; "die"
+// server/discover (ADR 0018), and "nodiscover2026" does too but answers the
+// initialise request with 2026-07-28 whatever version was asked for (T0.47,
+// N6); "silent" answers nothing at all; "die"
 // exits 3 at once, "dielist" exits 4 on tools/list, "listerror" answers
 // tools/list with an error, and "garbage" prints a line that is not
 // JSON-RPC (T0.25). "launcher" stands in front of another mode as `uvx` or
@@ -94,7 +96,10 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Hour)
 		return
 	case "nodiscover":
-		runNoDiscoverUpstream()
+		runNoDiscoverUpstream(false)
+		return
+	case "nodiscover2026":
+		runNoDiscoverUpstream(true)
 		return
 	case "listerror":
 		runListErrorUpstream()
@@ -192,13 +197,73 @@ func runBadVersionUpstream() {
 // runNoDiscoverUpstream behaves like a Python MCP SDK 1.9.3-or-older
 // upstream (ADR 0018): server/discover kills its receive loop, so it answers
 // nothing more and ignores stdin EOF, and only a kill ends it. A session that
-// starts with the initialise request is served normally.
-func runNoDiscoverUpstream() {
+// starts with the initialise request is served normally. With answer2026 set,
+// the initialise answer names 2026-07-28, as an upstream does that picks its
+// own latest version rather than the one fathomgate asked for.
+func runNoDiscoverUpstream(answer2026 bool) {
 	s := fakeUpstream(&recorder{}, nil)
-	if err := s.Run(context.Background(), noDiscover{&mcp.StdioTransport{}}); err != nil {
+	var t mcp.Transport = noDiscover{&mcp.StdioTransport{}}
+	if answer2026 {
+		t = initializeAnswers{Transport: t, version: v2026}
+	}
+	if err := s.Run(context.Background(), t); err != nil {
 		os.Exit(1)
 	}
 	exitOrLinger()
+}
+
+// initializeAnswers makes a server's answer to the initialise request name
+// version, whatever version the client asked for and the server itself
+// would answer. go-sdk's client accepts any version it supports, so the
+// session it opens is stateful at that version (T0.47, N6).
+type initializeAnswers struct {
+	mcp.Transport
+	version string
+}
+
+func (t initializeAnswers) Connect(ctx context.Context) (mcp.Connection, error) {
+	c, err := t.Transport.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &initializeAnswersConn{Connection: c, version: t.version}, nil
+}
+
+type initializeAnswersConn struct {
+	mcp.Connection
+	version string
+
+	mu sync.Mutex
+	id jsonrpc.ID // of the initialise request, once read
+}
+
+func (c *initializeAnswersConn) Read(ctx context.Context) (jsonrpc.Message, error) {
+	m, err := c.Connection.Read(ctx)
+	if r, ok := m.(*jsonrpc.Request); ok && err == nil && r.IsCall() && r.Method == methodInitialize {
+		c.mu.Lock()
+		c.id = r.ID
+		c.mu.Unlock()
+	}
+	return m, err
+}
+
+func (c *initializeAnswersConn) Write(ctx context.Context, m jsonrpc.Message) error {
+	c.mu.Lock()
+	id := c.id
+	c.mu.Unlock()
+	if r, ok := m.(*jsonrpc.Response); ok && id.IsValid() && r.ID == id && r.Error == nil {
+		var res map[string]any
+		if err := json.Unmarshal(r.Result, &res); err != nil {
+			return err
+		}
+		res["protocolVersion"] = c.version
+		b, err := json.Marshal(res)
+		if err != nil {
+			return err
+		}
+		m = &jsonrpc.Response{ID: r.ID, Result: b}
+	}
+	return c.Connection.Write(ctx, m)
 }
 
 // exitOrLinger ends a fake whose stdin has closed: exit 0, or with
@@ -655,6 +720,10 @@ func TestStdioUpstreamEras(t *testing.T) {
 			if got := p.upstreams[testServer].version; got != e.upstream {
 				_ = p.Close()
 				t.Fatalf("stdio upstream negotiated %s, want %s", got, e.upstream)
+			}
+			if got, want := p.upstreams[testServer].era, eraOf(e.upstream); got != want {
+				_ = p.Close()
+				t.Fatalf("stdio upstream era %s, want %s", got, want)
 			}
 			prompts := &promptLog{}
 			progress := newProgressLog()

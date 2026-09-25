@@ -25,7 +25,7 @@ Comments at the top of the file record the research brief section the tool names
 | `group_params` | list of string | no | Argument names holding group or tag selectors (`tags`). Each value is emitted as an `@name` token for the inventory to expand. |
 | `command_params` | list of string | no | Argument names holding operational commands, as a string or an array (`command`, `commands`). |
 | `config_params` | list of string | no | Argument names holding configuration payload (`config_commands`, `config_lines`, `config_text`, `template_content`). |
-| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. |
+| `notes` | string | no | Free text for humans: server-side safety, caveats, the source line. One token is read by the classifier: `never-downgrade` anywhere in the notes, in any case, of an `EXEC_ARBITRARY` tool keeps it `EXEC_ARBITRARY` whatever its commands say ([classification.md](classification.md) section 8). |
 
 ### 2.1 Normalisation rules
 
@@ -107,7 +107,7 @@ tools:
     class: EXEC_ARBITRARY
     target_params: [router_name]
     command_params: [command]
-    notes: PFE shell on an FPC (`target`). Never downgraded in practice because PFE commands do not start with show.
+    notes: never-downgrade. PFE shell on an FPC (`target`); the execution context is the risk, so a PFE "show jnh 0 exceptions" stays EXEC_ARBITRARY (classification.md section 8).
   execute_junos_command_batch:
     class: EXEC_ARBITRARY
     targets_params: [router_names]
@@ -255,9 +255,9 @@ Decision records: [ADR 0008](../adr/0008-dual-era-mcp-support.md) (accepted) and
 
 **Era detection.** Each side is detected on its own, and the two need not match.
 
-- Upstream, once at connect: go-sdk sends `server/discover` and, if the upstream answers with any error or names no stateless version, falls back to the initialise handshake at 2025-11-25 (and negotiates down to 2024-11-05). If that first connect has not finished within 5 seconds and go-sdk has not begun closing the connection over an answer it rejected, the probe counts as unanswered ([ADR 0018](../adr/0018-bound-server-discover-then-initialize-only.md)): fathomgate restarts the upstream and connects a new session on the new process with `initialize` only, at 2025-11-25 and negotiating down from there, so that upstream is stateful for the life of the process even if it would have answered the probe later (8.3). The negotiated version is logged with `upstream ready` as `protocol` and `era`.
+- Upstream, once at connect: go-sdk sends `server/discover` and, if the upstream answers with any error or names no stateless version, falls back to the initialise handshake at 2025-11-25 (and negotiates down to 2024-11-05). If that first connect has not finished within 5 seconds and go-sdk has not begun closing the connection over an answer it rejected, the probe counts as unanswered ([ADR 0018](../adr/0018-bound-server-discover-then-initialize-only.md)): fathomgate restarts the upstream and connects a new session on the new process with `initialize` only, at 2025-11-25 and negotiating down from there, so that upstream is stateful for the life of the process even if it would have answered the probe later (8.3). The upstream's era label comes from the handshake request go-sdk had answered on the session and the version it negotiated, never from which connect attempt fathomgate made (T0.47): a session opened with `server/discover` at 2026-07-28 or later is labelled stateless; a session whose `initialize` request was answered is labelled stateful whatever version the upstream answered. go-sdk accepts any version it supports in the `initialize` answer, so an upstream that answers the 2025-11-25 request, after the restart or go-sdk's own fallback, with 2026-07-28 is logged `protocol=2026-07-28 era=stateful`. go-sdk still adds the `_meta` self-description to its requests on that session, because it keys that on the version. The era is a label of the handshake only, not a capability: go-sdk accepts a server-initiated `elicitation/create` from an upstream in either era, so an upstream labelled stateless can still send one and fathomgate relays it like any other (below). No control may treat the upstream's era as what it can or cannot send. Refusing such an `elicitation/create`, and refusing at startup an upstream that answers `initialize` with a later version than requested, are follow-up tasks. The negotiated version and the era are logged with `upstream ready` as `protocol` and `era`.
 - Agent, per request: from the initialise handshake for a stateful agent, from the request's `_meta` for a stateless one. go-sdk answers `server/discover` and `initialize` itself.
-- Both versions travel with each call to the M1 pipeline seam (`Proxy.dispatch`), for the audit event, together with the agent transport (`stdio` or `http`) and the principal (empty on stdio) the call arrived with (T0.30, ADR 0016). The principal is attribution only, never an approver identity (invariant 6).
+- Both versions travel with each call to the M1 pipeline seam (`Proxy.dispatch`), for the audit event, with each side's era: the agent's from its version, the upstream's as detected at connect (above), so the audit event never reads the upstream's era from its version alone. With them go the agent transport (`stdio` or `http`) and the principal (empty on stdio) the call arrived with (T0.30, ADR 0016). The principal is attribution only, never an approver identity (invariant 6).
 
 **What the proxy advertises upstream.** fathomgate's own identity (`clientInfo` `fathomgate`), its own negotiated version and its own capabilities: form elicitation only. No roots, no sampling. Toward a stateless upstream go-sdk puts these in every request's `_meta`.
 
