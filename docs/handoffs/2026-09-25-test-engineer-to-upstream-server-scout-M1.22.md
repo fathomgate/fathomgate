@@ -3,7 +3,7 @@
 - **Task:** M1-22 — Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device
 - **From → To:** test-engineer → upstream-server-scout (release-engineer also reviews the CI job)
 - **State now:** in review
-- **Branch / PR:** `test/eos-mcp-tier2` · PR link in the PR description (opened with this commit)
+- **Branch / PR:** `test/eos-mcp-tier2` · [PR #182](https://github.com/fathomgate/fathomgate/pull/182)
 - **Date:** 2026-09-25
 
 ## Done
