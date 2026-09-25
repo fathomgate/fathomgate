@@ -3,7 +3,7 @@
 - **Task:** M1-19 — Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list
 - **From → To:** mcp-protocol-engineer → security-reviewer (then go-reviewer)
 - **State now:** in review
-- **Branch / PR:** `feat/wire-gate` · [PR #167](https://github.com/fathomgate/fathomgate/pull/167)
+- **Branch / PR:** `feat/wire-gate` · [PR #169](https://github.com/fathomgate/fathomgate/pull/169) (round 2; PR #167 merged at `4ffc2ab` before it)
 - **Date:** 2026-09-25
 
 ## Done
