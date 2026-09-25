@@ -1,19 +1,40 @@
-# Expected failures: fathomgate leg (relay -> fathomgate serve -> go-sdk
-# everything-server), --requirements 2025-11-25 (stateful agent). Format and
-# exit rules: tests/conformance/README.md. An entry that starts passing fails
-# the run, so a fix must delete its entry in the same PR.
+# Expected failures: fathomgate leg (shim -> fathomgate serve --listen ->
+# go-sdk everything-server over stdio), --requirements 2025-11-25 (stateful
+# agent). Format and exit rules: tests/conformance/README.md. An entry that
+# starts passing fails the run, so a fix must delete its entry in the same PR.
 #
 # The control leg for this revision has no entries, so each failure here is a
 # difference fathomgate makes. Every group names the ADR or board task that
 # decided it or owns the gap (M0 exit criterion 1). Nothing here is excused
 # as "flaky".
+#
+# One fathomgate process serves every scenario's session (T0.32). The suite
+# DELETEs its session at the end of a scenario that passes but not of one
+# that throws, so the first four scenarios that fail on an undeclared method
+# (logging-set-level, completion-complete, tools-call-with-logging,
+# resources-list) leave four sessions open, and from then on every
+# `initialize` from the one principal gets 503 "too many sessions open for
+# this principal" (at most 4 stateful sessions per principal, idle ones
+# closed after 30 minutes: ADR 0016 limit 7 and profile-schema 8.5 limit 8).
+# The later resources-* and prompts-* entries below therefore fail with 503
+# before they reach the -32601 they would get anyway (T0.3). One more scored
+# scenario runs after that point: dns-rebinding-protection. Its
+# localhost-host-valid-accepted entry (last group) can therefore not go
+# stale on the 2025-11-25 legs: if the Origin rule changed, the check would
+# still fail here, on the 503. Only the 2026-07-28 legs, which have no
+# sessions, would notice. A suite bump that reorders the scenarios shows any
+# other casualty as an unexpected failure, not hides it. The unscored
+# server-session-lifecycle, json-schema-2020-12 and server-sse-polling are
+# among the 503s too; run.sh runs server-session-lifecycle again, alone on a
+# fresh fathomgate, where it must pass (README, "One process").
 server:
   # Undeclared capabilities. Decided in T0.3: fathomgate declares only `tools`
   # toward the agent and answers -32601 for prompts/*, resources/*,
   # logging/setLevel and completion/complete (profile-schema section 8.2).
   # The 2025-11-25 requirement set assumes the everything-server's full
   # surface. Owner: mcp-protocol-engineer, if fathomgate ever proxies prompts
-  # or resources.
+  # or resources. From resources-read-text on, these fail with 503 first
+  # (the session cap, header comment).
   - completion-complete:completion-complete
   - logging-set-level:logging-set-level
   - prompts-list:prompts-list
@@ -43,12 +64,23 @@ server:
   # while serving a request on protocol version 2026-07-28: return an
   # InputRequests map instead`), and the tool returns that error before
   # fathomgate sees a prompt. The path these checks mean, a 2025 upstream
-  # prompting a 2025 agent through fathomgate, is scored on the
-  # fathomgate-up2025 leg (T0.19): tools-call-elicitation and
-  # elicitation-sep1034-defaults pass there, and era_pairs.py checks the
-  # [from conf] label. elicitation-sep1330-enums fails there for a different
-  # reason (go-sdk's schema check and fathomgate's allow-list; see
-  # fathomgate-up2025-2025-11-25.yml).
+  # prompting a 2025 agent through fathomgate, is scored on fathomgate-up2025:
+  # there tools-call-elicitation and elicitation-sep1034-defaults fail in the
+  # shared run (the orphan rule; see fathomgate-up2025-2025-11-25.yml) and
+  # must pass in run.sh's fresh-process step, and era_pairs.py checks the
+  # [from conf] label over stdio and over the listener.
   - tools-call-elicitation:tools-call-elicitation
   - elicitation-sep1034-defaults:elicitation-sep1034-general
   - elicitation-sep1330-enums:elicitation-sep1330-general
+  # ADR 0016 (Request handling, step 3; profile-schema 8.5 limit 3), new with
+  # T0.32 because the relay never passed headers to fathomgate's own HTTP
+  # checks. The check sends `Host: 127.0.0.1:<port>` with `Origin:
+  # http://127.0.0.1:<port>` and wants 2xx; fathomgate answers 403 to any
+  # request that carries an Origin, a same-host one included, because a
+  # DNS-rebinding page sends exactly that (Origin equal to Host) and MCP
+  # agents are not browsers. The other check in the scenario
+  # (localhost-host-rebinding-rejected, `Host: evil.example.com`) passes.
+  # On this leg the check runs after the session cap is reached, so it
+  # would fail on a 503 even without the Origin rule and cannot go stale
+  # here; fathomgate-2026-07-28.yml is where a change would show.
+  - dns-rebinding-protection:localhost-host-valid-accepted

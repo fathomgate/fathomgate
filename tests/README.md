@@ -13,7 +13,7 @@ tests/
     upstreams/          pinned install recipes for upstreams without a release binary
   fixtures/configs/     sanitised running-configs with annotated FAKE secrets
   fixtures/device/      fake SSH device (asyncssh) and its canned transcripts
-  conformance/          official MCP conformance suite vs fathomgate serve: relay.py, baselines (make conformance)
+  conformance/          official MCP conformance suite vs fathomgate serve --listen: shim.py, era_pairs.py, baselines (make conformance)
 ```
 
 ## Running
