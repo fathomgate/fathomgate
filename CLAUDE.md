@@ -32,7 +32,7 @@ make status         # re-render STATUS.md from docs/milestones/<CURRENT>.yaml + 
 make licences       # regenerate THIRD_PARTY_LICENSES/ after a go.mod change; licences-check also checks NOTICE and the per-path SPDX lines (ADR 0020, 0034)
 tools/policy-lint/policy-lint policies/examples/prod-approval.yaml   # Python, no Go needed
 bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
-  --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
+  --inventory inventory.example.yaml --server junos-mcp-server --tool load_and_commit_config \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
@@ -40,7 +40,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 
 ## Toolchain facts
 
-- `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key and log DACL on create and log resume, by `internal/secretfile` for the owner and DACL check on reading the audit signing key and `--listen-token-file` files (ADR 0028), by `internal/proxy` for the upstream's Job Object (ADR 0021) and by `cmd/fathomgate` for Winsock error codes in `listen_windows.go`). Never add `gopkg.in/yaml.v3` (unmaintained).
+- `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key and log DACL on create and log resume, by `internal/secretfile` for the owner and DACL check on reading the audit signing key and `--listen-token-file` files (ADR 0028), by `internal/configfile` for the owner and write-ACE check on the `serve --policy`, `--inventory` and `--profiles` files (ADR 0027), by `internal/proxy` for the upstream's Job Object (ADR 0021) and by `cmd/fathomgate` for Winsock error codes in `listen_windows.go`). Never add `gopkg.in/yaml.v3` (unmaintained).
 - `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
@@ -89,6 +89,8 @@ internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
 internal/fileacl/    one question: does this open file carry a macOS extended ACL (refuse it); no-op elsewhere
 internal/secretfile/ owner-only read of a secret file (audit signing key, listen token files; redaction key in M2), ADR 0028
+internal/configfile/ integrity check on the policy, inventory and profile files: nobody but the owner and admins may change them (ADR 0027)
+internal/yamlstrict/ the one YAML decode for policy, inventory and profiles: strict, one document, errors that never quote the file
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
 internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
@@ -107,7 +109,8 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 ## Things that look wrong but are deliberate
 
 - `fathomgate serve` refuses to start without `--policy <file>` or `--no-policy` (exit 2, ADR 0027), and `--no-policy` forwards every call unchecked on purpose: it is v0.1.0's pass-through, kept for conformance and client testing, and the tier 2 transport jobs and `make conformance` use it. `--audit` is still refused until M4. A `hold`, and an `allow` carrying `dry_run`, `diff` or `timed_rollback`, is not run in M1 (ADR 0026); the agent gets a tool error naming the rule.
-- `profiles/embed.go` is a Go file among the YAML profiles: `go:embed` cannot reach a parent directory, so the package that embeds `profiles/*.yaml` lives there (ADR 0027). It carries the directory's Apache-2.0 SPDX line.
+- `profiles/embed.go` is a Go file among the YAML profiles: `go:embed` cannot reach a parent directory, so the package that embeds `profiles/*.yaml` lives there (ADR 0027). It carries the directory's Apache-2.0 SPDX line. Every profile file is named after its server key (`upa.yaml` for key `upa`); `serve` refuses one that is not.
+- Under `serve --policy`, a `--server` with no profile does not fall back to the classifier: it is an empty profile, so every call that carries arguments is `default:bad_arguments` (ADR 0027 note of 2026-09-25). Use the profile keys `fathomgate version` lists.
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver` and resolves nothing. NetBox is optional (ADR 0007), and the live NetBox and Nautobot connectors are in the paid edition (ADR 0034, *Amendments*): the stub stays until the paid resolver exists, then leaves the core. The free path is CSV import and snapshots.
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.

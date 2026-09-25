@@ -91,11 +91,11 @@ roles:                                  # the shape; anchored at both ends
 | `role`, `site`, `status`, `vendor` | string | Set if the pattern is the winning provider or the field is otherwise empty |
 | `tags` | list | Always unioned |
 
-A pattern that matches no device listed under `devices:` is a warning, never an error, when `fathomgate serve --inventory` loads the file ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 5; `File.PatternWarnings`): `inventory: roles[<i>] "<match>": matches no listed device`.
+A pattern that matches no device listed under `devices:` is a warning, never an error, when `fathomgate serve --inventory` loads the file ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 5; `File.PatternWarnings`): `inventory: roles[<i>] "<match>" matches no listed device and makes nothing known (ADR 0031); list the device under devices`.
 
 Every matching pattern contributes. The first pattern that sets `role` wins `role`. A target matched only by a pattern that sets no role remains `unknown` for `role`, and `device_roles: [unknown]` matches it.
 
-Current code: any matching pattern, whatever it sets, makes the target known (`known: true`, `status: pattern`), so the unknown-target default does not apply to it. The original intent, that a pattern match alone never resolves a target, is not implemented; whether it should be is for the follow-up inventory ADR named in the [threat model](../security/threat-model.md) (row "Pattern-resolved target").
+Current code: `internal/inventory` still returns a pattern hit as a record (`status: pattern`), but the gate treats a name that only a pattern matched as unknown ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md) decision 1; `internal/gate` `resolve`), so the unknown-target default applies to it. Until the M1-34 follow-up lands per-field provenance, a pattern also adds nothing to a device listed under `devices:`: the chain returns the static record alone, so a pattern's `role`, `site` or `tags` do not reach a listed device (ADR 0031 decision 2 is not implemented yet). List what a rule needs on the device itself. `fathomgate policy eval --inventory` still counts a pattern-only name as known (M1-34).
 
 **Hazard.** The target name comes from the agent, and a pattern resolves any string the agent sends that matches it:
 

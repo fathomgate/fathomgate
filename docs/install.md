@@ -21,7 +21,7 @@ Claude Code / Cursor  ->  fathomgate serve  ->  netdev-ssh-mcp  ->  SSH  ->  dev
 The client sees the upstream's tools with the upstream's name in front:
 `netdev-ssh-mcp.run_show_command`, `netdev-ssh-mcp.get_config` and so on.
 
-fathomgate checks every call against your policy file (`--policy`) before
+Fathomgate checks every call against your policy file (`--policy`) before
 the upstream sees it: it works out what the call does (a show command, a
 configuration change, a free-form command), which devices it names, and what
 your policy says about that. A call the policy does not allow never reaches
@@ -93,7 +93,7 @@ start without `--policy` or `--no-policy`. See
      ([GHSA-h47r-329w-6p9h](https://github.com/krisiasty/netdev-ssh-mcp/security/advisories/GHSA-h47r-329w-6p9h),
      fixed in v1.7.1).
 
-   fathomgate's policy is one layer; keep the upstream's own checks as
+   Fathomgate's policy is one layer; keep the upstream's own checks as
    another. Log in to devices with a read-only account as well, so that no
    command sent through the server can change a device.
 
@@ -119,12 +119,21 @@ start without `--policy` or `--no-policy`. See
    policy what it would decide with `fathomgate policy eval` (see the
    README) before an agent does.
 
-   fathomgate also needs a *profile* for the upstream: which of its tools
+   Fathomgate also needs a *profile* for the upstream: which of its tools
    read, which write, and which arguments name a device. The profiles for
-   the servers it has been checked against are built into the binary
-   (`fathomgate version` lists them). An upstream with no profile still
-   works, but every tool is treated as a free-form command and its
-   arguments are not checked, and fathomgate warns about it at start.
+   the servers it has been checked against are built into the binary, and
+   `fathomgate version` lists their server keys. Pass one of those keys as
+   `--server` (`netdev-ssh-mcp` here). With a `--server` that has no
+   profile, Fathomgate denies every call that carries arguments (rule
+   `default:bad_arguments`) and warns at start; use a key that `fathomgate
+   version` lists, or add a profile with `--profiles <dir>`.
+
+   Fathomgate refuses to start if another user can change the policy, the
+   inventory or a `--profiles` file: they decide what reaches your devices.
+   On macOS and Linux run `chmod go-w` on them (the `cp` above keeps your
+   umask, usually fine). On Windows no one but you, SYSTEM and
+   Administrators may have write access; if Fathomgate names another
+   account, remove it with `icacls <file> /inheritance:d /remove:g <name>`.
 
 4. **Full paths to all of these.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example
@@ -208,7 +217,7 @@ once with the "not set" message above; nothing hangs.
 
 ### Leave netdev-ssh-mcp's obfuscation on
 
-fathomgate does not redact anything yet. Device output reaches the agent
+Fathomgate does not redact anything yet. Device output reaches the agent
 exactly as the upstream sends it, and fathomgate's own redaction arrives in
 M2. Until then, do not start netdev-ssh-mcp with `--no-obfuscate`. Its
 default obfuscation replaces secrets in `get_config` and `run_show_command`
@@ -343,9 +352,9 @@ for `_`, and that is expected.
 Ask the agent to run `show version` on a device in your inventory, then on
 one that is not. The first comes back from the device. The second comes back
 as a tool error, `fathomgate denied netdev-ssh-mcp.run_show_command: rule
-default:unknown_target (class READ_OPERATIONAL): ...; target not in
-inventory`, and never reaches the upstream. fathomgate writes one
-`msg=decision` line to its stderr for every call; Claude Code keeps a
+default:unknown_target (class READ_OPERATIONAL): target not in inventory`,
+and never reaches the upstream. Fathomgate writes one `msg=decision` line to
+its stderr for every call; Claude Code keeps a
 server's stderr in its MCP logs (`claude --debug`).
 
 ## Claude Desktop
@@ -353,7 +362,7 @@ server's stderr in its MCP logs (`claude --debug`).
 Claude Desktop reads the same `mcpServers` block from
 `claude_desktop_config.json` (Settings, Developer, Edit Config). Use the JSON
 block from the Claude Code section with full paths for every file, since
-Claude Desktop does not start fathomgate from your shell. fathomgate's tests
+Claude Desktop does not start Fathomgate from your shell. Fathomgate's tests
 do not run Claude Desktop, so check whether your version expands
 `${DEVICE_PASSWORD}` in `env`; if not, use ssh-agent (`SSH_AUTH_SOCK`), or
 put the value in the file, which is yours alone. Restart Claude Desktop
@@ -381,7 +390,7 @@ This has three limits, on purpose:
 - fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
   `[::1]`, and no other address, not even another `127.x.x.x`). Other
   machines cannot connect, and it refuses any other address. Listening on a network waits for M2, when
-  fathomgate gains built-in TLS. Whichever of the three you give, Fathomgate
+  Fathomgate gains built-in TLS. Whichever of the three you give, Fathomgate
   takes the port on both `127.0.0.1` and `[::1]`, so that no other user of this
   computer can take the other one and collect tokens from clients that try
   it first.
@@ -682,14 +691,20 @@ killed an upstream before ADR 0021), the child ended with it. Since ADR
 ## Upgrading from v0.1.0
 
 v0.1.0 forwarded every call with no policy, and refused `--policy`. Since
-v0.2.0, `fathomgate serve` needs one of two flags and stops with exit
-status 2, before it starts the upstream, if it has neither:
+v0.2.0, `fathomgate serve` needs one of two flags and exits with status 2,
+before it starts the upstream, if it has neither:
 
-- `--policy <file>` to check every call, usually with `--inventory <file>`.
-  This is what the snippets above do.
-- `--no-policy` to keep v0.1.0's behaviour: every call is forwarded
-  unchecked. fathomgate logs a warning saying so at every start. Use it for
-  protocol testing, not in front of devices you care about.
+- Add `--policy <file> --inventory <file>`, and check that `--server` is a
+  server key that `fathomgate version` lists (for example
+  `netdev-ssh-mcp`). A `--server` name with no profile denies every call
+  that carries arguments. This is what the snippets above do.
+- Or add `--no-policy` to keep v0.1.0's pass-through: every call is
+  forwarded unchecked. Fathomgate logs a warning saying so at every start.
+  Use it for protocol testing, not in front of devices you care about.
+
+`fathomgate version` now prints more lines: the built-in profiles follow the
+version line. The policy and inventory files must not be writable by other
+users (see step 3 of [What you need](#what-you-need)).
 
 `--inventory` and `--profiles` work only with `--policy`, and `--policy`
 with `--no-policy` is an error. `--audit` is still refused: the signed
@@ -697,11 +712,14 @@ audit log arrives in M4, and until then every decision is one
 `msg=decision` line on fathomgate's stderr. Nothing else in the command line
 changes.
 
-At start, fathomgate logs a warning for anything in your files that will not
-do what it seems to: a server with no profile (its arguments are not
-checked), `unknown_target: allow` in the policy, a hostname pattern in the
-inventory that matches no listed device, an obligation that is not enforced
-yet, and a `hold` rule, whose calls are not run until approvals arrive (M3).
+At start, Fathomgate logs a warning for anything in your files that will not
+do what it seems to: no `--inventory` (every device is unknown), a server
+with no profile (calls with arguments are denied), `unknown_target: allow`
+in the policy, a hostname pattern in the inventory that matches no listed
+device, an obligation that is not enforced yet, and a `hold` rule, whose
+calls are not run until approvals arrive (M3). A `roles:` pattern adds
+nothing to a device you list by name until M1-34: put the role and tags a
+rule needs on the device itself.
 
 ## Running fathomgate in a container
 

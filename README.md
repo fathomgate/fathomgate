@@ -61,7 +61,7 @@ Fathomgate is early. The parts are built and tested on their own, but they are n
 | Secret masking for Cisco IOS and NX-OS, Junos, EOS, PAN-OS and FortiOS output | Done |
 | Tamper-evident audit log | Done |
 | Device lookup from an inventory file, a CSV import or hostname patterns | Done |
-| **The checkpoint itself** (`fathomgate serve --policy`) | **Checks every request against your policy** on `main` (M1, not yet released). A denied request never reaches the server, and the assistant is told which rule stopped it. A hold is not run until approvals arrive (M3). v0.1.0 passed every request through; `--no-policy` still does |
+| **The checkpoint itself** (`fathomgate serve --policy`) | **Checks every request against your policy** on `main` (M1, not yet released). A denied request never reaches the server, and the assistant is told which rule denied it. A request the policy holds is not run until approvals arrive (M3); until then the assistant is told it needs approval. v0.1.0 passed every request through; `--no-policy` still does |
 | Approvals, dry runs, automatic rollback, a local web console for one operator | Later milestones |
 | A team console: single sign-on, roles, many Fathomgate instances in one view | Part of the paid edition |
 | Loading a NetBox or Nautobot CSV export | M2, free |
@@ -81,7 +81,7 @@ make build        # builds bin/fathomgate
 
 ```sh
 bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
-  --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
+  --inventory inventory.example.yaml --server junos-mcp-server --tool load_and_commit_config \
   --class WRITE_CONFIG --target core-rtr-01
 ```
 
@@ -117,9 +117,9 @@ The trace lists every rule Fathomgate checked, top to bottom, and why each one d
 }
 ```
 
-Start from a copy of [`policies/examples/read-only.yaml`](policies/examples/read-only.yaml) and of [`inventory.example.yaml`](inventory.example.yaml), with your devices listed by name. `--policy` is required: `serve` without it stops with a message, and `--no-policy` instead forwards every request unchecked, as v0.1.0 did. The profiles that tell Fathomgate what each server's tools do are built into the binary (`fathomgate version` lists them); `--profiles <dir>` replaces them with your own.
+Start from a copy of [`policies/examples/read-only.yaml`](policies/examples/read-only.yaml) and of [`inventory.example.yaml`](inventory.example.yaml), with your devices listed by name. `--policy` is required: `serve` without it exits with a message naming `--policy` and `--no-policy`, and `--no-policy` instead forwards every request unchecked, as v0.1.0 did. `--server` must be a server key that `fathomgate version` lists: under `--policy`, a server with no profile gets every request that carries arguments denied. The policy and inventory files must not be writable by other users (`chmod go-w` on Unix; on Windows no write access for anyone but you, SYSTEM and Administrators), or `serve` exits. The profiles that tell Fathomgate what each server's tools do are built into the binary (`fathomgate version` lists them); `--profiles <dir>` replaces them with your own.
 
-The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. Point `--upstream` at the server itself (its binary, or the Python interpreter in its virtual environment), not at a launcher such as `uvx`, `npx`, `uv run`, a shell script or `docker run -i`. A server that has not answered within 5 seconds is restarted on the older protocol, and although fathomgate stops the launcher's whole process tree, a server that escapes it (behind `docker run -i`, or detached by its launcher) keeps running when the launcher is stopped ([why](docs/install.md#point---upstream-at-the-server-not-at-a-launcher)). If you must use `uvx` or `npx`, run it once by hand first so it starts fast. A request the policy refuses comes back to the assistant as a tool error such as `fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list`, and the server never sees it.
+The assistant then sees the server's tools with a prefix, such as `netdev-ssh-mcp.run_show_command`, so you can tell which server each tool comes from. Use full paths: desktop apps often start servers without your shell's `PATH`. Point `--upstream` at the server itself (its binary, or the Python interpreter in its virtual environment), not at a launcher such as `uvx`, `npx`, `uv run`, a shell script or `docker run -i`. A server that has not answered within 5 seconds is restarted on the older protocol, and although fathomgate stops the launcher's whole process tree, a server that escapes it (behind `docker run -i`, or detached by its launcher) keeps running when the launcher is stopped ([why](docs/install.md#point---upstream-at-the-server-not-at-a-launcher)). If you must use `uvx` or `npx`, run it once by hand first so it starts fast. A request the policy denies comes back to the assistant as a tool error such as `fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBITRARY): command did not pass the read allow-list`, and the server never sees it.
 
 **Or start it yourself and let assistants connect over HTTP.** Start Fathomgate with `--listen` and a token file that only you can read, one per client, and it serves on this computer only:
 
