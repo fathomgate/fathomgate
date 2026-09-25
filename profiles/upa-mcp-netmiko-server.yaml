@@ -1,0 +1,111 @@
+# Profile for upa/mcp-netmiko-server (Python, FastMCP from the official MCP
+# Python SDK, one file, stdio by default). Public issue #100; board task M1.13.
+# Source of tool names and parameters: docs/research/02-network-mcp-servers.md
+# §1.3a, each one re-checked against the handler at the pinned commit below.
+#
+# The server key is "upa" because that is the --server value tier 2 passes
+# (tests/integration/conftest.py UPA_SERVER), so the agent sees upa.<tool>.
+#
+# Pinned upstream: commit 96e8ff321cc839eeb525474736439ddc2ebc795c
+# (2025-05-30, upstream HEAD on 2026-09-25; the project has no releases or
+# tags). main.py sha256 07e55298409e91dea62e2f245fad37be75e71a0dd8df9027f97ba0c7cca7babb,
+# the same file tier 2 installs (tests/integration/conftest.py UPA_MAIN_SHA256).
+# Verified [src] in:
+#   https://github.com/upa/mcp-netmiko-server/blob/96e8ff321cc839eeb525474736439ddc2ebc795c/main.py
+# Line numbers below are main.py at that commit.
+#
+# Device targeting [src, main.py:106-131, 50-60]. The only positional CLI
+# argument is a TOML inventory path. A [default] table supplies shared keys;
+# every other table is one device, keyed by its name, with hostname,
+# device_type (checked against netmiko's platforms + telnet_platforms),
+# username, password, port. Tools take that name, never an address, and an
+# unknown name returns the text "Error: no device named '<name>'"
+# (main.py:192-195, 223-226) as a normal result, not an MCP tool error. The
+# inventory is re-read from disk on every call. Credentials sit in the TOML in
+# plain text; no tool returns them (Device.json, main.py:63-68, emits name,
+# hostname and device_type only).
+#
+# Upstream safety flags [src, main.py:243-268]. Neither is in the README.
+# - --secured: send_command_and_get_output refuses a command whose text starts
+#   with r, clear, copy, file, write, delete, shut, start, power, debug, lock
+#   or set (main.py:23-36, 184-188), returning the text "Error: destructive
+#   command '<command>' is prohibited." It is a case-sensitive
+#   str.startswith with no trimming, so " reload" (leading space), "Reload"
+#   and "do reload" all pass it; the lone "r" also refuses harmless commands
+#   (route, run). It is a blocklist, not an allow-list: configure, terminal,
+#   ping, tclsh pass. It does not touch the config tool.
+# - --disable-config: set_config_commands_and_commit_or_save returns the text
+#   "changing configuration is prohibited" before loading the inventory
+#   (main.py:219-220). It does not touch send_command_and_get_output.
+# Both are off by default. Fathomgate classifies the same whether they are on
+# or off and must not rely on them; they are defence in depth only.
+#
+# Other facts the proxy cannot see [src]:
+# - Every call opens a new netmiko SSH session (ConnectHandler, main.py:82-86,
+#   88-101) with conn_timeout 3 and read_timeout_override 20, and does not set
+#   ssh_strict or system_host_keys, so netmiko 4.5.0's defaults apply:
+#   paramiko AutoAddPolicy, no host-key checking.
+# - Only netmiko ConnectionException is caught (main.py:199-200, 231-232) and
+#   returned as the text "Connection Error: ..."; any other exception (for
+#   example a ReadTimeout on a command that changes the prompt) reaches FastMCP
+#   and comes back as an MCP tool error.
+# - Each call logs the command, or the whole config command list, and the first
+#   100 characters of device output at INFO to stderr (main.py:202, 234), with
+#   no redaction. fathomgate relays upstream stderr into its own log.
+# - --sse serves the SDK's SSE app through Starlette and uvicorn on --bind
+#   (default 127.0.0.1) and --port (default 10000) with no authentication;
+#   --debug turns on Starlette debug mode (main.py:248-285).
+# - Upstream has no LICENSE file (GitHub reports no licence). Fathomgate does
+#   not vendor or ship it; tier 2 fetches it at test time.
+#
+# Operator warnings (security review of PR #150; docs/security/threat-model.md):
+# 1. Log exposure (open, M2). upa logs every command, every config command
+#    list and the first 100 characters of device output to stderr
+#    (main.py:187, 202, 234), and fathomgate relays that into its own log.
+#    fathomgate scrubs only --upstream-env-pass values there. Until M2 redacts
+#    relayed stderr, treat fathomgate's log as holding device configuration
+#    and secrets, and restrict it accordingly.
+# 2. Target alias drift (open, M2). Policy sees the device name; upa connects
+#    to whatever hostname its TOML maps that name to, re-read on every call.
+#    Keep the TOML's device names one-to-one with fathomgate's inventory, and
+#    keep the TOML where neither the agent nor any tool it can call can write
+#    it; otherwise an edited entry can point lab-leaf-01 at a core router and
+#    a write lands under the lab rule instead of the prod hold.
+# 3. Transport (accepted). No SSH host-key checking, and --sse serves with no
+#    authentication (--debug adds tracebacks). Fathomgate supports upa only
+#    over stdio as `fathomgate serve --upstream ...`; do not run it with
+#    --sse or --debug.
+server: upa
+source: https://github.com/upa/mcp-netmiko-server
+description: Single-file netmiko server; TOML inventory, three tools, auto-commit and save on config
+tools:
+  get_network_device_list:
+    class: INVENTORY_READ
+    notes: >-
+      [src main.py:134-169] No parameters. Returns a JSON string of
+      [{name, hostname, device_type}] read from the TOML inventory; no device
+      is contacted. hostname is an address, so the result names management
+      IPs.
+  send_command_and_get_output:
+    class: EXEC_ARBITRARY
+    target_params: [name]
+    command_params: [command]
+    notes: >-
+      [src main.py:172-204] name: str (required), command: str (required).
+      Calls netmiko send_command(command) on the named device and returns the
+      output text. Exec mode, unfiltered unless --secured (a prefix blocklist
+      with known bypasses, see the header). Downgraded by Fathomgate only when
+      the command passes the read allow-list; show running-config reclassifies
+      to READ_CONFIG.
+  set_config_commands_and_commit_or_save:
+    class: WRITE_CONFIG
+    target_params: [name]
+    config_params: [commands]
+    notes: >-
+      [src main.py:207-236, 88-101] name: str (required), commands: list[str]
+      (required). netmiko send_config_set(commands) (enters and leaves config
+      mode), then commit() where the platform driver has one (plain commit, no
+      confirm timer), then save_config() where implemented, in one call. No
+      dry-run, no diff, no rollback, no confirm step; refused only under
+      --disable-config. Fathomgate's dry_run, diff and timed_rollback
+      obligations cannot be met through this tool (M3).

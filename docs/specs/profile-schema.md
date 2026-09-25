@@ -166,8 +166,13 @@ The rows show the normalisation keys that differ. Full files are in `profiles/`.
 | `eos-mcp` | `push_config` | `WRITE_CONFIG` | `[hostname]` | | | | `[config_lines]` |
 | `eos-mcp` | `confirm_config_session`, `abort_config_session` | `WRITE_CONFIG` | `[hostname]` | | | | |
 | `eos-mcp` | `health_check` | `LOCAL_ADMIN` | | | | | |
+| `upa` | `send_command_and_get_output` | `EXEC_ARBITRARY` | `[name]` | | | `[command]` | |
+| `upa` | `set_config_commands_and_commit_or_save` | `WRITE_CONFIG` | `[name]` | | | | `[commands]` |
+| `upa` | `get_network_device_list` | `INVENTORY_READ` | | | | | |
 
-Profiles for upa/mcp-netmiko-server, Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Meraki one waits on the capability-table fields in section 3.
+The upa/mcp-netmiko-server profile is `profiles/upa-mcp-netmiko-server.yaml`, and its `server` is `upa`, the prefix tier 2 runs it under, not the file name. Its write tool takes a `commands` list of configuration lines, so `commands` is a `config_params` entry there, not a `command_params` one, and the payload is never reclassified.
+
+Profiles for Palo-MCP, mcfortigate and the Meraki meta-tool are planned; the Meraki one waits on the capability-table fields in section 3.
 
 ## 7. Validation
 
