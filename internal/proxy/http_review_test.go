@@ -335,6 +335,10 @@ func TestOrphanAttribution(t *testing.T) {
 	}
 	a := callOn(sA)
 	up.end(a, t0, t0.Add(ttl)) // sA ends a call
+	// sB has sA's principal, as an agent's new session after a restart
+	// does. It does not inherit sA's ended call (T0.57: the principal is a
+	// token, not the conversation the prompt belongs to; profile-schema
+	// 8.4), so the prompt is refused until the orphan expires.
 	b := callOn(sB)
 	if f, err := attributed(up, t0.Add(ttl/2)); f != nil || !errors.Is(err, errEndedElsewhere) {
 		t.Fatalf("sB's call got a prompt while sA's ended call may be running: %v, %v", f, err)
@@ -506,12 +510,20 @@ func TestAgentSessionKey(t *testing.T) {
 
 // TestHTTPSessionsPerPrincipal (H2): one principal cannot take every
 // stateful session slot; the next initialise gets 503 naming the
-// per-principal cap while another principal still gets a session.
+// per-principal cap while another principal still gets a session. Both of
+// alice's sessions have their go-sdk client's GET stream open, so neither
+// is idle and neither can be evicted to make room (T0.57); the GET is
+// opened on a goroutine after Connect returns, so the test waits for it.
 func TestHTTPSessionsPerPrincipal(t *testing.T) {
 	h := newHTTPHarness(t, httpSetup{opts: HTTPOptions{MaxSessions: 3, MaxSessionsPerPrincipal: 2}})
 	ctx := context.Background()
-	h.connect(t, v2025, tokAlice, nil)
-	h.connect(t, v2025, tokAlice, nil)
+	for range 2 {
+		cs := h.connect(t, v2025, tokAlice, nil)
+		waitFor(t, "the client's GET stream to be counted", func() bool {
+			_, _, gets := sessionState(h, cs.ID())
+			return gets == 1
+		})
+	}
 	resp, body := h.do(t, h.request(ctx, "POST", tokAlice, nil, initialize2025))
 	if resp.StatusCode != 503 || resp.Header.Get("Retry-After") != "1" || !strings.Contains(body, "for this principal") {
 		t.Fatalf("alice's third initialise: status %d, Retry-After %q, body %q", resp.StatusCode, resp.Header.Get("Retry-After"), body)

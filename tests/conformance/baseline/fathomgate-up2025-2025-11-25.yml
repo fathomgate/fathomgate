@@ -15,7 +15,8 @@
 #   fathomgate-2025-11-25.yml), the four scenarios that throw on an
 #   undeclared method leave their sessions open, and from resources-read-text
 #   on every `initialize` gets 503 (4 stateful sessions per principal: ADR
-#   0016 limit 7, profile-schema 8.5 limit 8). dns-rebinding-protection runs
+#   0016 limit 7, profile-schema 8.5 limit 8). Their GET streams stay open,
+#   so the T0.57 eviction of idle sessions does not apply. dns-rebinding-protection runs
 #   after that point too, so its entry cannot go stale on this leg (see
 #   fathomgate-2025-11-25.yml); only the 2026-07-28 legs would notice.
 # - The orphan rule. tools-call-elicitation and elicitation-sep1034-defaults

@@ -4,7 +4,7 @@
 
 **Current milestone:** M0 — Pass-through proxy · **state:** in progress · opened 2026-09-23
 
-Tasks: open 7 · in review 1 · merged 46 · validated 2 · dropped 1
+Tasks: open 6 · blocked 1 · in review 2 · merged 46 · validated 2 · dropped 1
 
 ## In flight
 
@@ -63,7 +63,8 @@ Tasks: open 7 · in review 1 · merged 46 · validated 2 · dropped 1
 | T0.54 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
 | T0.55 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | open | — | — | — |
 | T0.56 | Make DESIGN.md and tokens.css agree on the INVENTORY_READ class chip colour | `design` | design-guardian | docs-writer | in review | — | — | — |
-| T0.57 | Stop the listener's session cap and orphan rule locking out an agent that restarts without ending its session | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.57 | Stop the listener's session cap and orphan rule locking out an agent that restarts without ending its session | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | in review | — | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
+| T0.58 | Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | blocked | T0.57 | 23 | [0016](docs/adr/0016-streamable-http-listener.md) |
 
 ## Done this milestone
 
@@ -92,8 +93,8 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
 | 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
 | 2026-09-25 | test-engineer | docs-writer | T0.33 | [T0.33: matrix row 23 runs the HTTP listener against the real netdev-ssh-mcp; Claude Code `"type": "http"` tested and documented](docs/handoffs/2026-09-25-test-engineer-to-docs-writer-T0.33.md) |
+| 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.57 | [T0.57 ready for review: evict a principal's idle session at the session cap; orphan rule kept](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.57.md) |
 | 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.52 | [T0.52 ready for review: `--listen` binds both loopback families, plus the rest of the PR #109 reviews](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.52.md) |
-| 2026-09-25 | mcp-protocol-engineer | security-reviewer | T0.46 | [T0.46 ready for review: the upstream's whole process tree is stopped (ADR 0021)](docs/handoffs/2026-09-25-mcp-protocol-engineer-to-security-reviewer-T0.46.md) |
 
 ## How to update
 

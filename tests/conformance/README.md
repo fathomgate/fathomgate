@@ -208,11 +208,22 @@ the 2025-11-25 runs, both deliberate:
 
 - **Session cap.** At most 4 stateful sessions per principal and 16 in all;
   an idle session closes after 30 minutes (ADR 0016 limit 7, profile-schema
-  8.5 limit 8). The suite DELETEs the session of a scenario that passes but
-  not of one that throws, so the first four scenarios that fail on an
-  undeclared method (`logging-set-level`, `completion-complete`,
-  `tools-call-with-logging`, `resources-list`) leave four sessions open,
-  and every later `initialize` gets 503. The resources and prompts
+  8.5 limit 8). Since T0.57 an `initialize` past the cap first evicts the
+  principal's least recently used idle session, but a session with a GET
+  stream open is in use, not idle. The suite DELETEs the session of a
+  scenario that passes but not of one that throws, and it leaves that
+  client's standalone GET stream open, so the first four scenarios that
+  fail on an undeclared method (`logging-set-level`, `completion-complete`,
+  `tools-call-with-logging`, `resources-list`) leave four sessions that are
+  still streaming, none can be evicted, and every later `initialize` gets
+  503. `chain.log` shows it: `listener: new session refused: too many
+  sessions open for this principal and none of the principal's sessions is
+  idle principal=env sessions=4 posting=0 streaming=4 calling=0`. A crashed
+  or restarted agent's stream closes with its connection, and that case
+  is what the eviction is for (unit tests in
+  `internal/proxy/session_cap_test.go`). The upstream request drafted in
+  the T0.32 handoff (terminate the session on every exit path) would clear
+  these 503s. The resources and prompts
   scenarios after that point fail with 503 before the `-32601` they would
   get anyway, so their baseline entries hold for both reasons (the files
   say so). One more scored scenario runs after that point,
@@ -227,7 +238,17 @@ the 2025-11-25 runs, both deliberate:
   `json-schema-2020-12` pass, and `server-sse-polling` passes but for a
   `server-sse-priming-event` WARNING (a SHOULD: no priming event with an id
   on the POST SSE stream), on both control legs; it is unscored, so no
-  baseline lists it.
+  baseline lists it. Run alone on a fresh fathomgate (T0.57, by hand),
+  `server-sse-polling` gives the same warning and a second one,
+  `server-sse-retry-field` (a SHOULD: no `retry:` field). The fixture's
+  `test_reconnection` tool closes its SSE stream mid-call with a `retry:`
+  delay (go-sdk `CloseSSEStream`), but that is the upstream's stream to
+  fathomgate. go-sdk v1.8 writes `retry:` only in that close event, which
+  asks the client to reconnect and resume from an event store, and ADR
+  0016 gives the listener none, so fathomgate sends neither. Recorded in
+  ADR 0016's amendments, not changed. `json-schema-2020-12` run alone
+  fails on the prefix: the suite looks up the unprefixed tool name in
+  `tools/list`.
 - **Orphan rule.** See the group above.
 
 **Fresh-process step.** After the shared run, `run.sh` runs some scenarios

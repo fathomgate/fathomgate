@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -48,7 +49,8 @@ import (
 //  5. POSTs in flight, overall and per principal: 503 with Retry-After: 1.
 //  6. Era dispatch on MCP-Protocol-Version.
 //  7. Stateful sessions: a POST that could open one when the overall or the
-//     principal's cap is reached gets 503.
+//     principal's cap is reached first evicts the principal's least
+//     recently used idle session (reserveSession); with none, it gets 503.
 //  8. go-sdk: body size (413), Content-Type, Accept, _meta and header
 //     agreement, Mcp-Method and Mcp-Name.
 //
@@ -312,6 +314,10 @@ type httpHandler struct {
 	authed    http.Handler // RequireBearerToken around serveAuthed
 
 	lastAuthLog atomic.Int64 // unix nanoseconds; rate-limits refusal logs
+	// useSeq orders session use for eviction: register, endPOST and endGET
+	// take the next value (liveSession.lastSeq). A counter, not a clock,
+	// because a coarse clock (Windows) gives two uses the same time.
+	useSeq atomic.Uint64
 
 	mu                   sync.Mutex
 	inFlight             int
@@ -324,11 +330,34 @@ type httpHandler struct {
 	// before settleSession has registered it (S7 in the security review of
 	// T0.40), and the registration counts it as in progress. Entries last
 	// only as long as their POSTs, so the POST caps bound the map.
-	early map[earlyPOST]int
+	early map[earlySession]int
+	// earlyGets counts the GET streams open on a session id that is not
+	// (yet) in live, in the same way, so a stream opened before the session
+	// is registered still keeps it from being evicted (T0.57). Entries last
+	// only as long as their streams: go-sdk answers a GET on an id it does
+	// not know with 404 at once, and a stream holds one of the listener's
+	// 128 connections.
+	earlyGets map[earlySession]int
+	// capLog rate-limits the Warn line of a session-cap refusal per
+	// principal (capLogAllowLocked). Principals are configured, so the map is
+	// bounded by the tokens.
+	capLog map[string]*capLogState
 }
 
-// earlyPOST names the POSTs counted in httpHandler.early.
-type earlyPOST struct{ sid, principal string }
+// capLogState is one principal's session-cap refusal log state.
+type capLogState struct {
+	last       time.Time
+	suppressed int
+}
+
+// capLogInterval is the least time between two session-cap refusal lines
+// for one principal.
+const capLogInterval = time.Second
+
+// earlySession names a session id and a principal whose requests are
+// counted before the session is registered (httpHandler.early and
+// earlyGets).
+type earlySession struct{ sid, principal string }
 
 // HTTPHandler returns the Streamable HTTP handler for the agent side, serving
 // HTTPPath for both protocol eras with every check in the list at the top of
@@ -369,7 +398,9 @@ func (p *Proxy) HTTPHandler(opts HTTPOptions) (http.Handler, error) {
 		perPrincipal:         make(map[string]int),
 		sessionsPerPrincipal: make(map[string]int),
 		live:                 make(map[string]*liveSession),
-		early:                make(map[earlyPOST]int),
+		early:                make(map[earlySession]int),
+		earlyGets:            make(map[earlySession]int),
+		capLog:               make(map[string]*capLogState),
 	}
 	getServer := func(*http.Request) *mcp.Server { return p.server }
 	sdkLogger := slog.New(minLevel{p.logger.Handler(), slog.LevelWarn})
@@ -561,25 +592,47 @@ func (h *httpHandler) serveAuthed(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && sid != "":
 		// go-sdk's session Close waits for calls in flight; cancel them
 		// first, if the session is this principal's.
+		// A call go-sdk has delivered but fathomgate has not yet admitted is
+		// not cancelled here, and go-sdk's Close then waits for it. The
+		// DELETE does not pause the idle clock, so the idle expiry retires
+		// the session and cancels that call after SessionTimeout (threat
+		// model row 34, T0.57).
 		if n := h.p.limits.Load().cancelSession(sid, principal); n > 0 {
 			h.logger.Info("agent session deleted; cancelling its calls", "session", shortHash(sid), "principal", principal, "calls", n)
+		} else {
+			h.logger.Debug("agent session DELETE received", "session", shortHash(sid), "principal", principal)
 		}
 	case r.Method == http.MethodPost && sid != "":
 		// A POST on the session's own principal's behalf pauses fathomgate's
 		// idle expiry, as it pauses go-sdk's; another principal's gets 403
 		// from go-sdk and touches nothing. That includes a POST that
-		// arrives before the session is registered (beginPOST).
-		defer h.beginPOST(sid, principal)()
+		// arrives before the session is registered (beginPOST). A POST on
+		// an evicted session gets 404, as it will once go-sdk has closed it.
+		end, ok := h.beginPOST(sid, principal)
+		if !ok {
+			http.Error(w, "Not Found: session not found", http.StatusNotFound)
+			return
+		}
+		defer end()
+	case r.Method == http.MethodGet && sid != "":
+		// An open GET stream makes a session ineligible for eviction; it
+		// does not pause the idle clock (liveSession).
+		end, ok := h.beginGET(sid, principal)
+		if !ok {
+			http.Error(w, "Not Found: session not found", http.StatusNotFound)
+			return
+		}
+		defer end()
 	case r.Method == http.MethodPost && sid == "":
 		// go-sdk creates a session for every session-less POST on the
 		// stateful handler, and keeps it if the POST was an initialise.
-		release, reason := h.reserveSession(principal)
-		if release == nil {
+		slot, reason := h.reserveSession(principal)
+		if slot == nil {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, "Service Unavailable: "+reason, http.StatusServiceUnavailable)
 			return
 		}
-		defer h.settleSession(w, principal, release)
+		defer h.settleSession(w, principal, slot)
 	}
 	h.stateful.ServeHTTP(w, r)
 }
@@ -612,32 +665,224 @@ func (h *httpHandler) acquirePOST(principal string) (func(), bool) {
 	}, true
 }
 
+// sessionSlot is one stateful session's place under the session caps,
+// overall and for its principal. It is released once: when the session
+// ends, when go-sdk did not keep it, or when it is evicted (T0.57), which
+// hands the slot to the initialise that evicted it before the evicted
+// session has finished closing.
+type sessionSlot struct {
+	h         *httpHandler
+	principal string
+	released  bool // guarded by h.mu
+}
+
+// releaseLocked gives the slot back. Callers hold h.mu.
+func (s *sessionSlot) releaseLocked() {
+	if s.released {
+		return
+	}
+	s.released = true
+	s.h.sessions--
+	if s.h.sessionsPerPrincipal[s.principal]--; s.h.sessionsPerPrincipal[s.principal] <= 0 {
+		delete(s.h.sessionsPerPrincipal, s.principal)
+	}
+}
+
+// release gives the slot back.
+func (s *sessionSlot) release() {
+	s.h.mu.Lock()
+	defer s.h.mu.Unlock()
+	s.releaseLocked()
+}
+
 // reserveSession takes one stateful session slot, overall and for
 // principal, or returns nil and the reason for the 503. go-sdk has no
 // session cap and Server.Sessions also lists stateless requests' sessions,
 // so fathomgate counts its own.
-func (h *httpHandler) reserveSession(principal string) (func(), string) {
+//
+// When a cap is reached, the principal's own least recently used idle
+// session is evicted to make room (T0.57, ADR 0016 amendment of
+// 2026-09-25): an agent that restarts without a DELETE (a crash, or an SDK
+// whose close does not send one) would otherwise be refused a session until
+// its old ones reached SessionTimeout. Idle means no POST in progress, no
+// GET stream open and no call in flight, and the last is claimed, not just
+// checked (claimEvictableLocked), so eviction never cancels a call, never
+// cuts a stream, and never lets a call start on the session it evicted.
+// Only the same principal's sessions are candidates: one principal can
+// never end another's. With no idle session of its own, the initialise gets
+// 503 as before, so the caps still bound the sessions that are in use; the
+// 503 is logged with what kept each of the principal's sessions in use
+// (capLogAllowLocked).
+func (h *httpHandler) reserveSession(principal string) (*sessionSlot, string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	switch {
-	case h.sessionsPerPrincipal[principal] >= h.opts.MaxSessionsPerPrincipal:
-		return nil, "too many sessions open for this principal"
-	case h.sessions >= h.opts.MaxSessions:
-		return nil, "too many sessions open"
+	var evicted []*liveSession
+	var inUse sessionUse
+	logRefusal, suppressed := false, 0
+	reason := ""
+	for {
+		switch {
+		case h.sessionsPerPrincipal[principal] >= h.opts.MaxSessionsPerPrincipal:
+			reason = "too many sessions open for this principal"
+		case h.sessions >= h.opts.MaxSessions:
+			reason = "too many sessions open"
+		default:
+			reason = ""
+		}
+		if reason == "" {
+			break
+		}
+		victim := h.claimEvictableLocked(principal)
+		if victim == nil {
+			inUse = h.useLocked(principal)
+			logRefusal, suppressed = h.capLogAllowLocked(principal, time.Now())
+			break
+		}
+		h.evictLocked(victim)
+		evicted = append(evicted, victim)
 	}
-	h.sessions++
-	h.sessionsPerPrincipal[principal]++
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			h.sessions--
-			if h.sessionsPerPrincipal[principal]--; h.sessionsPerPrincipal[principal] <= 0 {
-				delete(h.sessionsPerPrincipal, principal)
-			}
-		})
-	}, ""
+	var slot *sessionSlot
+	if reason == "" {
+		h.sessions++
+		h.sessionsPerPrincipal[principal]++
+		slot = &sessionSlot{h: h, principal: principal}
+	}
+	h.mu.Unlock()
+	for _, ls := range evicted {
+		h.closeEvicted(ls)
+	}
+	if logRefusal {
+		h.logger.Warn("listener: new session refused: "+reason+" and none of the principal's sessions is idle",
+			"principal", principal, "sessions", inUse.sessions, "posting", inUse.posting, "streaming", inUse.streaming,
+			"calling", inUse.calling, "closing", inUse.closing, "suppressed", suppressed)
+	}
+	return slot, reason
+}
+
+// sessionUse counts what keeps a principal's live sessions from being
+// evicted, for the log line of a session-cap 503. A session can count
+// under more than one heading.
+type sessionUse struct {
+	sessions, posting, streaming, calling, closing int
+}
+
+// useLocked counts principal's live sessions and what keeps each in use.
+// Callers hold h.mu.
+func (h *httpHandler) useLocked(principal string) sessionUse {
+	limits := h.p.limits.Load()
+	var u sessionUse
+	for _, ls := range h.live {
+		if ls.principal != principal {
+			continue
+		}
+		u.sessions++
+		ls.mu.Lock()
+		active, gets, stopped := ls.active, ls.gets, ls.stopped
+		ls.mu.Unlock()
+		if stopped || ls.evicted {
+			u.closing++
+			continue
+		}
+		if active > 0 {
+			u.posting++
+		}
+		if gets > 0 {
+			u.streaming++
+		}
+		if limits.busy(ls.ss) {
+			u.calling++
+		}
+	}
+	return u
+}
+
+// capLogAllowLocked reports whether a session-cap refusal for principal
+// may be logged at now, at most one line per capLogInterval per principal
+// (so one principal's refusals never hide another's), and how many lines
+// for that principal were held back since the last one, which the line
+// reports as suppressed. An operator can tell from the line whether a
+// client is holding streams open on sessions it no longer uses (T0.57).
+// Callers hold h.mu.
+func (h *httpHandler) capLogAllowLocked(principal string, now time.Time) (bool, int) {
+	st := h.capLog[principal]
+	if st == nil {
+		st = &capLogState{}
+		h.capLog[principal] = st
+	}
+	if !st.last.IsZero() && now.Sub(st.last) < capLogInterval {
+		st.suppressed++
+		return false, 0
+	}
+	n := st.suppressed
+	st.last, st.suppressed = now, 0
+	return true, n
+}
+
+// claimEvictableLocked returns principal's least recently used session that
+// is idle and claims it for eviction, or nil if it has none. A session is
+// a candidate when it has no POST in progress, no GET stream open and is
+// not stopped (liveSession.idleState). Candidates are tried in order of
+// last use, and the first one callLimits.claimIdle retires, because it has
+// no call in flight, is the one returned: the check and the retirement are
+// one step under callLimits.mu, so a call go-sdk has delivered but not yet
+// admitted is refused by admit rather than run on the evicted session.
+// Callers hold h.mu; claimIdle then takes callLimits.mu (lock order h.mu,
+// then callLimits.mu).
+func (h *httpHandler) claimEvictableLocked(principal string) *liveSession {
+	type candidate struct {
+		ls  *liveSession
+		seq uint64
+	}
+	var cands []candidate
+	for _, ls := range h.live {
+		if ls.principal != principal || ls.evicted {
+			continue
+		}
+		if seq, _, idle := ls.idleState(); idle {
+			cands = append(cands, candidate{ls, seq})
+		}
+	}
+	slices.SortFunc(cands, func(a, b candidate) int { return cmp.Compare(a.seq, b.seq) })
+	limits := h.p.limits.Load()
+	for _, c := range cands {
+		if limits.claimIdle(c.ls.ss) {
+			return c.ls
+		}
+	}
+	return nil
+}
+
+// evictLocked takes ls out of service: its slot goes back at once, its idle
+// clock stops, and every later request on its id gets 404 from fathomgate
+// (serveAuthed), which tells a 2025-era client to start a new session. The
+// go-sdk session is closed by closeEvicted, after h.mu is released. Callers
+// hold h.mu, and have claimed ls (claimEvictableLocked), so callLimits
+// refuses every call on it from now on.
+func (h *httpHandler) evictLocked(ls *liveSession) {
+	ls.evicted = true
+	ls.stop()
+	if ls.slot != nil {
+		ls.slot.releaseLocked()
+	}
+}
+
+// closeEvicted closes an evicted session's go-sdk session on a goroutine
+// callLimits tracks, which Proxy.Close joins. The session had no call in
+// flight when it was claimed and callLimits refuses any since, so go-sdk's
+// Close waits for nothing. If the proxy is already closing, Proxy.Close
+// closes the session itself.
+//
+// The eviction's Info line is not rate-limited: each one needs an
+// initialise, and the POST caps (64 overall, 32 per principal) bound those.
+func (h *httpHandler) closeEvicted(ls *liveSession) {
+	_, since, _ := ls.idleState()
+	h.logger.Info("agent session evicted: its principal reached a session cap and this was its least recently used idle session",
+		"session", shortHash(ls.sid), "principal", ls.principal, "idle", time.Since(since).Round(time.Second).String())
+	limits := h.p.limits.Load()
+	limits.track(func() {
+		if err := ls.ss.Close(); err != nil {
+			h.logger.Debug("closing an evicted agent session", "session", shortHash(ls.sid), "error", err)
+		}
+	})
 }
 
 // settleSession runs after the stateful handler served a session-less POST.
@@ -657,7 +902,8 @@ func (h *httpHandler) reserveSession(principal string) (func(), string) {
 // The goroutine that waits for the session to end is tracked by callLimits
 // and joined by Proxy.Close. If the proxy is already closing, the session is
 // closed at once instead.
-func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, release func()) {
+func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, slot *sessionSlot) {
+	release := slot.release
 	sid := w.Header().Get("Mcp-Session-Id")
 	var kept *mcp.ServerSession
 	if sid != "" {
@@ -673,15 +919,21 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 		return
 	}
 	limits := h.p.limits.Load()
-	ls := &liveSession{h: h, ss: kept, sid: sid, principal: principal}
+	ls := &liveSession{h: h, ss: kept, sid: sid, principal: principal, slot: slot}
 	h.register(ls)
 	started := limits.track(func() {
 		_ = kept.Wait()
+		// stop waits on ls.mu, so an expire that retired the session has
+		// finished doing so (it retires under ls.mu).
 		ls.stop()
 		h.mu.Lock()
 		if h.live[sid] == ls {
 			delete(h.live, sid)
 		}
+		// The session is closed and no longer in live. Eviction claims only
+		// sessions in live, under h.mu, so no claimIdle can retire it after
+		// this forget, and the retired set cannot keep a closed session.
+		limits.forget(kept)
 		h.mu.Unlock()
 		release()
 		h.logger.Info("agent session closed", "session", shortHash(sid), "principal", principal)
@@ -714,14 +966,17 @@ func (h *httpHandler) settleSession(w http.ResponseWriter, principal string, rel
 // with that POST still in progress: a call made in it could be cancelled at
 // SessionTimeout while it ran.
 func (h *httpHandler) register(ls *liveSession) {
-	k := earlyPOST{ls.sid, ls.principal}
+	k := earlySession{ls.sid, ls.principal}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.live[ls.sid] = ls
 	ls.mu.Lock()
 	ls.active += h.early[k]
+	ls.gets += h.earlyGets[k]
+	ls.touchLocked()
 	ls.mu.Unlock()
 	delete(h.early, k)
+	delete(h.earlyGets, k)
 }
 
 // beginPOST marks a POST on session sid on principal's behalf as in
@@ -734,17 +989,25 @@ func (h *httpHandler) register(ls *liveSession) {
 //
 // Session ids are never reused, so a POST counted in early that finds a
 // live session when it ends was counted by register into that session.
-func (h *httpHandler) beginPOST(sid, principal string) func() {
+//
+// ok is false for a POST of the session's own principal on a session
+// fathomgate has evicted (reserveSession): the caller answers 404 and the
+// POST never reaches go-sdk, so nothing can start on a session that is
+// being closed. Another principal's POST on it still gets go-sdk's 403.
+func (h *httpHandler) beginPOST(sid, principal string) (end func(), ok bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if ls := h.live[sid]; ls != nil {
 		if ls.principal != principal {
-			return func() {}
+			return func() {}, true
+		}
+		if ls.evicted {
+			return nil, false
 		}
 		ls.startPOST()
-		return ls.endPOST
+		return ls.endPOST, true
 	}
-	k := earlyPOST{sid, principal}
+	k := earlySession{sid, principal}
 	h.early[k]++
 	return func() {
 		h.mu.Lock()
@@ -760,7 +1023,7 @@ func (h *httpHandler) beginPOST(sid, principal string) func() {
 				delete(h.early, k)
 			}
 		}
-	}
+	}, true
 }
 
 // liveSession is fathomgate's idle expiry for one stateful session (H2 in the
@@ -783,15 +1046,100 @@ type liveSession struct {
 	ss        *mcp.ServerSession
 	sid       string
 	principal string
+	// slot is the session's place under the session caps (settleSession).
+	slot *sessionSlot
+	// evicted is set, under h.mu, when reserveSession has taken the
+	// session out of service to make room for its principal's new one.
+	evicted bool
 
 	mu      sync.Mutex
 	active  int // POSTs in progress
+	gets    int // GET streams open (beginGET)
 	timer   *time.Timer
-	stopped bool // the session has ended or expired; the timer is dead
+	stopped bool // the session has ended, expired or been evicted; the timer is dead
 	// running reports that the idle clock is counting down: armed, no POST
 	// in progress, not stopped. Kept beside the timer so it can be read
 	// without touching the timer.
 	running bool
+	// lastSeq orders the session's last use (registration, or the end of a
+	// POST or GET) against every other session's, from httpHandler.useSeq:
+	// how eviction picks the least recently used idle session. lastUsed is
+	// the same moment on the clock, for the eviction log line only.
+	lastSeq  uint64
+	lastUsed time.Time
+}
+
+// touchLocked records a use of the session now. Callers hold s.mu.
+func (s *liveSession) touchLocked() {
+	s.lastSeq = s.h.useSeq.Add(1)
+	s.lastUsed = time.Now()
+}
+
+// idleState reports whether the session is a candidate for eviction (no
+// POST in progress, no GET stream open, not stopped), and its last use as a
+// sequence number and a time. Calls in flight are callLimits' to decide
+// (claimIdle): a 2025-era call whose POST was dropped keeps the session in
+// use.
+func (s *liveSession) idleState() (seq uint64, since time.Time, idle bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastSeq, s.lastUsed, s.active == 0 && s.gets == 0 && !s.stopped
+}
+
+// beginGET marks a GET stream of principal on session sid as open and
+// returns the function that marks it closed. ok is false for the session's
+// own principal on an evicted session (404, as for beginPOST). Another
+// principal's GET is left to go-sdk's 403 and counted nowhere. A GET on an
+// id that is not live yet is counted in earlyGets, which register adds to
+// the session, as beginPOST does for POSTs: an agent can open its stream
+// as soon as it has the id from the initialise response, before
+// settleSession has registered the session.
+func (h *httpHandler) beginGET(sid, principal string) (end func(), ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ls := h.live[sid]; ls != nil {
+		if ls.principal != principal {
+			return func() {}, true
+		}
+		if ls.evicted {
+			return nil, false
+		}
+		ls.startGET()
+		return ls.endGET, true
+	}
+	k := earlySession{sid, principal}
+	h.earlyGets[k]++
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if ls := h.live[sid]; ls != nil && ls.principal == principal {
+			ls.endGET()
+			return
+		}
+		if h.earlyGets[k] > 0 {
+			if h.earlyGets[k]--; h.earlyGets[k] == 0 {
+				delete(h.earlyGets, k)
+			}
+		}
+	}, true
+}
+
+// startGET counts an open GET stream: while one is open the session is in
+// use and cannot be evicted. It does not touch the idle clock, which only
+// POSTs pause (as in go-sdk).
+func (s *liveSession) startGET() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gets++
+}
+
+// endGET counts a GET stream closed and records the use, so the session
+// moves to the back of the eviction order (touchLocked).
+func (s *liveSession) endGET() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gets--
+	s.touchLocked()
 }
 
 // arm starts the idle clock once the session is registered.
@@ -823,6 +1171,7 @@ func (s *liveSession) endPOST() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.active--
+	s.touchLocked()
 	if s.active == 0 && s.timer != nil && !s.stopped {
 		s.timer.Reset(s.h.opts.SessionTimeout)
 		s.running = true
@@ -840,8 +1189,18 @@ func (s *liveSession) stop() {
 	}
 }
 
-// expire runs when the idle clock runs out: it cancels the session's calls,
-// then closes the session. A POST that started meanwhile wins.
+// expire runs when the idle clock runs out: it retires the session, which
+// cancels its calls and refuses any call go-sdk delivered but had not yet
+// admitted (callLimits.retire, T0.57), then closes the session. Without
+// the retirement such a call would start after the cancellation and run on
+// a closing session, which go-sdk's Close waits for with no idle clock left
+// to cancel it. A POST that started meanwhile wins.
+//
+// The retirement happens under s.mu, so the session's watcher
+// (settleSession), whose stop waits on s.mu, calls callLimits.forget only
+// after it: a retirement can never land after the forget and leave a
+// closed session in the retired set. Lock order: liveSession.mu, then
+// callLimits.mu (nothing takes callLimits.mu and then a liveSession.mu).
 func (s *liveSession) expire() {
 	s.mu.Lock()
 	if s.stopped || s.active > 0 {
@@ -850,10 +1209,12 @@ func (s *liveSession) expire() {
 	}
 	s.stopped = true
 	s.running = false
+	n := s.h.p.limits.Load().retire(s.ss)
 	s.mu.Unlock()
-	n := s.h.p.limits.Load().cancelSession(s.sid, s.principal)
 	s.h.logger.Info("agent session idle; closing it", "session", shortHash(s.sid), "principal", s.principal, "calls_cancelled", n)
-	_ = s.ss.Close()
+	if err := s.ss.Close(); err != nil {
+		s.h.logger.Debug("closing an idle agent session", "session", shortHash(s.sid), "error", err)
+	}
 }
 
 // deadlineWriter puts a write deadline on every write and flush to the

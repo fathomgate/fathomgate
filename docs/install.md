@@ -358,6 +358,17 @@ token in its file) and restart Fathomgate. Deleting the file while
 Fathomgate runs changes nothing: the old token keeps working until the
 restart. That is one more reason to give each client its own file.
 
+Clients that share a token can also push each other out. Each token has
+4 sessions. When a client connects and all 4 are taken, Fathomgate ends
+that token's session that has been idle longest, so an agent that
+crashed or restarted can connect again at once. With a shared token, that
+idle session can belong to another client, which then has to reconnect. If
+the server behind Fathomgate asks the human questions (elicitation),
+Fathomgate refuses those questions to the reconnected client for up to 5
+minutes. It does this because it cannot tell whether a question belongs to
+a call the old session had already ended. One token per client avoids
+all of this.
+
 If your system hands secrets to programs in environment variables instead
 of files, put the token in `FATHOMGATE_LISTEN_TOKEN` and leave out
 `--listen-token-file`. Its name in the log is `env`. Never put the token on
