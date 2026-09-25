@@ -264,7 +264,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = False  # never share 443 with another listener
+    # Each test starts its own device on 443, so the last one's connections
+    # are still in TIME_WAIT. On Linux and macOS SO_REUSEADDR lets a new
+    # listener bind past them, and still refuses a second live listener. On
+    # Windows it would let two listeners share the port, and TIME_WAIT does
+    # not block a bind there, so it stays off.
+    allow_reuse_address = sys.platform != "win32"
 
     def __init__(self, addr: tuple[str, int], device: Device, context: ssl.SSLContext) -> None:
         self.device = device
