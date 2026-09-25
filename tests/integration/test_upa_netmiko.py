@@ -438,6 +438,95 @@ async def test_row4_reload_denied_show_downgraded(
     ]
 
 
+# Row 5 (M1 half): a config dump through the free-form tool, with the words
+# separated by any run of spaces and tabs, the tier 1 variants of
+# internal/classify (TestConfigReadWhitespace).
+CONFIG_DUMPS = ["show running-config", "show  running-config", "show\trunning-config", "\tshow\t\trunning-config\t"]
+SHOW_RUN = (REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt").read_text()
+# Tells READ_CONFIG from READ_OPERATIONAL in the decision word.
+OPS_ONLY = """version: 1
+defaults:
+  unknown_target: deny
+rules:
+  - id: ops-reads
+    match: { class: [READ_OPERATIONAL] }
+    effect: allow
+  - id: no-config-reads
+    match: { class: [READ_CONFIG] }
+    effect: deny
+    reason: "configuration reads are denied in this test policy"
+  - id: no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny
+    reason: "EXEC_ARBITRARY is denied"
+"""
+
+
+def _transcript_key(command: str) -> str:
+    # fake_ssh.transcript_name: what the device looked up.
+    return re.sub(r"[^a-z0-9]+", "_", command.strip().lower()).strip("_")
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_reclassified_read_config(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on upa: `show running-config` through
+    send_command_and_get_output, with any spaces or tabs between the words,
+    is READ_CONFIG with class_source reclassify (not the downgrade to
+    READ_OPERATIONAL a show command gets). Under read-only it is allow by
+    `reads-anywhere`. The output is not redacted in M1 (the row's M2 half).
+
+    Only the variants without a tab are sent here. netmiko types the
+    command into an interactive shell and waits for its echo, which the
+    fake device does not give back for a tab (a real CLI takes a tab as
+    completion), so a tab variant ends in netmiko's own timeout after the
+    gate has allowed it. The deny test below decides all four variants with
+    nothing forwarded, and eos-mcp (eAPI, JSON) carries the tab variants to
+    the device (test_eos_mcp.py)."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "send_command_and_get_output"
+    sent = [c for c in CONFIG_DUMPS if "\t" not in c]
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml"), stderr) as session:
+        for cmd in sent:
+            r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": cmd})
+            assert not r.is_error, (cmd, result_text(r))
+            assert result_text(r).strip() == SHOW_RUN.strip(), cmd
+
+    assert [c for c in fake_device.commands() if _transcript_key(c) == "show_running_config"] == sent
+    assert [_drow(x) for x in decision_lines(stderr)] == [
+        (tool, "allow", "reads-anywhere", "READ_CONFIG", "reclassify", "true") for _ in sent
+    ]
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_denied_where_config_reads_are(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on upa: under a policy that allows READ_OPERATIONAL
+    and denies READ_CONFIG, every variant is deny by `no-config-reads` with
+    class READ_CONFIG, so the free-form tool is no way round the rule, and
+    the device receives none of them. `show version` in the same session is
+    allow by `ops-reads`."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "send_command_and_get_output"
+    reason = "configuration reads are denied in this test policy"
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, OPS_ONLY), stderr) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": cmd})
+            assert r.is_error, cmd
+            assert result_text(r) == gate_error("denied", UPA_SERVER, tool, "no-config-reads", "READ_CONFIG", reason)
+        assert fake_device.sessions() == 0
+        ok = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": "show version"})
+        assert not ok.is_error, result_text(ok)
+
+    assert [c for c in fake_device.commands() if c.strip().startswith("show")] == ["show version"]
+    assert [_drow(x) for x in decision_lines(stderr)] == [
+        *[(tool, "deny", "no-config-reads", "READ_CONFIG", "reclassify", "false") for _ in CONFIG_DUMPS],
+        (tool, "allow", "ops-reads", "READ_OPERATIONAL", "downgrade", "true"),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_config_lines_leaving_config_mode_denied_as_exec(
     fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path

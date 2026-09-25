@@ -468,3 +468,53 @@ async def test_policy_tech_support_denied_as_read_config_both_ways(
     assert not ok.is_error and _text(ok) == SHOW_VERSION
     assert fake_eapi.commands() == ["show version"]
     assert fake_eapi.accepts() == 1
+
+
+# Row 5 (M1 half): a config dump through run_command, the words separated by
+# any run of spaces and tabs (the tier 1 variants in internal/classify).
+CONFIG_DUMPS = ["show running-config", "show  running-config", "show\trunning-config", "\tshow\t\trunning-config\t"]
+SHOW_RUN = (TRANSCRIPTS / "show_running_config.txt").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_reclassified_read_config(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on eos-mcp: `show running-config` through run_command
+    in each whitespace variant is READ_CONFIG with class_source reclassify.
+    Under read-only it is allow by reads-anywhere, and eAPI carries each
+    variant to the device exactly as sent (tabs included). The output is
+    not redacted in M1 (the row's M2 half)."""
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
+    async with _Session(serve) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{EOS_SERVER}.run_command", {"hostname": DEVICE, "command": cmd})
+            assert not r.is_error, (cmd, _text(r))
+            assert _text(r) == SHOW_RUN, cmd
+
+    assert fake_eapi.commands() == CONFIG_DUMPS
+    assert [(x["decision"], x["rule_id"], x["class"], x["class_source"], x["forwarded"]) for x in serve.decisions()] == [
+        ("allow", "reads-anywhere", "READ_CONFIG", "reclassify", "true") for _ in CONFIG_DUMPS
+    ]
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_denied_where_config_reads_are(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on eos-mcp: under a policy that denies READ_CONFIG
+    only, every variant through run_command is deny by no-config-reads with
+    class READ_CONFIG, and no connection reaches the device."""
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path, text=OPS_ONLY))
+    reason = "configuration reads are denied in this test policy"
+    async with _Session(serve) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{EOS_SERVER}.run_command", {"hostname": DEVICE, "command": cmd})
+            assert r.is_error, cmd
+            assert _text(r) == _denied("run_command", "no-config-reads", "READ_CONFIG", reason)
+
+    assert fake_eapi.accepts() == 0
+    assert fake_eapi.commands() == []
+    assert [(x["decision"], x["rule_id"], x["class"], x["class_source"], x["forwarded"]) for x in serve.decisions()] == [
+        ("deny", "no-config-reads", "READ_CONFIG", "reclassify", "false") for _ in CONFIG_DUMPS
+    ]
