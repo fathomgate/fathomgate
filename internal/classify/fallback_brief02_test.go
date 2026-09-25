@@ -78,13 +78,13 @@ var brief02Rows = []brief02Row{
 
 	// 1.4 mcp-telecom: canned show tools
 	{"mcp-telecom", "show_bgp_summary", map[string]any{"device": b2dev}, ReadOperational, false},
-	{"mcp-telecom", "show_bgp_neighbors", map[string]any{"device": b2dev}, ReadOperational, false},
+	{"mcp-telecom", "show_bgp_neighbors", map[string]any{"device": b2dev}, ReadOperational, false}, //nolint:misspell // upstream tool name
 	{"mcp-telecom", "show_routing_table", map[string]any{"device": b2dev}, ReadOperational, false},
-	{"mcp-telecom", "show_ospf_neighbors", map[string]any{"device": b2dev}, ReadOperational, false},
+	{"mcp-telecom", "show_ospf_neighbors", map[string]any{"device": b2dev}, ReadOperational, false}, //nolint:misspell // upstream tool name
 	{"mcp-telecom", "show_mpls_lsp", map[string]any{"device": b2dev}, ReadOperational, false},
 	{"mcp-telecom", "show_interfaces", map[string]any{"device": b2dev}, ReadOperational, false},
 	{"mcp-telecom", "show_interface_detail", map[string]any{"device": b2dev, "interface": "Ethernet1"}, ReadOperational, false},
-	{"mcp-telecom", "show_lldp_neighbors", map[string]any{"device": b2dev}, ReadOperational, false},
+	{"mcp-telecom", "show_lldp_neighbors", map[string]any{"device": b2dev}, ReadOperational, false}, //nolint:misspell // upstream tool name
 	{"mcp-telecom", "show_lag_status", map[string]any{"device": b2dev}, ReadOperational, false},
 	{"mcp-telecom", "show_arp_table", map[string]any{"device": b2dev}, ReadOperational, false},
 	{"mcp-telecom", "show_mac_table", map[string]any{"device": b2dev}, ReadOperational, false},
@@ -135,7 +135,7 @@ var brief02Rows = []brief02Row{
 	{"mcp-telecom", "show_topology_json", map[string]any{}, ReadOperational, false},
 	{"mcp-telecom", "show_topology_mermaid", map[string]any{}, ReadOperational, false},
 	{"mcp-telecom", "find_path", map[string]any{"source": "core-rtr-01", "target": "core-rtr-02"}, ReadOperational, false},
-	{"mcp-telecom", "show_device_neighbors", map[string]any{"device": b2dev}, ReadOperational, false},
+	{"mcp-telecom", "show_device_neighbors", map[string]any{"device": b2dev}, ReadOperational, false}, //nolint:misspell // upstream tool name
 	// mcp-telecom: lab and misc
 	{"mcp-telecom", "clab_generate", map[string]any{"scenario": "srl-two-node"}, LocalAdmin, false},
 	{"mcp-telecom", "clab_devices_yaml", map[string]any{"scenario": "srl-two-node"}, LocalAdmin, false},
@@ -217,7 +217,7 @@ var brief02Rows = []brief02Row{
 	{"pyats-mcp", "pyats_configure_with_diff", map[string]any{"device": b2dev, "commands": []any{"ntp server 192.0.2.10"}}, WriteConfig, false},
 	{"pyats-mcp", "pyats_rollback_config", map[string]any{"device": b2dev}, WriteConfig, false},
 	{"pyats-mcp", "pyats_device_health", map[string]any{"device": b2dev}, ReadOperational, false},
-	{"pyats-mcp", "pyats_get_neighbors", map[string]any{"device": b2dev}, ReadOperational, false},
+	{"pyats-mcp", "pyats_get_neighbors", map[string]any{"device": b2dev}, ReadOperational, false}, //nolint:misspell // upstream tool name
 	{"pyats-mcp", "pyats_find_interface_by_ip", map[string]any{"device": b2dev, "ip": "192.0.2.1"}, ReadOperational, false},
 	{"pyats-mcp", "pyats_run_dynamic_test", map[string]any{"script": "print('FAKE')"}, ExecArbitrary, true},
 	{"pyats-mcp", "pyats_get_operation_log", map[string]any{}, InventoryRead, false},
@@ -250,7 +250,7 @@ var brief02Rows = []brief02Row{
 	{"network-discovery-mcp", "fingerprint_devices", map[string]any{"job_id": "FAKE-job"}, brief02Unclassed, false},
 	{"network-discovery-mcp", "collect_device_configs", map[string]any{"job_id": "FAKE-job"}, brief02Unclassed, false},
 	{"network-discovery-mcp", "validate_device_credentials", map[string]any{"host": "192.0.2.1", "username": "FAKEuser", "password": "FAKEpassword"}, brief02Unclassed, false},
-	{"network-discovery-mcp", "generate_topology_visualization", map[string]any{"job_id": "FAKE-job"}, brief02Unclassed, false},
+	{"network-discovery-mcp", "generate_topology_visualization", map[string]any{"job_id": "FAKE-job"}, brief02Unclassed, false}, //nolint:misspell // upstream tool name
 	{"network-discovery-mcp", "resume_failed_job", map[string]any{"job_id": "FAKE-job"}, brief02Unclassed, false},
 
 	// 1.12 seanerama/clab-mcp-server
