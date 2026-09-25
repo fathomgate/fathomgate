@@ -49,13 +49,15 @@ redaction and no audit log yet; those come in M1 to M4 (see
    cosign verify-blob --bundle checksums.txt.sigstore.json \
      --certificate-identity https://github.com/fathomgate/fathomgate/.github/workflows/release.yaml@refs/tags/v$v \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+     --certificate-github-workflow-trigger push \
      checksums.txt                                  # must print: Verified OK
    sha256sum -c checksums.txt --ignore-missing      # macOS: shasum -a 256 -c checksums.txt --ignore-missing
    tar -xzf fathomgate_${v}_linux_amd64.tar.gz fathomgate
    ```
 
    The certificate identity pins the signature to this repository's release
-   workflow at that exact tag. For another version, change `v` in both
+   workflow at that exact tag, and the trigger flag to a run started by the
+   tag push. For another version, change `v` in both
    places. If cosign prints anything but `Verified OK`, do not use the
    download. On Windows, `Get-FileHash -Algorithm SHA256` gives the hash to
    compare with the zip's line in `checksums.txt`.
