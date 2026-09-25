@@ -36,7 +36,7 @@ All six must pass. A change to `internal/proxy`, `cmd/fathomgate/serve.go` or `g
 - No new dependency without an ADR. Never `gopkg.in/yaml.v3`. `CGO_ENABLED=0` stays.
 - The MCP `go-sdk` is pinned to one minor, currently v1.8. A go-sdk bump is its own PR.
 - Docs change in the same PR as code. Update `CHANGELOG.md` `Unreleased`.
-- Conventional Commits with a scope; DCO sign-off (`git commit -s`).
+- Conventional Commits with a scope; DCO sign-off (`git commit -s`). Licence: `FSL-1.1-ALv2`, except `policies/examples/` and `profiles/` (Apache-2.0); SPDX line per path (ADR 0034). No code from outside contributors.
 - Never put a real secret in a fixture; every fixture secret starts with `FAKE`.
 
 ## Ownership

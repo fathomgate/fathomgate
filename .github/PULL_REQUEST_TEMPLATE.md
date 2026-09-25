@@ -1,3 +1,4 @@
+<!-- Fathomgate does not accept code from outside contributors for now (CONTRIBUTING.md, ADR 0034). If you are not a maintainer, please open an issue instead; this pull request will be closed with a pointer to it. -->
 <!-- Title: conventional commit form, e.g. "feat(classify): add FortiOS allow-list" -->
 
 ## What
@@ -24,5 +25,5 @@ Link the issue, ADR or spec section. If this changes behaviour, say which decisi
 - [ ] Docs updated: the spec, ARCHITECTURE.md, ROADMAP.md, CHANGELOG.md (Unreleased) or glossary, whichever this touches.
 - [ ] Vocabulary: decisions are allow, hold, deny, expired; states are Holding, Approved, Denied, Expired, Cancelled, Executed, Failed; every denial names its rule.
 - [ ] Python parity: if the YAML schema or classifier tables changed, `tools/policy-lint` was updated too.
-- [ ] Commits are signed off (DCO) and follow Conventional Commits.
+- [ ] Commits are signed off (`git commit -s`) and follow Conventional Commits.
 - [ ] No new dependency, or the reason is stated above. `gopkg.in/yaml.v3` is not used.

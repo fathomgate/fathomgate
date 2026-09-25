@@ -29,7 +29,7 @@ make policy-test    # every policies/**/*.test.yaml through `fathomgate policy t
 make fixtures-check # redaction fixtures vs their .expect.json
 make conformance    # official MCP conformance suite vs fathomgate serve, both eras (needs Node.js/npm)
 make status         # re-render STATUS.md from docs/milestones/<CURRENT>.yaml + docs/handoffs/
-make licences       # regenerate THIRD_PARTY_LICENSES/ after a go.mod change; licences-check also checks NOTICE and SPDX lines (ADR 0020)
+make licences       # regenerate THIRD_PARTY_LICENSES/ after a go.mod change; licences-check also checks NOTICE and the per-path SPDX lines (ADR 0020, 0034)
 tools/policy-lint/policy-lint policies/examples/prod-approval.yaml   # Python, no Go needed
 bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
   --inventory inventory.example.yaml --server junos --tool load_and_commit_config \
@@ -76,7 +76,8 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
 - `fathomgate serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
-- Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). DCO sign-off.
+- Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). The maintainer's DCO sign-off (`git commit -s`).
+- Licence (ADR 0034): `FSL-1.1-ALv2` everywhere, except `policies/examples/` and `profiles/` (Apache-2.0, own `LICENSE` files). New Go, Python and shell files carry the SPDX line for their path; `tools/licences/spdx.py --fix` adds it. `v0.1.0` and earlier commits stay Apache-2.0. The project accepts no code from outside contributors: close such a pull request with a pointer to issues, and never commit text pasted into an issue.
 
 ## Repo map
 

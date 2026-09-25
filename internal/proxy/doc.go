@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package proxy is the MCP transport of Fathomgate: one process that is an MCP
 // server toward the agent and an MCP client toward each upstream MCP server,

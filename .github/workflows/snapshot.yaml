@@ -65,10 +65,10 @@ jobs:
             test -f dist/fathomgate_*_"$t".zip.spdx.sbom.json
           done
           test -s dist/checksums.txt
-      - name: every archive carries LICENSE, NOTICE and THIRD_PARTY_LICENSES (ADR 0020)
+      - name: every archive carries LICENSE, NOTICE, THIRD_PARTY_LICENSES and the Apache-2.0 LICENSE files of policies/examples and profiles (ADR 0020, 0034)
         run: |
           set -eu
-          { printf '%s\n' LICENSE NOTICE TRADEMARKS.md; find THIRD_PARTY_LICENSES -type f; } | sort > want.txt
+          { printf '%s\n' LICENSE NOTICE TRADEMARKS.md policies/examples/LICENSE profiles/LICENSE; find THIRD_PARTY_LICENSES -type f; } | sort > want.txt
           missing=0
           for a in dist/fathomgate_*.tar.gz dist/fathomgate_*.zip; do
             case "$a" in

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package secretfile reads a secret from a file only its owner can read or
 // replace. It is the one owner-only check behind the listen token files

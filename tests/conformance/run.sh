@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 # Run the official MCP conformance suite against one leg and one spec
 # revision over Streamable HTTP. `make conformance` calls this for every leg
 # and revision.

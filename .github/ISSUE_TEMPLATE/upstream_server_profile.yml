@@ -119,4 +119,4 @@ body:
           required: true
         - label: I have not pasted credentials, inventory files or device hostnames I would not publish
           required: true
-        - label: I am willing to open the pull request for profiles/<server>.yaml
+        - label: I can answer follow-up questions about this server while the maintainer writes profiles/<server>.yaml

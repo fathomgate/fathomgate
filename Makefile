@@ -212,7 +212,7 @@ status-check: ## Fail if STATUS.md is stale relative to the board (CI)
 licences: ## Regenerate THIRD_PARTY_LICENSES/ from the modules linked into fathomgate (ADR 0020)
 	$(PYTHON) tools/licences/third_party.py
 
-licences-check: ## Fail if THIRD_PARTY_LICENSES/ or NOTICE is stale, or a source file lacks its SPDX line (CI)
+licences-check: ## Fail if THIRD_PARTY_LICENSES/ or NOTICE is stale, or a source file lacks the SPDX line for its path (CI, ADR 0034)
 	$(PYTHON) tools/licences/third_party.py --check
 	$(PYTHON) tools/licences/spdx.py
 

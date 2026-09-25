@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package seam holds the two plain-data types that cross between
 // internal/proxy and internal/gate at Proxy.dispatch (ADR 0026): what the

@@ -66,7 +66,7 @@ body:
     id: proposed
     attributes:
       label: Proposed regex and fixture line
-      description: Optional. RE2 syntax with the secret in a group named S, and the annotated fixture line for tests/fixtures/configs/<vendor>.cfg.
+      description: Optional. RE2 syntax with the secret in a group named S, and the annotated fixture line for tests/fixtures/configs/<vendor>.cfg. The maintainer writes the pattern and fixture; this is a suggestion.
       render: text
   - type: checkboxes
     id: checks
