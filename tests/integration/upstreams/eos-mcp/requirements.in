@@ -4,7 +4,9 @@
 # it by sha256). It declares `mcp>=1.2,<2` and `pyeapi` (any version); mcp
 # and pyeapi are held at the versions the upstream's own uv.lock resolves at
 # that commit (mcp 1.28.1, pyeapi 1.0.4), so the run matches the profile's
-# source reading. Everything else is the newest that fits.
+# source reading. Everything else is the newest that fits. pyeapi 1.0.4 is
+# an sdist only; its build backend is pinned and hashed in
+# build-constraints.txt (install.sh).
 #
 # Regenerate (then bump EOS_MCP_* in tests/integration/conftest.py):
 #   uv pip compile --universal --python-version 3.13 --generate-hashes \

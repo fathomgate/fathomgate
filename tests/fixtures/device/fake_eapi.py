@@ -20,8 +20,14 @@ listen on 443. On Linux that needs `sysctl net.ipv4.ip_unprivileged_port_start=4
 (the CI job sets it) or root; Windows and macOS let any user bind it. If the
 bind fails, the process prints `BIND-FAILED <errno> <message>` and exits 3.
 
-It prints `READY <port>` on stdout once it accepts connections. What it
-records, in DIR:
+`--host` takes loopback address literals only (repeatable, default
+127.0.0.1) and refuses anything else, so the device is never reachable from
+another host. `--also-ipv6-loopback` adds [::1] on the same port when the
+host has it, so `localhost` reaches the device whichever address it
+resolves to first.
+
+It prints `READY <port> <addresses>` on stdout once it accepts connections.
+What it records, in DIR:
 
 - connections.log: one line per TCP connection, written at accept, before the
   TLS handshake and before authentication: `<peer-ip>`. Then, when the
@@ -67,6 +73,7 @@ import argparse
 import base64
 import datetime
 import http.server
+import ipaddress
 import json
 import os
 import re
@@ -274,6 +281,7 @@ class Server(http.server.ThreadingHTTPServer):
     def __init__(self, addr: tuple[str, int], device: Device, context: ssl.SSLContext) -> None:
         self.device = device
         self.context = context
+        self.address_family = socket.AF_INET6 if ":" in addr[0] else socket.AF_INET
         super().__init__(addr, Handler)
 
     def finish_request(self, request: socket.socket, client_address) -> None:
@@ -294,10 +302,28 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--vendor", default="eos")
     ap.add_argument("--state-dir", required=True, type=Path)
-    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--host", action="append", help="a loopback address literal (repeatable; default 127.0.0.1); anything else is refused")
+    ap.add_argument(
+        "--also-ipv6-loopback",
+        action="store_true",
+        help="also listen on [::1] when this host has it, so `localhost` reaches the device whichever address it resolves to first",
+    )
     ap.add_argument("--port", type=int, default=443)
     ap.add_argument("--username", default="admin")
     args = ap.parse_args()
+
+    # Loopback address literals only: never a name (which could resolve
+    # elsewhere) and never a routable or wildcard address, so the fake and
+    # its FAKE credentials cannot be reached from another host.
+    hosts = args.host or ["127.0.0.1"]
+    for host in hosts:
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            print(f"fake_eapi: --host must be a loopback address literal (127.0.0.0/8 or ::1), not {host!r}", file=sys.stderr)
+            sys.exit(2)
 
     state = args.state_dir
     state.mkdir(parents=True, exist_ok=True)
@@ -310,14 +336,26 @@ def main() -> None:
         sock._fake_sni = name  # read back in finish_request
 
     ctx.sni_callback = sni
+    servers: list[Server] = []
     try:
-        server = Server((args.host, args.port), device, ctx)
+        for host in hosts:
+            servers.append(Server((host, args.port), device, ctx))
     except OSError as e:
         print(f"BIND-FAILED {e.errno} {e.strerror}", flush=True)
         sys.exit(3)
-    print(f"READY {server.server_address[1]}", flush=True)
+    port = servers[0].server_address[1]
+    if args.also_ipv6_loopback and "::1" not in hosts:
+        try:
+            servers.append(Server(("::1", port), device, ctx))
+        except OSError as e:
+            # No IPv6 loopback here: `localhost` can only be 127.0.0.1.
+            print(f"fake_eapi: not listening on [::1]:{port}: {e.strerror}", file=sys.stderr)
+    for extra in servers[1:]:
+        threading.Thread(target=extra.serve_forever, daemon=True).start()
+    bound = ",".join(str(x.server_address[0]) for x in servers)
+    print(f"READY {port} {bound}", flush=True)
     try:
-        server.serve_forever()
+        servers[0].serve_forever()
     except KeyboardInterrupt:
         pass
 

@@ -49,6 +49,7 @@ from .conftest import (
     FakeEapi,
     eos_mcp_config,
     owner_only_file,
+    tier2_absent,
 )
 
 pytestmark = [pytest.mark.tier2, pytest.mark.eos_mcp]
@@ -245,6 +246,43 @@ async def test_passthrough_verify_true_is_not_enforced(
     assert fake_eapi.commands() == ["show version"]
 
 
+@pytest.mark.asyncio
+async def test_passthrough_unlisted_localhost_reaches_device(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path
+) -> None:
+    """The control for the unknown-target deny below: without the gate,
+    `localhost` (not a section in eos-mcp's config.ini, not in fathomgate's
+    inventory) reaches the fake device, which listens on 127.0.0.1 and, where
+    the host has it, ::1, so whichever address `localhost` resolves to first
+    is the device. eos-mcp logs in with the [DEFAULT] FAKE credentials
+    (profile hazard 1) and sends SNI `localhost`. So when the gated test sees
+    no new connection for `localhost`, the gate stopped a call that would
+    have arrived.
+
+    If `localhost` resolves to an address the fake could not bind (on a
+    host where another program holds [::1]:443, http.client would reach
+    that program first), the control cannot run: it skips, or fails under
+    FATHOMGATE_TIER2_REQUIRED=1, rather than send the FAKE credentials to
+    something else and call it the device."""
+    import socket
+
+    first = socket.getaddrinfo("localhost", 443, type=socket.SOCK_STREAM)[0][4][0]
+    if first not in fake_eapi.addresses:
+        tier2_absent(
+            f"localhost resolves first to {first}, where the fake eAPI device is not listening "
+            f"(it has {', '.join(fake_eapi.addresses)}; another program may hold [{first}]:443)"
+        )
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path)
+    async with _Session(serve) as session:
+        result = await session.call_tool(f"{EOS_SERVER}.run_command", {"hostname": "localhost", "command": "show version"})
+
+    assert not result.is_error, _text(result)
+    assert _text(result) == SHOW_VERSION
+    assert fake_eapi.accepts() == 1
+    assert "tls localhost" in fake_eapi.connections()
+    assert fake_eapi.commands() == ["show version"]
+
+
 # --- through the gate (--policy read-only.yaml) ------------------------------
 
 
@@ -254,9 +292,17 @@ async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_ins
 
     `show version` and `show ip bgp summary` via run_command: allow, rule
     reads-anywhere, downgraded from EXEC_ARBITRARY to READ_OPERATIONAL by
-    the command, and each run once on the device. `reload`: deny, rule no-exec, class EXEC_ARBITRARY, no
-    connection. `localhost` (which would reach the same fake device) and
-    10.99.99.99: deny, rule default:unknown_target, no connection."""
+    the command, and each run once on the device. `reload`: deny, rule
+    no-exec, class EXEC_ARBITRARY, and no new connection to the device.
+    `localhost` and 10.99.99.99: deny, rule default:unknown_target.
+
+    What the device's logs can prove differs between the two unknown hosts.
+    `localhost` reaches this fake device when forwarded
+    (test_passthrough_unlisted_localhost_reaches_device), so no new
+    connection here means eos-mcp never connected. 10.99.99.99 would not
+    reach the fake at all (it listens on loopback only), so for it the
+    evidence is the exact tool error and the decision line with
+    forwarded=false, not the device log."""
     serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
     tool = "run_command"
     async with _Session(serve) as session:
@@ -279,8 +325,9 @@ async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_ins
             assert unknown.is_error
             assert _text(unknown) == _denied(tool, "default:unknown_target", "READ_OPERATIONAL", UNKNOWN_TARGET)
 
-    # Nothing the policy denied reached the device: no new TCP connection,
-    # so eos-mcp never connected, and no command.
+    # Nothing the policy denied reached the device: no new TCP connection
+    # (which `reload` and `localhost` would have made, see the control
+    # above) and no command. 10.99.99.99 rests on the decision lines below.
     assert fake_eapi.accepts() == accepts
     assert fake_eapi.commands() == ["show version", "show ip bgp summary"]
 
@@ -358,7 +405,13 @@ async def test_policy_collect_tech_support_is_read_config(
 ) -> None:
     """collect_tech_support is READ_CONFIG (the M1-14 correction): read-only
     allows it by reads-anywhere with class READ_CONFIG, and the device gets
-    one `show tech-support`."""
+    one `show tech-support`.
+
+    Not yet a redaction case: show_tech_support.txt carries no secret, and
+    the transcript comes back unchanged. When M2 wires redaction, add a FAKE
+    secret line (with its pattern id) to show_tech_support.txt and assert
+    here that it comes back as a `<redacted:hmac:...>` token, since the
+    `redact` obligation of reads-anywhere covers this tool too."""
     serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
     async with _Session(serve) as session:
         r = await session.call_tool(f"{EOS_SERVER}.collect_tech_support", {"hostname": DEVICE})

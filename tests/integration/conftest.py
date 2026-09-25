@@ -215,7 +215,7 @@ def owner_only_file(path: Path, content: str) -> Path:
     return path
 
 
-def _tier2_absent(message: str) -> None:
+def tier2_absent(message: str) -> None:
     if os.environ.get("FATHOMGATE_TIER2_REQUIRED") == "1":
         pytest.fail(f"FATHOMGATE_TIER2_REQUIRED=1 but {message}")
     pytest.skip(message)
@@ -228,7 +228,7 @@ def eos_mcp_install() -> Path:
     every eos_mcp module byte for byte as at EOS_MCP_COMMIT."""
     env = os.environ.get("FATHOMGATE_EOS_MCP", "")
     if not env:
-        _tier2_absent("FATHOMGATE_EOS_MCP is not set (integration/upstreams/eos-mcp/install.sh DEST prints it)")
+        tier2_absent("FATHOMGATE_EOS_MCP is not set (integration/upstreams/eos-mcp/install.sh DEST prints it)")
     exe = Path(env)
     if not exe.is_file():
         pytest.fail(f"FATHOMGATE_EOS_MCP={env!r} does not exist")
@@ -257,6 +257,9 @@ class FakeEapi:
 
     port: int
     state: Path
+    # The loopback addresses it listens on: 127.0.0.1, and ::1 where the
+    # host has an IPv6 loopback, so `localhost` reaches it either way.
+    addresses: tuple[str, ...]
 
     def commands(self) -> list[str]:
         text = (self.state / "commands.log").read_text(encoding="utf-8")
@@ -278,13 +281,14 @@ class FakeEapi:
 
 @pytest.fixture
 def fake_eapi(tmp_path: Path):
-    """The fake eAPI device on 127.0.0.1:443, one per test. eos-mcp gives
-    pyeapi no port, so 443 it is (see fake_eapi.py). A host that may not bind
-    it skips here, or fails with FATHOMGATE_TIER2_REQUIRED=1."""
+    """The fake eAPI device on 127.0.0.1:443 (and [::1]:443 where the host
+    has an IPv6 loopback), one per test. eos-mcp gives pyeapi no port, so
+    443 it is (see fake_eapi.py). A host that may not bind it skips here, or
+    fails with FATHOMGATE_TIER2_REQUIRED=1."""
     state = tmp_path / "eapi"
     env = dict(os.environ, FAKE_EAPI_PASSWORD=EAPI_PASSWORD)
     proc = subprocess.Popen(
-        [sys.executable, str(FAKE_EAPI), "--state-dir", str(state), "--username", EAPI_USERNAME],
+        [sys.executable, str(FAKE_EAPI), "--state-dir", str(state), "--username", EAPI_USERNAME, "--also-ipv6-loopback"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -294,14 +298,15 @@ def fake_eapi(tmp_path: Path):
         line = _readline(proc.stdout, timeout=20)
         if line.startswith("BIND-FAILED"):
             proc.wait(timeout=5)
-            _tier2_absent(
+            tier2_absent(
                 f"the fake eAPI device cannot listen on 127.0.0.1:443 ({line}); on Linux run "
                 "`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443`, as CI does"
             )
         if not line.startswith("READY "):
             proc.kill()
             pytest.fail(f"fake eAPI device did not start: {line!r} {proc.stderr.read()!r}")
-        yield FakeEapi(port=int(line.split()[1]), state=state)
+        _, port, addresses = line.split()
+        yield FakeEapi(port=int(port), state=state, addresses=tuple(addresses.split(",")))
     finally:
         if proc.poll() is None:
             proc.terminate()

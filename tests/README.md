@@ -92,13 +92,17 @@ a mock.
   answers `server/discover`, fathomgate restarts it once and connects with
   `initialize` only, at 2024-11-05 (ADR 0018; test-matrix.md row 2). `test_passthrough.py` asserts the 2026-era half (netdev-ssh-mcp
   at 2026-07-28 stateless).
-- Tier 2: live for shigechika/eos-mcp 1.3.0 (PyPI wheel, hash-pinned; each
-  module checked against commit `bffb893`), CI job `tier2-eos-mcp`, no
-  Docker (M1-22). `integration/test_eos_mcp.py` runs it behind
+- Tier 2: live for shigechika/eos-mcp 1.3.0 (the PyPI wheel; every
+  artifact in `requirements.txt` hash-checked, including the pyeapi 1.0.4
+  sdist, which is built with the setuptools pinned and hashed in
+  `build-constraints.txt`; each eos_mcp module checked against commit
+  `bffb893`), CI job `tier2-eos-mcp`, no Docker (M1-22). `integration/test_eos_mcp.py` runs it behind
   `fathomgate serve` over stdio against the fake eAPI device
   (`fixtures/device/fake_eapi.py`):
   - `--no-policy`: the 17 tools as `eos-mcp.<tool>` at 2025-11-25 stateful,
-    `show version` via `run_command` once on the device; push_config with
+    `show version` via `run_command` once on the device; `localhost`, which
+    is in neither config.ini nor the inventory, reaches the device with the
+    `[DEFAULT]` FAKE credentials (the control for the gated case); push_config with
     `dry_run` left at true still sends `end` and `reload now` in the same
     eAPI call as `configure session mcp-push`; `verify = true` in its
     config.ini does not stop it talking to a self-signed impostor.
@@ -106,12 +110,14 @@ a mock.
     and `show ip bgp summary` allowed by `reads-anywhere` (READ_OPERATIONAL,
     downgraded by the command) and run; `reload` denied
     by `no-exec`; `localhost` and `10.99.99.99` denied by
-    `default:unknown_target`; `config_path` (any value, `""` included)
+    `default:unknown_target` (for `localhost`, no connection reaches the
+    device); `config_path` (any value, `""` included)
     denied by `default:bad_arguments`; push_config `["end", "reload now"]`
     denied by `no-exec` as EXEC_ARBITRARY and a plain line by `no-writes`;
     `collect_tech_support` allowed as READ_CONFIG, and denied as
     READ_CONFIG, like `run_command show tech-support`, under a policy that
     denies config reads. Each denial is the exact tool error and decision
-    line, and the device's connection log shows eos-mcp never connected.
+    line; for every denied call that would otherwise reach the loopback
+    fake, its connection log shows eos-mcp never connected.
   - This is the eos-mcp half of matrix row 4 in CI; M1-28 closes the row.
 - Tier 3: workflow skeleton only.

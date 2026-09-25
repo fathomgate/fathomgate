@@ -41,6 +41,12 @@ line.
   throwaway self-signed certificate and key are generated at start with
   `cryptography`, already in the `integration` extra through asyncssh,
   into the state directory. No key is ever committed.
+- `--host` accepts loopback address literals only and refuses any other
+  address or a name. The tier 2 fixture passes `--also-ipv6-loopback`, so
+  the device also listens on `[::1]:443` where the host has it, and
+  `localhost` reaches it whichever address resolves first. Where another
+  program holds `[::1]:443` (seen on one Windows host), the `localhost`
+  control case skips, or fails under `FATHOMGATE_TIER2_REQUIRED=1`.
 - It listens on `127.0.0.1:443`. eos-mcp 1.3.0 passes no port to
   `pyeapi.connect`, so pyeapi 1.0.4 uses 443 for HTTPS. On Linux the
   runner user needs `sysctl net.ipv4.ip_unprivileged_port_start=443` (the
@@ -93,7 +99,7 @@ how EOS behaves. These need cEOS (M1-28 and M3, tier 3):
 | `transcripts/eos/show_version.txt` | Synthetic, shaped like EOS 4.32 `show version`; serial and build are `FAKE`. Stays synthetic until a real, publishable capture turns up (T0.26). |
 | `transcripts/eos/show_running_config.txt` | Real public sample with the credentials swapped for FAKE values (T0.26). Provenance below. |
 | `transcripts/eos/show_ip_bgp_summary.txt` | Synthetic (M1-22): documentation addresses (`192.0.2.0/24`, `198.51.100.0/24`), private ASNs, `FAKE-` peer descriptions. |
-| `transcripts/eos/show_tech_support.txt` | Synthetic (M1-22), a few sections shaped like EOS `show tech-support`, with a sanitised running-config section and no secret. For eos-mcp `collect_tech_support`. |
+| `transcripts/eos/show_tech_support.txt` | Synthetic (M1-22), a few sections shaped like EOS `show tech-support`, with a sanitised running-config section and no secret. For eos-mcp `collect_tech_support`. M2 must add a FAKE secret line to it (annotated with its pattern id in the matching redaction fixture), so the `collect_tech_support` tier 2 case also proves redaction; today it proves only the class. |
 | `transcripts/eos/eapi/show_version.json`, `show_hostname.json` | Synthetic (M1-22), the key names eos-mcp reads from EOS's JSON (`modelName`, `version`, `serialNumber`, `hostname`, ...); serial and build are `FAKE`. For eAPI `format: json`. |
 
 Transcripts follow the fixture rule: every credential, serial or other

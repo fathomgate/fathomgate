@@ -1,0 +1,11 @@
+# Build dependencies for the one sdist in requirements.txt: pyeapi 1.0.4 is
+# published on PyPI as pyeapi-1.0.4.tar.gz only, with no pyproject.toml, so
+# uv builds it through the PEP 517 legacy fallback, whose only requirement is
+# setuptools. install.sh passes the hashed build-constraints.txt with
+# --require-hashes, so the build backend is pinned and hash-checked like
+# every other wheel (a mismatched hash fails the install; see install.sh).
+#
+# Regenerate:
+#   uv pip compile --universal --python-version 3.13 --generate-hashes \
+#     build-constraints.in -o build-constraints.txt
+setuptools==84.0.0
