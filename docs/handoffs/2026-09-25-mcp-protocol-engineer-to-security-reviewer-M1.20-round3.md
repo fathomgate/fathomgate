@@ -28,6 +28,13 @@
 - **L5:** `TestLinuxPOSIXACLWrite` fails instead of skipping under `CI`. A ci.yaml step installs `acl` if needed, runs the test with `-v`, and greps for `--- PASS`.
 - **Nit:** "keep these files". profile-schema 8.3, install.md and the CHANGELOG match the new commands.
 
+## Security re-check of PR #172 at 0ec7490 (same PR)
+
+- **M1:** `safeForCommand` is now an allow-list: letters and digits in any script, space, and ``\ / : . _ - ( ) [ ] { } + , = @ # ~ ' & ^``. A typographic quote (U+201C, U+201D, U+201E), which PowerShell takes as `"`, now gets prose. `TestWindowsNoCommandForUnsafePath` creates real directories with those characters.
+- **L-a:** the path is `filepath.Clean`ed before it is printed, and a path ending in a separator gets prose (`TestWindowsTrailingSeparator` runs the printed fix).
+- **L-b:** `layout` treats a lone `\r` as a line break.
+- **L-c:** `%` directive lines before the first marker are not content, and the parser's document count skips a directive body. goccy/go-yaml v1.19 cannot parse `%TAG`, so a file using it is still refused, by the parser.
+
 ## Look at this first
 
 - `TestWindowsRefusalNamesEveryWriterAndFixes`: it runs the printed command through `cmd /c` and then checks that the file passes.

@@ -165,7 +165,9 @@ func TestWindowsInheritedOnlyWriters(t *testing.T) {
 // change gets advice in prose, never a command (L2).
 func TestWindowsNoCommandForUnsafePath(t *testing.T) {
 	base := ownerOnlyDir(t, t.TempDir())
-	for _, name := range []string{"100%done", "wow!"} {
+	// Real directories, typographic quote included: the re-check of PR
+	// #172 ran `Write-Output PWNED` from a path holding U+201D.
+	for _, name := range []string{"100%done", "wow!", "x”; Write-Output PWNED #", "a“b", "a„b", "cost$x"} {
 		dir := filepath.Join(base, name)
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
@@ -177,12 +179,43 @@ func TestWindowsNoCommandForUnsafePath(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	for _, s := range []string{`C:\a%b`, `C:\a!b`, "C:\\a\nb", `C:\a"b`, "C:\\a\x1bb"} {
+	for _, s := range []string{
+		`C:\a%b`, `C:\a!b`, "C:\\a\nb", `C:\a"b`, "C:\\a\x1bb", "C:\\a$b", "C:\\a`b", ";",
+		"C:\\a\u201cb", "C:\\a\u201db", "C:\\a\u201eb", "C:\\a\u2018b", "C:\\a\u200bb", "C:\\a\u00a0b",
+		`C:\`, `prof\`, "", "C:\\a|b", "C:\\a<b", "C:\\a>b", "C:\\a*b", "C:\\a?b",
+	} {
 		if safeForCommand(s) {
 			t.Errorf("safeForCommand(%q) = true", s)
 		}
 	}
-	if !safeForCommand(`C:\Users\you\.config\fathomgate\policy.yaml`) {
-		t.Error("an ordinary path is not safe")
+	for _, s := range []string{
+		`C:\Users\you\.config\fathomgate\policy.yaml`, `C:\Program Files (x86)\fg\p.yaml`,
+		`\\server\share\fg\[lab]{1}+a,b=c@d#e~f'g&h^i.yaml`, `C:\Users\Jürgen\写真\policy.yaml`, `C:/fg/p.yaml`,
+	} {
+		if !safeForCommand(s) {
+			t.Errorf("safeForCommand(%q) = false", s)
+		}
+	}
+}
+
+// TestWindowsTrailingSeparator: a directory named with a trailing `\`
+// (--profiles 'prof\') is printed cleaned, so its `\` never escapes the
+// closing quote (L-a); the printed command runs.
+func TestWindowsTrailingSeparator(t *testing.T) {
+	dir := ownerOnlyDir(t, t.TempDir())
+	sub := filepath.Join(dir, "prof")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	icacls(t, sub, "/grant", "*S-1-1-0:(OI)(CI)(M)")
+	err := CheckDir(sub+`\`, "the profiles directory")
+	if !errors.Is(err, ErrUnsafe) || !strings.Contains(err.Error(), `icacls "`+sub+`" /inheritance:r`) {
+		t.Fatalf("trailing separator: %v", err)
+	}
+	for _, line := range commands(err.Error()) {
+		runShell(t, "cmd", line)
+	}
+	if err := CheckDir(sub+`\`, "the profiles directory"); err != nil {
+		t.Fatalf("after the printed fix: %v", err)
 	}
 }

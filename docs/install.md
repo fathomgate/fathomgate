@@ -162,9 +162,10 @@ start without `--policy` or `--no-policy`. See
    The accounts are named by SID, so the lines work in Command Prompt and
    in PowerShell; run them one at a time. The second line appears only
    when an account was given access to the file itself rather than
-   through its folder. If the path holds `%`, `!` or another character a
-   shell would change, Fathomgate describes the fix instead of printing a
-   command.
+   through its folder. If the path holds a character outside letters,
+   digits, spaces and `\ / : . _ - ( ) [ ] { } + , = @ # ~ ' & ^` (for
+   example `%`, `!`, `$` or a curly quote), Fathomgate describes the fix
+   instead of printing a command.
 
 4. **Full paths to all of these.** Run `command -v fathomgate` and
    `command -v netdev-ssh-mcp` and write down what they print (for example
