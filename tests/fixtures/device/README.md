@@ -72,7 +72,16 @@ are a sketch so that eos-mcp's session tools get well-formed answers:
 lines after `configure session <name>` are recorded and answered `{}`,
 `show session-config diffs` echoes them with `+`, and `abort`, `commit`,
 `commit timer`, `end` leave the session. None of this is evidence for
-how EOS behaves. These need cEOS (M1-28 and M3, tier 3):
+how EOS behaves. These need cEOS (M1-28 and M3, tier 3). As of M1-28
+(2026-09-25) they are **blocked**, not run: cEOS-lab is downloaded from
+arista.com with an account and cannot be redistributed, so no public CI job
+can pull it; the repository is public, so only the scheduled
+`nightly-clab.yaml` may use a self-hosted runner, and it stays off until
+`FATHOMGATE_CLAB_ENABLED` is `true`
+(docs/ci-runners.md); and `tests/clab/` does not exist yet. Moved to M3 by the
+maintainer 2026-09-25, alongside the change-safety drivers, which need real
+devices anyway (test-matrix.md run notes, M1-28 entry). Rows 3, 4, 5 and 6 do not
+depend on them: fathomgate denies these calls before they leave.
 
 - Whether config lines after `end` in one `runCmds` call run outside the
   session, so that push_config's `["end", "reload now"]` would reload the

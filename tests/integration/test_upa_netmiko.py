@@ -42,7 +42,20 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import REPO, UPA_SERVER, FakeDevice, UpaInstall
+from .conftest import (
+    NO_EXEC_REASON,
+    NO_WRITES_REASON,
+    REPO,
+    UNKNOWN_TARGET_REASON,
+    UPA_SERVER,
+    FakeDevice,
+    LoggedSession,
+    UpaInstall,
+    decision_lines,
+    gate_error,
+    policy_args,
+    result_text,
+)
 
 pytestmark = [pytest.mark.tier2, pytest.mark.upa_mcp_netmiko_server]
 
@@ -146,20 +159,16 @@ def _texts(result: dict) -> str:
     return "".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
 
 
-def _inventory(tmp_path: Path, device: FakeDevice) -> Path:
-    """upa's TOML inventory: one device, the fake EOS box. The password is a
-    FAKE fixture; upa has no other way to take it."""
+def _inventory(tmp_path: Path, device: FakeDevice, extra: tuple[str, ...] = ()) -> Path:
+    """upa's TOML inventory: the fake EOS box as DEVICE, plus any `extra`
+    names, each also pointing at the fake device (so a forwarded call to one
+    would really connect). The password is a FAKE fixture; upa has no other
+    way to take it."""
     toml = tmp_path / "devices.toml"
-    toml.write_text(
-        "[default]\n"
-        'username = "admin"\n'
-        f'password = "{DEVICE_PASSWORD}"\n'
-        f"port = {device.port}\n"
-        f"\n[{DEVICE}]\n"
-        'hostname = "127.0.0.1"\n'
-        'device_type = "arista_eos"\n',
-        encoding="utf-8",
-    )
+    body = "[default]\n" 'username = "admin"\n' f'password = "{DEVICE_PASSWORD}"\n' f"port = {device.port}\n"
+    for name in (DEVICE, *extra):
+        body += f"\n[{name}]\n" 'hostname = "127.0.0.1"\n' 'device_type = "arista_eos"\n'
+    toml.write_text(body, encoding="utf-8")
     return toml
 
 
@@ -363,3 +372,222 @@ def test_locked_upstream_initialises_behind_fathomgate(fathomgate_binary: Path, 
         assert len(restarts) == 1 and "level=WARN" in restarts[0], ng.stderr[-20:]
     finally:
         ng.close()
+
+
+# --- through the gate (M1-28): row 4, the upa half ----------------------------
+
+GATE_INVENTORY = f"devices:\n  - name: {DEVICE}\n    role: lab\n    tags: [lab]\n"
+SHOW_BGP = (REPO / "tests/fixtures/device/transcripts/eos/show_ip_bgp_summary.txt").read_text(encoding="utf-8")
+
+
+def _gated_argv(
+    fathomgate: Path, upa_install: UpaInstall, device: FakeDevice, tmp_path: Path, policy: str, upa_extra: tuple[str, ...] = ()
+) -> list[str]:
+    """fathomgate serve --policy <policy> --inventory <fake-eos only> in
+    front of upa on mcp 1.30.0, with the embedded profile (profiles/upa.yaml).
+    upa_extra adds names to upa's own TOML (not to fathomgate's inventory)."""
+    argv = _serve(fathomgate, upa_install.python, upa_install.main, _inventory(tmp_path, device, upa_extra))
+    i = argv.index("--no-policy")
+    return argv[:i] + policy_args(tmp_path, policy, GATE_INVENTORY) + argv[i + 1 :]
+
+
+def _drow(d: dict[str, str]) -> tuple[str, ...]:
+    return (d["tool"], d["decision"], d["rule_id"], d["class"], d["class_source"], d["forwarded"])
+
+
+@pytest.mark.asyncio
+async def test_row4_control_reload_reaches_device_without_policy(upa_argv: list[str], fake_device: FakeDevice, tmp_path: Path) -> None:
+    """The control for row 4 on upa: with `--no-policy` and no `--secured`,
+    the same `reload` call is forwarded and the fake device receives it.
+    So when the gated test below sees no `reload`, the gate stopped a
+    command that would have arrived."""
+    stderr = tmp_path / "fathomgate.stderr"
+    async with LoggedSession(upa_argv, stderr) as session:
+        await session.call_tool(f"{UPA_SERVER}.send_command_and_get_output", {"name": DEVICE, "command": "reload"})
+    assert "reload" in fake_device.commands()
+    assert decision_lines(stderr) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["read-only.yaml", "prod-approval.yaml"])
+async def test_row4_reload_denied_show_downgraded(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path, policy: str
+) -> None:
+    """Row 4, upa half, and M1 exit criterion 3 on this upstream.
+
+    send_command_and_get_output is EXEC_ARBITRARY in the profile. `show
+    version` and `show ip bgp summary` pass the read allow-list, so they are
+    downgraded to READ_OPERATIONAL (class_source downgrade) and allow by
+    `reads-anywhere`; each runs once on the device through netmiko. `reload`
+    stays EXEC_ARBITRARY and is deny by `no-exec`, with the exact tool
+    error, and the device logs no new SSH session and no command. upa runs
+    without --secured here, so the gate is the only thing between the agent
+    and `reload`."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "send_command_and_get_output"
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, policy), stderr) as session:
+        show = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": "show version"})
+        assert not show.is_error, result_text(show)
+        assert result_text(show).strip() == SHOW_VERSION.strip()
+        bgp = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": "show ip bgp summary"})
+        assert not bgp.is_error, result_text(bgp)
+        assert result_text(bgp).strip() == SHOW_BGP.strip()
+        sessions = fake_device.sessions()
+        assert sessions >= 2
+
+        reload = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": "reload"})
+        assert reload.is_error
+        assert result_text(reload) == gate_error("denied", UPA_SERVER, tool, "no-exec", "EXEC_ARBITRARY", NO_EXEC_REASON)
+
+    assert fake_device.sessions() == sessions
+    ran = fake_device.commands()
+    assert "reload" not in ran
+    assert [c for c in ran if c.startswith("show")] == ["show version", "show ip bgp summary"]
+    assert [_drow(x) for x in decision_lines(stderr)] == [
+        (tool, "allow", "reads-anywhere", "READ_OPERATIONAL", "downgrade", "true"),
+        (tool, "allow", "reads-anywhere", "READ_OPERATIONAL", "downgrade", "true"),
+        (tool, "deny", "no-exec", "EXEC_ARBITRARY", "profile", "false"),
+    ]
+
+
+# Row 5 (M1 half): a config dump through the free-form tool, with the words
+# separated by any run of spaces and tabs, the tier 1 variants of
+# internal/classify (TestConfigReadWhitespace).
+CONFIG_DUMPS = ["show running-config", "show  running-config", "show\trunning-config", "\tshow\t\trunning-config\t"]
+SHOW_RUN = (REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt").read_text(encoding="utf-8")
+# Tells READ_CONFIG from READ_OPERATIONAL in the decision word.
+OPS_ONLY = """version: 1
+defaults:
+  unknown_target: deny
+rules:
+  - id: ops-reads
+    match: { class: [READ_OPERATIONAL] }
+    effect: allow
+  - id: no-config-reads
+    match: { class: [READ_CONFIG] }
+    effect: deny
+    reason: "configuration reads are denied in this test policy"
+  - id: no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny
+    reason: "EXEC_ARBITRARY is denied"
+"""
+
+
+def _transcript_key(command: str) -> str:
+    # fake_ssh.transcript_name: what the device looked up.
+    return re.sub(r"[^a-z0-9]+", "_", command.strip().lower()).strip("_")
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_reclassified_read_config(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on upa: `show running-config` through
+    send_command_and_get_output, with any spaces or tabs between the words,
+    is READ_CONFIG with class_source reclassify (not the downgrade to
+    READ_OPERATIONAL a show command gets). Under read-only it is allow by
+    `reads-anywhere`. The output is not redacted in M1 (the row's M2 half).
+
+    Only the variants without a tab are sent here. netmiko types the
+    command into an interactive shell and waits for its echo, which the
+    fake device does not give back for a tab (a real CLI takes a tab as
+    completion), so a tab variant ends in netmiko's own timeout after the
+    gate has allowed it. The deny test below decides all four variants with
+    nothing forwarded, and eos-mcp (eAPI, JSON) carries the tab variants to
+    the device (test_eos_mcp.py)."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "send_command_and_get_output"
+    sent = [c for c in CONFIG_DUMPS if "\t" not in c]
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml"), stderr) as session:
+        for cmd in sent:
+            r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": cmd})
+            assert not r.is_error, (cmd, result_text(r))
+            assert result_text(r).strip() == SHOW_RUN.strip(), cmd
+
+    assert [c for c in fake_device.commands() if _transcript_key(c) == "show_running_config"] == sent
+    assert [_drow(x) for x in decision_lines(stderr)] == [
+        (tool, "allow", "reads-anywhere", "READ_CONFIG", "reclassify", "true") for _ in sent
+    ]
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_denied_where_config_reads_are(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on upa: under a policy that allows READ_OPERATIONAL
+    and denies READ_CONFIG, every variant is deny by `no-config-reads` with
+    class READ_CONFIG, so the free-form tool is no way round the rule, and
+    the device receives none of them. `show version` in the same session is
+    allow by `ops-reads`."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "send_command_and_get_output"
+    reason = "configuration reads are denied in this test policy"
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, OPS_ONLY), stderr) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": cmd})
+            assert r.is_error, cmd
+            assert result_text(r) == gate_error("denied", UPA_SERVER, tool, "no-config-reads", "READ_CONFIG", reason)
+        assert fake_device.sessions() == 0
+        ok = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "command": "show version"})
+        assert not ok.is_error, result_text(ok)
+
+    assert [c for c in fake_device.commands() if c.strip().startswith("show")] == ["show version"]
+    assert [_drow(x) for x in decision_lines(stderr)] == [
+        *[(tool, "deny", "no-config-reads", "READ_CONFIG", "reclassify", "false") for _ in CONFIG_DUMPS],
+        (tool, "allow", "ops-reads", "READ_OPERATIONAL", "downgrade", "true"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_config_lines_leaving_config_mode_denied_as_exec(
+    fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path
+) -> None:
+    """set_config_commands_and_commit_or_save with ["end", "reload now"]:
+    netmiko's send_config_set would type both into the shell, and `end`
+    leaves configuration mode, so `reload now` would run in exec mode. The
+    call is EXEC_ARBITRARY (M1-36) and read-only denies it by `no-exec`; a
+    plain config line is WRITE_CONFIG and denied by `no-writes`. Neither
+    opens an SSH session."""
+    stderr = tmp_path / "fathomgate.stderr"
+    tool = "set_config_commands_and_commit_or_save"
+    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml"), stderr) as session:
+        exec_ = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "commands": ["end", "reload now"]})
+        write = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": DEVICE, "commands": ["hostname FAKE-lab-01"]})
+
+    assert exec_.is_error and result_text(exec_) == gate_error("denied", UPA_SERVER, tool, "no-exec", "EXEC_ARBITRARY", NO_EXEC_REASON)
+    assert write.is_error and result_text(write) == gate_error("denied", UPA_SERVER, tool, "no-writes", "WRITE_CONFIG", NO_WRITES_REASON)
+    assert fake_device.sessions() == 0
+    assert fake_device.commands() == []
+    assert [(x["decision"], x["rule_id"], x["class"], x["forwarded"]) for x in decision_lines(stderr)] == [
+        ("deny", "no-exec", "EXEC_ARBITRARY", "false"),
+        ("deny", "no-writes", "WRITE_CONFIG", "false"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unknown_device_name_denied(fathomgate_binary: Path, upa_install: UpaInstall, fake_device: FakeDevice, tmp_path: Path) -> None:
+    """Row 6's rule on upa (supporting evidence: the row names
+    netdev-ssh-mcp, which has no write tool): a device name fathomgate's
+    inventory does not list is deny by `default:unknown_target` for a read,
+    a write and exec alike, and the decision line says it was not
+    forwarded. `core-x` is in upa's own TOML and points at the fake device,
+    so a forwarded call would connect and run there; the device logs no
+    session and no command."""
+    stderr = tmp_path / "fathomgate.stderr"
+    calls = [
+        ("send_command_and_get_output", "READ_OPERATIONAL", {"command": "show version"}),
+        ("send_command_and_get_output", "EXEC_ARBITRARY", {"command": "reload"}),
+        ("set_config_commands_and_commit_or_save", "WRITE_CONFIG", {"commands": ["hostname FAKE-x"]}),
+    ]
+    argv = _gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml", upa_extra=("core-x",))
+    async with LoggedSession(argv, stderr) as session:
+        for tool, cls, extra in calls:
+            r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": "core-x", **extra})
+            assert r.is_error
+            assert result_text(r) == gate_error("denied", UPA_SERVER, tool, "default:unknown_target", cls, UNKNOWN_TARGET_REASON)
+    assert fake_device.sessions() == 0
+    assert fake_device.commands() == []
+    assert [(x["tool"], x["decision"], x["rule_id"], x["class"], x["unknown_target"], x["forwarded"]) for x in decision_lines(stderr)] == [
+        (tool, "deny", "default:unknown_target", cls, "true", "false") for tool, cls, _ in calls
+    ]

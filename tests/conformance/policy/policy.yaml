@@ -1,0 +1,16 @@
+# Policy for the fathomgate-policy conformance leg (M1-28), with
+# profiles/conf.yaml beside it. The fixture's tools take no target, so the
+# unknown-target default never applies; every tool is allowed by conf-reads
+# except test_error_handling, which the profile makes EXEC_ARBITRARY and
+# conf-no-exec denies. run.sh checks both decisions in the chain log.
+version: 1
+defaults:
+  unknown_target: deny
+rules:
+  - id: conf-reads
+    match: { class: [READ_OPERATIONAL] }
+    effect: allow
+  - id: conf-no-exec
+    match: { class: [EXEC_ARBITRARY] }
+    effect: deny
+    reason: "EXEC_ARBITRARY is denied on the conformance leg"

@@ -8,8 +8,9 @@ client half of M0 exit criterion 2. The client here is the python-sdk, not
 Claude Code or Cursor; see docs/testing/test-matrix.md row 22 for what a
 human still checks in a real client.
 
-The M1 cases at the bottom (audit event, `deny` with rule id) stay skipped
-until the pipeline is wired at `Proxy.dispatch` (ADR 0012).
+The two cases at the bottom assert the audit event and stay skipped until
+`--audit` lands in M4 (ADR 0027); M1-28 proves the same decisions through
+`serve --policy` in test_policy_gate.py (tool error and decision line).
 """
 
 from __future__ import annotations
@@ -339,7 +340,7 @@ async def test_upstream_refuses_command_injection(proxy_server_params: dict, fak
 
 # --- M1: the pipeline in Proxy.dispatch --------------------------------------
 
-m1 = pytest.mark.skip(reason="M1-28 validates these through serve --policy; the audit file they read arrives with --audit in M4 (ADR 0027)")
+m1 = pytest.mark.skip(reason="the decisions are validated through serve --policy in test_policy_gate.py (M1-28); these read the audit file, which arrives with --audit in M4 (ADR 0027)")
 
 
 @m1
