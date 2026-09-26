@@ -61,3 +61,9 @@ The M1-08 scanner was a scratch script and is not committed.
 - L4: CLAUDE.md's mandatory security-review list adds `internal/gate` and `internal/proxy`; the proxy rule in CLAUDE.md and AGENTS.md says proxy changes get a security review.
 - ADR 0036's example is a gate case in `policies/examples/read-only.gate.test.yaml` (`netdev-ssh-mcp` tool `show_command` with `command` gets `default:bad_arguments`, class `EXEC_ARBITRARY`, source `fallback`); policy-schema section 9 counts 76 gate cases.
 - New board task M1-43 (open, mcp-protocol-engineer): tier 1 test that a hostile upstream `Instructions` string never reaches the agent, both eras. The threat-model row points at it.
+
+## Merges with main (2026-09-25, after #193, #195 to #199)
+
+- Test matrix: rows 3, 4 and 6 keep #195's `passing` statuses under this PR's wording; row 5 reads "passing for the M1 half" on run 36201094163, as #195's run notes asked, M2 half planned.
+- Threat model: main's rows kept; the secret-scanner row now says the repository and fixture scan is mitigated by M1-42 (PR #198), the sampled-output canary still open for M2; the brief 02 count is 137 tools on 13 servers (#196 moved Meraki into a profile).
+- Gate case counts after #199: read-only 77, 114 in all (policy-schema section 9, CLAUDE.md).
