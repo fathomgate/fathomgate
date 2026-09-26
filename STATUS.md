@@ -21,7 +21,7 @@ Tasks: open 6 · blocked 2 · in review 4 · merged 24 · dropped 5
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | merged | — | 4 | — |
 | M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | merged | M1-13 | 3, 4 | — |
-| M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | open | — | — | — |
+| M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | in review | — | — | — |
 | M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 3, 5 | — |
 | M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | open | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
 | M1-18 | internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026 | `internal/gate` | policy-engineer | security-reviewer, go-reviewer | merged | M1-16 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
@@ -71,7 +71,7 @@ Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`, `eos-mcp run_comm
 | 2026-09-25 | upstream-server-scout | policy-engineer | M1.13 | [M1.13: upa/mcp-netmiko-server profile drafted from source at 96e8ff3; verify and sign](docs/handoffs/2026-09-25-upstream-server-scout-to-policy-engineer-M1.13.md) |
 | 2026-09-25 | test-engineer | upstream-server-scout | M1.22 | [M1-22: eos-mcp 1.3.0 runs in tier 2 behind fathomgate against a fake eAPI device; one profile finding](docs/handoffs/2026-09-25-test-engineer-to-upstream-server-scout-M1.22.md) |
 | 2026-09-25 | test-engineer | security-reviewer | T0.51 | [T0.51: tier 2 and the docs on netdev-ssh-mcp v1.7.1, which fixes the T0.29 report; review the claims about the upstream's fixes](docs/handoffs/2026-09-25-test-engineer-to-security-reviewer-T0.51.md) |
-| 2026-09-25 | test-engineer | go-reviewer | T0.32 | [T0.32 ready for review: the conformance suite drives `fathomgate serve --listen`, relay.py is gone](docs/handoffs/2026-09-25-test-engineer-to-go-reviewer-T0.32.md) |
+| 2026-09-25 | test-engineer | policy-engineer | M1.15 | [Fallback-classification tests for every other surveyed tool, at the Classify and gate levels](docs/handoffs/2026-09-25-test-engineer-to-policy-engineer-M1.15.md) |
 
 ## How to update
 
