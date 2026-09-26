@@ -285,6 +285,7 @@ type eraSetup struct {
 	policy          Gate                              // if set, Options.Gate
 	logger          *slog.Logger                      // if set, Options.Logger
 	upstreamWrap    func(mcp.Transport) mcp.Transport // if set, wraps the upstream's server-side transport
+	agentWrap       func(mcp.Transport) mcp.Transport // if set, wraps the agent's transport, inside the wireTap
 }
 
 type eraHarness struct {
@@ -360,6 +361,9 @@ func connectAgent(t *testing.T, p *Proxy, s eraSetup, prompts *promptLog) (*mcp.
 	agentT := pinAgent(s.agent, agCliT)
 	if s.reads != nil {
 		agentT = gatedTransport{agentT, s.reads}
+	}
+	if s.agentWrap != nil {
+		agentT = s.agentWrap(agentT)
 	}
 	tap := &wireTap{Transport: agentT}
 	agent, err := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "0"}, opts).Connect(ctx, tap, nil)
