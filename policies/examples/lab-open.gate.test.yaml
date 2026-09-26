@@ -140,7 +140,11 @@ cases:
       server: eos-mcp
       tool: push_config
       arguments: {hostname: lab-x@core-rtr-01, config_lines: [hostname x]}
-    expect: {effect: deny, rule: default:bad_arguments}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      targets: []
+      tool_error: "fathomgate denied eos-mcp.push_config: rule default:bad_arguments (class WRITE_CONFIG): a target is not a hostname or IP address"
 
   # Config lines that leave the session (M1-36), and refused arguments.
   - name: "config lines that end the session and reload are EXEC_ARBITRARY on a lab device"

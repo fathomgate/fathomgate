@@ -4,6 +4,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,7 +23,9 @@ import (
 // --profile.
 func TestPolicyEvalProfileUsage(t *testing.T) {
 	pol := repoPath("policies", "examples", "read-only.yaml")
-	prof := repoPath("profiles", "eos-mcp.yaml")
+	// A copy that passes the configfile checks, so each case fails on the
+	// usage rule it names and not on the profile's permissions.
+	prof := configCopy(t, repoPath("profiles", "eos-mcp.yaml"))
 	base := []string{"policy", "eval", "--policy", pol}
 	cases := map[string][]string{
 		"--class with --profile":           {"--profile", prof, "--tool", "get_version", "--arg", "hostname=lab-sw-01", "--class", "READ_OPERATIONAL"},
@@ -43,7 +47,7 @@ func TestPolicyEvalProfileUsage(t *testing.T) {
 // gate decided, including the refusals before Evaluate.
 func TestPolicyEvalGateJSON(t *testing.T) {
 	pol := repoPath("policies", "examples", "read-only.yaml")
-	prof := repoPath("profiles", "netdev-ssh-mcp.yaml")
+	prof := configCopy(t, repoPath("profiles", "netdev-ssh-mcp.yaml"))
 	out, code := captureStdout(t, func() int {
 		return run([]string{"policy", "eval", "--policy", pol, "--profile", prof, "--tool", "run_show_command", "--json",
 			"--arguments-json", `{"host": "lab-sw-01", "command": "show version", "host": "x"}`})
@@ -75,6 +79,10 @@ func TestPolicyEvalMatchesGateCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	checked := 0
+	profiles := map[string]string{}
+	for _, server := range []string{"eos-mcp", "junos-mcp-server", "netdev-ssh-mcp", "ntunes-netmiko-mcp-server", "upa"} {
+		profiles[server] = configCopy(t, repoPath("profiles", server+".yaml"))
+	}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -88,7 +96,9 @@ func TestPolicyEvalMatchesGateCases(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		inv := filepath.Join(t.TempDir(), "inventory.yaml")
+		// configDir: eval reads --inventory with the configfile checks, which
+		// a plain t.TempDir fails on Windows when it inherits a write ACE.
+		inv := filepath.Join(configDir(t), "inventory.yaml")
 		if err := os.WriteFile(inv, tf.Inventory.Inline, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +109,7 @@ func TestPolicyEvalMatchesGateCases(t *testing.T) {
 			args := []string{"policy", "eval", "--json",
 				"--policy", filepath.Join(filepath.Dir(f), tf.Policy),
 				"--inventory", inv,
-				"--profile", repoPath("profiles", c.Request.Server+".yaml"),
+				"--profile", profiles[c.Request.Server],
 				"--tool", c.Request.Tool,
 				"--arguments-json", string(c.ArgumentBytes()),
 				"--devices-touched", strconv.Itoa(c.Request.Session.DevicesTouched),
@@ -181,5 +191,125 @@ cases:
 	}
 	if got := run([]string{"policy", "test", "--profiles", filepath.Join(dir, "missing"), path}); got != exitUsage {
 		t.Fatalf("missing --profiles: exit %d, want %d", got, exitUsage)
+	}
+}
+
+// configCopy copies src into a new configDir, keeping its file name, and
+// returns the copy's path: a file there passes the configfile checks that
+// policy eval, like serve, applies to --profile and --inventory.
+func configCopy(t *testing.T, src string) string {
+	t.Helper()
+	b, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(configDir(t), filepath.Base(src))
+	if err := os.WriteFile(dst, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+// captureStderr runs fn with os.Stderr redirected and returns what it wrote.
+// Not for parallel tests.
+func captureStderr(t *testing.T, fn func() int) (string, int) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	done := make(chan []byte)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- b
+	}()
+	code := fn()
+	os.Stderr = old
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return string(out), code
+}
+
+// TestFailEscapesControls: the error policy test prints for a test file
+// whose inventory or policy path carries control and bidi characters shows
+// them escaped (security review of PR #197, L1). fail() escapes the whole
+// message; the paths are also quoted where they enter it.
+func TestFailEscapesControls(t *testing.T) {
+	dir := t.TempDir()
+	pol := filepath.ToSlash(mustAbs(t, repoPath("policies", "examples", "read-only.yaml")))
+	bodies := map[string]string{
+		"inventory": "policy: " + pol + "\ninventory: \"nothere\\x1b[31m\\u202e.yaml\"\ncases:\n  - name: x\n    request: {server: upa, tool: send_command_and_get_output, arguments: {name: a, command: show version}}\n    expect: {effect: deny, rule: x}\n",
+		"policy":    "policy: \"p\\x1b]0;title\\x07\\u2066.yaml\"\ncases:\n  - name: x\n    request: {class: READ_CONFIG}\n    expect: {effect: allow}\n",
+	}
+	for name, body := range bodies {
+		path := filepath.Join(dir, name+".test.yaml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, code := captureStderr(t, func() int { return run([]string{"policy", "test", path}) })
+		if code != exitUsage {
+			t.Errorf("%s: exit %d", name, code)
+		}
+		if strings.ContainsAny(out, "\x1b\x07\u202e\u2066") {
+			t.Errorf("%s: stderr carries a raw control or bidi character: %q", name, out)
+		}
+		if !strings.Contains(out, "\\x1b") {
+			t.Errorf("%s: stderr does not show the escape: %q", name, out)
+		}
+	}
+}
+
+// TestPolicyEvalReadsLikeServe: policy eval reads --profile and --inventory
+// as serve does (security review of PR #197, N4): a profile file not named
+// after its server key, one others can change, and a CSV inventory are
+// usage errors.
+func TestPolicyEvalReadsLikeServe(t *testing.T) {
+	pol := repoPath("policies", "examples", "read-only.yaml")
+	src, err := os.ReadFile(repoPath("profiles", "eos-mcp.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := configDir(t)
+	misnamed := filepath.Join(dir, "other.yaml")
+	if err := os.WriteFile(misnamed, src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	good := configCopy(t, repoPath("profiles", "eos-mcp.yaml"))
+	args := func(profile string, extra ...string) []string {
+		return append([]string{"policy", "eval", "--policy", pol, "--profile", profile, "--tool", "get_version", "--arg", "hostname=lab-sw-01"}, extra...)
+	}
+	if got := run(args(good)); got != exitFail {
+		t.Fatalf("good profile, no inventory: exit %d, want %d (unknown target)", got, exitFail)
+	}
+	if got := run(args(misnamed)); got != exitUsage {
+		t.Errorf("misnamed profile: exit %d, want %d", got, exitUsage)
+	}
+	csv := filepath.Join(dir, "devices.csv")
+	if err := os.WriteFile(csv, []byte("name\nlab-sw-01\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(args(good, "--inventory", csv)); got != exitUsage {
+		t.Errorf("CSV inventory: exit %d, want %d", got, exitUsage)
+	}
+	letOthersWrite(t, good)
+	if got := run(args(good)); got != exitUsage {
+		t.Errorf("a profile others can change: exit %d, want %d", got, exitUsage)
+	}
+}
+
+// TestFailSink: fail escapes C0, C1 and bidi controls anywhere in the
+// message, whatever produced it, and keeps line breaks for multi-line hints.
+func TestFailSink(t *testing.T) {
+	out, code := captureStderr(t, func() int {
+		return fail(errors.New("raw \x1b[2J \u009b \u202e end\n  hint"))
+	})
+	if code != exitUsage {
+		t.Fatalf("exit %d", code)
+	}
+	if want := "fathomgate: raw \\x1b[2J \\u009b \\u202e end\n  hint\n"; out != want {
+		t.Fatalf("stderr %q, want %q", out, want)
 	}
 }

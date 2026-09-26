@@ -42,7 +42,7 @@ const dirText = `Users who can write the directory that holds it can still repla
 func open(path, what string, dir bool) (*os.File, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open %s: %w", what, err)
+		return nil, fmt.Errorf("cannot open %s: %w", what, withoutPath(err))
 	}
 	if err := check(f, path, what, dir); err != nil {
 		_ = f.Close()
@@ -54,7 +54,7 @@ func open(path, what string, dir bool) (*os.File, error) {
 func check(f *os.File, path, what string, dir bool) error {
 	fi, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", what, err)
+		return fmt.Errorf("cannot read %s: %w", what, withoutPath(err))
 	}
 	switch {
 	case dir && !fi.IsDir():

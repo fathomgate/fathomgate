@@ -20,7 +20,7 @@ const unixDirClause = ". Users who can write the directory that holds it can sti
 func open(path, what string, dir bool) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open %s: %w", what, err)
+		return nil, fmt.Errorf("cannot open %s: %w", what, withoutPath(err))
 	}
 	if err := check(f, what, dir, os.Geteuid()); err != nil {
 		_ = f.Close()
@@ -33,7 +33,7 @@ func open(path, what string, dir bool) (*os.File, error) {
 func check(f *os.File, what string, dir bool, euid int) error {
 	fi, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", what, err)
+		return fmt.Errorf("cannot read %s: %w", what, withoutPath(err))
 	}
 	switch {
 	case dir && !fi.IsDir():

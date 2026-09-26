@@ -81,7 +81,10 @@ func TestPolicyTestExamples(t *testing.T) {
 
 func TestPolicyEvalExitCodes(t *testing.T) {
 	pol := repoPath("policies", "examples", "prod-approval.yaml")
-	inv := repoPath("inventory.example.yaml")
+	// eval reads the inventory and the profile as serve does, with the
+	// configfile checks, so they are copied into a directory that passes.
+	inv := configCopy(t, repoPath("inventory.example.yaml"))
+	eos := configCopy(t, repoPath("profiles", "eos-mcp.yaml"))
 	cases := []struct {
 		name string
 		args []string
@@ -92,12 +95,12 @@ func TestPolicyEvalExitCodes(t *testing.T) {
 		{"deny exec", []string{"--class", "EXEC_ARBITRARY", "--target", "core-rtr-01", "--json"}, exitFail},
 		{"deny unknown", []string{"--class", "READ_OPERATIONAL", "--target", "ghost"}, exitFail},
 		{"bad class", []string{"--class", "NOPE"}, exitUsage},
-		{"profile classifies show", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=show version"}, exitOK},
-		{"profile classifies reload", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=reload"}, exitFail},
-		{"profile named args", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01"}, exitOK},
-		{"profile config_path refused", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path=/proc/self/stat"}, exitFail},
-		{"profile empty config_path refused", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path="}, exitFail},
-		{"profile unknown tool", []string{"--profile", repoPath("profiles", "eos-mcp.yaml"), "--tool", "nope", "--arg", "hostname=lab-leaf-01"}, exitFail},
+		{"profile classifies show", []string{"--profile", eos, "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=show version"}, exitOK},
+		{"profile classifies reload", []string{"--profile", eos, "--tool", "run_command", "--arg", "hostname=lab-leaf-01", "--arg", "command=reload"}, exitFail},
+		{"profile named args", []string{"--profile", eos, "--tool", "get_version", "--arg", "hostname=lab-leaf-01"}, exitOK},
+		{"profile config_path refused", []string{"--profile", eos, "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path=/proc/self/stat"}, exitFail},
+		{"profile empty config_path refused", []string{"--profile", eos, "--tool", "get_version", "--arg", "hostname=lab-leaf-01", "--arg", "config_path="}, exitFail},
+		{"profile unknown tool", []string{"--profile", eos, "--tool", "nope", "--arg", "hostname=lab-leaf-01"}, exitFail},
 		{"no class no profile", []string{"--tool", "x"}, exitUsage},
 	}
 	for _, tc := range cases {
@@ -179,7 +182,7 @@ func TestAuditVerifyAndKeygen(t *testing.T) {
 }
 
 func TestRedactAndInventoryImport(t *testing.T) {
-	dir := t.TempDir()
+	dir := configDir(t)
 	keyFile := filepath.Join(dir, "k")
 	if err := os.WriteFile(keyFile, []byte("k\n"), 0o600); err != nil {
 		t.Fatal(err)

@@ -86,12 +86,12 @@ bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
 ```
 
 ```
-decision:    hold
-class:       WRITE_CONFIG
-target:      core-rtr-01 (role core, site dfw1, tags prod,critical)
-rule:        prod-core-needs-approval
-obligations: dry_run, diff, timed_rollback
-approval:    ttl 15m0s, approver must differ: true
+decision:       hold
+class:          WRITE_CONFIG
+target:         core-rtr-01 (role core, site dfw1, tags prod,critical)
+rule:           prod-core-needs-approval
+obligations:    dry_run, diff, timed_rollback
+approval:       ttl 15m0s, approver must differ: true
 trace:
   - default:session.max_devices      1 of 5 devices
   - reads-anywhere                   class WRITE_CONFIG not in [READ_OPERATIONAL READ_CONFIG INVENTORY_READ]

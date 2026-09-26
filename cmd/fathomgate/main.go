@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 // Build information, set by GoReleaser through -ldflags.
@@ -112,8 +114,12 @@ func printVersion(w io.Writer) int {
 }
 
 // fail prints an error in the CLI's voice and returns the usage exit code.
+// The whole message goes through termsafe.Text: an error can carry a path
+// or a name from a file the user did not write, and no C0, C1 or bidi
+// control from it may reach the terminal raw (security review of PR #197,
+// L1).
 func fail(err error) int {
-	fmt.Fprintf(os.Stderr, "fathomgate: %v\n", err)
+	fmt.Fprintf(os.Stderr, "fathomgate: %s\n", termsafe.Text(err.Error()))
 	return exitUsage
 }
 

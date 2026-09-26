@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 )
 
 // ErrUnsafe is matched (errors.Is) by every refusal: a file that exists
@@ -52,12 +53,25 @@ func Read(path, what string, limit int64) ([]byte, error) {
 	defer func() { _ = f.Close() }()
 	b, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", what, err)
+		return nil, fmt.Errorf("cannot read %s: %w", what, withoutPath(err))
 	}
 	if int64(len(b)) > limit {
 		return nil, fmt.Errorf("%s is larger than %d bytes", what, limit)
 	}
 	return b, nil
+}
+
+// withoutPath drops the path an *fs.PathError repeats, keeping the
+// operation's own error (so errors.Is still matches fs.ErrNotExist and the
+// like). Every message here names the file through what, which the caller
+// has made safe to print; the raw path in the system error would reach the
+// terminal unquoted (security review of PR #197, L1).
+func withoutPath(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	return err
 }
 
 // CheckDir runs the checks above on the directory at path.
