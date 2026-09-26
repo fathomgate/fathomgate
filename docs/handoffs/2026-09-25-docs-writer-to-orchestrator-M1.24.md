@@ -57,7 +57,7 @@ The M1-08 scanner was a scratch script and is not committed.
 
 - L1: the "Upstream-controlled tool names choose the class" row carries the open residual (a changed implementation behind a profiled name keeps its class; M2 pinning catches it only when the advertised text changes).
 - L2: ADR 0036 *Negative* and the no-profile row name the zero-target residual (a policy that allows `EXEC_ARBITRARY` without roles or tags forwards an unprofiled no-argument call).
-- L3: `TestFallbackBrief02Gate` is cited as "PR #193, pending"; #193 was open at push.
+- L3: #193 merged during this round, so `TestFallbackBrief02Gate` is cited as PR #193 without "pending".
 - L4: CLAUDE.md's mandatory security-review list adds `internal/gate` and `internal/proxy`; the proxy rule in CLAUDE.md and AGENTS.md says proxy changes get a security review.
 - ADR 0036's example is a gate case in `policies/examples/read-only.gate.test.yaml` (`netdev-ssh-mcp` tool `show_command` with `command` gets `default:bad_arguments`, class `EXEC_ARBITRARY`, source `fallback`); policy-schema section 9 counts 76 gate cases.
 - New board task M1-43 (open, mcp-protocol-engineer): tier 1 test that a hostile upstream `Instructions` string never reaches the agent, both eras. The threat-model row points at it.
