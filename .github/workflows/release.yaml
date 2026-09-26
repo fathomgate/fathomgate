@@ -48,6 +48,9 @@ jobs:
 
   goreleaser:
     needs: test
+    # The job that can mint a signing identity waits for a maintainer's
+    # approval (threat-model row "Release job without a human gate").
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release and upload archives
