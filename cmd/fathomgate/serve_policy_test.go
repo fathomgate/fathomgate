@@ -333,11 +333,15 @@ func TestNoProfileServerDeniesArguments(t *testing.T) {
 		t.Fatalf("warning %+v", pl.warns)
 	}
 	v := pl.gate.Decide(context.Background(), seam.CallInfo{Server: "junos", Tool: "load_and_commit_config", Arguments: json.RawMessage(`{"router_name":"core-rtr-01","config_text":"set system host-name x"}`)})
-	if v.Forward || v.RuleID != policy.RuleBadArguments {
+	if v.Forward || v.Effect != "deny" || v.RuleID != policy.RuleBadArguments || v.Class != "EXEC_ARBITRARY" || v.ClassSource != "fallback" {
 		t.Fatalf("call with arguments: %+v", v)
 	}
+	// With no arguments the call reaches the rules as EXEC_ARBITRARY with
+	// zero targets, and this policy's catch-all allow forwards it: the
+	// empty profile refuses arguments, not tools. A policy with no-exec
+	// denies it (internal/gate TestFallbackBrief02Gate).
 	v = pl.gate.Decide(context.Background(), seam.CallInfo{Server: "junos", Tool: "get_router_list", Arguments: json.RawMessage(`{}`)})
-	if v.Class != "EXEC_ARBITRARY" {
+	if !v.Forward || v.Effect != "allow" || v.RuleID != "everything" || v.Class != "EXEC_ARBITRARY" || v.ClassSource != "fallback" || len(v.Targets) != 0 {
 		t.Fatalf("call without arguments: %+v", v)
 	}
 }
