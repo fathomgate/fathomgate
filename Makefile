@@ -42,6 +42,29 @@ GOLANGCI_LINT_SHA256              := $(GOLANGCI_LINT_SHA256_$(subst -,_,$(GOLANG
 GOLANGCI_LINT_DIR                 := $(BIN_DIR)/tools/golangci-lint-$(GOLANGCI_LINT_VERSION)-$(GOLANGCI_LINT_PLATFORM)
 GOLANGCI_LINT                     := $(GOLANGCI_LINT_DIR)/golangci-lint
 
+# gitleaks is the upstream release binary too (M1-42), fetched and checked the
+# same way: `make secrets-scan` downloads the archive for the host once and
+# compares it with the sha256 pinned below (the release's
+# gitleaks_<version>_checksums.txt lines, which match GitHub's asset digests)
+# before unpacking it. Its release archives name amd64 `x64`. The rules are the
+# built-in set of this version plus .gitleaks.toml; findings already judged
+# false positives are listed by fingerprint in .gitleaksignore.
+# GITLEAKS_LOG_OPTS is passed to `git log`: the default scans every commit
+# reachable from HEAD; CI passes `<base>..<head>` on a pull request.
+GITLEAKS_VERSION             := 8.30.1
+GITLEAKS_SHA256_linux_x64    := 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+GITLEAKS_SHA256_linux_arm64  := e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
+GITLEAKS_SHA256_darwin_x64   := dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
+GITLEAKS_SHA256_darwin_arm64 := b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+# The platform comes from uname, so the scan needs no Go toolchain.
+GITLEAKS_OS                  := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+GITLEAKS_ARCH                := $(subst x86_64,x64,$(subst aarch64,arm64,$(shell uname -m)))
+GITLEAKS_PLATFORM            := $(GITLEAKS_OS)_$(GITLEAKS_ARCH)
+GITLEAKS_SHA256              := $(GITLEAKS_SHA256_$(GITLEAKS_PLATFORM))
+GITLEAKS_DIR                 := $(BIN_DIR)/tools/gitleaks-$(GITLEAKS_VERSION)-$(GITLEAKS_PLATFORM)
+GITLEAKS                     := $(GITLEAKS_DIR)/gitleaks
+GITLEAKS_LOG_OPTS            ?= --full-history HEAD
+
 # MCP conformance (T0.4, T0.19, T0.32). The suite version is pinned in
 # tests/conformance/package.json and package-lock.json (npm ci). It drives
 # each leg over Streamable HTTP through tests/conformance/shim.py: the real
@@ -63,7 +86,7 @@ CONFORMANCE_REVS         ?= 2025-11-25 2026-07-28
 CONFORMANCE_LEGS         ?= control fathomgate control-up2025 fathomgate-up2025
 NPM                 ?= npm
 
-.PHONY: all build test vet lint vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check licences licences-check release-snapshot clean help
+.PHONY: all build test vet lint secrets-scan secrets-control vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check licences licences-check release-snapshot clean help
 
 all: build test policy-test ## Build, unit-test and run the policy suites
 
@@ -119,6 +142,44 @@ $(GOLANGCI_LINT):
 	tar -xzf "$$tmp/$$name.tar.gz" -C "$$tmp" "$$name/golangci-lint"; \
 	mkdir -p '$(GOLANGCI_LINT_DIR)'; \
 	mv "$$tmp/$$name/golangci-lint" '$(GOLANGCI_LINT)'
+
+# Scans git history, not the working tree: CI runs it with the full history on
+# a push to main and with the pull request's commits on a pull request (M1-42).
+# --redact keeps the matched value out of the log; a finding prints its file,
+# line, commit, rule and fingerprint. Exit 1 on any finding.
+secrets-scan: $(GITLEAKS) ## gitleaks at GITLEAKS_VERSION (sha256-verified release binary) over git history (GITLEAKS_LOG_OPTS)
+	$(GITLEAKS) git --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore \
+		--log-opts='$(GITLEAKS_LOG_OPTS)' --redact --verbose --no-banner --exit-code 1 .
+
+# Negative control for .gitleaks.toml: a throwaway repository with FAKE and
+# non-FAKE fixture secrets must give exactly the non-FAKE findings, in git
+# and dir mode (tools/secrets/control.sh). CI runs it before the scan.
+secrets-control: $(GITLEAKS) ## Prove .gitleaks.toml passes only FAKE fixture secrets (negative control)
+	sh tools/secrets/control.sh '$(GITLEAKS)' .gitleaks.toml
+
+# Same download discipline as golangci-lint: nothing is unpacked or kept
+# unless the archive matches the pinned sha256.
+$(GITLEAKS):
+	@set -eu; \
+	want='$(GITLEAKS_SHA256)'; \
+	name='gitleaks_$(GITLEAKS_VERSION)_$(GITLEAKS_PLATFORM).tar.gz'; \
+	if [ -z "$$want" ]; then \
+		echo "no pinned gitleaks sha256 for $(GITLEAKS_PLATFORM); see Bumping gitleaks in docs/maintainers.md"; exit 1; \
+	fi; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	url="https://github.com/gitleaks/gitleaks/releases/download/v$(GITLEAKS_VERSION)/$$name"; \
+	echo "downloading $$url"; \
+	curl -fsSL --proto '=https' --tlsv1.2 -o "$$tmp/$$name" "$$url"; \
+	if command -v sha256sum >/dev/null 2>&1; then got=$$(sha256sum "$$tmp/$$name"); \
+	else got=$$(shasum -a 256 "$$tmp/$$name"); fi; \
+	got=$${got%% *}; \
+	if [ "$$got" != "$$want" ]; then \
+		echo "gitleaks sha256 mismatch for $$name: got $$got, want $$want"; exit 1; \
+	fi; \
+	echo "sha256 OK $$got"; \
+	tar -xzf "$$tmp/$$name" -C "$$tmp" gitleaks; \
+	mkdir -p '$(GITLEAKS_DIR)'; \
+	mv "$$tmp/gitleaks" '$(GITLEAKS)'
 
 # GOTOOLCHAIN is set to the go.mod toolchain so govulncheck scans the standard
 # library that ships, whatever Go is installed locally (older or newer). The Go

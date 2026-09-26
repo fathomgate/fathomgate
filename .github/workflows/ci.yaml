@@ -546,6 +546,43 @@ jobs:
       - name: govulncheck ./...
         run: make vulncheck
 
+  # Secret scanner over the repository and the fixtures (M1-42). gitleaks is
+  # the upstream release binary at the version and sha256 pinned in the
+  # Makefile (GITLEAKS_VERSION), fetched by `make` like golangci-lint; no
+  # third-party action (gitleaks-action needs a licence key for organisation
+  # repositories). Rules: gitleaks' built-in set plus the network-config rules
+  # in .gitleaks.toml, which run on tests/fixtures/ only, where every secret
+  # must start with FAKE; the one allow-list passes a FAKE-prefixed secret in
+  # a named fixture file and nothing else. .gitleaksignore lists the judged
+  # false positives by fingerprint. The negative control runs first and fails
+  # if the config would pass a non-FAKE fixture secret. On a pull request the
+  # scan covers the pull request's commits (base..head); on a push to main
+  # and on the weekly run, every commit reachable from HEAD. fetch-depth 0 so
+  # both ends are present. A hosted runner, no secrets and a read-only token:
+  # it runs on fork pull requests (docs/ci-runners.md).
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: negative control (FAKE fixture secrets pass, nothing else does)
+        run: make secrets-control
+      - name: gitleaks over the pull request's commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: make secrets-scan GITLEAKS_LOG_OPTS="$BASE_SHA..$HEAD_SHA"
+      - name: gitleaks over the full history
+        if: github.event_name != 'pull_request'
+        run: make secrets-scan
+
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest

@@ -1,0 +1,103 @@
+# gitleaks configuration for the fathomgate repository (M1-42).
+#
+# `make secrets-scan` runs gitleaks (version and sha256 pinned in the Makefile)
+# over git history with this file; CI job `gitleaks` in .github/workflows/ci.yaml
+# runs it on every pull request (the pull request's commits) and every push to
+# main (full history).
+#
+# Rules: the built-in rule set of the pinned gitleaks version, plus five
+# network-config rules below. The built-in rules look for cloud and API
+# credentials and do not recognise a device secret (`enable secret 9 $9$...`,
+# `snmp-server community ...`, FortiOS `ENC ...`), so on their own they would
+# pass a real device secret in a redaction fixture. The network-config rules
+# run only under tests/fixtures/, the one tree where every secret must be FAKE
+# (CLAUDE.md; tests/fixtures/README.md). Elsewhere (docs/specs, the research
+# briefs, internal/redact tests) the same grammar appears with illustrative
+# values such as `s3cr3t` and `$9$aaaa`, which are not bound by the FAKE
+# convention; widening these rules there means converting those examples first.
+#
+# Allow-list: exactly one, and deliberately narrow. It applies only to the five
+# network-config rules, and a finding is dropped only when BOTH hold
+# (condition AND):
+#   - the file is a redaction fixture or a device transcript under
+#     tests/fixtures/ (named files by extension, not the whole directory), and
+#   - the matched secret itself starts with FAKE, optionally after the vendor's
+#     fixed, non-secret encoding marker: a crypt id ($1$, $5$, $6$, $8$, $9$),
+#     PAN-OS `-AQ==`, or the NX-OS SNMP `0x`.
+# A secret in those files that does not start with FAKE fails the scan: that is
+# the bug CLAUDE.md names. Anything else is judged one finding at a time and,
+# if it is a false positive, listed by fingerprint with a reason in
+# .gitleaksignore. Never add a path-only allow-list.
+
+title = "fathomgate"
+
+[extend]
+useDefault = true
+
+# Unix crypt, Cisco type 5, 8 and 9, and Junos $9$ values.
+[[rules]]
+id = "netdev-crypt-hash"
+description = "Device password hash (crypt $1$/$5$/$6$/$8$, Cisco type 9 or Junos $9$) in a fixture"
+path = '''^tests/fixtures/'''
+regex = '''(?:^|[\s"'=>])(\$(?:1|5|6|8|9|y|2[aby])\$[A-Za-z0-9./$-]{8,})'''
+secretGroup = 1
+keywords = ["$1$", "$5$", "$6$", "$8$", "$9$", "$y$", "$2a$", "$2b$", "$2y$"]
+
+# Cisco-family password, secret or key given with an encoding type: 0 is
+# cleartext, 7 is reversible.
+[[rules]]
+id = "netdev-type0-type7"
+description = "Cisco-family cleartext (type 0) or reversible (type 7) password, secret or key in a fixture"
+path = '''^tests/fixtures/'''
+regex = '''(?i)\b(?:password|secret|key|key-string|authentication-key)\s+(?:md5\s+)?[07]\s+([^\s"';]{6,})'''
+secretGroup = 1
+keywords = ["password", "secret", "key"]
+
+[[rules]]
+id = "netdev-snmp-community"
+description = "SNMP community string in a fixture"
+path = '''^tests/fixtures/'''
+regex = '''(?i)\bsnmp-server\s+community\s+([^\s"';]{4,})'''
+secretGroup = 1
+keywords = ["snmp-server"]
+
+[[rules]]
+id = "netdev-fortios-enc"
+description = "FortiOS ENC value in a fixture"
+path = '''^tests/fixtures/'''
+regex = '''\bENC\s+([A-Za-z0-9+/=]{16,})'''
+secretGroup = 1
+keywords = ["enc"]
+
+[[rules]]
+id = "netdev-panos-encrypted"
+description = "PAN-OS -AQ== encrypted value in a fixture"
+path = '''^tests/fixtures/'''
+regex = '''(-AQ==[A-Za-z0-9+/=]{8,})'''
+secretGroup = 1
+keywords = ["-aq=="]
+
+[[allowlists]]
+description = "FAKE-prefixed secrets in the redaction fixtures and device transcripts (tests/fixtures/README.md, the annotated-secret convention)"
+# Bound to the five rules above, not global. A global allow-list with paths
+# makes `gitleaks dir` (and `detect --no-git`) skip every matching file whole,
+# whatever the condition (gitleaks 8.30.1, sources/common.go shouldSkipPath),
+# so a non-FAKE secret in a fixture would pass a working-tree scan. A built-in
+# rule that fires on a FAKE fixture value is a finding to judge, not an
+# automatic pass.
+targetRules = [
+  "netdev-crypt-hash",
+  "netdev-type0-type7",
+  "netdev-snmp-community",
+  "netdev-fortios-enc",
+  "netdev-panos-encrypted",
+]
+condition = "AND"
+paths = [
+  '''^tests/fixtures/configs/[a-z0-9.-]+\.(?:txt|expect\.json)$''',
+  '''^tests/fixtures/device/transcripts/[a-z0-9-]+/[a-z0-9_]+\.txt$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^(?:\$(?:1|5|6|8|9)\$|-AQ==|0x)?FAKE[!-~]*$''',
+]

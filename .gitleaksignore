@@ -1,0 +1,27 @@
+# Findings judged to be false positives, one fingerprint each (M1-42).
+# Format: <commit>:<file>:<rule-id>:<line>, as `make secrets-scan` prints it.
+# Each entry says why it is not a secret. A fingerprint names one commit, file,
+# rule and line, so a later commit that changes the line is scanned afresh.
+# Never add a path, a rule or a commit on its own; never add a real secret
+# (rotate it and follow SECURITY.md instead). Reviewed by security-reviewer.
+
+# sha256 of eos-mcp 1.3.0's public eapi.py module at bffb893, the pin the tier 2
+# tests check the install against. generic-api-key fires because the dict key
+# "eapi.py" contains "api". Recurs on the next eos-mcp bump: judge it again.
+eb2597c5e9a7acb835e79c25912178d310d5c048:tests/integration/conftest.py:generic-api-key:89
+
+# A deliberately corrupted PEM block ("MC4C!!not base64") that the test feeds
+# to the public key loader to prove it refuses private key material. No key.
+b3decd2e9e4fdf3aecf19ed31df33bbfb0bffb0e:internal/audit/key_load_test.go:private-key:77
+
+# Python identifiers, not a value: the keyword arguments of the Listener
+# constructor call (a variable passed by name, then the principal expression).
+# The bearer value the test uses is generated per run.
+9983ec3d4c643ac20eb437d02040a6a86d2c9b4c:tests/integration/test_http_listener.py:generic-api-key:143
+
+# The IOS-XE fixture's type 7 value as first committed, 0822455D0A16FAKE7:
+# FAKE-marked but not FAKE-prefixed, so the fixture allow-list does not cover
+# it. 0822455D0A16 is a widely published type 7 example. M1-42 renamed it
+# FAKE0822455D0A16 in the fixture and its expect file; this entry covers the
+# old commit only.
+3c64165490fa5761369e805c1e84af3489f50e01:tests/fixtures/configs/ios-xe.txt:netdev-type0-type7:8

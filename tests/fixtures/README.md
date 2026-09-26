@@ -16,8 +16,12 @@ run through `internal/redact` by `TestFixtureCorpus` (Go) and by
 ## The annotated-secret convention
 
 1. Every secret in a fixture is **fake** and visibly so: it starts with
-   `FAKE` or is a hash-shaped string containing `FAKE`. Nothing in this
-   directory was ever a real credential.
+   `FAKE`, or, for a hash or encrypted value, starts with `FAKE` right after
+   the vendor's fixed marker (`$9$FAKE...`, `$1$FAKEsalt$...`, `-AQ==FAKE...`,
+   `0xFAKE...`). Nothing in this directory was ever a real credential. The
+   `gitleaks` CI job enforces this (`.gitleaks.toml`, M1-42): a device
+   secret here that does not start with `FAKE` that way, even one that
+   contains `FAKE` further in, fails the build.
 2. Every secret line carries a trailing comment naming the redaction rule id
    expected to catch it, in the platform's own comment syntax:
    `! cisco-password-type`, `## rule: junos-secret-data`, `# rule: panos-phash`.

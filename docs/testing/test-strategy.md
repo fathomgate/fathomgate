@@ -24,6 +24,18 @@ Three tiers. Tier 1 runs on every commit with no network and proves the policy, 
 
 Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && pytest tests/unit`).
 
+## Secret scanner (M1-42)
+
+CI job `gitleaks` (`.github/workflows/ci.yaml`, GitHub-hosted, read-only token, no secrets) scans git history with gitleaks, the upstream release binary at the version and sha256 pinned in the `Makefile`. On a pull request it scans the pull request's commits; on a push to `main` and on the weekly run, every commit reachable from `HEAD`. A finding fails the job and prints file, line, commit, rule and fingerprint, with the value redacted.
+
+- Rules: gitleaks' built-in set (cloud and API credentials, private keys) over the whole repository, plus five network-config rules in `.gitleaks.toml` (crypt and `$9$` hashes, type 0 and type 7 values, SNMP communities, FortiOS `ENC`, PAN-OS `-AQ==`) that run on `tests/fixtures/` only, the tree where every secret must start with `FAKE` (`tests/fixtures/README.md`). The built-in rules do not recognise device secrets, so without these a real `enable secret` in a fixture would pass.
+- Allow-list: one, bound to those five rules. It passes a finding only when the file is a redaction fixture or device transcript named in it and the secret starts with `FAKE`, optionally after the vendor's fixed marker (`$9$`, `$1$`, `-AQ==`, `0x`). A value that merely contains `FAKE` is a finding.
+- False positives: `.gitleaksignore`, one fingerprint (commit, file, rule, line) per finding with the reason above it. Four today: a sha256 pin in `tests/integration/conftest.py`, a deliberately corrupted PEM block in `internal/audit/key_load_test.go`, keyword arguments in `tests/integration/test_http_listener.py`, and the IOS-XE fixture's type 7 value as first committed (`0822455D0A16FAKE7`, renamed `FAKE0822455D0A16`).
+- Negative control: `make secrets-control` runs first (`tools/secrets/control.sh`). It commits FAKE and non-FAKE device secrets to a throwaway repository and requires exactly the non-FAKE findings from `gitleaks git` and from `gitleaks dir`; widening the allow-list, dropping a rule, or making the allow-list global (which makes `gitleaks dir` skip a matching file whole, gitleaks 8.30.1) fails it.
+- Not covered yet: the sampled tier 2 output canary (PRD section 5, [ADR 0006](../adr/0006-keyed-hmac-redaction.md)) lands with M2 redaction. Merge commits' own diffs (conflict resolutions) are not scanned by `git log -p`.
+
+Run: `make secrets-control && make secrets-scan` (Linux or macOS; `GITLEAKS_LOG_OPTS` narrows the range, for example `origin/main..HEAD`).
+
 ## Overhead budget (M1-23)
 
 Two tier 1 tests hold the PRD's M1 metric, *under 5 ms at p99 for classify plus evaluate*. Both use the repo profiles, `prod-approval.yaml` and `inventory.example.yaml`, and time every call on its own after a warm-up. The corpus is in `internal/gate/gatetest`, and each case must first get its expected decision word and rule id, so a change that turns a costly path into a cheap early refusal fails instead of making the numbers look better.
@@ -154,6 +166,6 @@ cEOS-lab images are downloaded from arista.com with an Arista account and cannot
 
 - A new policy behaviour: add a case to the relevant `*.test.yaml`. No Go needed.
 - A new classification rule: add a row to the worked examples in the spec and a matching table entry in `internal/classify`.
-- A new redaction pattern: add an annotated line to the fixture for that vendor.
+- A new redaction pattern: add an annotated line to the fixture for that vendor, with a value that starts with `FAKE` (after the vendor's marker, if it has one); the `gitleaks` CI job fails on any other value there.
 - A new upstream: add a profile, a tier 2 image build, and one matrix case that names it.
 - A new driver: tier 1 command-sequence test, tier 2 against the fake device, and a tier 3 case if an image is available.
