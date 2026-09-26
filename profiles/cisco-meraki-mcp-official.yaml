@@ -38,17 +38,28 @@
 # The capability table. One row per id the upstream indexes, except
 # clipDeviceCamera, a GET whose name does not start with "get" and which the
 # upstream therefore refuses at run time; it is left out, so it is
-# EXEC_ARBITRARY. The class follows the spec's own category tag, with ten
+# EXEC_ARBITRARY. The class follows the spec's own category tag, with eight
 # exceptions marked on their rows:
-# - configure (334 ids; 326 here): READ_CONFIG. These return configuration,
+# - configure (334 ids; 328 here): READ_CONFIG. These return configuration,
 #   and several carry secrets: SSID pre-shared keys and RADIUS secrets
 #   (getNetworkWirelessSsids), SNMP communities (getNetworkSnmp), site-to-site
-#   VPN secrets, webhook shared secrets. Redaction is mandatory on the class.
+#   VPN secrets, webhook shared secrets, the Systems Manager enrolment string
+#   (getNetwork, getOrganizationNetworks). A policy should attach the redact
+#   obligation to READ_CONFIG. Redaction does not cover these yet: the
+#   secrets are JSON values under Meraki keys ({"psk": ...}), which the
+#   current redactor does not match, and Meraki JSON patterns are an M2
+#   redaction task (threat model, "Meraki parameters scope and JSON-keyed
+#   secret redaction").
 # - monitor (150 ids; 147 here) and liveTools (10): READ_OPERATIONAL. Status,
 #   statistics, events, clients, and the results of a live tool that a POST
 #   (not reachable here) started.
-# - INVENTORY_READ (8, from configure): the organisation, network and device
-#   lists and single-record reads, which name devices and carry no secret.
+# - INVENTORY_READ (6, from configure): getOrganizations, getOrganization,
+#   getOrganizationDevices, getDevice, getOrganizationInventoryDevices and
+#   getOrganizationInventoryDevice, the organisation and device lists and
+#   records, which name devices and hold no credential. getNetwork and
+#   getOrganizationNetworks stay READ_CONFIG: each network carries its
+#   enrollmentString, the Systems Manager enrolment secret (security review
+#   of PR #196, F1).
 # - READ_CONFIG (2, from monitor): getOrganizationConfigurationChanges
 #   returns the old and new value of every change, secrets included, and
 #   getOrganizationWebhooksLogs returns webhook payloads, which carry the
@@ -166,7 +177,7 @@ capabilities:
     getDeviceWirelessRadioSettings: READ_CONFIG
     getDeviceWirelessStatus: READ_OPERATIONAL
     getDeviceWirelessZigbeeEnrollment: READ_CONFIG
-    getNetwork: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getNetwork: READ_CONFIG
     getNetworkAlertsHistory: READ_OPERATIONAL
     getNetworkAlertsSettings: READ_CONFIG
     getNetworkApplianceClientSecurityEvents: READ_OPERATIONAL
@@ -496,7 +507,7 @@ capabilities:
     getOrganizationLicensesOverview: READ_OPERATIONAL
     getOrganizationLicensingCotermLicenses: READ_CONFIG
     getOrganizationLoginSecurity: READ_CONFIG
-    getOrganizationNetworks: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getOrganizationNetworks: READ_CONFIG
     getOrganizationOpenapiSpec: READ_OPERATIONAL
     getOrganizationPoliciesAssignmentsByClient: READ_CONFIG
     getOrganizationPoliciesGlobalFirewallApplicationCategories: READ_CONFIG

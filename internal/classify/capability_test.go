@@ -287,11 +287,12 @@ func merakiCapabilities(t testing.TB) []fixtureCapability {
 // category rule (profiles/cisco-meraki-mcp-official.yaml header). A change
 // here is a security decision and needs the security reviewer.
 var merakiOverrides = map[string]Class{
-	// configure, but an organisation, network or device list or record.
+	// configure, but an organisation or device list or record. Not
+	// getNetwork or getOrganizationNetworks: a network carries its
+	// enrollmentString, the Systems Manager enrolment secret, so those stay
+	// READ_CONFIG (security review of PR #196, F1).
 	"getOrganizations":                InventoryRead,
 	"getOrganization":                 InventoryRead,
-	"getOrganizationNetworks":         InventoryRead,
-	"getNetwork":                      InventoryRead,
 	"getOrganizationDevices":          InventoryRead,
 	"getDevice":                       InventoryRead,
 	"getOrganizationInventoryDevices": InventoryRead,
@@ -361,7 +362,7 @@ func TestMerakiCapabilityTable(t *testing.T) {
 			t.Errorf("override %s names no upstream capability", id)
 		}
 	}
-	want := map[Class]int{ReadConfig: 328, ReadOperational: 157, InventoryRead: 8}
+	want := map[Class]int{ReadConfig: 330, ReadOperational: 157, InventoryRead: 6}
 	if !reflect.DeepEqual(counts, want) {
 		t.Errorf("class counts %v, want %v", counts, want)
 	}
@@ -467,6 +468,9 @@ func TestMatrixRow18(t *testing.T) {
 		{"getDeviceLiveToolsPing", ReadOperational},
 		{"getNetworkWirelessSsids", ReadConfig},
 		{"getNetworkSnmp", ReadConfig},
+		{"getNetwork", ReadConfig},              // enrollmentString (F1)
+		{"getOrganizationNetworks", ReadConfig}, // enrollmentString (F1)
+		{"getDevice", InventoryRead},
 		{"getOrganizationConfigurationChanges", ReadConfig},
 		{"getOrganizationWebhooksLogs", ReadConfig},
 		{"clipDeviceCamera", ExecArbitrary},
