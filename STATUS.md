@@ -2,9 +2,9 @@
 
 <!-- GENERATED from docs/milestones/M1.yaml by tools/status/render.py. Edit the YAML, then `make status`. -->
 
-**Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
+**Current milestone:** M1 — Classify + allow/deny · **state:** closed 2026-09-26; exit criteria met (v0.2.0); open tasks carry to M2 · opened 2026-09-25
 
-Tasks: open 2 · blocked 1 · merged 35 · dropped 5
+Tasks: open 3 · blocked 1 · in review 1 · merged 35 · dropped 5
 
 ## In flight
 
@@ -33,8 +33,8 @@ Tasks: open 2 · blocked 1 · merged 35 · dropped 5
 | M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | merged | — | 3, 4, 5, 6 | — |
 | M1-27 | Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
 | M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | merged | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 5, 6 | — |
-| M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | open | M1-28 | — | — |
-| M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
+| M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | in review | — | — | — |
+| M1-30 | README status line for v0.2.0 and the quick start with read-only.yaml, inside the repository | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
 | M1-32 | Refuse a hybrid upstream at startup, and refuse server-initiated input from an upstream connected via server/discover | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | M1-06 | 2 | [0008](docs/adr/0008-dual-era-mcp-support.md) |
 | M1-33 | Policy test cases that carry a profile, arguments and an inventory and run the gate path (ADR) | `internal/policy` | policy-engineer | security-reviewer, go-reviewer | merged | M1-18 | 3, 4, 6 | [0035](docs/adr/0035-policy-test-cases-run-the-gate-path.md) |
@@ -48,6 +48,8 @@ Tasks: open 2 · blocked 1 · merged 35 · dropped 5
 | M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | merged | — | — | — |
 | M1-42 | Secret scanner (gitleaks) in CI for the repository and fixtures | `.github/workflows` | release-engineer | security-reviewer, test-engineer | merged | — | — | — |
 | M1-43 | Tier 1 test - a hostile upstream Instructions string never reaches the agent, both eras | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | — | — |
+| M1-44 | Cross-check upa TOML hostnames against the inventory before forwarding a write (target alias drift) | `internal/gate` | network-safety-engineer | security-reviewer, policy-engineer | open | — | — | — |
+| M1-45 | Gate-level test that an unset unknown_target denies every unknown host across every embedded profile | `internal/gate` | test-engineer | security-reviewer, go-reviewer | open | — | 6 | — |
 
 ## Done this milestone
 

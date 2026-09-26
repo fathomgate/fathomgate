@@ -4,14 +4,15 @@
 # Owners and reviewers are agent slugs from .claude/agents/ (or a GitHub handle for a human).
 #
 # Exit criteria and validates_against are copied verbatim from the M1 row of docs/PLAN.md#milestones.
-# The PRD M1 success metrics (docs/PRD.md section 5) and ROADMAP stage 2 ("a denial names its rule";
-# "we'll announce it here") are carried as tasks, not as extra criteria.
+# The PRD M1 success metrics (docs/PRD.md section 5) and ROADMAP stage 2 ("a denial names its rule")
+# are carried as tasks, not as extra criteria. The public announcement is deferred by the maintainer
+# (2026-09-26); M1-30 is the README status line and quick start inside the repository.
 # Tasks M1-01 to M1-05 are decision records: each is accepted by the maintainer, and the code tasks
 # that depend on it are blocked_by it until then. Decided 2026-09-25: 0026 to 0028 accepted, 0029 accepted
 # in part (Windows exclusive bind), 0030 deferred to M2.
 milestone: M1
 title: Classify + allow/deny
-status: 'open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2'
+status: 'closed 2026-09-26; exit criteria met (v0.2.0); open tasks carry to M2'
 opened: 2026-09-25
 exit_criteria:
   - text: 100 percent of surveyed tools mapped
@@ -296,19 +297,18 @@ relo
     package: .goreleaser.yaml
     owner: release-engineer
     reviewers: [go-reviewer, docs-writer]
-    state: open
-    blocked_by: [M1-28]
+    state: in review
     matrix: []
-    notes: 'After every exit criterion is ticked. Ship profiles/ in the archives as well as embedded (ADR 0027). The CHANGELOG entry and upgrade note must say that serve now requires --policy, and that existing configs add --no-policy to keep the v0.1.0 pass-through. The release notes lead with what M1 denies and how the denial reads to the agent.'
+    notes: 'After every exit criterion is ticked. Ship profiles/ in the archives as well as embedded (ADR 0027). The CHANGELOG entry and upgrade note must say that serve now requires --policy, and that existing configs add --no-policy to keep the v0.1.0 pass-through. The release notes lead with what M1 denies and how the denial reads to the agent. 2026-09-26 (release/v0.2.0): release PR #204 cuts CHANGELOG [0.2.0] - 2026-09-26 with the compare link and a fresh [Unreleased], writes docs/releases/v0.2.0.md, updates the threat model after the release-gate security review (no critical or high open), ROADMAP stage 2 and this board (M1 closed). Preflight on main at 450cf62: go test -race green; make lint 0 issues; make policy-test 159/159; make conformance ok (with the fathomgate-policy leg); tier 2 green in CI run 36269959518 (eos-mcp --policy, upa 2025 era, netdev-ssh-mcp client smoke with the PATH-stripped launcher); gitleaks CI green, make secrets-control and make secrets-scan pass (693 commits, no findings); go mod verify; go-sdk v1.8.0, go1.26.8. goreleaser snapshot with --skip=sign (keyless signing needs the CI identity): 6 archives, 6 SPDX SBOMs, CGO_ENABLED=0 and -trimpath, linux binaries static; image amd64 only, nonroot, no shell, not pushed (skip_push, as in v0.1.0); no Homebrew upload (skip_upload). The maintainer merges; the release engineer tags v0.2.0 afterwards.'
   - id: M1-30
-    title: Announce M1 - a proxy that lets an assistant read everything and stops reload
+    title: README status line for v0.2.0 and the quick start with read-only.yaml, inside the repository
     package: docs
     owner: docs-writer
     reviewers: [design-guardian, release-engineer]
     state: open
     blocked_by: [M1-29]
     matrix: []
-    notes: 'PLAN: announce at M1, not M5; ROADMAP stage 2: we will announce it here. README quick start with read-only.yaml, a short post, and the good-first-issue list (issues #100 to #103). Handed over the day M1 closes.'
+    notes: 'Rescoped 2026-09-26: the README status line names v0.2.0 and links its release, and the README quick start runs serve --policy with policies/examples/read-only.yaml; both inside the repository. The public post is deferred by the maintainer on 2026-09-26 (no business entity or landing page yet), so ROADMAP stage 2 no longer says it will be announced there. The good-first-issue list (issues #100 to #103) stays as it is. Handed over the day v0.2.0 is tagged.'
   - id: M1-31
     title: Let the status renderer read handoff notes whose task id has a hyphen (M1-06)
     package: tools/status
@@ -422,3 +422,19 @@ relo
     state: merged
     matrix: []
     notes: 'From the security review of PR #194 (M1-07, threat-model row "Upstream instructions relayed to the agent"). Today only tier 2 checks it, against netdev-ssh-mcp''s own instructions (test_running_config_ephemeral_key_through_proxy). Add a Go test in internal/proxy with a fixture upstream whose Instructions carry a hostile string (a fake [from fathomgate] label, control and bidi characters), and assert the agent''s initialize result (2025-11-25) and server/discover result (2026-07-28) carry none of it. Mutation: setting ServerOptions.Instructions from the upstream fails it. PR #201 2026-09-26 (mcp-protocol-engineer): TestHostileUpstreamInstructionsNotRelayed in internal/proxy/instructions_test.go, the four agent/upstream era pairs plus a gated pair per agent era; the upstream Instructions carry a fake [from fathomgate] label, a false approval, ESC, BEL and bidi controls. Security review round 1 (changes requested, M1): the wire tap saw only successful results, so an elicitation relay passed; round 2 scans every message the agent reads (results, errors, requests, notifications) and asserts the elicitation prompt log is empty, with ping, prompts/list, resources/list, resources/templates/list and completion/complete added. Mutations, each reverted: Instructions copied into ServerOptions fails all six; a progress notification relay fails all six; an elicitation relay fails the three 2025-11-25 agent pairs; an MRTR input_required relay (security re-review) fails the three 2026-07-28 agent pairs. SECURITY.md and threat-model row "Upstream instructions relayed to the agent" cite it. Go review approved with nits (negotiated version in a failure message; assert the five refused calls return -32601), left open. Merged in PR #201 2026-09-26 after two security and two Go review rounds.'
+  - id: M1-44
+    title: Cross-check upa TOML hostnames against the inventory before forwarding a write (target alias drift)
+    package: internal/gate
+    owner: network-safety-engineer
+    reviewers: [security-reviewer, policy-engineer]
+    state: open
+    matrix: []
+    notes: 'Carry to M2 at kickoff. Threat-model row "Target alias drift (upa/mcp-netmiko-server)", open, medium (release gate for v0.2.0, security-reviewer 2026-09-26): upa re-reads its TOML inventory on every call and connects to the hostname it maps a device name to, while Fathomgate authorises the name, so an edited TOML can send a write allowed by device tag or role (lab-open lab-writes-free) to a production device. Cross-check the hostname values from upa get_network_device_list against the inventory before forwarding a WRITE_CONFIG or LAB_LIFECYCLE call, and deny with a named rule on a mismatch. Maintainer decision 2026-09-26 (a): deferred from M1, with the operator caveat in the v0.2.0 release notes (Security).'
+  - id: M1-45
+    title: Gate-level test that an unset unknown_target denies every unknown host across every embedded profile
+    package: internal/gate
+    owner: test-engineer
+    reviewers: [security-reviewer, go-reviewer]
+    state: open
+    matrix: [6]
+    notes: 'Carry to M2. From the release-gate security review of 2026-09-26: every example policy sets unknown_target: deny, so an unset unknown_target (ADR 0032) is covered only at Evaluate (TestUnknownTargetDefaults), not through internal/gate for every tool of every embedded profile. Add a gate test with a policy that leaves unknown_target unset and allows every class, with and without the example inventory, sending unknown hosts through each tool target parameter of each embedded profile. The reviewer wrote an overlay test, TestReviewUnknownTargetEveryTool, at /private/tmp/claude-501/-Users-josh-Code-netguard/8acdfe71-4741-4557-99b6-4bd60ecff666/scratchpad/unknown_overlay_test.go (a session scratch path; copy it before the session ends). Use it as a starting point; it is not in the repository.'
