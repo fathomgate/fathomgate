@@ -59,9 +59,9 @@ Tasks: open 2 · blocked 1 · merged 35 · dropped 5
 
 ## Exit criteria
 
-- [ ] 100 percent of surveyed tools mapped
-- [ ] policy test suite green
-- [ ] `EXEC_ARBITRARY` downgrade works on show commands
+- [x] 100 percent of surveyed tools mapped — met 2026-09-26 (maintainer decision; "surveyed" read as the tools of the three M1 upstreams in validates_against. Every tool of netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp has a profile entry, pinned by TestRepoProfiles, which fails on a missing, extra or wrongly classed tool, M1-13 and M1-14. The other servers of the PLAN survey get profiles in later milestones; until then a server with no profile has every call with arguments denied by default:bad_arguments, ADR 0036)
+- [x] policy test suite green — met 2026-09-26 (make policy-test 159 of 159 on main at a11fea5, 45 class-given and 114 gate cases, M1-21 and M1-33)
+- [x] `EXEC_ARBITRARY` downgrade works on show commands — met 2026-09-26 (show commands through upa send_command_and_get_output and eos-mcp run_command allowed with class_source downgrade on the real servers, M1-28 PR
 
 Validated against: `netdev-ssh-mcp`, `upa/mcp-netmiko-server`, `eos-mcp run_command`
 
