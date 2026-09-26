@@ -213,6 +213,13 @@ func (r *bindRecorder) recorded() []recordedBind {
 	return append([]recordedBind(nil), r.binds...)
 }
 
+// recordedHolds is a copy of the holds so far.
+func (r *bindRecorder) recordedHolds() []*recordedHold {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]*recordedHold(nil), r.holds...)
+}
+
 // socketClosed reports whether l's socket is closed. Go's Close returns
 // only after the close system call (poll.FD.Close waits for it), so a
 // closed descriptor is a socket the OS has released: a listening socket
@@ -259,6 +266,19 @@ func (r *bindRecorder) checkReleased(t *testing.T) {
 	}
 }
 
+// checkReleasedOnReturn is checkReleased for a defer at the top of an
+// attempt. It is skipped once t has failed, in this attempt or an earlier
+// one: a t.Fatalf may return with sockets still open that the failure
+// itself explains, and still-bound lines after it would only bury the
+// first error (M1-41). While t has not failed, every attempt is checked.
+func (r *bindRecorder) checkReleasedOnReturn(t *testing.T) {
+	t.Helper()
+	if t.Failed() {
+		return
+	}
+	r.checkReleased(t)
+}
+
 // TestBindLoopbackRefusesTakenOtherFamily: when another program holds the
 // other family's loopback on the port asked for, bindLoopback refuses and
 // leaves nothing bound: the first family's socket it bound is closed.
@@ -302,7 +322,7 @@ func refusesTakenOtherFamily(t *testing.T, squat, flagHost string) bool {
 		t.Fatal(err)
 	}
 	rec := &bindRecorder{}
-	defer rec.checkReleased(t)
+	defer rec.checkReleasedOnReturn(t)
 	lns, err := bindLoopback(a, rec.listen, rec.hold(holdWildcards), discardLogger())
 	if err == nil {
 		for _, l := range lns {
@@ -350,7 +370,10 @@ func TestServeListenOtherFamilyTaken(t *testing.T) {
 // serveListenOtherFamilyTaken is one attempt of
 // TestServeListenOtherFamilyTaken. It returns false when serve's first
 // bind, of 127.0.0.1 on the squatter's port, found it taken by another
-// socket (squatAttempts).
+// socket (squatAttempts); any other failure of that bind fails the test.
+// serve binds through a bindRecorder (binder, M1-41), so the retry is
+// decided on the bind's own error, not on stderr's text, and every return
+// checks that what serve bound was released.
 func serveListenOtherFamilyTaken(t *testing.T) bool {
 	t.Helper()
 	squatter, err := net.Listen("tcp", "[::1]:0")
@@ -359,19 +382,29 @@ func serveListenOtherFamilyTaken(t *testing.T) bool {
 	}
 	defer func() { _ = squatter.Close() }()
 	port := strconv.Itoa(int(portOf(t, squatter)))
+	rec := &bindRecorder{}
+	defer rec.checkReleasedOnReturn(t)
 	var stderr lockedBuffer
-	code := serveContext(t.Context(), []string{
+	code := serveBinding(t.Context(), []string{
 		"--server", "netdev-ssh-mcp", "--upstream", filepath.Join(t.TempDir(), "no-such-upstream"), "--no-policy",
 		"--listen", "localhost:" + port,
-	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}))
+	}, &stderr, envMap(map[string]string{listenTokenEnv: testListenToken}), binder{listen: rec.listen, hold: rec.hold(holdWildcards)})
 	out := stderr.String()
 	checkNoCanary(t, "stderr", out)
-	if code == exitFail && strings.Contains(out, "fathomgate: serve: --listen: listen tcp 127.0.0.1:"+port+":") {
-		t.Logf("another socket holds 127.0.0.1:%s; trying another port", port)
+	binds, holds := rec.recorded(), rec.recordedHolds()
+	first := "127.0.0.1:" + port
+	if len(binds) == 1 && binds[0].addr == first && binds[0].err != nil {
+		if !addrTaken(binds[0].err) {
+			t.Fatalf("binding %s: %v, want success or address in use; exit %d; stderr %q", first, binds[0].err, code, out)
+		}
+		t.Logf("another socket holds %s; trying another port: %v", first, binds[0].err)
 		return false
 	}
 	if code != exitFail || !strings.Contains(out, "fathomgate: serve: --listen: [::1]:"+port+", the other loopback address") || strings.Contains(out, "no-such-upstream") {
 		t.Fatalf("exit %d; stderr %q", code, out)
+	}
+	if len(binds) != 2 || binds[0].addr != first || binds[0].err != nil || binds[1].addr != squatter.Addr().String() || binds[1].err == nil || len(holds) != 0 {
+		t.Fatalf("binds %+v, holds %d; want %s bound, then %s refused, and nothing held", binds, len(holds), first, squatter.Addr())
 	}
 	return true
 }
