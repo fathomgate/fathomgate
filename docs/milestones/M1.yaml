@@ -154,10 +154,10 @@ tasks:
     package: internal/classify
     owner: test-engineer
     reviewers: [policy-engineer, security-reviewer, go-reviewer]
-    state: open
+    state: in review
     matrix: []
     spec: docs/specs/classification.md
-    notes: 'Exit criterion 1, second half of the PRD metric: every surveyed tool outside the three M1 upstreams is at least fallback-classified with a test. Table test from the brief 02 class table (section on classes, around line 450): tool name plus representative arguments, expected class and class_source fallback. A tool whose fallback class is less strict than brief 02 says is a finding for policy-engineer, not a test to loosen.'
+    notes: 'Exit criterion 1, second half of the PRD metric: every surveyed tool outside the three M1 upstreams is at least fallback-classified with a test. Table test from the brief 02 class table (section on classes, around line 450): tool name plus representative arguments, expected class and class_source fallback. A tool whose fallback class is less strict than brief 02 says is a finding for policy-engineer, not a test to loosen. PR #193 2026-09-25: 138 tools on 14 servers with no shipped profile in internal/classify/classifytest (test only; junos-mcp-server and ntunes stay in TestRepoProfiles; Meraki execute_api left to M1-17). TestFallbackBrief02 runs each through Classify (no profile, and the empty profile serve builds, bare and prefixed); internal/gate TestFallbackBrief02Gate runs each through Decide with the empty profile under read-only, lab-open and prod-approval. Every row is EXEC_ARBITRARY, class_source fallback, never downgraded, never forwarded: the 113 calls with arguments are denied default:bad_arguments, the 25 with none (the cdot65 retrieve_* tools, the SD-WAN three and others) reach the rules as EXEC_ARBITRARY with zero targets and are denied by no-exec. Brief 02 class kept as documentation. Round 2 (security approve, one medium and two low; maintainer decision 2026-09-25 not to build the section 3 fallback classifier, ADR in PR #194): gate-level test added, strictness order and skip list removed, TestNoProfileServerDeniesArguments asserts Forward. Tier 1 only; no matrix row. M1-17 (PR #196) shipped the Meraki profile, so Meraki semantic_search left the table: 137 tools on 13 servers, and the guard in TestFallbackBrief02Table refuses any cisco-meraki-mcp* row.'
   - id: M1-16
     title: Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants
     package: internal/classify
