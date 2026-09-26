@@ -26,10 +26,11 @@ Two modes:
   connections.log proves a denied call opened no TCP connection to it, so
   eos-mcp never connected, and its commands.log that nothing ran.
 
-This is the eos-mcp half of matrix row 4 in CI. It does not mark row 4
-`passing`: that is M1-28, which runs upa and eos-mcp together and records
-run ids. What the fake device cannot prove (EOS's own configure-session
-semantics) is listed in tests/fixtures/device/README.md.
+This is the eos-mcp half of matrix row 4 in CI; M1-28 runs the run_command
+case under read-only.yaml and prod-approval.yaml, and the upa half in
+test_upa_netmiko.py, and records the run ids in docs/testing/test-matrix.md.
+What the fake device cannot prove (EOS's own configure-session semantics) is
+listed in tests/fixtures/device/README.md.
 
 Everything the upstream returns is data: compared, never acted on.
 """
@@ -37,7 +38,6 @@ Everything the upstream returns is data: compared, never acted on.
 from __future__ import annotations
 
 import re
-import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +47,8 @@ from .conftest import (
     EOS_SERVER,
     REPO,
     FakeEapi,
+    LoggedSession,
+    decision_lines,
     eos_mcp_config,
     owner_only_file,
     tier2_absent,
@@ -91,7 +93,6 @@ UNNAMED_ARG = "an argument is not named in the server profile for this tool"
 UNKNOWN_TARGET = "target not in inventory"
 
 READY = re.compile(r'msg="upstream ready" server=(\S+) tools=(\d+) protocol=(\S+) era=(\S+)')
-DECISION = re.compile(r"\bmsg=decision\b")
 
 
 def _text(result) -> str:
@@ -108,16 +109,7 @@ class Serve:
 
     def decisions(self) -> list[dict[str, str]]:
         """fathomgate's `decision` lines (slog text), as key=value maps."""
-        out = []
-        for line in self.lines():
-            if DECISION.search(line):
-                fields = {}
-                for tok in shlex.split(line, posix=True):
-                    k, sep, v = tok.partition("=")
-                    if sep:
-                        fields[k] = v
-                out.append(fields)
-        return out
+        return decision_lines(self.stderr)
 
 
 def _serve(fathomgate: Path, eos_mcp: Path, config: Path, tmp_path: Path, *policy: str) -> Serve:
@@ -142,29 +134,11 @@ def _policy_args(tmp_path: Path, policy: str = "read-only.yaml", text: str | Non
     return ("--policy", str(p), "--inventory", str(inv))
 
 
-class _Session:
+def _Session(serve: Serve) -> LoggedSession:
     """An initialised python-sdk client session through fathomgate, with
-    fathomgate's stderr (and the upstream's, relayed) going to serve.stderr."""
-
-    def __init__(self, serve: Serve) -> None:
-        self.serve = serve
-
-    async def __aenter__(self):
-        from contextlib import AsyncExitStack
-
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        self._stack = AsyncExitStack()
-        errlog = self._stack.enter_context(open(self.serve.stderr, "w", encoding="utf-8"))
-        params = StdioServerParameters(command=self.serve.argv[0], args=self.serve.argv[1:])
-        read, write = await self._stack.enter_async_context(stdio_client(params, errlog=errlog))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        return session
-
-    async def __aexit__(self, *exc):
-        await self._stack.aclose()
+    fathomgate's stderr (and the upstream's, relayed) going to serve.stderr
+    (conftest.LoggedSession)."""
+    return LoggedSession(serve.argv, serve.stderr)
 
 
 def _denied(tool: str, rule: str, cls: str, reason: str) -> str:
@@ -287,8 +261,12 @@ async def test_passthrough_unlisted_localhost_reaches_device(
 
 
 @pytest.mark.asyncio
-async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path) -> None:
-    """Row 4 (eos-mcp half) and the unknown-target default, over stdio.
+@pytest.mark.parametrize("policy", ["read-only.yaml", "prod-approval.yaml"])
+async def test_policy_read_only_run_command(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path, policy: str
+) -> None:
+    """Row 4 (eos-mcp half) and the unknown-target default, over stdio,
+    under read-only.yaml and prod-approval.yaml (M1-28).
 
     `show version` and `show ip bgp summary` via run_command: allow, rule
     reads-anywhere, downgraded from EXEC_ARBITRARY to READ_OPERATIONAL by
@@ -303,7 +281,7 @@ async def test_policy_read_only_run_command(fathomgate_binary: Path, eos_mcp_ins
     reach the fake at all (it listens on loopback only), so for it the
     evidence is the exact tool error and the decision line with
     forwarded=false, not the device log."""
-    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path, policy))
     tool = "run_command"
     async with _Session(serve) as session:
         allowed = await session.call_tool(f"{EOS_SERVER}.{tool}", {"hostname": DEVICE, "command": "show version"})
@@ -463,3 +441,53 @@ async def test_policy_tech_support_denied_as_read_config_both_ways(
     assert not ok.is_error and _text(ok) == SHOW_VERSION
     assert fake_eapi.commands() == ["show version"]
     assert fake_eapi.accepts() == 1
+
+
+# Row 5 (M1 half): a config dump through run_command, the words separated by
+# any run of spaces and tabs (the tier 1 variants in internal/classify).
+CONFIG_DUMPS = ["show running-config", "show  running-config", "show\trunning-config", "\tshow\t\trunning-config\t"]
+SHOW_RUN = (TRANSCRIPTS / "show_running_config.txt").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_reclassified_read_config(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on eos-mcp: `show running-config` through run_command
+    in each whitespace variant is READ_CONFIG with class_source reclassify.
+    Under read-only it is allow by reads-anywhere, and eAPI carries each
+    variant to the device exactly as sent (tabs included). The output is
+    not redacted in M1 (the row's M2 half)."""
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path))
+    async with _Session(serve) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{EOS_SERVER}.run_command", {"hostname": DEVICE, "command": cmd})
+            assert not r.is_error, (cmd, _text(r))
+            assert _text(r) == SHOW_RUN, cmd
+
+    assert fake_eapi.commands() == CONFIG_DUMPS
+    assert [(x["decision"], x["rule_id"], x["class"], x["class_source"], x["forwarded"]) for x in serve.decisions()] == [
+        ("allow", "reads-anywhere", "READ_CONFIG", "reclassify", "true") for _ in CONFIG_DUMPS
+    ]
+
+
+@pytest.mark.asyncio
+async def test_row5_config_dump_denied_where_config_reads_are(
+    fathomgate_binary: Path, eos_mcp_install: Path, fake_eapi: FakeEapi, tmp_path: Path
+) -> None:
+    """Row 5, M1 half, on eos-mcp: under a policy that denies READ_CONFIG
+    only, every variant through run_command is deny by no-config-reads with
+    class READ_CONFIG, and no connection reaches the device."""
+    serve = _serve(fathomgate_binary, eos_mcp_install, eos_mcp_config(tmp_path), tmp_path, *_policy_args(tmp_path, text=OPS_ONLY))
+    reason = "configuration reads are denied in this test policy"
+    async with _Session(serve) as session:
+        for cmd in CONFIG_DUMPS:
+            r = await session.call_tool(f"{EOS_SERVER}.run_command", {"hostname": DEVICE, "command": cmd})
+            assert r.is_error, cmd
+            assert _text(r) == _denied("run_command", "no-config-reads", "READ_CONFIG", reason)
+
+    assert fake_eapi.accepts() == 0
+    assert fake_eapi.commands() == []
+    assert [(x["decision"], x["rule_id"], x["class"], x["class_source"], x["forwarded"]) for x in serve.decisions()] == [
+        ("deny", "no-config-reads", "READ_CONFIG", "reclassify", "false") for _ in CONFIG_DUMPS
+    ]

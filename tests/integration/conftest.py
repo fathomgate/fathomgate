@@ -478,3 +478,93 @@ class RawClient:
     def _send(self, msg: dict) -> None:
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
+
+
+# --- gated runs (M1-28): policy files, decision lines, a logged session ------
+
+# The example policies' own reasons, quoted exactly (policies/examples/).
+NO_EXEC_REASON = "EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+NO_WRITES_REASON = "this proxy is read-only; configuration changes are denied"
+# internal/gate/text.go: the fixed reasons.
+UNKNOWN_TARGET_REASON = "target not in inventory"
+HELD_REASON = "needs approval, and approvals aren't available yet, so this call was not run."
+
+_DECISION_MSG = re.compile(r"\bmsg=decision\b")
+# One slog text attribute: key=value, the value either Go-quoted ("...", with
+# backslash escapes) or a run of non-space bytes. A regex rather than shlex,
+# which fails on a bare apostrophe in an unquoted value.
+_SLOG_ATTR = re.compile(r'(?:^|\s)([A-Za-z_][\w.]*)=("(?:[^"\\]|\\.)*"|\S*)')
+_SLOG_ESCAPE = re.compile(r"\\(.)")
+
+
+def slog_fields(line: str) -> dict[str, str]:
+    """The key=value attributes of one slog text line. Quoted values are
+    unquoted (\\" and \\\\ undone; other escapes kept as written)."""
+    fields = {}
+    for m in _SLOG_ATTR.finditer(line):
+        v = m.group(2)
+        if v.startswith('"'):
+            v = _SLOG_ESCAPE.sub(lambda e: e.group(1) if e.group(1) in '"\\' else e.group(0), v[1:-1])
+        fields[m.group(1)] = v
+    return fields
+
+
+def decision_lines(stderr: Path) -> list[dict[str, str]]:
+    """fathomgate's `decision` lines (slog text) from a stderr file, each as a
+    key=value map (slog_fields). Values stay strings: `forwarded=false`,
+    `targets=[127.0.0.1]`."""
+    return [slog_fields(line) for line in stderr.read_text(encoding="utf-8", errors="replace").splitlines() if _DECISION_MSG.search(line)]
+
+
+def policy_args(tmp_path: Path, policy: str, inventory: str) -> list[str]:
+    """`--policy` and `--inventory` for serve, each written owner-only (ADR
+    0027). policy is an example file name under policies/examples/ or, when
+    it contains a newline, the policy text itself."""
+    body = policy if "\n" in policy else (REPO / "policies/examples" / policy).read_text(encoding="utf-8")
+    d = tmp_path / "gate"
+    d.mkdir(exist_ok=True)
+    n = len(list(d.glob("policy-*.yaml")))
+    p = owner_only_file(d / f"policy-{n}.yaml", body)
+    i = owner_only_file(d / f"inventory-{n}.yaml", inventory)
+    return ["--policy", str(p), "--inventory", str(i)]
+
+
+def result_text(result) -> str:
+    """The text of a python-sdk CallToolResult's content blocks, joined."""
+    return "\n".join(getattr(c, "text", "") or "" for c in result.content)
+
+
+def gate_error(verb: str, server: str, tool: str, rule: str, cls: str, reason: str) -> str:
+    """ADR 0026's one tool-error line, exactly."""
+    return f"fathomgate {verb} {server}.{tool}: rule {rule} (class {cls}): {reason}"
+
+
+class LoggedSession:
+    """`async with LoggedSession(argv, stderr, env) as session:` an initialised
+    python-sdk stdio session to `fathomgate serve`, with fathomgate's stderr
+    (the upstream's relayed into it) written to `stderr`."""
+
+    def __init__(self, argv: list[str], stderr: Path, env: dict[str, str] | None = None) -> None:
+        self.argv, self.stderr, self.env = argv, stderr, env
+
+    async def __aenter__(self):
+        from contextlib import AsyncExitStack
+
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        self._stack = AsyncExitStack()
+        try:
+            errlog = self._stack.enter_context(open(self.stderr, "w", encoding="utf-8"))
+            params = StdioServerParameters(command=self.argv[0], args=self.argv[1:], env=self.env)
+            read, write = await self._stack.enter_async_context(stdio_client(params, errlog=errlog))
+            session = await self._stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+        except BaseException:
+            # __aexit__ is not called when __aenter__ raises: close fathomgate here.
+            await self._stack.aclose()
+            raise
+        return session
+
+    async def __aexit__(self, *exc):
+        await self._stack.aclose()

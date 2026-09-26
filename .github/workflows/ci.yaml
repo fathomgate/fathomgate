@@ -155,7 +155,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-      - name: conformance suite over the HTTP listener, 2025-11-25 and 2026-07-28 (control and fathomgate legs, current and 2025 upstreams), era pairs
+      - name: conformance suite over the HTTP listener, 2025-11-25 and 2026-07-28 (control and fathomgate legs, current and 2025 upstreams, and fathomgate with a policy), era pairs
         run: make conformance PYTHON=python3
       - name: keep results on failure
         if: failure()
@@ -205,7 +205,7 @@ jobs:
       # test_http_listener.py (matrix row 23) is in the same marker set: the
       # HTTP listener in front of the same binary, both eras, both loopback
       # URLs. FATHOMGATE_TIER2_REQUIRED=1 also makes a missing [::1] fail.
-      - name: tier 2 through fathomgate serve (passthrough, --policy read-only, PATH-stripped launcher, HTTP listener)
+      - name: tier 2 through fathomgate serve (passthrough, --policy rows 3 and 6, PATH-stripped launcher, HTTP listener)
         working-directory: tests
         env:
           FATHOMGATE_TIER2_REQUIRED: "1"
@@ -240,7 +240,7 @@ jobs:
         run: make build
       - name: install upa/mcp-netmiko-server (pinned commit, hash-checked dependencies)
         run: tests/integration/upstreams/upa-mcp-netmiko-server/install.sh "$RUNNER_TEMP/upa" >> "$GITHUB_ENV"
-      - name: tier 2 through fathomgate serve (both agent eras, 2025-11-25 upstream)
+      - name: tier 2 through fathomgate serve (both agent eras, 2025-11-25 upstream, --policy row 4)
         working-directory: tests
         env:
           FATHOMGATE_TIER2_REQUIRED: "1"
@@ -292,7 +292,7 @@ jobs:
         run: tests/integration/upstreams/eos-mcp/install.sh "$RUNNER_TEMP/eos-mcp" >> "$GITHUB_ENV"
       - name: let the runner user bind 127.0.0.1:443 for the fake eAPI device
         run: sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
-      - name: tier 2 through fathomgate serve (--no-policy smoke, --policy read-only)
+      - name: tier 2 through fathomgate serve (--no-policy smoke, --policy row 4)
         working-directory: tests
         env:
           FATHOMGATE_TIER2_REQUIRED: "1"

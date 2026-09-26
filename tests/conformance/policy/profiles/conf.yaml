@@ -1,0 +1,54 @@
+# Test profile for the conformance fixture: go-sdk's
+# conformance/everything-server at the go.mod version (v1.8.0), run as the
+# upstream `conf` on the fathomgate-policy leg (M1-28). Not shipped: it lives
+# under tests/ and is passed with --profiles, which replaces the embedded set.
+#
+# Tool names and arguments read from
+# github.com/modelcontextprotocol/go-sdk@v1.8.0/conformance/everything-server/main.go
+# (registerTools). Every tool is listed, so none falls to the unlisted-tool
+# refusal. Two entries are chosen to exercise the gate against the suite:
+#
+# - test_error_handling is EXEC_ARBITRARY, which the leg's policy denies by
+#   rule conf-no-exec. The suite's tools-call-error check then scores
+#   fathomgate's deny (isError true, one text block) as a tool error, where
+#   the plain fathomgate leg scores the fixture's own error.
+# - test_x_mcp_header names `region` and leaves `level` unnamed, so the
+#   agent is offered the narrowed inputSchema (ADR 0033 section 4:
+#   properties {region}, additionalProperties false). The suite's
+#   http-custom-header-server-validation scenario reads that schema from
+#   tools/list and calls the tool with `region` only.
+#
+# json_schema_2020_12_tool names all five properties, so narrowing leaves its
+# $schema, $defs, allOf and if/then/else as the fixture sent them.
+server: conf
+source: https://github.com/modelcontextprotocol/go-sdk/tree/v1.8.0/conformance/everything-server
+description: go-sdk conformance everything-server (test fixture, not a network server)
+tools:
+  test_simple_text: { class: READ_OPERATIONAL, args: [] }
+  test_image_content: { class: READ_OPERATIONAL, args: [] }
+  test_audio_content: { class: READ_OPERATIONAL, args: [] }
+  test_embedded_resource: { class: READ_OPERATIONAL, args: [] }
+  test_multiple_content_types: { class: READ_OPERATIONAL, args: [] }
+  test_tool_with_logging: { class: READ_OPERATIONAL, args: [] }
+  test_tool_with_progress: { class: READ_OPERATIONAL, args: [] }
+  test_error_handling: { class: EXEC_ARBITRARY, args: [] }
+  test_sampling: { class: READ_OPERATIONAL, args: [prompt] }
+  test_elicitation: { class: READ_OPERATIONAL, args: [message] }
+  test_elicitation_sep1034_defaults: { class: READ_OPERATIONAL, args: [] }
+  test_elicitation_sep1330_enums: { class: READ_OPERATIONAL, args: [] }
+  json_schema_2020_12_tool: { class: READ_OPERATIONAL, args: [name, address, contactMethod, phone, email] }
+  test_reconnection: { class: READ_OPERATIONAL, args: [] }
+  test_x_mcp_header: { class: READ_OPERATIONAL, args: [region], refused_args: [level] }
+  test_missing_capability: { class: READ_OPERATIONAL, args: [] }
+  test_streaming_elicitation: { class: READ_OPERATIONAL, args: [] }
+  test_logging_tool: { class: READ_OPERATIONAL, args: [] }
+  test_trigger_tool_change: { class: READ_OPERATIONAL, args: [] }
+  test_trigger_prompt_change: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_elicitation: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_sampling: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_list_roots: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_request_state: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_multiple_inputs: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_multi_round: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_tampered_state: { class: READ_OPERATIONAL, args: [] }
+  test_input_required_result_capabilities: { class: READ_OPERATIONAL, args: [] }

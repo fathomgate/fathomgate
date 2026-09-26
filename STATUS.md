@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 5 · blocked 2 · in review 6 · merged 24 · dropped 5
+Tasks: open 4 · blocked 2 · in review 7 · merged 24 · dropped 5
 
 ## In flight
 
@@ -32,7 +32,7 @@ Tasks: open 5 · blocked 2 · in review 6 · merged 24 · dropped 5
 | M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | merged | M1-18 | — | — |
 | M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | open | — | 5, 6 | — |
 | M1-27 | Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
-| M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | open | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 6 | — |
+| M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | in review | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 5, 6 | — |
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
 | M1-30 | Announce M1 - a proxy that lets an assistant read everything and stops reload | `docs` | docs-writer | design-guardian, release-engineer | blocked | M1-29 | — | — |
 | M1-31 | Let the status renderer read handoff notes whose task id has a hyphen (M1-06) | `tools/status` | mcp-protocol-engineer | go-reviewer | in review | — | — | — |

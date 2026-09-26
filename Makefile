@@ -78,7 +78,8 @@ GITLEAKS_HEAD                ?= HEAD
 # control leg, the upstream's own -http handler. Two fixture upstreams, both
 # go-sdk's own conformance everything-server:
 #   CONFORMANCE_SERVER       at the go-sdk version in go.mod, so a go-sdk bump
-#                            rebuilds it in lockstep (legs control, fathomgate)
+#                            rebuilds it in lockstep (legs control, fathomgate,
+#                            fathomgate-policy: the gate loaded, M1-28)
 #   CONFORMANCE_SERVER_2025  at go-sdk v1.6.1, the last release without
 #                            2026-07-28, pinned in the test-only module
 #                            tests/conformance/upstream-2025 (legs
@@ -89,7 +90,7 @@ CONFORMANCE_SERVER       := $(BIN_DIR)/conformance/everything-server
 CONFORMANCE_SERVER_2025  := $(BIN_DIR)/conformance/everything-server-2025
 CONFORMANCE_UP2025_MOD   := $(CONFORMANCE_DIR)/upstream-2025
 CONFORMANCE_REVS         ?= 2025-11-25 2026-07-28
-CONFORMANCE_LEGS         ?= control fathomgate control-up2025 fathomgate-up2025
+CONFORMANCE_LEGS         ?= control fathomgate control-up2025 fathomgate-up2025 fathomgate-policy
 NPM                 ?= npm
 
 .PHONY: all build test vet lint secrets-scan secrets-control gitleaks-bin vulncheck toolchain-check actionlint fmt policy-test fixtures-check conformance conformance-deps status status-check licences licences-check release-snapshot clean help
