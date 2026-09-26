@@ -431,7 +431,7 @@ func runListener(ctx context.Context, p *proxy.Proxy, lns []net.Listener, run li
 			_ = ln.Close()
 		}
 		closeProxy(p, logger)
-		_, _ = fmt.Fprintf(out, "fathomgate: serve: %v\n", err)
+		printError(out, "fathomgate: serve: ", err)
 		return exitUsage
 	}
 	srv := newHTTPServer(h, p, grace, logger)

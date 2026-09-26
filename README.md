@@ -99,6 +99,8 @@ trace:
   * prod-core-needs-approval         matched
 ```
 
+`fathomgate` refuses an inventory others can write; if it does, run the command it prints, or copy the file to a directory only you can write.
+
 The trace lists every rule Fathomgate checked, top to bottom, and why each one did or did not apply. The first rule that matches decides.
 
 **Put the checkpoint in front of a real MCP server.** In your assistant's MCP settings (`mcp.json`), point it at Fathomgate, give it a policy and the devices it knows, and tell it which server to start behind it:

@@ -233,6 +233,14 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with all nine recommendat
 | Suites and counts | The bad-target cases of `read-only.gate.test.yaml` and `lab-open.gate.test.yaml` assert `targets: []` and the tool error; a `show run \| append bootflash:x` case is new. Gate cases: read-only 76, lab-open 22, prod-approval 15, 113 in all, beside the 45 class-given ones |
 | `policy eval` output | Every label is padded to one width, so values line up; the README sample shows it |
 
+**2026-09-25, re-review of PR #199 (approved, no critical, high or medium finding).** Two rows of the follow-up table above no longer hold as written, and are corrected here.
+
+| Point | As built |
+| --- | --- |
+| R1: a line break a parser echoes forged an output line | `termsafe.Text` now escapes line feed and tab too, so every CLI error is one line. `internal/configfile` returns its multi-line icacls fix apart from the message (`configfile.Hint`); the CLI's one error printer (`fail`, `failTo`, `serve`, `inventory lint`) prints the escaped message, then each hint line escaped. At the sources, an invalid hostname pattern is reported as `roles[i] <quoted match>: not a valid regular expression (<code>)` without the regexp error's echo of the expression, and a profile's server key and tool names are quoted. `TestNoForgedLines` sends a multi-line block scalar through each parser error path |
+| R3: numbers and look-alikes | An unquoted number is accepted only when `encoding/json` writes its decoded value back as exactly its text, so `1.0`, `2.50`, `-0`, a long `3.14159...` and `0.0000001` are refused. A plain string that looks like a number, a date or a time is refused with "looks like a number, date or time; quote it", which includes `65000:100`, an all-digit MAC address and an IPv6 literal of decimal groups and single colons (`2001:0:0:0:0:0:0:1`); IPv6 literals with a hex letter or `::` pass unquoted |
+| `TestGateSurface` | Also walks subdirectories of `internal/proxy`, refuses any identifier containing `Explain`, and refuses `MethodByName` |
+
 ## References
 
 - [ADR 0026](0026-m1-policy-pipeline-at-dispatch.md) (pipeline steps, deny text, decision log line), [ADR 0027](0027-serve-policy-inventory-profiles-flags.md) (profiles embedded or `--profiles`, the empty profile), [ADR 0031](0031-hostname-patterns-never-make-a-target-known.md) (test 10), [ADR 0032](0032-unset-unknown-target-denies-every-class.md), [ADR 0033](0033-closed-argument-list-per-tool.md)

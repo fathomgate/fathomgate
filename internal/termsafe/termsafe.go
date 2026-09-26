@@ -11,13 +11,14 @@
 //     file, an argument or a directory listing: a case name, an argument
 //     name, a target, a path. Printable ASCII is shown as is; anything else
 //     is shown Go-quoted with every non-ASCII character escaped.
-//   - Text is the last line of defence at a sink: it escapes the C0 and C1
-//     controls, DEL, the Unicode line and paragraph separators and the
-//     bidirectional formatting characters anywhere in a whole message, such
-//     as an error about to be printed. It keeps line feed and tab, because
-//     fathomgate's own messages use them (the configfile icacls hint), so a
-//     value that could carry a line break must be quoted with Quote where it
-//     enters the message.
+//   - Text is the last line of defence at a sink: it escapes every C0
+//     control (line feed and tab included), DEL, the C1 controls, the
+//     Unicode line and paragraph separators and the bidirectional
+//     formatting characters anywhere in a whole message, such as an error
+//     about to be printed, so the message stays on one line and no value in
+//     it can forge another (security re-review of PR #199, R1). Text that
+//     must span lines, such as internal/configfile's fix commands, travels
+//     beside the error (configfile.Hint) and is printed line by line.
 package termsafe
 
 import (
@@ -53,7 +54,7 @@ func List(in []string) string {
 }
 
 // Text escapes, in a whole message, every rune Unsafe reports, and leaves
-// the rest (line feed and tab included) as it is.
+// the rest as it is. The result is one line.
 func Text(s string) string {
 	clean := utf8.ValidString(s)
 	for _, r := range s {
@@ -78,15 +79,14 @@ func Text(s string) string {
 	return b.String()
 }
 
-// Unsafe reports whether r must not reach a terminal raw: a C0 control
-// other than line feed and tab, DEL, a C1 control, the line and paragraph
-// separators, and the bidirectional formatting characters (U+061C, U+200E,
-// U+200F, U+202A to U+202E, U+2066 to U+2069). Text writes an invalid
-// UTF-8 byte as U+FFFD, so no raw byte of a broken sequence gets through.
+// Unsafe reports whether r must not reach a terminal raw inside a message:
+// a C0 control (line feed and tab included), DEL, a C1 control, the line
+// and paragraph separators, and the bidirectional formatting characters
+// (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069). Text writes
+// an invalid UTF-8 byte as U+FFFD, so no raw byte of a broken sequence gets
+// through.
 func Unsafe(r rune) bool {
 	switch {
-	case r == '\n' || r == '\t':
-		return false
 	case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
 		return true
 	case r == 0x2028 || r == 0x2029:

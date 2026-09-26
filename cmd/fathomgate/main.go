@@ -25,7 +25,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/fathomgate/fathomgate/internal/configfile"
 	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
@@ -114,13 +116,24 @@ func printVersion(w io.Writer) int {
 }
 
 // fail prints an error in the CLI's voice and returns the usage exit code.
-// The whole message goes through termsafe.Text: an error can carry a path
-// or a name from a file the user did not write, and no C0, C1 or bidi
-// control from it may reach the terminal raw (security review of PR #197,
-// L1).
 func fail(err error) int {
-	fmt.Fprintf(os.Stderr, "fathomgate: %s\n", termsafe.Text(err.Error()))
+	printError(os.Stderr, "fathomgate: ", err)
 	return exitUsage
+}
+
+// printError is the one way the CLI prints an error: prefix and the whole
+// message through termsafe.Text on one line, so an error can carry a path,
+// a name or a parser's echo of a file the user did not write and still not
+// forge a line or send a control sequence (security reviews of PR #197, L1,
+// and PR #199, R1). The fix commands a configfile refusal carries follow,
+// one per line, each escaped the same way.
+func printError(w io.Writer, prefix string, err error) {
+	_, _ = fmt.Fprintf(w, "%s%s\n", prefix, termsafe.Text(err.Error()))
+	if hint := configfile.Hint(err); hint != "" {
+		for _, line := range strings.Split(hint, "\n") {
+			_, _ = fmt.Fprintln(w, termsafe.Text(line))
+		}
+	}
 }
 
 // stringList is a repeatable string flag.

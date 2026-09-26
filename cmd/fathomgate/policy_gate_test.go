@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fathomgate/fathomgate/internal/configfile"
 	"github.com/fathomgate/fathomgate/internal/policy"
 	"github.com/fathomgate/fathomgate/internal/policytest"
 )
@@ -300,16 +301,126 @@ func TestPolicyEvalReadsLikeServe(t *testing.T) {
 	}
 }
 
-// TestFailSink: fail escapes C0, C1 and bidi controls anywhere in the
-// message, whatever produced it, and keeps line breaks for multi-line hints.
+// TestFailSink: fail prints the whole message on one line with every C0
+// control (line feed and tab included), C1 control and bidi character
+// escaped, whatever produced it (security re-review of PR #199, R1). The
+// fix commands of a configfile refusal follow on lines of their own.
 func TestFailSink(t *testing.T) {
 	out, code := captureStderr(t, func() int {
-		return fail(errors.New("raw \x1b[2J \u009b \u202e end\n  hint"))
+		return fail(errors.New("raw \x1b[2J \u009b \u202e end\n3 cases, 3 passed, 0 failed\tx"))
 	})
 	if code != exitUsage {
 		t.Fatalf("exit %d", code)
 	}
-	if want := "fathomgate: raw \\x1b[2J \\u009b \\u202e end\n  hint\n"; out != want {
+	if want := "fathomgate: raw \\x1b[2J \\u009b \\u202e end\\n3 cases, 3 passed, 0 failed\\tx\n"; out != want {
 		t.Fatalf("stderr %q, want %q", out, want)
+	}
+
+	dir := configDir(t)
+	p := filepath.Join(dir, "inv.yaml")
+	if err := os.WriteFile(p, []byte("devices: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	letOthersWrite(t, p)
+	_, err := configfile.Read(p, "the inventory file", 1<<10)
+	if err == nil {
+		t.Fatal("an inventory others can change was read")
+	}
+	out, _ = captureStderr(t, func() int { return fail(err) })
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	hint := configfile.Hint(err)
+	want := 1
+	if hint != "" {
+		want += len(strings.Split(hint, "\n"))
+	}
+	if len(lines) != want || !strings.HasPrefix(lines[0], "fathomgate: the inventory file") {
+		t.Fatalf("%d lines, want %d (the message, then one per fix command):\n%s", len(lines), want, out)
+	}
+	for _, l := range lines[1:] {
+		if !strings.HasPrefix(l, "  icacls ") {
+			t.Errorf("hint line %q", l)
+		}
+	}
+}
+
+// forged is the line the reviewer forged through a parser's echo of a block
+// scalar (security re-review of PR #199, R1).
+const forged = "3 cases, 3 passed, 0 failed"
+
+// TestNoForgedLines: a multi-line block scalar holding "(" and a forged
+// summary line, sent through every parser error that echoes file text, never
+// puts that line on stdout or stderr: the inventory pattern (inline and by
+// path, and through inventory lint), the profile's server key and a tool
+// name (policy test --profiles), and the policy (policy test and policy
+// eval).
+func TestNoForgedLines(t *testing.T) {
+	dir := configDir(t)
+	pol := filepath.ToSlash(mustAbs(t, repoPath("policies", "examples", "read-only.yaml")))
+	write := func(name, body string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	block := "|\n        (\n        " + forged + "\n"
+	roles := "  devices: [{name: a}]\n  roles:\n    - match: " + block + "      tags: [x]\n"
+	gateCase := "cases:\n  - name: x\n    request: {server: upa, tool: get_network_device_list, arguments: {}}\n    expect: {effect: allow, rule: reads-anywhere}\n"
+
+	invPath := write("inv.yaml", "devices: [{name: a}]\nroles:\n  - match: |\n      (\n      "+forged+"\n    tags: [x]\n")
+	badProfiles := filepath.Join(dir, "profiles-server")
+	badTools := filepath.Join(dir, "profiles-tool")
+	for _, d := range []string{badProfiles, badTools} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(badProfiles, "x.yaml"), []byte("server: |\n  (\n  "+forged+"\ntools: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(badTools, "upa.yaml"), []byte("server: upa\ntools:\n  ? |\n    (\n    "+forged+"\n  : {class: READ_OPERATIONAL}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badPolicy := write("policy.yaml", "version: 1\nrules:\n  - id: |\n      (\n      "+forged+"\n    effect: allow\n  - id: |\n      (\n      "+forged+"\n    effect: allow\n")
+
+	runs := map[string][]string{
+		"inline inventory pattern":   {"policy", "test", write("inline.test.yaml", "policy: "+pol+"\ninventory:\n"+roles+gateCase)},
+		"inventory pattern by path":  {"policy", "test", write("path.test.yaml", "policy: "+pol+"\ninventory: inv.yaml\n"+gateCase)},
+		"inventory lint":             {"inventory", "lint", invPath},
+		"profile server key":         {"policy", "test", "--profiles", badProfiles, write("server.test.yaml", "policy: "+pol+"\n"+gateCase)},
+		"profile tool name":          {"policy", "test", "--profiles", badTools, write("tool.test.yaml", "policy: "+pol+"\n"+gateCase)},
+		"policy through policy test": {"policy", "test", write("policy.test.yaml", "policy: "+filepath.ToSlash(badPolicy)+"\ncases:\n  - name: x\n    request: {class: READ_CONFIG}\n    expect: {effect: allow}\n")},
+		"policy through policy eval": {"policy", "eval", "--policy", badPolicy, "--class", "READ_CONFIG"},
+	}
+	// Each run must reach the parser error it is named for.
+	wants := map[string]string{
+		"inline inventory pattern":   "not a valid regular expression",
+		"inventory pattern by path":  "not a valid regular expression",
+		"inventory lint":             "not a valid regular expression",
+		"profile server key":         "tools is empty",
+		"profile tool name":          "args is required",
+		"policy through policy test": "duplicate",
+		"policy through policy eval": "duplicate",
+	}
+	for name, args := range runs {
+		var stderr string
+		stdout, _ := captureStdout(t, func() int {
+			var code int
+			stderr, code = captureStderr(t, func() int { return run(args) })
+			if code == exitOK {
+				t.Errorf("%s: exit 0", name)
+			}
+			return code
+		})
+		for _, line := range strings.Split(stdout+"\n"+stderr, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), forged) {
+				t.Errorf("%s: a forged line reached the output:\nstdout:\n%s\nstderr:\n%s", name, stdout, stderr)
+				break
+			}
+		}
+		if !strings.Contains(stderr, wants[name]) || !strings.Contains(stderr, `\n3 cases`) {
+			t.Errorf("%s: stderr does not show the escaped value in the %q error:\n%s", name, wants[name], stderr)
+		}
 	}
 }

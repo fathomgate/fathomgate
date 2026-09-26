@@ -83,14 +83,32 @@ func CheckDir(path, what string) error {
 	return f.Close()
 }
 
-// refusal is a failed check. Its text is the message alone; it unwraps to
-// ErrUnsafe and, when a system call failed, to that call's error too.
+// refusal is a failed check. Its text is the message alone, on one line;
+// it unwraps to ErrUnsafe and, when a system call failed, to that call's
+// error too. hint holds the commands that fix the file, one per line, each
+// indented by two spaces: they are printed after the message (Hint), so
+// that the message itself can be escaped whole at the sink without losing
+// the line breaks the commands need (security re-review of PR #199, R1).
 type refusal struct {
 	msg   string
+	hint  string
 	cause error
 }
 
 func (r *refusal) Error() string { return r.msg }
+
+// Hint returns the fix commands a refusal in err's chain carries, one per
+// line and indented by two spaces, or "" when there are none. A caller that
+// prints err prints the hint after it, on lines of their own. The commands
+// quote a path only when every character in it is safe on a command line
+// (Windows safeForCommand), so they hold no control character.
+func Hint(err error) string {
+	var r *refusal
+	if errors.As(err, &r) {
+		return r.hint
+	}
+	return ""
+}
 
 func (r *refusal) Unwrap() []error {
 	if r.cause == nil {

@@ -3,6 +3,7 @@
 package termsafe
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -37,7 +38,8 @@ func TestQuote(t *testing.T) {
 func TestText(t *testing.T) {
 	cases := map[string]string{
 		"plain text: ok":                      "plain text: ok",
-		"line one\n  line two\tend":           "line one\n  line two\tend",
+		"line one\n  line two\tend":           "line one\\n  line two\\tend",
+		"(\n3 cases, 3 passed, 0 failed\n":    "(\\n3 cases, 3 passed, 0 failed\\n",
 		"inventory: \"nothere\x1b[31m.yaml\"": "inventory: \"nothere\\x1b[31m.yaml\"",
 		"bell\x07 cr\r":                       "bell\\a cr\\r",
 		"c1\u0085 csi\u009b":                  "c1\\u0085 csi\\u009b",
@@ -66,7 +68,7 @@ func TestText(t *testing.T) {
 }
 
 func FuzzText(f *testing.F) {
-	for _, s := range []string{"", "a\x1b[2Jb", "\u202e\u2028\n\t", "\xff\xfe"} {
+	for _, s := range []string{"", "a\x1b[2Jb", "\u202e\u2028\n\t", "\xff\xfe", "x\nPASS  forged\n"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -75,6 +77,9 @@ func FuzzText(f *testing.F) {
 			if Unsafe(r) {
 				t.Fatalf("Text(%q) = %q holds %U", s, got, r)
 			}
+		}
+		if strings.ContainsAny(got, "\n\r") {
+			t.Fatalf("Text(%q) = %q is more than one line", s, got)
 		}
 		if !utf8.ValidString(got) {
 			t.Fatalf("Text(%q) = %q is not valid UTF-8", s, got)

@@ -6,7 +6,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
+	"io/fs"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -20,8 +21,11 @@ import (
 //
 //   - The proxy's Gate interface has exactly Decide and Arguments, so no
 //     implementation's Explain is reachable through it.
-//   - No non-test file of internal/proxy names Explain or Explanation, as a
-//     selector, a type or anything else.
+//   - No non-test file of internal/proxy, in the package or any directory
+//     below it, has an identifier containing Explain (Explain, Explanation,
+//     an alias such as gateExplain), or calls MethodByName, which could
+//     reach a method the interface does not list (security re-review of PR
+//     #199, item 4).
 func TestGateSurface(t *testing.T) {
 	gt := reflect.TypeFor[Gate]()
 	methods := make([]string, 0, gt.NumMethod())
@@ -33,28 +37,42 @@ func TestGateSurface(t *testing.T) {
 		t.Errorf("proxy.Gate methods %v, want [Arguments Decide]; a new method needs a record (ADR 0035 notes after acceptance)", methods)
 	}
 
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
 	fset := token.NewFileSet()
 	checked := 0
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatal(err)
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if path != "." && (name == "testdata" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
 		}
 		checked++
 		ast.Inspect(f, func(n ast.Node) bool {
-			if id, ok := n.(*ast.Ident); ok && (id.Name == "Explain" || id.Name == "Explanation") {
+			id, ok := n.(*ast.Ident)
+			switch {
+			case !ok:
+			case strings.Contains(id.Name, "Explain"):
 				t.Errorf("%s: internal/proxy names %s; the proxy decides through Decide only (ADR 0035)", fset.Position(id.Pos()), id.Name)
+			case id.Name == "MethodByName":
+				t.Errorf("%s: internal/proxy calls MethodByName, which can reach a gate method proxy.Gate does not list (ADR 0035)", fset.Position(id.Pos()))
 			}
 			return true
 		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if checked == 0 {
 		t.Fatal("no non-test file of internal/proxy was checked")

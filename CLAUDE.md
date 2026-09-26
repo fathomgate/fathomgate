@@ -36,6 +36,8 @@ bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
+`fathomgate` refuses an inventory others can write; if it does, run the command it prints, or copy the file to a directory only you can write.
+
 Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check && make licences-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
 
 ## Toolchain facts

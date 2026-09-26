@@ -90,7 +90,7 @@ func TestWindowsWriteACE(t *testing.T) {
 	sub := ownerOnlyDir(t, t.TempDir())
 	icacls(t, sub, "/grant", "*S-1-1-0:(OI)(CI)(M)")
 	err := CheckDir(sub, "the profiles directory")
-	if !errors.Is(err, ErrUnsafe) || !strings.Contains(err.Error(), `"*`+mySID(t)+`:(OI)(CI)F"`) {
+	if !errors.Is(err, ErrUnsafe) || !strings.Contains(Hint(err), `"*`+mySID(t)+`:(OI)(CI)F"`) {
 		t.Errorf("writable directory: %v", err)
 	}
 }
@@ -110,18 +110,27 @@ func TestWindowsRefusalNamesEveryWriterAndFixes(t *testing.T) {
 			if !errors.Is(err, ErrUnsafe) {
 				t.Fatalf("not refused: %v", err)
 			}
-			msg := err.Error()
+			msg, hint := err.Error(), Hint(err)
+			if strings.Contains(msg, "\n") {
+				t.Errorf("the message has a line break; the commands belong in Hint:\n%s", msg)
+			}
 			for _, want := range []string{
-				sidName(t, "S-1-1-0"), sidName(t, "S-1-5-11"),
-				"run these two commands:\n  icacls \"" + p + `" /inheritance:r /grant:r "*` + mySID(t) + `:F" "*S-1-5-18:F" "*S-1-5-32-544:F"` + "\n",
-				"\n  icacls \"" + p + `" /remove:g "*S-1-`,
+				sidName(t, "S-1-1-0"), sidName(t, "S-1-5-11"), "run the two commands printed below",
 				"can still replace it", "keep these files", `C:\ProgramData\fathomgate`,
 			} {
 				if !strings.Contains(msg, want) {
 					t.Errorf("message lacks %q:\n%s", want, msg)
 				}
 			}
-			lines := commands(msg)
+			for _, want := range []string{
+				"  icacls \"" + p + `" /inheritance:r /grant:r "*` + mySID(t) + `:F" "*S-1-5-18:F" "*S-1-5-32-544:F"` + "\n",
+				"\n  icacls \"" + p + `" /remove:g "*S-1-`,
+			} {
+				if !strings.Contains(hint, want) {
+					t.Errorf("hint lacks %q:\n%s", want, hint)
+				}
+			}
+			lines := commands(hint)
 			if len(lines) != 2 || !strings.Contains(lines[1], `"*S-1-1-0"`) || !strings.Contains(lines[1], `"*S-1-5-11"`) {
 				t.Fatalf("commands %q in:\n%s", lines, msg)
 			}
@@ -147,11 +156,11 @@ func TestWindowsInheritedOnlyWriters(t *testing.T) {
 	if !errors.Is(err, ErrUnsafe) {
 		t.Fatalf("not refused: %v", err)
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "/remove:g") || !strings.Contains(msg, "; run:\n  icacls \""+p+`" /inheritance:r`) {
-		t.Fatalf("inherited-only writers:\n%s", msg)
+	msg, hint := err.Error(), Hint(err)
+	if strings.Contains(hint, "/remove:g") || !strings.Contains(msg, "; run the command printed below. ") || !strings.HasPrefix(hint, "  icacls \""+p+`" /inheritance:r`) {
+		t.Fatalf("inherited-only writers:\n%s\n%s", msg, hint)
 	}
-	lines := commands(msg)
+	lines := commands(hint)
 	if len(lines) != 1 {
 		t.Fatalf("commands %q in:\n%s", lines, msg)
 	}
@@ -175,7 +184,7 @@ func TestWindowsNoCommandForUnsafePath(t *testing.T) {
 		p := write(t, dir, "policy.yaml", "version: 1\n")
 		icacls(t, p, "/grant", "*S-1-1-0:(M)")
 		_, err := Read(p, "the policy file", 1<<10)
-		if !errors.Is(err, ErrUnsafe) || strings.Contains(err.Error(), `icacls "`) || !strings.Contains(err.Error(), "no command is printed") {
+		if !errors.Is(err, ErrUnsafe) || strings.Contains(err.Error(), `icacls "`) || Hint(err) != "" || !strings.Contains(err.Error(), "no command is printed") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -209,10 +218,10 @@ func TestWindowsTrailingSeparator(t *testing.T) {
 	}
 	icacls(t, sub, "/grant", "*S-1-1-0:(OI)(CI)(M)")
 	err := CheckDir(sub+`\`, "the profiles directory")
-	if !errors.Is(err, ErrUnsafe) || !strings.Contains(err.Error(), `icacls "`+sub+`" /inheritance:r`) {
-		t.Fatalf("trailing separator: %v", err)
+	if !errors.Is(err, ErrUnsafe) || !strings.Contains(Hint(err), `icacls "`+sub+`" /inheritance:r`) {
+		t.Fatalf("trailing separator: %v\n%s", err, Hint(err))
 	}
-	for _, line := range commands(err.Error()) {
+	for _, line := range commands(Hint(err)) {
 		runShell(t, "cmd", line)
 	}
 	if err := CheckDir(sub+`\`, "the profiles directory"); err != nil {

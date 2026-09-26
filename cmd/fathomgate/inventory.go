@@ -120,11 +120,11 @@ func inventoryLint(args []string, stdout, stderr io.Writer) int {
 	}
 	f, err := inventory.ParseFile(b)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %v\n", path, err)
+		printError(stderr, "fathomgate: inventory lint: "+termsafe.Quote(path)+": ", err)
 		return exitFail
 	}
 	if _, err := f.Chain(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %v\n", path, err)
+		printError(stderr, "fathomgate: inventory lint: "+termsafe.Quote(path)+": ", err)
 		return exitFail
 	}
 	var problems []string
@@ -135,10 +135,10 @@ func inventoryLint(args []string, stdout, stderr io.Writer) int {
 	}
 	problems = append(problems, f.PatternWarnings()...)
 	for _, w := range f.PatternEffects() {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: warning: %s\n", path, w)
+		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: warning: %s\n", termsafe.Quote(path), termsafe.Text(w))
 	}
 	for _, p := range problems {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %s\n", path, p)
+		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %s\n", termsafe.Quote(path), termsafe.Text(p))
 	}
 	if len(problems) > 0 {
 		return exitFail
@@ -271,6 +271,6 @@ func printResolved(w io.Writer, r resolveResult) {
 // failTo prints an error in the CLI's voice to w and returns the usage exit
 // code, as fail does for os.Stderr.
 func failTo(w io.Writer, err error) int {
-	_, _ = fmt.Fprintf(w, "fathomgate: %s\n", termsafe.Text(err.Error()))
+	printError(w, "fathomgate: ", err)
 	return exitUsage
 }

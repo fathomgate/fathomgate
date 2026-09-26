@@ -482,9 +482,13 @@ func TestPlainScalars(t *testing.T) {
 		"1e3", "1E3", "1.5e3", "3.", ".5", "1e400",
 		"2026-09-25", "2026-09-25T10:00:00Z", "12:30:00",
 		"True", "TRUE", "False", "~", "Null", "NULL", ".inf", "-.inf", ".nan",
+		// R3: numbers whose JSON is not their text, and strings that only
+		// look like numbers, dates or times.
+		"1.0", "2.50", "-0", "-0.0", "3.14159265358979323846", "100000000000000000000.0", "0.0000001",
+		"65000:100", "00:11:22:33:44:55", "12:30",
 	}
 	accepted := map[string]string{
-		"0": "0", "7": "7", "-1": "-1", "1.5": "1.5", "0.25": "0.25",
+		"0": "0", "7": "7", "-1": "-1", "1.5": "1.5", "0.25": "0.25", "9007199254740993": "9007199254740993",
 		"true": "true", "false": "false", "null": "null",
 		"192.0.2.99": `"192.0.2.99"`, "lab-sw-01": `"lab-sw-01"`, "show ip bgp summary": `"show ip bgp summary"`,
 		"2001:db8::1": `"2001:db8::1"`, "yes": `"yes"`, "v1.2.3": `"v1.2.3"`,
@@ -493,7 +497,7 @@ func TestPlainScalars(t *testing.T) {
 		return Parse([]byte("policy: p.yaml\ncases:\n  - name: x\n    request: {server: s, tool: t, arguments: {v: " + value + "}}\n    expect: {effect: deny, rule: x}\n"))
 	}
 	for _, v := range refused {
-		if _, err := parse(v); err == nil || !strings.Contains(err.Error(), "quote it, or give the exact bytes in arguments_json") {
+		if _, err := parse(v); err == nil || !strings.Contains(err.Error(), "; quote it") {
 			t.Errorf("unquoted %s: %v", v, err)
 		}
 		f, err := parse("\"" + v + "\"")
@@ -520,10 +524,17 @@ func TestPlainScalars(t *testing.T) {
 	if _, err := Parse([]byte("policy: p.yaml\ncases:\n  - name: x\n    request: {server: s, tool: t, arguments: {v1.2: a}}\n    expect: {effect: deny, rule: x}\n")); err != nil {
 		t.Errorf("a key that looks like a number: %v", err)
 	}
-	// The message names the line, not the value.
+	// The message names the line, not the value, and says why.
 	_, err := parse("0x1F")
-	if err == nil || strings.Contains(err.Error(), "0x1F") || !strings.Contains(err.Error(), "line 4") {
+	if err == nil || strings.Contains(err.Error(), "0x1F") || !strings.Contains(err.Error(), "line 4") ||
+		!strings.Contains(err.Error(), "would reach the gate as a different number, not as written; quote it, or give the exact bytes in arguments_json") {
 		t.Errorf("message %v", err)
+	}
+	for _, v := range []string{"65000:100", "2026-09-25", "1e3"} {
+		_, err := parse(v)
+		if err == nil || !strings.Contains(err.Error(), "the unquoted value at line 4 looks like a number, date or time; quote it") {
+			t.Errorf("%s: message %v", v, err)
+		}
 	}
 }
 

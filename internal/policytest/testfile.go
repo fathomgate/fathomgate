@@ -217,12 +217,16 @@ func (v *plainVisitor) Visit(n ast.Node) ast.Visitor {
 		return nil
 	case *ast.StringNode, *ast.IntegerNode, *ast.FloatNode, *ast.BoolNode, *ast.NullNode, *ast.InfinityNode, *ast.NanNode:
 		if v.scalars && !v.isKey(n) {
-			if what := plainScalar(n); what != "" {
+			if what, lookalike := plainScalar(n); what != "" || lookalike {
 				line := 0
 				if tk := n.GetToken(); tk != nil && tk.Position != nil {
 					line = tk.Position.Line
 				}
-				v.err = fmt.Errorf("the unquoted value at line %d would reach the gate as %s, not as written; quote it, or give the exact bytes in arguments_json", line, what)
+				if lookalike {
+					v.err = fmt.Errorf("the unquoted value at line %d looks like a number, date or time; quote it", line)
+				} else {
+					v.err = fmt.Errorf("the unquoted value at line %d would reach the gate as %s, not as written; quote it, or give the exact bytes in arguments_json", line, what)
+				}
 				return nil
 			}
 		}
@@ -248,48 +252,64 @@ var (
 	timeLike     = regexp.MustCompile(`^[-+]?[0-9]+(:[0-9]+)+(\.[0-9]*)?$`)
 )
 
-// plainScalar returns what an unquoted scalar would become when it is not
-// what it looks like, or "" when it reaches the gate as written (security
-// review of PR #197, L4; ADR 0035 section 2). Accepted unquoted: a decimal
-// integer JSON can hold as written (no sign other than -, no leading zero,
-// no underscore, no 0x, 0o or 0b), a decimal fraction with digits on both
-// sides of the point, true, false, null, and any other string that does not
-// look like a number, a date or a time. Quoted strings and block scalars
-// are always accepted.
-func plainScalar(n ast.Node) string {
+// plainScalar reports an unquoted scalar that does not reach the gate as
+// written (security reviews of PR #197, L4, and PR #199, R3; ADR 0035
+// section 2). what names what it would become instead; lookalike is true for
+// a plain string that goccy/go-yaml keeps as written but that reads as a
+// number, a date or a time (1e3, 2026-09-25, 12:30, 65000:100, an all-digit
+// MAC address), which the author most likely meant as something else.
+//
+// A number is accepted only when its text is plain decimal (no sign other
+// than -, no leading zero, no _, no 0x, 0o or 0b, digits on both sides of a
+// point, no exponent) and encoding/json writes the decoded value back as
+// exactly that text, so 1.0, 2.50, -0, a value past float64's precision, or
+// one JSON would write with an exponent, is refused. true, false and null
+// are accepted as spelled; quoted strings and block scalars always are.
+func plainScalar(n ast.Node) (what string, lookalike bool) {
 	tk := n.GetToken()
 	if tk == nil {
-		return ""
+		return "", false
 	}
 	text := tk.Value
 	switch n.(type) {
 	case *ast.StringNode:
 		if tk.Type == token.SingleQuoteType || tk.Type == token.DoubleQuoteType {
-			return ""
+			return "", false
 		}
 		if numberLike.MatchString(text) || dateLike.MatchString(text) || timeLike.MatchString(text) {
-			return "a string"
+			return "", true
 		}
 	case *ast.IntegerNode:
-		if tk.Type != token.IntegerType || !decimalInt.MatchString(text) {
-			return "a different number"
+		if tk.Type != token.IntegerType || !decimalInt.MatchString(text) || !encodesAs(n, text) {
+			return "a different number", false
 		}
 	case *ast.FloatNode:
-		if !decimalFloat.MatchString(text) {
-			return "a different number"
+		if !decimalFloat.MatchString(text) || !encodesAs(n, text) {
+			return "a different number", false
 		}
 	case *ast.BoolNode:
 		if text != "true" && text != "false" {
-			return "a boolean"
+			return "a boolean", false
 		}
 	case *ast.NullNode:
 		if tk.Type != token.ImplicitNullType && text != "null" {
-			return "null"
+			return "null", false
 		}
 	case *ast.InfinityNode, *ast.NanNode:
-		return "a number JSON cannot carry"
+		return "a number JSON cannot carry", false
 	}
-	return ""
+	return "", false
+}
+
+// encodesAs reports whether the number n decodes to a value encoding/json
+// writes as exactly text: the bytes the gate would receive.
+func encodesAs(n ast.Node, text string) bool {
+	var v any
+	if err := yaml.NodeToValue(n, &v); err != nil {
+		return false
+	}
+	b, err := json.Marshal(v)
+	return err == nil && string(b) == text
 }
 
 // jsonValue checks that a decoded value is one JSON can carry as written.
