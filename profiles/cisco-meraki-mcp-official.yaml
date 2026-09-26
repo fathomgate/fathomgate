@@ -80,6 +80,8 @@
 # getAdministeredIdentitiesMe, getAdministeredIdentitiesMeApiKeys,
 # getAdministeredLicensingSubscriptionEntitlements); the rest are unusable
 # through fathomgate until a decision record says how parameters is checked.
+# Naming parameters was moved to M2 by the maintainer on 2026-09-25 (threat
+# model, "Meraki parameters scope and JSON-keyed secret redaction").
 #
 # Other facts the proxy cannot see [src]:
 # - One API key per process: MERAKI_DASHBOARD_API_KEY on stdio, or the

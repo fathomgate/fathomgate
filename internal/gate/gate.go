@@ -290,10 +290,14 @@ type decision struct {
 // tool the profile does not list exactly gets the fallback too. Then the
 // annotations: readOnlyHint false or destructiveHint true on a tool whose
 // profile class is a read class makes the call EXEC_ARBITRARY, whatever its
-// commands say. The upstream is saying the tool's execution context is not
-// read-only, so a raised tool is never downgraded (classification.md
-// section 4), and the raise can only make the class stricter: a call that
-// is already EXEC_ARBITRARY keeps its own source.
+// commands say. For a meta-tool (capability_param in the profile) the class
+// tested is the one its capability table gives the call's capability, not
+// the tool's own EXEC_ARBITRARY, so a listed read is raised too, and an
+// unlisted capability stays EXEC_ARBITRARY whatever the hints say. The
+// upstream is saying the tool's execution context is not read-only, so a
+// raised tool is never downgraded (classification.md section 4), and the
+// raise can only make the class stricter: a call that is already
+// EXEC_ARBITRARY keeps its own source.
 func (d *decision) classify(profile *classify.Profile, spec classify.ToolSpec, inProfile bool, args map[string]any) {
 	switch {
 	case profile == nil:
