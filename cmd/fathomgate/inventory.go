@@ -4,17 +4,15 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/fathomgate/fathomgate/internal/configfile"
+	"github.com/fathomgate/fathomgate/internal/configset"
 	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 )
@@ -89,13 +87,11 @@ func cmdInventoryImport(args []string) int {
 
 // readInventory reads an inventory file the way fathomgate serve --inventory
 // does (security review of PR #184, L4): a CSV is refused with the import
-// hint, and the file goes through configfile.Read, with its owner and
+// hint, and the file goes through configfile.Read (configset.ReadInventory, the
+// one read serve and policy test use too), with its owner and
 // write-permission checks and the same size limit.
 func readInventory(path string) ([]byte, error) {
-	if strings.EqualFold(filepath.Ext(path), ".csv") {
-		return nil, errors.New("takes an inventory.yaml; convert a CSV first with fathomgate inventory import --csv <file> --out inventory.yaml")
-	}
-	return configfile.Read(path, "the inventory file "+path, maxConfigFile)
+	return configset.ReadInventory(path)
 }
 
 // inventoryLint checks an inventory file (inventory-schema section 9). It

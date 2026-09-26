@@ -1,0 +1,184 @@
+# Gate cases for lab-open.yaml (ADR 0035), run with `fathomgate policy test`
+# or `make policy-test`. Each case is a tools/call as an agent sends it: the
+# server, the tool and the raw arguments. It runs through internal/gate, the
+# steps `fathomgate serve --policy` runs, with the profiles built into the
+# binary (or `policy test --profiles <dir>`) and the inventory below.
+# lab-open.test.yaml keeps the class-given cases.
+#
+# These are tier 1 evidence. Test-matrix rows 3, 4 and 6 are validated only
+# against the real upstream servers (M1-28).
+#
+# The ^lab- pattern tags listed devices with lab. It gives lab-leaf-09 (listed
+# with no tags) the tag that lab-writes-free matches, which counts for write
+# rules because the operator listed the name (ADR 0031 decision 2). It never
+# makes an unlisted lab-* name known.
+policy: lab-open.yaml
+inventory:
+  devices:
+    - {name: lab-sw-01, role: access, site: lab, tags: [lab]}
+    - {name: lab-sw-02, role: access, site: lab, tags: [lab]}
+    - {name: lab-leaf-09, role: leaf, site: lab}
+    - {name: core-rtr-01, role: core, site: dfw1, tags: [prod]}
+  roles:
+    - match: "^lab-[a-z]+-[0-9]{2}$"
+      tags: [lab]
+cases:
+  # Row 3.
+  - name: "row 3: eos-mcp run_command show ip bgp summary is allowed on a lab device"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: show ip bgp summary}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL, class_source: downgrade, obligations: [], forwarded: true}
+
+  # Row 4: reload is not a lab write; lab-writes-free does not reach it.
+  - name: "row 4: upa send_command_and_get_output reload on a lab device is denied by no-exec"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: reload}
+    expect:
+      effect: deny
+      rule: no-exec
+      class: EXEC_ARBITRARY
+      tool_error: "fathomgate denied upa.send_command_and_get_output: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+  - name: "row 4: eos-mcp run_command reload on a lab device is denied by no-exec"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: reload}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+
+  # Row 6.
+  - name: "row 6: a write to an unlisted host is denied before the rules"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: 192.0.2.99, config_lines: [hostname x]}
+    expect:
+      effect: deny
+      rule: default:unknown_target
+      class: WRITE_CONFIG
+      unknown_target: true
+      tool_error: "fathomgate denied eos-mcp.push_config: rule default:unknown_target (class WRITE_CONFIG): target not in inventory"
+  - name: "row 6: exec on an unlisted host is denied before the rules"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: 192.0.2.99, command: reload}
+    expect: {effect: deny, rule: default:unknown_target, class: EXEC_ARBITRARY, unknown_target: true}
+
+  # Lab writes.
+  - name: "an eos-mcp config push to a lab device is allowed and forwarded"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [interface Ethernet1, description uplink]}
+    expect: {effect: allow, rule: lab-writes-free, class: WRITE_CONFIG, obligations: [], forwarded: true, tool_error: ""}
+  - name: "an ntunes config push to a lab device is allowed"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config
+      arguments: {device: lab-sw-02, config_commands: [interface Ethernet1, description uplink]}
+    expect: {effect: allow, rule: lab-writes-free, class: WRITE_CONFIG}
+  - name: "a Junos set statement on a lab device is allowed"
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      arguments: {router_name: lab-sw-01, config_text: set system host-name lab-sw-01}
+    expect: {effect: allow, rule: lab-writes-free, class: WRITE_CONFIG}
+  - name: "a listed device tagged lab by the pattern is writable"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-leaf-09, config_lines: [hostname lab-leaf-09]}
+    expect: {effect: allow, rule: lab-writes-free, targets: [lab-leaf-09], unknown_target: false}
+  - name: "a write to a core device is denied by not-lab"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: core-rtr-01, config_lines: [hostname x]}
+    expect:
+      effect: deny
+      rule: not-lab
+      tool_error: "fathomgate denied eos-mcp.push_config: rule not-lab (class WRITE_CONFIG): only devices tagged lab may be changed through this proxy"
+  - name: "a fan-out mixing a lab and a core device does not inherit the lab rule"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config_parallel
+      arguments: {devices: [lab-sw-01, core-rtr-01], config_commands: [hostname x]}
+    expect: {effect: deny, rule: not-lab, targets: [lab-sw-01, core-rtr-01]}
+  - name: "destructiveHint does not change a write's class"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [hostname x]}
+      annotations: {destructiveHint: true}
+    expect: {effect: allow, rule: lab-writes-free, class: WRITE_CONFIG, class_source: profile}
+
+  # PR #154: attacker-chosen lab names.
+  - name: "PR #154: lab-ghost-99 matches the lab pattern and is unknown"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-ghost-99, config_lines: [hostname x]}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: LAB-sw-01 is not lab-sw-01"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: LAB-sw-01, config_lines: [hostname x]}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: lab-sw-01.evil is unknown"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01.evil, config_lines: [hostname x]}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: lab-x@core-rtr-01 is not a hostname"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-x@core-rtr-01, config_lines: [hostname x]}
+    expect: {effect: deny, rule: default:bad_arguments}
+
+  # Config lines that leave the session (M1-36), and refused arguments.
+  - name: "config lines that end the session and reload are EXEC_ARBITRARY on a lab device"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [end, reload now]}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY, class_source: reclassify}
+  - name: "a config line with a line break inside is EXEC_ARBITRARY"
+    request:
+      server: upa
+      tool: set_config_commands_and_commit_or_save
+      arguments: {name: lab-sw-01, commands: "hostname x\nend\nreload"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "Junos event-options scripts in a set payload are EXEC_ARBITRARY"
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      arguments: {router_name: lab-sw-01, config_text: set event-options policy p then execute-commands commands "request system reboot"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "ntunes enter_config_mode false is refused"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_config
+      arguments: {device: lab-sw-01, config_commands: [reload], enter_config_mode: false}
+    expect: {effect: deny, rule: default:bad_arguments, unnamed_args: [enter_config_mode]}
+  - name: "eos-mcp session_name is refused"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [hostname x], session_name: "x\nreload"}
+    expect: {effect: deny, rule: default:bad_arguments, unnamed_args: [session_name]}
+
+  # The session cap.
+  - name: "a lab write past the session device cap is denied"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [hostname x]}
+      session: {devices_touched: 50}
+    expect: {effect: deny, rule: default:session.max_devices}

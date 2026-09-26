@@ -3,8 +3,9 @@
 # request and the decision it must produce: the runner takes the class as
 # given, so server and tool name the call the class came from but do not
 # classify it. The classification half of each matrix row is pinned by the
-# tier 1 tests in internal/classify. Targets default to known: true; set
-# known: false to model a device no inventory provider resolved.
+# gate cases in lab-open.gate.test.yaml (ADR 0035) and the tier 1 tests in
+# internal/classify. Targets default to known: true; set known: false to
+# model a device no inventory provider resolved.
 policy: lab-open.yaml
 cases:
   # M1 (ADR 0026): no dry_run or diff until M3, so the write is forwarded.

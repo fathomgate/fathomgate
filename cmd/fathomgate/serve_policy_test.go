@@ -20,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/fathomgate/fathomgate/internal/configset"
 	"github.com/fathomgate/fathomgate/internal/gate/seam"
 	"github.com/fathomgate/fathomgate/internal/policy"
 	"github.com/fathomgate/fathomgate/profiles"
@@ -254,7 +255,7 @@ func TestEmbeddedProfilesAreTheRepo(t *testing.T) {
 			t.Errorf("embedded %s differs from profiles/%s", name, name)
 		}
 	}
-	set, err := embeddedProfiles()
+	set, err := configset.EmbeddedProfiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,11 +267,11 @@ func TestEmbeddedProfilesAreTheRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, p := range set {
-		if p.name != p.profile.Server+".yaml" {
-			t.Errorf("%s holds server %q", p.name, p.profile.Server)
+		if p.Name != p.Profile.Server+".yaml" {
+			t.Errorf("%s holds server %q", p.Name, p.Profile.Server)
 		}
-		if !strings.Contains(lines[i], p.profile.Server) || !strings.HasSuffix(lines[i], p.name) || !strings.Contains(lines[i], "sha256:") {
-			t.Errorf("version line %q for %s", lines[i], p.name)
+		if !strings.Contains(lines[i], p.Profile.Server) || !strings.HasSuffix(lines[i], p.Name) || !strings.Contains(lines[i], "sha256:") {
+			t.Errorf("version line %q for %s", lines[i], p.Name)
 		}
 	}
 }
@@ -441,13 +442,13 @@ rules:
 		for _, w := range pl.warns {
 			msgs = append(msgs, fmt.Sprint(w.msg, " ", w.attrs))
 		}
-		set, err := embeddedProfiles()
+		set, err := configset.EmbeddedProfiles()
 		if err != nil {
 			t.Fatal(err)
 		}
 		keys := make([]string, 0, len(set))
 		for _, p := range set {
-			keys = append(keys, p.profile.Server)
+			keys = append(keys, p.Profile.Server)
 		}
 		wantWarns := []string{
 			`inventory: roles[1] "^fw-" matches no listed device and makes nothing known (ADR 0031); list the device under devices [inventory ` + inv + `]`,
