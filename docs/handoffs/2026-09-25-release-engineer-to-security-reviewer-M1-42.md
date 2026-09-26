@@ -48,3 +48,41 @@ make actionlint && make status-check && make licences-check
 
 - Is the marker list (`$1$ $5$ $6$ $8$ $9$`, `-AQ==`, `0x`) narrow enough, or should each marker be tied to its vendor's fixture file?
 - Should the `tests/integration/conftest.py` sha256 false positive (recurs on every eos-mcp bump) get an inline `gitleaks:allow` on that line instead of a fingerprint each time?
+
+## Round 2 (security review of PR #198: M1 to M3, L1, L2, N1, N3)
+
+State: in review again. `internal/redact` is touched (test only), so please re-check. The round 1 commands above that use `GITLEAKS_LOG_OPTS` are superseded: use `make secrets-scan GITLEAKS_BASE=origin/main`.
+
+- **M1, merge commits.** `tools/secrets/scan.py` passes `--diff-merges=first-parent <range>`. I tested `remerge` and the combined formats too: gitleaks 8.30.1 cannot parse combined diffs, and `remerge` hides a conflicted file behind its `remerge CONFLICT` header line, so a conflict-resolution secret was missed. A first-parent diff repeats what the merge brought in from its other parents. On the full history that was 13 findings, each already fingerprinted at its own commit. So `scan.py` drops a finding in a merge only when that exact line is already in the same file of one of the merge's other parents. A line no parent has (an evil merge, a conflict resolution) stays. Control cases: `evilCleanMerge` and `evilConflict` are found; `ignoredOnMain`, repeated by the merges, is not.
+- **M2, bad range.** Both ends are checked with `git cat-file -e <sha>^{commit}`. The lower bound is `git merge-base`. `scan.py` exits 2 if gitleaks reports no "commits scanned" count, or reports 0 while `git rev-list --count --no-merges` is above 0. I used `--no-merges` because a range of clean merges has no diff to scan. Control cases: an unknown base, and a stub gitleaks that scans 0 commits and exits 0. The stub case runs on Linux and macOS only.
+- **M3, fixture coverage.**
+  - `TestFixtureCorpus` now requires every `exp.Secrets` entry to match `^(\$\d+\$|-AQ==|0x)?FAKE`. It also requires every token in the redacted output to be `r.Token(s)` of a listed secret, so every value the redactor replaced is listed; the test matches tokens because the redactor exposes no originals. Mutation-checked: dropping a listed secret from the expect file fails, and making one non-FAKE in both files fails.
+  - gitleaks rules: the crypt rule gains `$4$` and `$14$`, and its value runs to white space or a quote. `type0-type7` gains type 3 and a 3-character minimum, and `;` no longer ends a secret. The allow-list marker is `\$[0-9]{1,2}\$`, the same as the Go test.
+- **L1, self-silencing.** A second PR step scans with the base branch's `.gitleaks.toml` and `.gitleaksignore` from `git show "$BASE_SHA:..."`. It falls back to the PR's own files only when the base has no `.gitleaks.toml`, and uses an empty ignore file when the base has a config but no ignore file. There is no label gate. The design is recorded in `docs/maintainers.md`, "The secret scan and its config": config changes land first in their own PR.
+- **L2.** `--ignore-gitleaks-allow` is set. Control line 11 carries `! gitleaks:allow` and must be found.
+- **N1.** `control.sh` rejects any `.gitleaksignore` line that is not `^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:[0-9]+$`.
+- **N3.** The archive is kept. Before each use, `gitleaks-bin` re-hashes it against the pin and unpacks the binary afresh; a mismatch deletes the archive and fails.
+- **Other items.**
+  - The `awk -F,` comment is in `control.sh`, which now picks CSV columns by header name.
+  - The `conftest.py` false positive keeps one fingerprint per eos-mcp bump (`docs/maintainers.md`, "Judging a finding").
+  - `CLAUDE.md` Toolchain facts has the CI-only-tools line, with the same line in `AGENTS.md`.
+- **Mutation checks of `control.sh`.** Removing `--diff-merges`, honouring inline allows, and dropping the inherited-line filter each fail it. Dropping the `cat-file` base check does not, because the `merge-base` check still exits 2. Dropping the zero-scan backstop is only caught on Linux or macOS.
+
+### Threat-model rows to apply when PR #194 merges (replaces the round 1 wording)
+
+- **"Secret scanner not in CI":**
+  - Status: `Mitigated for the five rule shapes in tests/fixtures/, backed by the redactor-based fixture check (M1-42, PR #198): TestFixtureCorpus fails on a listed fixture secret that does not start with FAKE and on any redacted value the expect file does not list; CI job gitleaks scans each pull request's commits, merge diffs included, and the full history on main. Open, owner test-engineer: a value with FAKE in front of a real secret passes both by construction (review only); a secret in a shape the redactor does not know is outside both; sampled tier 2 output lands with M2 redaction (ADR 0006; PRD section 5)`.
+  - Evidence: `internal/redact/redactor_test.go TestFixtureCorpus; .github/workflows/ci.yaml job gitleaks; tools/secrets/scan.py; .gitleaks.toml; .gitleaksignore; tools/secrets/control.sh`.
+- **New row, "Secret-scan self-modification by PR"** (L1): `a pull request edits .gitleaks.toml or .gitleaksignore to silence its own finding` | MCP04 | `Mitigated (M1-42): a second scan uses the base branch's config and ignore file. Open, owner maintainer: a pull request can still edit ci.yaml, the Makefile or tools/secrets/, because pull_request workflows run the pull request's files; review those paths as security changes` | `docs/maintainers.md, "The secret scan and its config"`.
+- **New row, "GitHub secret scanning and push protection disabled"**: `the repository settings do not run GitHub's own secret scanning or block a push that contains a known credential format` | MCP04 | `Open, owner maintainer: a repository setting (Settings, Code security)` | none in the repository.
+- **New row, "gitleaks not a required status check"**: `the gitleaks job can fail and the pull request still merge` | MCP04 | `Open, owner maintainer: add gitleaks to the main ruleset's required checks` | `.github/workflows/ci.yaml job gitleaks`.
+- **MCP04 summary line:** `secret scanner not in CI (fixture shapes mitigated, M1-42; sampled tier 2 output open, M2), secret-scan self-modification (mitigated for config, workflow edits open), GitHub secret scanning off (open, maintainer), gitleaks not required (open, maintainer)`.
+
+### Reproduce green (round 2)
+
+```sh
+go test -count=1 ./internal/redact/
+make secrets-control && make secrets-scan                 # full history
+make secrets-scan GITLEAKS_BASE=origin/main               # the pull request range
+make actionlint && make status-check && make licences-check
+```

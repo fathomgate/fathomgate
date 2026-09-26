@@ -1,20 +1,24 @@
 # gitleaks configuration for the fathomgate repository (M1-42).
 #
 # `make secrets-scan` runs gitleaks (version and sha256 pinned in the Makefile)
-# over git history with this file; CI job `gitleaks` in .github/workflows/ci.yaml
-# runs it on every pull request (the pull request's commits) and every push to
-# main (full history).
+# over git history with this file, through tools/secrets/scan.sh; CI job
+# `gitleaks` in .github/workflows/ci.yaml runs it on every pull request (the
+# pull request's commits, merge resolutions included, once with this file and
+# once with the base branch's copy) and on every push to main (full history).
 #
 # Rules: the built-in rule set of the pinned gitleaks version, plus five
 # network-config rules below. The built-in rules look for cloud and API
 # credentials and do not recognise a device secret (`enable secret 9 $9$...`,
-# `snmp-server community ...`, FortiOS `ENC ...`), so on their own they would
-# pass a real device secret in a redaction fixture. The network-config rules
-# run only under tests/fixtures/, the one tree where every secret must be FAKE
-# (CLAUDE.md; tests/fixtures/README.md). Elsewhere (docs/specs, the research
-# briefs, internal/redact tests) the same grammar appears with illustrative
-# values such as `s3cr3t` and `$9$aaaa`, which are not bound by the FAKE
-# convention; widening these rules there means converting those examples first.
+# `snmp-server community ...`, FortiOS `ENC ...`). The network-config rules run
+# only under tests/fixtures/, the one tree where every secret must be FAKE
+# (CLAUDE.md; tests/fixtures/README.md). They are the second line of defence:
+# they know five shapes, not the redactor's whole grammar. The first line is
+# TestFixtureCorpus in internal/redact, which requires every value the redactor
+# replaces in a fixture to be a listed secret and every listed secret to start
+# with FAKE. Elsewhere (docs/specs, the research briefs, internal/redact tests)
+# the same grammar appears with illustrative values such as `s3cr3t` and
+# `$9$aaaa`, which are not bound by the FAKE convention; widening these rules
+# there means converting those examples first.
 #
 # Allow-list: exactly one, and deliberately narrow. It applies only to the five
 # network-config rules, and a finding is dropped only when BOTH hold
@@ -22,34 +26,36 @@
 #   - the file is a redaction fixture or a device transcript under
 #     tests/fixtures/ (named files by extension, not the whole directory), and
 #   - the matched secret itself starts with FAKE, optionally after the vendor's
-#     fixed, non-secret encoding marker: a crypt id ($1$, $5$, $6$, $8$, $9$),
-#     PAN-OS `-AQ==`, or the NX-OS SNMP `0x`.
+#     fixed, non-secret encoding marker: a crypt id ($1$, $9$, $14$ ...),
+#     PAN-OS `-AQ==`, or the NX-OS SNMP `0x`. Same prefix as TestFixtureCorpus.
 # A secret in those files that does not start with FAKE fails the scan: that is
 # the bug CLAUDE.md names. Anything else is judged one finding at a time and,
 # if it is a false positive, listed by fingerprint with a reason in
-# .gitleaksignore. Never add a path-only allow-list.
+# .gitleaksignore. Never add a path-only allow-list. Inline `gitleaks:allow`
+# comments are ignored (--ignore-gitleaks-allow).
 
 title = "fathomgate"
 
 [extend]
 useDefault = true
 
-# Unix crypt, Cisco type 5, 8 and 9, and Junos $9$ values.
+# Unix crypt, Cisco type 4, 5, 8, 9 and $14$, and Junos $9$ values. The value
+# runs to white space or a quote, so a `;` cannot cut a secret short.
 [[rules]]
 id = "netdev-crypt-hash"
-description = "Device password hash (crypt $1$/$5$/$6$/$8$, Cisco type 9 or Junos $9$) in a fixture"
+description = "Device password hash (crypt $1$/$5$/$6$, Cisco type 4, 8, 9 and $14$, or Junos $9$) in a fixture"
 path = '''^tests/fixtures/'''
-regex = '''(?:^|[\s"'=>])(\$(?:1|5|6|8|9|y|2[aby])\$[A-Za-z0-9./$-]{8,})'''
+regex = '''(?:^|[\s"'=>])(\$(?:1|4|5|6|8|9|14|y|2[aby])\$[^\s"']{8,})'''
 secretGroup = 1
-keywords = ["$1$", "$5$", "$6$", "$8$", "$9$", "$y$", "$2a$", "$2b$", "$2y$"]
+keywords = ["$1$", "$4$", "$5$", "$6$", "$8$", "$9$", "$14$", "$y$", "$2a$", "$2b$", "$2y$"]
 
 # Cisco-family password, secret or key given with an encoding type: 0 is
-# cleartext, 7 is reversible.
+# cleartext, 3 and 7 are reversible.
 [[rules]]
 id = "netdev-type0-type7"
-description = "Cisco-family cleartext (type 0) or reversible (type 7) password, secret or key in a fixture"
+description = "Cisco-family cleartext (type 0), type 3 or reversible (type 7) password, secret or key in a fixture"
 path = '''^tests/fixtures/'''
-regex = '''(?i)\b(?:password|secret|key|key-string|authentication-key)\s+(?:md5\s+)?[07]\s+([^\s"';]{6,})'''
+regex = '''(?i)\b(?:password|secret|key|key-string|authentication-key)\s+(?:md5\s+)?[037]\s+([^\s"']{3,})'''
 secretGroup = 1
 keywords = ["password", "secret", "key"]
 
@@ -57,7 +63,7 @@ keywords = ["password", "secret", "key"]
 id = "netdev-snmp-community"
 description = "SNMP community string in a fixture"
 path = '''^tests/fixtures/'''
-regex = '''(?i)\bsnmp-server\s+community\s+([^\s"';]{4,})'''
+regex = '''(?i)\bsnmp-server\s+community\s+([^\s"']{3,})'''
 secretGroup = 1
 keywords = ["snmp-server"]
 
@@ -99,5 +105,5 @@ paths = [
 ]
 regexTarget = "secret"
 regexes = [
-  '''^(?:\$(?:1|5|6|8|9)\$|-AQ==|0x)?FAKE[!-~]*$''',
+  '''^(?:\$[0-9]{1,2}\$|-AQ==|0x)?FAKE[!-~]*$''',
 ]

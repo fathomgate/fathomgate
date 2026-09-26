@@ -43,6 +43,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 - `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key and log DACL on create and log resume, by `internal/secretfile` for the owner and DACL check on reading the audit signing key and `--listen-token-file` files (ADR 0028), by `internal/configfile` for the owner and write-ACE check on the `serve --policy`, `--inventory` and `--profiles` files (ADR 0027), by `internal/proxy` for the upstream's Job Object (ADR 0021) and by `cmd/fathomgate` for Winsock error codes in `listen_windows.go`). Never add `gopkg.in/yaml.v3` (unmaintained).
 - `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
+- CI-only tools (pinned, checksum-verified binaries such as golangci-lint, actionlint, gitleaks) need no ADR; a Go dependency or anything in the binary does (maintainer, 2026-09-25).
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
 
 ## Vocabulary (use exactly these words everywhere: code, docs, CLI, UI, commits)
