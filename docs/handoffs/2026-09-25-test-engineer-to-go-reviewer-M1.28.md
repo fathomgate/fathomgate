@@ -103,4 +103,7 @@ Local run on Windows 11: tier 2 gave 52 passed, 12 skipped and 1 xfailed, and th
   - Every new and changed case passed.
   - `test_locked_upstream_stops_answering_after_server_discover` failed locally: that direct test of the locked upa, which this PR did not change, got a truncated traceback without `ValidationError` in its 5 s window. It is green in CI on Linux. I did not investigate further.
   - The policy leg at 2026-07-28 passed, with all four `policy_prompts.py` checks ok.
-
+- CI round 2: [run 36205101204](https://github.com/fathomgate/fathomgate/actions/runs/36205101204) at `574d119`, after `origin/main` was merged in again (#192). Every job is green.
+  - upa gave 15 passed, including the locked-upstream test, the new `reload` control and the `core-x` case.
+  - `mcp-conformance` logged `gate checks passed` on both policy revisions, and all four `policy_prompts.py` checks were ok.
+  - The first round-2 push, run 36204899308, failed only `STATUS.md is current`: `main` had moved after my merge. Re-merged and re-rendered.
