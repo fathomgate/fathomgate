@@ -41,3 +41,13 @@ The M1-08 scanner was a scratch script and is not committed.
 - The fallback classifier (PLAN M1 deliverables; classification section 3) is not implemented, and M1-15 asks for fallback tests from brief 02. Implement section 3 in M1, or change M1-15 and the PLAN row to what the code does (unlisted tool with arguments is `default:bad_arguments`, without is `EXEC_ARBITRARY`)?
 - Add row 5's M1 tier 2 half to M1-28, or a new task? And pull the gitleaks repository and fixture scan into M1 as a task?
 - ADR 0020 (lines 51, 56, 68, 127) names `netguard policy test`, `netguard inventory sync`, `netguard audit verify` and `./cmd/netguard`. It is after ADR 0019 in number but outside CLAUDE.md's exempt range. Rewrite to `fathomgate`, or add it to the exempt list?
+
+## Round 2 (2026-09-25): maintainer decisions and the security, design and test reviews
+
+- **ADR 0036** (accepted 2026-09-25, `docs/adr/0036-no-fallback-classifier.md`): no fallback classifier; supersedes that half of ADR 0010 (pointer line in 0010). classification.md intro, section 2 step 2 and section 3 (now "Tools with no profile entry") and the `frobnicate` row; PLAN classification paragraph and M1 row; ADR 0020 M1 row and profile-library row; ADR 0026 steps 2 and 3; ADR 0027 decision 3 note; ADR 0033 "No profile"; ARCHITECTURE; new MCP03 threat-model row for upstream-controlled tool names (mitigated).
+- ADR 0020 names `fathomgate` commands. PLAN and test-strategy tier 2: pytest over stdio, with a dated note in PLAN. CLAUDE.md and AGENTS.md: proxy-code rule, repo-map line and no-profile bullet. The serve bullet was already current on main.
+- Security: threat-model rows 113 to 115 and 117 to 119 as the review asked; row 118 points at M1-42; SECURITY.md rows for the Windows process and results injection.
+- Design: "denied by rule" wording, the ADR 0026 hold example, "Fathomgate process", and "Fathomgate's" in the M1-07 note.
+- Test: rows 4 to 6, profile-schema 2.2 and 8.2, M1-24 matrix `[3, 4, 5, 6]`, M1-28 note "reads, config reads and exec". Row statuses and M1-28's matrix unchanged.
+- Row 6: the M1-22 eos-mcp `default:unknown_target` cases in tier 2 are reads; `WRITE_CONFIG` to an unknown host is covered in tier 1 only (`read-only.test.yaml`). A tier 2 write case would be M1-28's to add.
+- Expected merge conflicts: PR #196 (classification.md section 2 step 1 is next to step 2; ADR 0010 header), PR #195 (row 6 and the M1-28 note), PR #193 (classification.md).
