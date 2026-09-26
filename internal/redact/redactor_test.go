@@ -175,12 +175,15 @@ func TestFixtureCorpus(t *testing.T) {
 			// listed secret starts with FAKE, right after the vendor's
 			// fixed marker if it has one.
 			known := map[string]bool{}
-			for _, s := range exp.Secrets {
+			// Messages name the expect file entry by index and the fixture
+			// by line, never the value: CI logs are public, and a failure
+			// here may be a real secret.
+			for j, s := range exp.Secrets {
 				if !strings.Contains(string(raw), s) {
-					t.Errorf("expect file lists secret %q that is not in the fixture", s)
+					t.Errorf("%s.expect.json secrets[%d] is not in the fixture", name, j)
 				}
 				if !fakeSecret.MatchString(s) {
-					t.Errorf("expect file lists secret %q that does not start with FAKE (after an optional $n$, -AQ== or 0x marker)", s)
+					t.Errorf("%s.expect.json secrets[%d] does not start with FAKE (after an optional $n$, -AQ== or 0x marker)", name, j)
 				}
 				known[r.Token(s)] = true
 			}
@@ -190,11 +193,10 @@ func TestFixtureCorpus(t *testing.T) {
 			// being left out of the expect file. Tokens are the keyed HMAC
 			// of the value, so a token no listed secret produces is an
 			// unlisted value; the fixture line is at the same index.
-			rawLines := strings.Split(string(raw), "\n")
 			for i, line := range strings.Split(out, "\n") {
 				for _, tok := range tokenRE.FindAllString(line, -1) {
 					if !known[tok] {
-						t.Errorf("line %d: redacted a value that is not listed in %s.expect.json secrets: %q", i+1, name, rawLines[i])
+						t.Errorf("%s.txt line %d: the redactor replaced a value that %s.expect.json does not list", name, i+1, name)
 					}
 				}
 			}
@@ -212,9 +214,9 @@ func TestFixtureCorpus(t *testing.T) {
 					t.Errorf("rule %s fired but is not listed in %s.expect.json", id, name)
 				}
 			}
-			for _, s := range exp.Secrets {
+			for j, s := range exp.Secrets {
 				if strings.Contains(out, s) {
-					t.Errorf("secret %q survived redaction", s)
+					t.Errorf("%s.expect.json secrets[%d] survived redaction", name, j)
 				}
 			}
 			if Count(hits) < len(exp.Secrets) {
@@ -225,6 +227,60 @@ func TestFixtureCorpus(t *testing.T) {
 			}
 			if again, h2 := r.Redact(out); again != out || len(h2) != 0 {
 				t.Errorf("second pass not idempotent: %+v", h2)
+			}
+		})
+	}
+}
+
+// TestTranscriptSecretsAreFake runs every device transcript under
+// tests/fixtures/device/transcripts through the redactor and fails if it
+// replaces a value that is not FAKE (M1-42). Transcripts have no expect file,
+// so the allowed values are the words of the transcript that start with FAKE
+// (after an optional $n$, -AQ== or 0x marker), with surrounding quotes and
+// punctuation trimmed; every token in the output must be the keyed HMAC of
+// one of them. Messages give the file and line, never the value.
+func TestTranscriptSecretsAreFake(t *testing.T) {
+	root := filepath.Join("..", "..", "tests", "fixtures", "device", "transcripts")
+	var files []string
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			files = append(files, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no transcripts under %s", root)
+	}
+	r := New(testKey)
+	for _, f := range files {
+		rel, _ := filepath.Rel(root, f)
+		t.Run(filepath.ToSlash(rel), func(t *testing.T) {
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// EOS masks secrets as <removed> in show tech-support; the
+			// redactor replaces the placeholder too, and it is not a secret.
+			known := map[string]bool{r.Token("<removed>"): true}
+			for _, w := range strings.Fields(string(raw)) {
+				w = strings.Trim(w, `"',;:{}[]()`)
+				if fakeSecret.MatchString(w) {
+					known[r.Token(w)] = true
+				}
+			}
+			out, _ := r.Redact(string(raw))
+			for i, line := range strings.Split(out, "\n") {
+				for _, tok := range tokenRE.FindAllString(line, -1) {
+					if !known[tok] {
+						t.Errorf("line %d: the redactor replaced a value that does not start with FAKE", i+1)
+					}
+				}
 			}
 		})
 	}
