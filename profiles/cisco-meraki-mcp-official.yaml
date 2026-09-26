@@ -1,0 +1,618 @@
+# Profile for the official Cisco Meraki MCP server (Python 3.14, FastMCP 3,
+# stdio or HTTP). Board task M1-17, test-matrix row 18. Research brief 02
+# section 1.10 and shape 7: a meta-tool, execute_api(capability_id,
+# parameters), where the name carries no semantics and capability_id chooses
+# the operation, so the class comes from the capability table below
+# (ADR 0010; profile-schema section 3; classification.md section 2).
+#
+# Pinned upstream: commit c1d00eaf8f4455ccb6bf5ffdc0189fe0f40b1a5b
+# (2026-07-28, "Initial public release", upstream HEAD on 2026-09-25; package
+# version 0.1.0; no tags). Verified [src] in:
+#   https://github.com/CiscoDevNet/cisco-meraki-mcp-official/blob/c1d00eaf8f4455ccb6bf5ffdc0189fe0f40b1a5b/cisco_meraki_mcp/tools/execute_api.py
+#   .../cisco_meraki_mcp/tools/semantic_search.py
+#   .../cisco_meraki_mcp/providers/openapi.py
+#   .../cisco_meraki_mcp/providers/request_validation.py
+#   .../cisco_meraki_mcp/providers/meraki_client.py
+#   .../cisco_meraki_mcp/specs/meraki.json.gz (Meraki Dashboard API 1.70.0;
+#   file sha256 23292fc813e6878c346f8bc7ac5248e78295bab2ef247d545a27b85c9f653631,
+#   the decompressed JSON 825276cf08ade49202beb97c446725e48601a599082135e384edb2e6a0de8a64
+#   as specs/meraki.json.sha256 records it)
+# The tools, their arguments and the capability ids are in the tier 1 fixture
+# tests/fixtures/meraki/ (tools-list.json is the upstream's own tools/list;
+# capabilities.tsv its capability set), generated from the upstream's code by
+# tests/fixtures/meraki/generate.py.
+#
+# How execute_api picks the operation [src execute_api.py:230-296]:
+# store.endpoint_for(capability_id) is a plain dict lookup (vector_store.py
+# :154, 166-168) keyed by the OpenAPI operationId of every non-deprecated GET
+# operation in the bundled spec (openapi.py collect_get_operations): 494 ids
+# at this commit. An id not in it returns "Capability not found". The call
+# then runs getattr(<SDK resource group>, capability_id) (meraki_client.py
+# :119-146) and require_get_operation refuses an SDK method whose name does
+# not start with "get" (request_validation.py:51-69). So upstream, a call can
+# only reach a GET operation. fathomgate does not rely on either check: the
+# upstream is untrusted (invariant 7), a later version or a replaced spec
+# file (initialize_vector_store takes a spec_path) can index other
+# operations, and anything this table does not list is EXEC_ARBITRARY.
+#
+# The capability table. One row per id the upstream indexes, except
+# clipDeviceCamera, a GET whose name does not start with "get" and which the
+# upstream therefore refuses at run time; it is left out, so it is
+# EXEC_ARBITRARY. The class follows the spec's own category tag, with eight
+# exceptions marked on their rows:
+# - configure (334 ids; 328 here): READ_CONFIG. These return configuration,
+#   and several carry secrets: SSID pre-shared keys and RADIUS secrets
+#   (getNetworkWirelessSsids), SNMP communities (getNetworkSnmp), site-to-site
+#   VPN secrets, webhook shared secrets, the Systems Manager enrolment string
+#   (getNetwork, getOrganizationNetworks). A policy should attach the redact
+#   obligation to READ_CONFIG. Redaction does not cover these yet: the
+#   secrets are JSON values under Meraki keys ({"psk": ...}), which the
+#   current redactor does not match, and Meraki JSON patterns are an M2
+#   redaction task (threat model, "Meraki parameters scope and JSON-keyed
+#   secret redaction").
+# - monitor (150 ids; 147 here) and liveTools (10): READ_OPERATIONAL. Status,
+#   statistics, events, clients, and the results of a live tool that a POST
+#   (not reachable here) started.
+# - INVENTORY_READ (6, from configure): getOrganizations, getOrganization,
+#   getOrganizationDevices, getDevice, getOrganizationInventoryDevices and
+#   getOrganizationInventoryDevice, the organisation and device lists and
+#   records, which name devices and hold no credential. getNetwork and
+#   getOrganizationNetworks stay READ_CONFIG: each network carries its
+#   enrollmentString, the Systems Manager enrolment secret (security review
+#   of PR #196, F1).
+# - READ_CONFIG (2, from monitor): getOrganizationConfigurationChanges
+#   returns the old and new value of every change, secrets included, and
+#   getOrganizationWebhooksLogs returns webhook payloads, which carry the
+#   receiver's shared secret.
+# TestMerakiCapabilityTable (internal/classify) holds the table to this rule
+# and to capabilities.tsv: a new upstream id fails the test until it has a
+# row here.
+#
+# Argument list (ADR 0033). execute_api names capability_id (its
+# capability_param) and refuses parameters. parameters is an object whose
+# keys the upstream passes to the Meraki SDK method as keyword arguments
+# (execute_api.py:174): the organisation, network or device serial the
+# read is scoped to, and query options. ADR 0033 section 2 keeps such an
+# argument unnamed until the schema can describe it, so a call that carries
+# parameters is denied with default:bad_arguments, and fathomgate removes it
+# from the inputSchema it advertises (not required upstream). At this commit
+# 4 of the 493 listed capabilities need no parameter (getOrganizations,
+# getAdministeredIdentitiesMe, getAdministeredIdentitiesMeApiKeys,
+# getAdministeredLicensingSubscriptionEntitlements); the rest are unusable
+# through fathomgate until a decision record says how parameters is checked.
+# Naming parameters was moved to M2 by the maintainer on 2026-09-25 (threat
+# model, "Meraki parameters scope and JSON-keyed secret redaction").
+#
+# Other facts the proxy cannot see [src]:
+# - One API key per process: MERAKI_DASHBOARD_API_KEY on stdio, or the
+#   agent's Authorization bearer header over the upstream's own HTTP
+#   transport (meraki_credentials.py). fathomgate runs it over stdio, so the
+#   key is the operator's, and every organisation that key can read is in
+#   reach. Give it a read-only Dashboard API key, as the upstream README says.
+# - Annotations: execute_api says readOnlyHint true. It is untrusted and
+#   never lowers a class (invariant 3); an unlisted capability stays
+#   EXEC_ARBITRARY whatever the hint says.
+# - There is no device target: the Meraki cloud is the one controller behind
+#   the key. The organisation, network or serial is inside parameters. Target
+#   rules, max_devices and unknown_target do not apply to these calls
+#   (implicit_target, profile-schema section 3, is M5).
+# - semantic_search is a local vector search over the same bundled spec
+#   (fastembed model, downloaded at first start); it calls no Meraki API.
+server: cisco-meraki-mcp-official
+source: https://github.com/CiscoDevNet/cisco-meraki-mcp-official
+description: Official Cisco Meraki server; a search tool and one meta-tool, execute_api(capability_id), over the Dashboard API GET operations
+tools:
+  semantic_search:
+    class: INVENTORY_READ
+    args: [query, top_k]
+    notes: >-
+      [src semantic_search.py:94-140] query: str (required), top_k: int 1-20
+      (default 5). Ranks the capability catalog by a local embedding search
+      and returns capability ids with their summaries; no Meraki API call.
+  execute_api:
+    class: EXEC_ARBITRARY
+    capability_param: capability_id
+    capability_table: dashboard
+    args: []
+    refused_args: [parameters]
+    notes: >-
+      [src execute_api.py:230-296] capability_id: str (required), parameters:
+      dict[str, str | int | bool] | None. Meta-tool: the class of a call is
+      the dashboard table's class for its capability_id, byte for byte;
+      any other id, a missing one, or one that is not a string is
+      EXEC_ARBITRARY. parameters is refused (header, ADR 0033).
+capabilities:
+  dashboard:
+    getAdministeredIdentitiesMe: READ_OPERATIONAL
+    getAdministeredIdentitiesMeApiKeys: READ_CONFIG
+    getAdministeredLicensingSubscriptionEntitlements: READ_CONFIG
+    getAdministeredLicensingSubscriptionSubscriptions: READ_CONFIG
+    getAdministeredLicensingSubscriptionSubscriptionsComplianceStatuses: READ_CONFIG
+    getDevice: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getDeviceApplianceDhcpSubnets: READ_OPERATIONAL
+    getDeviceAppliancePerformance: READ_OPERATIONAL
+    getDeviceAppliancePrefixesDelegated: READ_OPERATIONAL
+    getDeviceAppliancePrefixesDelegatedVlanAssignments: READ_OPERATIONAL
+    getDeviceApplianceRadioSettings: READ_CONFIG
+    getDeviceApplianceUplinksSettings: READ_CONFIG
+    getDeviceCameraCustomAnalytics: READ_CONFIG
+    getDeviceCameraQualityAndRetention: READ_CONFIG
+    getDeviceCameraSense: READ_CONFIG
+    getDeviceCameraSenseObjectDetectionModels: READ_CONFIG
+    getDeviceCameraVideoLink: READ_CONFIG
+    getDeviceCameraVideoSettings: READ_CONFIG
+    getDeviceCameraWirelessProfiles: READ_CONFIG
+    getDeviceCellularGatewayLan: READ_CONFIG
+    getDeviceCellularGatewayPortForwardingRules: READ_CONFIG
+    getDeviceCellularSims: READ_CONFIG
+    getDeviceClients: READ_OPERATIONAL
+    getDeviceLiveToolsArpTable: READ_OPERATIONAL
+    getDeviceLiveToolsCableTest: READ_OPERATIONAL
+    getDeviceLiveToolsLedsBlink: READ_OPERATIONAL
+    getDeviceLiveToolsMacTable: READ_OPERATIONAL
+    getDeviceLiveToolsMulticastRouting: READ_OPERATIONAL
+    getDeviceLiveToolsPing: READ_OPERATIONAL
+    getDeviceLiveToolsPingDevice: READ_OPERATIONAL
+    getDeviceLiveToolsPortsCycle: READ_OPERATIONAL
+    getDeviceLiveToolsThroughputTest: READ_OPERATIONAL
+    getDeviceLiveToolsWakeOnLan: READ_OPERATIONAL
+    getDeviceLldpCdp: READ_OPERATIONAL
+    getDeviceLossAndLatencyHistory: READ_OPERATIONAL
+    getDeviceManagementInterface: READ_CONFIG
+    getDeviceSensorCommand: READ_CONFIG
+    getDeviceSensorCommands: READ_CONFIG
+    getDeviceSensorRelationships: READ_CONFIG
+    getDeviceSwitchPort: READ_CONFIG
+    getDeviceSwitchPorts: READ_CONFIG
+    getDeviceSwitchPortsStatuses: READ_OPERATIONAL
+    getDeviceSwitchPortsStatusesPackets: READ_OPERATIONAL
+    getDeviceSwitchRoutingInterface: READ_CONFIG
+    getDeviceSwitchRoutingInterfaceDhcp: READ_CONFIG
+    getDeviceSwitchRoutingInterfaces: READ_CONFIG
+    getDeviceSwitchRoutingStaticRoute: READ_CONFIG
+    getDeviceSwitchRoutingStaticRoutes: READ_CONFIG
+    getDeviceSwitchWarmSpare: READ_CONFIG
+    getDeviceWirelessBluetoothSettings: READ_CONFIG
+    getDeviceWirelessConnectionStats: READ_OPERATIONAL
+    getDeviceWirelessElectronicShelfLabel: READ_CONFIG
+    getDeviceWirelessLatencyStats: READ_OPERATIONAL
+    getDeviceWirelessRadioSettings: READ_CONFIG
+    getDeviceWirelessStatus: READ_OPERATIONAL
+    getDeviceWirelessZigbeeEnrollment: READ_CONFIG
+    getNetwork: READ_CONFIG
+    getNetworkAlertsHistory: READ_OPERATIONAL
+    getNetworkAlertsSettings: READ_CONFIG
+    getNetworkApplianceClientSecurityEvents: READ_OPERATIONAL
+    getNetworkApplianceConnectivityMonitoringDestinations: READ_CONFIG
+    getNetworkApplianceContentFiltering: READ_CONFIG
+    getNetworkApplianceContentFilteringCategories: READ_CONFIG
+    getNetworkApplianceFirewallCellularFirewallRules: READ_CONFIG
+    getNetworkApplianceFirewallFirewalledService: READ_CONFIG
+    getNetworkApplianceFirewallFirewalledServices: READ_CONFIG
+    getNetworkApplianceFirewallInboundCellularFirewallRules: READ_CONFIG
+    getNetworkApplianceFirewallInboundFirewallRules: READ_CONFIG
+    getNetworkApplianceFirewallL3FirewallRules: READ_CONFIG
+    getNetworkApplianceFirewallL7FirewallRules: READ_CONFIG
+    getNetworkApplianceFirewallL7FirewallRulesApplicationCategories: READ_CONFIG
+    getNetworkApplianceFirewallOneToManyNatRules: READ_CONFIG
+    getNetworkApplianceFirewallOneToOneNatRules: READ_CONFIG
+    getNetworkApplianceFirewallPortForwardingRules: READ_CONFIG
+    getNetworkApplianceFirewallSettings: READ_CONFIG
+    getNetworkAppliancePort: READ_CONFIG
+    getNetworkAppliancePorts: READ_CONFIG
+    getNetworkAppliancePrefixesDelegatedStatic: READ_CONFIG
+    getNetworkAppliancePrefixesDelegatedStatics: READ_CONFIG
+    getNetworkApplianceRfProfile: READ_CONFIG
+    getNetworkApplianceRfProfiles: READ_CONFIG
+    getNetworkApplianceSecurityEvents: READ_OPERATIONAL
+    getNetworkApplianceSecurityIntrusion: READ_CONFIG
+    getNetworkApplianceSecurityMalware: READ_CONFIG
+    getNetworkApplianceSettings: READ_CONFIG
+    getNetworkApplianceSingleLan: READ_CONFIG
+    getNetworkApplianceSsid: READ_CONFIG
+    getNetworkApplianceSsids: READ_CONFIG
+    getNetworkApplianceStaticRoute: READ_CONFIG
+    getNetworkApplianceStaticRoutes: READ_CONFIG
+    getNetworkApplianceTrafficShaping: READ_CONFIG
+    getNetworkApplianceTrafficShapingCustomPerformanceClass: READ_CONFIG
+    getNetworkApplianceTrafficShapingCustomPerformanceClasses: READ_CONFIG
+    getNetworkApplianceTrafficShapingRules: READ_CONFIG
+    getNetworkApplianceTrafficShapingUplinkBandwidth: READ_CONFIG
+    getNetworkApplianceTrafficShapingUplinkSelection: READ_CONFIG
+    getNetworkApplianceUplinksUsageHistory: READ_OPERATIONAL
+    getNetworkApplianceVlan: READ_CONFIG
+    getNetworkApplianceVlans: READ_CONFIG
+    getNetworkApplianceVlansSettings: READ_CONFIG
+    getNetworkApplianceVpnBgp: READ_CONFIG
+    getNetworkApplianceVpnSiteToSiteVpn: READ_CONFIG
+    getNetworkApplianceWarmSpare: READ_CONFIG
+    getNetworkBluetoothClient: READ_OPERATIONAL
+    getNetworkBluetoothClients: READ_OPERATIONAL
+    getNetworkCameraQualityRetentionProfile: READ_CONFIG
+    getNetworkCameraQualityRetentionProfiles: READ_CONFIG
+    getNetworkCameraSchedules: READ_CONFIG
+    getNetworkCameraWirelessProfile: READ_CONFIG
+    getNetworkCameraWirelessProfiles: READ_CONFIG
+    getNetworkCellularGatewayConnectivityMonitoringDestinations: READ_CONFIG
+    getNetworkCellularGatewayDhcp: READ_CONFIG
+    getNetworkCellularGatewaySubnetPool: READ_CONFIG
+    getNetworkCellularGatewayUplink: READ_CONFIG
+    getNetworkClient: READ_OPERATIONAL
+    getNetworkClientPolicy: READ_CONFIG
+    getNetworkClientSplashAuthorizationStatus: READ_CONFIG
+    getNetworkClientTrafficHistory: READ_OPERATIONAL
+    getNetworkClientUsageHistory: READ_OPERATIONAL
+    getNetworkClients: READ_OPERATIONAL
+    getNetworkClientsApplicationUsage: READ_OPERATIONAL
+    getNetworkClientsBandwidthUsageHistory: READ_OPERATIONAL
+    getNetworkClientsOverview: READ_OPERATIONAL
+    getNetworkClientsUsageHistories: READ_OPERATIONAL
+    getNetworkEvents: READ_OPERATIONAL
+    getNetworkEventsEventTypes: READ_OPERATIONAL
+    getNetworkFirmwareUpgrades: READ_CONFIG
+    getNetworkFirmwareUpgradesStagedEvents: READ_CONFIG
+    getNetworkFirmwareUpgradesStagedGroup: READ_CONFIG
+    getNetworkFirmwareUpgradesStagedGroups: READ_CONFIG
+    getNetworkFirmwareUpgradesStagedStages: READ_CONFIG
+    getNetworkFloorPlan: READ_CONFIG
+    getNetworkFloorPlans: READ_CONFIG
+    getNetworkGroupPolicies: READ_CONFIG
+    getNetworkGroupPolicy: READ_CONFIG
+    getNetworkInsightApplicationHealthByTime: READ_OPERATIONAL
+    getNetworkMerakiAuthUser: READ_CONFIG
+    getNetworkMerakiAuthUsers: READ_CONFIG
+    getNetworkMoves: READ_CONFIG
+    getNetworkMqttBroker: READ_CONFIG
+    getNetworkMqttBrokers: READ_CONFIG
+    getNetworkNetflow: READ_CONFIG
+    getNetworkNetworkHealthChannelUtilization: READ_OPERATIONAL
+    getNetworkPiiPiiKeys: READ_CONFIG
+    getNetworkPiiRequest: READ_CONFIG
+    getNetworkPiiRequests: READ_CONFIG
+    getNetworkPiiSmDevicesForKey: READ_CONFIG
+    getNetworkPiiSmOwnersForKey: READ_CONFIG
+    getNetworkPoliciesByClient: READ_CONFIG
+    getNetworkSensorAlertsCurrentOverviewByMetric: READ_OPERATIONAL
+    getNetworkSensorAlertsOverviewByMetric: READ_OPERATIONAL
+    getNetworkSensorAlertsProfile: READ_CONFIG
+    getNetworkSensorAlertsProfiles: READ_CONFIG
+    getNetworkSensorMqttBroker: READ_CONFIG
+    getNetworkSensorMqttBrokers: READ_CONFIG
+    getNetworkSensorRelationships: READ_CONFIG
+    getNetworkSettings: READ_CONFIG
+    getNetworkSmBypassActivationLockAttempt: READ_CONFIG
+    getNetworkSmDeviceCellularUsageHistory: READ_OPERATIONAL
+    getNetworkSmDeviceCerts: READ_CONFIG
+    getNetworkSmDeviceConnectivity: READ_OPERATIONAL
+    getNetworkSmDeviceDesktopLogs: READ_OPERATIONAL
+    getNetworkSmDeviceDeviceCommandLogs: READ_OPERATIONAL
+    getNetworkSmDeviceDeviceProfiles: READ_CONFIG
+    getNetworkSmDeviceNetworkAdapters: READ_CONFIG
+    getNetworkSmDevicePerformanceHistory: READ_OPERATIONAL
+    getNetworkSmDeviceRestrictions: READ_CONFIG
+    getNetworkSmDeviceSecurityCenters: READ_CONFIG
+    getNetworkSmDeviceSoftwares: READ_CONFIG
+    getNetworkSmDeviceWlanLists: READ_CONFIG
+    getNetworkSmDevices: READ_CONFIG
+    getNetworkSmProfiles: READ_CONFIG
+    getNetworkSmTargetGroup: READ_CONFIG
+    getNetworkSmTargetGroups: READ_CONFIG
+    getNetworkSmTrustedAccessConfigs: READ_CONFIG
+    getNetworkSmUserAccessDevices: READ_CONFIG
+    getNetworkSmUserDeviceProfiles: READ_CONFIG
+    getNetworkSmUserSoftwares: READ_CONFIG
+    getNetworkSmUsers: READ_CONFIG
+    getNetworkSnmp: READ_CONFIG
+    getNetworkSplashLoginAttempts: READ_OPERATIONAL
+    getNetworkSwitchAccessControlLists: READ_CONFIG
+    getNetworkSwitchAccessPolicies: READ_CONFIG
+    getNetworkSwitchAccessPolicy: READ_CONFIG
+    getNetworkSwitchAlternateManagementInterface: READ_CONFIG
+    getNetworkSwitchDhcpServerPolicy: READ_CONFIG
+    getNetworkSwitchDhcpServerPolicyArpInspectionTrustedServers: READ_CONFIG
+    getNetworkSwitchDhcpServerPolicyArpInspectionWarningsByDevice: READ_CONFIG
+    getNetworkSwitchDhcpV4ServersSeen: READ_CONFIG
+    getNetworkSwitchDscpToCosMappings: READ_CONFIG
+    getNetworkSwitchLinkAggregations: READ_CONFIG
+    getNetworkSwitchMtu: READ_CONFIG
+    getNetworkSwitchPortSchedules: READ_CONFIG
+    getNetworkSwitchQosRule: READ_CONFIG
+    getNetworkSwitchQosRules: READ_CONFIG
+    getNetworkSwitchQosRulesOrder: READ_CONFIG
+    getNetworkSwitchRoutingMulticast: READ_CONFIG
+    getNetworkSwitchRoutingMulticastRendezvousPoint: READ_CONFIG
+    getNetworkSwitchRoutingMulticastRendezvousPoints: READ_CONFIG
+    getNetworkSwitchRoutingOspf: READ_CONFIG
+    getNetworkSwitchSettings: READ_CONFIG
+    getNetworkSwitchStack: READ_CONFIG
+    getNetworkSwitchStackRoutingInterface: READ_CONFIG
+    getNetworkSwitchStackRoutingInterfaceDhcp: READ_CONFIG
+    getNetworkSwitchStackRoutingInterfaces: READ_CONFIG
+    getNetworkSwitchStackRoutingStaticRoute: READ_CONFIG
+    getNetworkSwitchStackRoutingStaticRoutes: READ_CONFIG
+    getNetworkSwitchStacks: READ_CONFIG
+    getNetworkSwitchStormControl: READ_CONFIG
+    getNetworkSwitchStp: READ_CONFIG
+    getNetworkSyslogServers: READ_CONFIG
+    getNetworkTopologyLinkLayer: READ_OPERATIONAL
+    getNetworkTraffic: READ_OPERATIONAL
+    getNetworkTrafficAnalysis: READ_CONFIG
+    getNetworkTrafficShapingApplicationCategories: READ_CONFIG
+    getNetworkTrafficShapingDscpTaggingOptions: READ_CONFIG
+    getNetworkVlanProfile: READ_CONFIG
+    getNetworkVlanProfiles: READ_CONFIG
+    getNetworkVlanProfilesAssignmentsByDevice: READ_CONFIG
+    getNetworkWebhooksHttpServer: READ_CONFIG
+    getNetworkWebhooksHttpServers: READ_CONFIG
+    getNetworkWebhooksPayloadTemplate: READ_CONFIG
+    getNetworkWebhooksPayloadTemplates: READ_CONFIG
+    getNetworkWebhooksWebhookTest: READ_CONFIG
+    getNetworkWirelessAirMarshal: READ_OPERATIONAL
+    getNetworkWirelessAlternateManagementInterface: READ_CONFIG
+    getNetworkWirelessBilling: READ_CONFIG
+    getNetworkWirelessBluetoothSettings: READ_CONFIG
+    getNetworkWirelessChannelUtilizationHistory: READ_OPERATIONAL
+    getNetworkWirelessClientConnectionStats: READ_OPERATIONAL
+    getNetworkWirelessClientConnectivityEvents: READ_OPERATIONAL
+    getNetworkWirelessClientCountHistory: READ_OPERATIONAL
+    getNetworkWirelessClientLatencyHistory: READ_OPERATIONAL
+    getNetworkWirelessClientLatencyStats: READ_OPERATIONAL
+    getNetworkWirelessClientsConnectionStats: READ_OPERATIONAL
+    getNetworkWirelessClientsLatencyStats: READ_OPERATIONAL
+    getNetworkWirelessConnectionStats: READ_OPERATIONAL
+    getNetworkWirelessDataRateHistory: READ_OPERATIONAL
+    getNetworkWirelessDevicesConnectionStats: READ_OPERATIONAL
+    getNetworkWirelessDevicesLatencyStats: READ_OPERATIONAL
+    getNetworkWirelessElectronicShelfLabel: READ_CONFIG
+    getNetworkWirelessElectronicShelfLabelConfiguredDevices: READ_CONFIG
+    getNetworkWirelessEthernetPortsProfile: READ_CONFIG
+    getNetworkWirelessEthernetPortsProfiles: READ_CONFIG
+    getNetworkWirelessFailedConnections: READ_OPERATIONAL
+    getNetworkWirelessLatencyHistory: READ_OPERATIONAL
+    getNetworkWirelessLatencyStats: READ_OPERATIONAL
+    getNetworkWirelessMeshStatuses: READ_OPERATIONAL
+    getNetworkWirelessRfProfile: READ_CONFIG
+    getNetworkWirelessRfProfiles: READ_CONFIG
+    getNetworkWirelessSettings: READ_CONFIG
+    getNetworkWirelessSignalQualityHistory: READ_OPERATIONAL
+    getNetworkWirelessSsid: READ_CONFIG
+    getNetworkWirelessSsidBonjourForwarding: READ_CONFIG
+    getNetworkWirelessSsidDeviceTypeGroupPolicies: READ_CONFIG
+    getNetworkWirelessSsidEapOverride: READ_CONFIG
+    getNetworkWirelessSsidFirewallL3FirewallRules: READ_CONFIG
+    getNetworkWirelessSsidFirewallL7FirewallRules: READ_CONFIG
+    getNetworkWirelessSsidHotspot20: READ_CONFIG
+    getNetworkWirelessSsidIdentityPsk: READ_CONFIG
+    getNetworkWirelessSsidIdentityPsks: READ_CONFIG
+    getNetworkWirelessSsidSchedules: READ_CONFIG
+    getNetworkWirelessSsidSplashSettings: READ_CONFIG
+    getNetworkWirelessSsidTrafficShapingRules: READ_CONFIG
+    getNetworkWirelessSsidVpn: READ_CONFIG
+    getNetworkWirelessSsids: READ_CONFIG
+    getNetworkWirelessUsageHistory: READ_OPERATIONAL
+    getOrganization: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getOrganizationActionBatch: READ_CONFIG
+    getOrganizationActionBatches: READ_CONFIG
+    getOrganizationAdaptivePolicyAcl: READ_CONFIG
+    getOrganizationAdaptivePolicyAcls: READ_CONFIG
+    getOrganizationAdaptivePolicyGroup: READ_CONFIG
+    getOrganizationAdaptivePolicyGroups: READ_CONFIG
+    getOrganizationAdaptivePolicyOverview: READ_OPERATIONAL
+    getOrganizationAdaptivePolicyPolicies: READ_CONFIG
+    getOrganizationAdaptivePolicyPolicy: READ_CONFIG
+    getOrganizationAdaptivePolicySettings: READ_CONFIG
+    getOrganizationAdmins: READ_CONFIG
+    getOrganizationAlertsProfiles: READ_CONFIG
+    getOrganizationApiRequests: READ_OPERATIONAL
+    getOrganizationApiRequestsOverview: READ_OPERATIONAL
+    getOrganizationApiRequestsOverviewResponseCodesByInterval: READ_OPERATIONAL
+    getOrganizationApiRestProvisioningPipelinesJobs: READ_CONFIG
+    getOrganizationApiRestProvisioningPipelinesJobsOverviewsByPipeline: READ_CONFIG
+    getOrganizationApplianceDevicesRedundancyByNetwork: READ_CONFIG
+    getOrganizationApplianceDnsLocalProfiles: READ_CONFIG
+    getOrganizationApplianceDnsLocalProfilesAssignments: READ_CONFIG
+    getOrganizationApplianceDnsLocalRecords: READ_CONFIG
+    getOrganizationApplianceDnsSplitProfiles: READ_CONFIG
+    getOrganizationApplianceDnsSplitProfilesAssignments: READ_CONFIG
+    getOrganizationApplianceFirewallMulticastForwardingByNetwork: READ_CONFIG
+    getOrganizationApplianceRoutingVrfsSettings: READ_CONFIG
+    getOrganizationApplianceSecurityEvents: READ_OPERATIONAL
+    getOrganizationApplianceSecurityIntrusion: READ_CONFIG
+    getOrganizationApplianceTrafficShapingVpnExclusionsByNetwork: READ_CONFIG
+    getOrganizationApplianceUplinkStatuses: READ_OPERATIONAL
+    getOrganizationApplianceUplinksNatByNetwork: READ_CONFIG
+    getOrganizationApplianceUplinksStatusesOverview: READ_OPERATIONAL
+    getOrganizationApplianceUplinksUsageByNetwork: READ_OPERATIONAL
+    getOrganizationApplianceVpnSiteToSiteIpsecPeersSlas: READ_CONFIG
+    getOrganizationApplianceVpnStats: READ_OPERATIONAL
+    getOrganizationApplianceVpnStatuses: READ_OPERATIONAL
+    getOrganizationApplianceVpnThirdPartyVPNPeers: READ_CONFIG
+    getOrganizationApplianceVpnVpnFirewallRules: READ_CONFIG
+    getOrganizationAssuranceAlert: READ_OPERATIONAL
+    getOrganizationAssuranceAlerts: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsOverview: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsOverviewByNetwork: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsOverviewByType: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsOverviewHistorical: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsTaxonomyCategories: READ_OPERATIONAL
+    getOrganizationAssuranceAlertsTaxonomyTypes: READ_OPERATIONAL
+    getOrganizationBrandingPolicies: READ_CONFIG
+    getOrganizationBrandingPoliciesPriorities: READ_CONFIG
+    getOrganizationBrandingPolicy: READ_CONFIG
+    getOrganizationCameraBoundariesAreasByDevice: READ_CONFIG
+    getOrganizationCameraBoundariesLinesByDevice: READ_CONFIG
+    getOrganizationCameraCustomAnalyticsArtifact: READ_CONFIG
+    getOrganizationCameraCustomAnalyticsArtifacts: READ_CONFIG
+    getOrganizationCameraDetectionsHistoryByBoundaryByInterval: READ_CONFIG
+    getOrganizationCameraOnboardingStatuses: READ_CONFIG
+    getOrganizationCameraPermission: READ_CONFIG
+    getOrganizationCameraPermissions: READ_CONFIG
+    getOrganizationCameraRole: READ_CONFIG
+    getOrganizationCameraRoles: READ_CONFIG
+    getOrganizationCampusGatewayClusters: READ_CONFIG
+    getOrganizationCampusGatewayDevicesUplinksLocalOverridesByDevice: READ_CONFIG
+    getOrganizationCellularGatewayEsimsInventory: READ_CONFIG
+    getOrganizationCellularGatewayEsimsServiceProviders: READ_CONFIG
+    getOrganizationCellularGatewayEsimsServiceProvidersAccounts: READ_CONFIG
+    getOrganizationCellularGatewayEsimsServiceProvidersAccountsCommunicationPlans: READ_CONFIG
+    getOrganizationCellularGatewayEsimsServiceProvidersAccountsRatePlans: READ_CONFIG
+    getOrganizationCellularGatewayUplinkStatuses: READ_OPERATIONAL
+    getOrganizationClientsBandwidthUsageHistory: READ_OPERATIONAL
+    getOrganizationClientsOverview: READ_OPERATIONAL
+    getOrganizationClientsSearch: READ_CONFIG
+    getOrganizationConfigTemplate: READ_CONFIG
+    getOrganizationConfigTemplateSwitchProfilePort: READ_CONFIG
+    getOrganizationConfigTemplateSwitchProfilePorts: READ_CONFIG
+    getOrganizationConfigTemplateSwitchProfiles: READ_CONFIG
+    getOrganizationConfigTemplates: READ_CONFIG
+    getOrganizationConfigurationChanges: READ_CONFIG  # tag monitor; carries configuration values and secrets
+    getOrganizationDevices: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getOrganizationDevicesAvailabilities: READ_OPERATIONAL
+    getOrganizationDevicesAvailabilitiesChangeHistory: READ_OPERATIONAL
+    getOrganizationDevicesCellularDataDevices: READ_OPERATIONAL
+    getOrganizationDevicesCellularDataProfiles: READ_CONFIG
+    getOrganizationDevicesCellularDataProfilesAssignments: READ_CONFIG
+    getOrganizationDevicesCellularDataUsageByDevice: READ_OPERATIONAL
+    getOrganizationDevicesCellularDataUsageHistoryByDeviceByInterval: READ_OPERATIONAL
+    getOrganizationDevicesCellularGeolocations: READ_OPERATIONAL
+    getOrganizationDevicesCellularUplinksBandsByDevice: READ_OPERATIONAL
+    getOrganizationDevicesCellularUplinksTowersByDevice: READ_OPERATIONAL
+    getOrganizationDevicesControllerMigrations: READ_CONFIG
+    getOrganizationDevicesOverviewByModel: READ_CONFIG
+    getOrganizationDevicesPacketCaptureCaptures: READ_CONFIG
+    getOrganizationDevicesPacketCaptureSchedules: READ_CONFIG
+    getOrganizationDevicesPowerModulesStatusesByDevice: READ_OPERATIONAL
+    getOrganizationDevicesProvisioningStatuses: READ_OPERATIONAL
+    getOrganizationDevicesStatusesOverview: READ_OPERATIONAL
+    getOrganizationDevicesSystemMemoryUsageHistoryByInterval: READ_OPERATIONAL
+    getOrganizationDevicesUplinksAddressesByDevice: READ_OPERATIONAL
+    getOrganizationDevicesUplinksLossAndLatency: READ_OPERATIONAL
+    getOrganizationEarlyAccessFeatures: READ_CONFIG
+    getOrganizationEarlyAccessFeaturesOptIn: READ_CONFIG
+    getOrganizationEarlyAccessFeaturesOptIns: READ_CONFIG
+    getOrganizationFirmwareUpgrades: READ_CONFIG
+    getOrganizationFirmwareUpgradesByDevice: READ_CONFIG
+    getOrganizationFloorPlansAutoLocateDevices: READ_CONFIG
+    getOrganizationFloorPlansAutoLocateStatuses: READ_CONFIG
+    getOrganizationInsightApplications: READ_CONFIG
+    getOrganizationInsightMonitoredMediaServer: READ_CONFIG
+    getOrganizationInsightMonitoredMediaServers: READ_CONFIG
+    getOrganizationIntegrationsDeployable: READ_CONFIG
+    getOrganizationIntegrationsDeployed: READ_CONFIG
+    getOrganizationIntegrationsXdrNetworks: READ_CONFIG
+    getOrganizationInventoryDevice: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getOrganizationInventoryDevices: INVENTORY_READ  # tag configure; an organisation, network or device list or record
+    getOrganizationInventoryDevicesEoxOverview: READ_CONFIG
+    getOrganizationInventoryDevicesSwapsBulk: READ_CONFIG
+    getOrganizationLicense: READ_CONFIG
+    getOrganizationLicenses: READ_CONFIG
+    getOrganizationLicensesOverview: READ_OPERATIONAL
+    getOrganizationLicensingCotermLicenses: READ_CONFIG
+    getOrganizationLoginSecurity: READ_CONFIG
+    getOrganizationNetworks: READ_CONFIG
+    getOrganizationOpenapiSpec: READ_OPERATIONAL
+    getOrganizationPoliciesAssignmentsByClient: READ_CONFIG
+    getOrganizationPoliciesGlobalFirewallApplicationCategories: READ_CONFIG
+    getOrganizationPoliciesGlobalFirewallRulesets: READ_CONFIG
+    getOrganizationPoliciesGlobalFirewallRulesetsRules: READ_CONFIG
+    getOrganizationPoliciesGlobalGroupPolicies: READ_CONFIG
+    getOrganizationPoliciesGlobalGroupPoliciesAdaptivePolicyGroupsAssignments: READ_CONFIG
+    getOrganizationPoliciesGlobalGroupPoliciesApplianceVlansAssignments: READ_CONFIG
+    getOrganizationPoliciesGlobalGroupPoliciesApplianceVlansAssignmentsByVlan: READ_CONFIG
+    getOrganizationPoliciesGlobalGroupPoliciesFirewallRulesetsAssignments: READ_CONFIG
+    getOrganizationPolicyObject: READ_CONFIG
+    getOrganizationPolicyObjects: READ_CONFIG
+    getOrganizationPolicyObjectsGroup: READ_CONFIG
+    getOrganizationPolicyObjectsGroups: READ_CONFIG
+    getOrganizationSaml: READ_CONFIG
+    getOrganizationSamlIdp: READ_CONFIG
+    getOrganizationSamlIdps: READ_CONFIG
+    getOrganizationSamlRole: READ_CONFIG
+    getOrganizationSamlRoles: READ_CONFIG
+    getOrganizationSaseConnectors: READ_CONFIG
+    getOrganizationSaseIntegration: READ_CONFIG
+    getOrganizationSaseNetworksEligible: READ_CONFIG
+    getOrganizationSaseRegions: READ_CONFIG
+    getOrganizationSaseSites: READ_CONFIG
+    getOrganizationSaseSitesConnectivityHistoryBySite: READ_OPERATIONAL
+    getOrganizationSaseSitesConnectivityOverview: READ_CONFIG
+    getOrganizationSensorGatewaysConnectionsLatest: READ_OPERATIONAL
+    getOrganizationSensorReadingsHistory: READ_OPERATIONAL
+    getOrganizationSensorReadingsLatest: READ_OPERATIONAL
+    getOrganizationSmAdminsRole: READ_CONFIG
+    getOrganizationSmAdminsRoles: READ_CONFIG
+    getOrganizationSmApnsCert: READ_CONFIG
+    getOrganizationSmSentryPoliciesAssignmentsByNetwork: READ_CONFIG
+    getOrganizationSmVppAccount: READ_CONFIG
+    getOrganizationSmVppAccounts: READ_CONFIG
+    getOrganizationSnmp: READ_CONFIG
+    getOrganizationSpacesIntegrateStatus: READ_CONFIG
+    getOrganizationSplashAsset: READ_CONFIG
+    getOrganizationSplashThemes: READ_CONFIG
+    getOrganizationSummarySwitchPowerHistory: READ_OPERATIONAL
+    getOrganizationSummaryTopAppliancesByUtilization: READ_OPERATIONAL
+    getOrganizationSummaryTopApplicationsByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopApplicationsCategoriesByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopClientsByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopClientsManufacturersByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopDevicesByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopDevicesModelsByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopNetworksByStatus: READ_OPERATIONAL
+    getOrganizationSummaryTopSsidsByUsage: READ_OPERATIONAL
+    getOrganizationSummaryTopSwitchesByEnergyUsage: READ_OPERATIONAL
+    getOrganizationSwitchPortsBySwitch: READ_CONFIG
+    getOrganizationSwitchPortsClientsOverviewByDevice: READ_OPERATIONAL
+    getOrganizationSwitchPortsOverview: READ_OPERATIONAL
+    getOrganizationSwitchPortsStatusesBySwitch: READ_OPERATIONAL
+    getOrganizationSwitchPortsTopologyDiscoveryByDevice: READ_OPERATIONAL
+    getOrganizationSwitchPortsUsageHistoryByDeviceByInterval: READ_OPERATIONAL
+    getOrganizationUplinksStatuses: READ_OPERATIONAL
+    getOrganizationWebhooksAlertTypes: READ_OPERATIONAL
+    getOrganizationWebhooksCallbacksStatus: READ_CONFIG
+    getOrganizationWebhooksLogs: READ_CONFIG  # tag monitor; carries configuration values and secrets
+    getOrganizationWirelessAirMarshalRules: READ_CONFIG
+    getOrganizationWirelessAirMarshalSettingsByNetwork: READ_CONFIG
+    getOrganizationWirelessClientsOverviewByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerAvailabilitiesChangeHistory: READ_OPERATIONAL
+    getOrganizationWirelessControllerClientsOverviewHistoryByDeviceByInterval: READ_OPERATIONAL
+    getOrganizationWirelessControllerConnections: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL2ByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL2StatusesChangeHistoryByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL2UsageHistoryByInterval: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL3ByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL3StatusesChangeHistoryByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesL3UsageHistoryByInterval: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesPacketsOverviewByDevice: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesInterfacesUsageHistoryByInterval: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesRedundancyFailoverHistory: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesRedundancyStatuses: READ_OPERATIONAL
+    getOrganizationWirelessControllerDevicesSystemUtilizationHistoryByInterval: READ_OPERATIONAL
+    getOrganizationWirelessControllerOverviewByDevice: READ_OPERATIONAL
+    getOrganizationWirelessDevicesChannelUtilizationByDevice: READ_OPERATIONAL
+    getOrganizationWirelessDevicesChannelUtilizationByNetwork: READ_OPERATIONAL
+    getOrganizationWirelessDevicesChannelUtilizationHistoryByDeviceByInterval: READ_OPERATIONAL
+    getOrganizationWirelessDevicesChannelUtilizationHistoryByNetworkByInterval: READ_OPERATIONAL
+    getOrganizationWirelessDevicesEthernetStatuses: READ_OPERATIONAL
+    getOrganizationWirelessDevicesPacketLossByClient: READ_OPERATIONAL
+    getOrganizationWirelessDevicesPacketLossByDevice: READ_OPERATIONAL
+    getOrganizationWirelessDevicesPacketLossByNetwork: READ_OPERATIONAL
+    getOrganizationWirelessDevicesPowerModeHistory: READ_OPERATIONAL
+    getOrganizationWirelessDevicesProvisioningDeployments: READ_CONFIG
+    getOrganizationWirelessDevicesRadsecCertificatesAuthorities: READ_CONFIG
+    getOrganizationWirelessDevicesRadsecCertificatesAuthoritiesCrls: READ_CONFIG
+    getOrganizationWirelessDevicesRadsecCertificatesAuthoritiesCrlsDeltas: READ_CONFIG
+    getOrganizationWirelessDevicesSystemCpuLoadHistory: READ_OPERATIONAL
+    getOrganizationWirelessDevicesWirelessControllersByDevice: READ_OPERATIONAL
+    getOrganizationWirelessLocationScanningByNetwork: READ_CONFIG
+    getOrganizationWirelessLocationScanningReceivers: READ_CONFIG
+    getOrganizationWirelessMqttSettings: READ_CONFIG
+    getOrganizationWirelessRadioRrmByNetwork: READ_CONFIG
+    getOrganizationWirelessRfProfilesAssignmentsByDevice: READ_CONFIG
+    getOrganizationWirelessSsidsFirewallIsolationAllowlistEntries: READ_CONFIG
+    getOrganizationWirelessSsidsOpenRoamingByNetwork: READ_CONFIG
+    getOrganizationWirelessSsidsStatusesByDevice: READ_OPERATIONAL
+    getOrganizationWirelessZigbeeByNetwork: READ_CONFIG
+    getOrganizationWirelessZigbeeDevices: READ_CONFIG
+    getOrganizationWirelessZigbeeDisenrollment: READ_CONFIG
+    getOrganizationWirelessZigbeeDoorLocks: READ_CONFIG
+    getOrganizations: INVENTORY_READ  # tag configure; an organisation, network or device list or record

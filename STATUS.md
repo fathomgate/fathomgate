@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 6 · blocked 2 · in review 4 · merged 24 · dropped 5
+Tasks: open 5 · blocked 2 · in review 5 · merged 24 · dropped 5
 
 ## In flight
 
@@ -23,7 +23,7 @@ Tasks: open 6 · blocked 2 · in review 4 · merged 24 · dropped 5
 | M1-14 | Audit the netdev-ssh-mcp and eos-mcp profiles against brief 02 and their pinned releases; add a profile-coverage test | `profiles` | upstream-server-scout | policy-engineer, security-reviewer, go-reviewer | merged | M1-13 | 3, 4 | — |
 | M1-15 | Tier 1 fallback-classification tests for every other surveyed tool in brief 02 | `internal/classify` | test-engineer | policy-engineer, security-reviewer, go-reviewer | in review | — | — | — |
 | M1-16 | Classifier - downgrade and config-read cases from classification sections 5 and 6, class_source on the result, whitespace variants | `internal/classify` | policy-engineer | security-reviewer, go-reviewer | merged | — | 3, 5 | — |
-| M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | open | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
+| M1-17 | Meta-tool classification through capability tables (Meraki execute_api) | `internal/classify` | policy-engineer | security-reviewer, go-reviewer, upstream-server-scout | in review | — | 18 | [0010](docs/adr/0010-classify-by-payload-not-annotations.md) |
 | M1-18 | internal/gate - parse, normalise, classify, resolve, Evaluate and the deny text, per ADR 0026 | `internal/gate` | policy-engineer | security-reviewer, go-reviewer | merged | M1-16 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
 | M1-19 | Wire the gate into Proxy.dispatch - tool errors on deny, decision log line, session counters, annotations from tools/list | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian | merged | M1-06, M1-18 | 3, 4, 6 | [0026](docs/adr/0026-m1-policy-pipeline-at-dispatch.md) |
 | M1-20 | fathomgate serve --policy, --inventory, --profiles with embedded profiles; --audit refused until M4 | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer, design-guardian, release-engineer | merged | M1-19 | 3, 4, 6 | [0027](docs/adr/0027-serve-policy-inventory-profiles-flags.md) |

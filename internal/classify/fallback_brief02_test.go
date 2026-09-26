@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
@@ -69,7 +70,7 @@ func TestFallbackBrief02(t *testing.T) {
 // TestFallbackBrief02Table checks the table itself: every row is on a
 // declared server, no row repeats, every brief class is a class or
 // Unclassed, the never-downgrade names are rows the brief calls
-// EXEC_ARBITRARY, Meraki execute_api is not here,
+// EXEC_ARBITRARY, no Meraki tool is here (its profile shipped in M1-17),
 // and no declared server has a shipped profile (its rows would belong in
 // TestRepoProfiles).
 func TestFallbackBrief02Table(t *testing.T) {
@@ -97,8 +98,8 @@ func TestFallbackBrief02Table(t *testing.T) {
 		if row.Brief != classifytest.Unclassed && !row.Brief.Valid() {
 			t.Errorf("%s: brief class %q is not a class", key, row.Brief)
 		}
-		if row.Server == "cisco-meraki-mcp" && row.Tool == "execute_api" {
-			t.Errorf("%s: belongs to M1-17 (capability tables)", key)
+		if strings.HasPrefix(row.Server, "cisco-meraki-mcp") {
+			t.Errorf("%s: Meraki has a shipped profile (M1-17); its tools are in TestRepoProfiles", key)
 		}
 	}
 	for key := range classifytest.NeverDowngrade {
