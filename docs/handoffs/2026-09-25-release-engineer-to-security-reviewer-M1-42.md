@@ -95,6 +95,7 @@ make actionlint && make status-check && make licences-check
 - **Low, values in test logs.** `TestFixtureCorpus` messages now name `<fixture>.expect.json secrets[i]` or `<fixture>.txt line n`, never the value or the line text.
 - **Low, device transcripts.** The new `TestTranscriptSecretsAreFake` runs the redactor over every file under `tests/fixtures/device/transcripts/`. Every replaced value must be a word of the transcript that starts with `FAKE` (after an optional marker), or `<removed>`, the placeholder EOS prints for secrets in `show tech-support`. Mutation check: a non-FAKE SNMP community in `show_running_config.txt` fails it, at line 14 only.
 - **Note, CRLF.** The `.gitleaksignore` format check strips `\r` first. Checked with a CRLF copy of the file.
+- **A fifth `.gitleaksignore` entry, please check it.** The first round 3 commit (`a10ced9`) wrote the PEM armour lines literally in `control.sh`'s `pem()` helper, with shell code between them, so the private-key rule matched the script. The scan caught it before CI did. The next commit builds the armour lines at run time, and `a10ced9:tools/secrets/control.sh:private-key:136` is ignored with that reason. That commit contains no key.
 - **Docs.** `docs/maintainers.md` now says the fallback applies to any base without `.gitleaks.toml`, and that the pull request's control of the scan files is accepted, with the reasons. `test-strategy.md`, the fixture README and `CHANGELOG.md` are updated.
 
 ### Threat-model rows, round 3 (replace the round 2 wording of these three rows; the others stand)

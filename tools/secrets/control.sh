@@ -132,10 +132,13 @@ fi
 # Findings on main, judged and listed by fingerprint in the repo's ignore
 # file: one line, and one multi-line PEM block. Key bodies are random bytes
 # made here, never committed; they are not keys. Each block is 4 lines.
+# The armour lines are built at run time so this script's own text never
+# matches gitleaks' private-key rule (it did once, in a10ced9: .gitleaksignore).
 pem() {
-	printf '%s\n' '-----BEGIN PRIVATE KEY-----'
+	dashes=-----
+	printf '%sBEGIN %s%s\n' "$dashes" 'PRIVATE KEY' "$dashes"
 	head -c 96 /dev/urandom | base64 | tr -d '\n' | fold -w 64
-	printf '\n%s\n' '-----END PRIVATE KEY-----'
+	printf '\n%sEND %s%s\n' "$dashes" 'PRIVATE KEY' "$dashes"
 }
 mkdir -p "$repo/keys"
 printf 'snmp-server community ignoredOnMain ro\n' > "$repo/tests/fixtures/configs/ignored.txt"

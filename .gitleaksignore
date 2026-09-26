@@ -25,3 +25,10 @@ b3decd2e9e4fdf3aecf19ed31df33bbfb0bffb0e:internal/audit/key_load_test.go:private
 # FAKE0822455D0A16 in the fixture and its expect file; this entry covers the
 # old commit only.
 3c64165490fa5761369e805c1e84af3489f50e01:tests/fixtures/configs/ios-xe.txt:netdev-type0-type7:8
+
+# tools/secrets/control.sh as first committed in round 3: the pem() helper
+# wrote the two PEM armour lines literally, with its own shell code between
+# them, so the private-key rule matched the script. No key: the control makes
+# random bodies at run time. The next commit builds the armour lines at run
+# time; this entry covers that one commit only.
+a10ced9674ea46791ca575685bfc167132963b44:tools/secrets/control.sh:private-key:136
