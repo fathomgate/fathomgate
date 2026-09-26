@@ -86,18 +86,20 @@ bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
 ```
 
 ```
-decision:    hold
-class:       WRITE_CONFIG
-target:      core-rtr-01 (role core, site dfw1, tags prod,critical)
-rule:        prod-core-needs-approval
-obligations: dry_run, diff, timed_rollback
-approval:    ttl 15m0s, approver must differ: true
+decision:       hold
+class:          WRITE_CONFIG
+target:         core-rtr-01 (role core, site dfw1, tags prod,critical)
+rule:           prod-core-needs-approval
+obligations:    dry_run, diff, timed_rollback
+approval:       ttl 15m0s, approver must differ: true
 trace:
   - default:session.max_devices      1 of 5 devices
   - reads-anywhere                   class WRITE_CONFIG not in [READ_OPERATIONAL READ_CONFIG INVENTORY_READ]
   - lab-writes-free                  target core-rtr-01 tags [prod critical] have none of [lab]
   * prod-core-needs-approval         matched
 ```
+
+`fathomgate` refuses an inventory others can write; if it does, run the command it prints, or copy the file to a directory only you can write.
 
 The trace lists every rule Fathomgate checked, top to bottom, and why each one did or did not apply. The first rule that matches decides.
 

@@ -3,9 +3,13 @@
 package inventory
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"slices"
+
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 // Pattern assigns a role, site or tags to every listed device whose name
@@ -46,7 +50,15 @@ func NewPatterns(ps []Pattern) (*Patterns, error) {
 		}
 		re, err := compilePattern(p.Match)
 		if err != nil {
-			return nil, fmt.Errorf("inventory: roles[%d]: %w", i, err)
+			// The regexp error repeats the expression raw, line breaks and
+			// all; name it quoted and keep only the error's fixed code
+			// (security re-review of PR #199, R1).
+			code := "invalid syntax"
+			var se *syntax.Error
+			if errors.As(err, &se) {
+				code = string(se.Code)
+			}
+			return nil, fmt.Errorf("inventory: roles[%d] %s: not a valid regular expression (%s)", i, termsafe.Quote(p.Match), code)
 		}
 		out.compiled = append(out.compiled, compiledPattern{re: re, p: p})
 	}

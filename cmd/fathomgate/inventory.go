@@ -15,6 +15,7 @@ import (
 	"github.com/fathomgate/fathomgate/internal/configset"
 	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/inventory"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 const inventoryUsage = `usage:
@@ -119,11 +120,11 @@ func inventoryLint(args []string, stdout, stderr io.Writer) int {
 	}
 	f, err := inventory.ParseFile(b)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %v\n", path, err)
+		printError(stderr, "fathomgate: inventory lint: "+termsafe.Quote(path)+": ", err)
 		return exitFail
 	}
 	if _, err := f.Chain(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %v\n", path, err)
+		printError(stderr, "fathomgate: inventory lint: "+termsafe.Quote(path)+": ", err)
 		return exitFail
 	}
 	var problems []string
@@ -134,10 +135,10 @@ func inventoryLint(args []string, stdout, stderr io.Writer) int {
 	}
 	problems = append(problems, f.PatternWarnings()...)
 	for _, w := range f.PatternEffects() {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: warning: %s\n", path, w)
+		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: warning: %s\n", termsafe.Quote(path), termsafe.Text(w))
 	}
 	for _, p := range problems {
-		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %s\n", path, p)
+		_, _ = fmt.Fprintf(stderr, "fathomgate: inventory lint: %s: %s\n", termsafe.Quote(path), termsafe.Text(p))
 	}
 	if len(problems) > 0 {
 		return exitFail
@@ -198,7 +199,7 @@ func inventoryResolve(args []string, stdout, stderr io.Writer) int {
 		if t, ok := inventory.Known(chain, name); ok {
 			r.Known, r.Target = true, &t
 		} else if lt, listed := chain.Resolve(name); listed {
-			r.Reason = "listed as " + printable(lt.Name) + "; a name is known only spelled exactly as listed (inventory-schema section 7)"
+			r.Reason = "listed as " + termsafe.Quote(lt.Name) + "; a name is known only spelled exactly as listed (inventory-schema section 7)"
 		} else {
 			r.Reason = "no name authority lists it"
 			for _, i := range patterns.Matching(name) {
@@ -224,22 +225,9 @@ func inventoryResolve(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-// printable returns s as is when it is plain printable ASCII, and quoted
-// with Go escapes otherwise, so a stored or typed value cannot carry a
-// terminal escape sequence, a control or bidi character, or a homoglyph that
-// reads as another name onto the operator's screen (review of PR #184, N2).
-func printable(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] >= 0x7f {
-			return strconv.QuoteToASCII(s)
-		}
-	}
-	return s
-}
-
 func printResolved(w io.Writer, r resolveResult) {
 	if !r.Known {
-		_, _ = fmt.Fprintf(w, "%s: unknown (%s)\n", printable(r.Name), r.Reason)
+		_, _ = fmt.Fprintf(w, "%s: unknown (%s)\n", termsafe.Quote(r.Name), r.Reason)
 		for _, p := range r.Patterns {
 			_, _ = fmt.Fprintf(w, "  matches %s, which never makes a name known (ADR 0031)\n", p)
 		}
@@ -253,12 +241,12 @@ func printResolved(w io.Writer, r resolveResult) {
 	if t.Stale {
 		stale = ", stale"
 	}
-	_, _ = fmt.Fprintf(w, "%s: known (listed by %s%s)\n", printable(r.Name), printable(t.Source), stale)
+	_, _ = fmt.Fprintf(w, "%s: known (listed by %s%s)\n", termsafe.Quote(r.Name), termsafe.Quote(t.Source), stale)
 	row := func(field, value, source string) {
 		if value == "" {
 			value, source = "-", ""
 		}
-		line := fmt.Sprintf("  %-7s %-24s %s", field, printable(value), printable(source))
+		line := fmt.Sprintf("  %-7s %-24s %s", field, termsafe.Quote(value), termsafe.Quote(source))
 		_, _ = fmt.Fprintln(w, strings.TrimRight(line, " "))
 	}
 	row("name", t.Name, src.Name)
@@ -283,6 +271,6 @@ func printResolved(w io.Writer, r resolveResult) {
 // failTo prints an error in the CLI's voice to w and returns the usage exit
 // code, as fail does for os.Stderr.
 func failTo(w io.Writer, err error) int {
-	_, _ = fmt.Fprintf(w, "fathomgate: %v\n", err)
+	printError(w, "fathomgate: ", err)
 	return exitUsage
 }

@@ -232,7 +232,7 @@ cases:
 | `cases[].request.tool` | string | class-given: no; gate: yes | For a gate case, the upstream's own tool name without the prefix, looked up exactly as the gate looks it up. |
 | `cases[].request.class` | class | class-given: yes; gate: not allowed | |
 | `cases[].request.targets[]` | list of target | class-given: no; gate: not allowed | `name`, `role`, `tags`, `site`, `known`. `known` defaults to `true`; set `known: false` to model an unresolved device. |
-| `cases[].request.arguments` | mapping | gate: one of the two | The arguments object, encoded with `encoding/json` into the bytes the gate receives. Keys are strings; values are strings, numbers, booleans, null, lists and mappings. A non-string key, a merge key (`<<`), a tag, an anchor or an alias is a load error. YAML double-quoted escapes (`\n`, `\r`, `\v`, `\u2028`, `\u200b`) carry control and look-alike characters. `{}` is a call with no arguments. |
+| `cases[].request.arguments` | mapping | gate: one of the two | The arguments object, encoded with `encoding/json` into the bytes the gate receives. Keys are strings; values are strings, numbers, booleans, null, lists and mappings. A non-string key, a merge key (`<<`), a tag, an anchor or an alias is a load error. An unquoted value must reach the gate as written: a number only when its text is plain decimal (no `+`, leading zero, `_`, `0x`, `0o`, `0b` or exponent, digits on both sides of a point) and `encoding/json` writes the decoded value back as exactly that text, so `1.0`, `2.50`, `-0`, a long `3.14159...` or `0.0000001` is refused; `true`, `false` and `null` as spelled; or a string that does not look like a number, a date or a time. `0x1F`, `017`, `True`, `~` or `.inf` is a load error that names the line and says to quote the value or use `arguments_json`; a plain string that looks like a number, a date or a time (`1e3`, `2026-09-25`, `12:30`, `65000:100`, an all-digit MAC address, or an IPv6 literal of decimal groups and single colons such as `2001:0:0:0:0:0:0:1`) is a load error that says it looks like one and to quote it. IPv6 literals with a hex letter or `::` (`2001:db8::1`, `fe80::1`) pass unquoted. YAML double-quoted escapes (`\n`, `\r`, `\v`, `\u2028`, `\u200b`) carry control and look-alike characters. `{}` is a call with no arguments. |
 | `cases[].request.arguments_json` | string | gate: one of the two | The arguments exactly as the agent's bytes: for a key given twice, trailing data, a top-level array or JSON cut short. Invalid UTF-8 cannot be written in a YAML file; the `internal/gate` tests cover it. |
 | `cases[].request.annotations` | mapping | gate: no | `readOnlyHint` and `destructiveHint`, booleans; absent is none. They can only raise a class (invariant 3). |
 | `cases[].request.session` | object | no | `devices_touched`, `pending_holds`. Default 0. A gate case's targets all count as new devices. |
@@ -260,7 +260,9 @@ A file that breaks one of these rules does not run; `policy test` exits 2 and na
 - a gate case whose `server` has no profile in the run's set: `serve` would give that server an empty profile, which denies every call carrying arguments with `default:bad_arguments`, so a deny case would pass for any reason;
 - a gate case whose arguments are over 64 KiB: the proxy refuses such a call before the gate runs, so the gate path cannot say what `serve` does;
 - `parse_error`, `unnamed_args` or `malformed_args` with a rule other than `default:bad_arguments`; a `parse_error` or `class_source` outside its vocabulary;
-- an `inventory` that `serve --inventory` would refuse.
+- an `inventory` that `serve --inventory` would refuse;
+- an unquoted value in `arguments` that would reach the gate as something other than what is written (7.1);
+- a YAML anchor (`&`) or alias (`*`) anywhere in the file, a case name over 256 bytes, or a test file or policy over 16 MiB: aliases let a few kilobytes repeat a large value thousands of times into the output.
 
 `default:internal_error` and the proxy's 64 KiB refusal happen outside the gate and are pinned by the `internal/proxy` tests.
 
@@ -270,9 +272,9 @@ A gate case never names a profile file. `policy test` uses the profiles built in
 
 ### 7.4 Output
 
-`policy test` prints one `PASS` or `FAIL` line per case and a count. It prints no argument value, and it quotes a case name, argument name, target name, rule id or trace note that is not printable ASCII (`strconv.QuoteToASCII`): a suite that carries injection inputs is itself injection text. `-v` adds, for a failing case, the class and `class_source` of a gate case and the rule trace. Exit 0 when every case passes, 1 when any fails, 2 when a file cannot be loaded.
+`policy test` prints one `PASS` or `FAIL` line per case and a count. It prints no argument value other than validated target names, and it quotes a case name, argument name, target name, rule id, trace note or path that is not printable ASCII (`internal/termsafe`, the one helper the CLI and the runner share): a suite that carries injection inputs is itself injection text. An error is printed on one line through `termsafe.Text`, which escapes every C0 control (line feed and tab included), DEL, C1 controls, the line and paragraph separators and the bidirectional formatting characters, so no value a parser echoes can forge a line; the fix commands of a file-permission refusal follow on lines of their own (`configfile.Hint`). `-v` adds, for a failing case, the class and `class_source` of a gate case and the rule trace. Exit 0 when every case passes, 1 when any fails, 2 when a file cannot be loaded.
 
-`fathomgate policy eval --profile <file> --tool <tool> (--arg k=v ... | --arguments-json '<json>')` decides one call through the same function (`gate.Explain`), with the profile as a set of one, so an operator can reproduce a gate case with one command. `--class` and `--target` are usage errors with `--profile`. Its output adds `class_source`, `parse_error`, `unnamed_args` and `malformed_args` when set, `forwarded`, and the tool error line; `--json` adds a `gate` object with the same fields.
+`fathomgate policy eval --profile <file> --tool <tool> (--arg k=v ... | --arguments-json '<json>')` decides one call through the same function (`gate.Explain`), with the profile as a set of one, so an operator can reproduce a gate case with one command. It reads `--profile` and `--inventory` as `serve` reads a profile and an inventory (`internal/configset`: the `configfile` checks, the size cap, a profile file named after its server key, no CSV). `--class` and `--target` are usage errors with `--profile`. Its output adds `class_source`, `parse_error`, `unnamed_args` and `malformed_args` when set, `forwarded`, and the tool error line; `--json` adds a `gate` object with the same fields.
 
 ## 8. Loader requirements
 
@@ -296,7 +298,7 @@ Planned, not yet implemented: reload on SIGHUP with the previous policy kept on 
 
 | File | Purpose | Class-given cases | Gate cases |
 | --- | --- | --- | --- |
-| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 | 75 |
+| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 | 76 |
 | `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices; everything else read-only. Until M3 its `lab-writes-free` rule carries no `dry_run` or `diff`: an `allow` with an obligation fathomgate cannot meet is not forwarded ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)), so with them every lab write would be refused. They return in M3. Lab devices must be listed statically by name (inventory-schema section 4). | 13 | 22 |
 | `policies/examples/prod-approval.yaml` | The example in section 1. Safe to load before M3: its holds, and its `lab-writes-free` allows (which carry `dry_run` and `diff`), are not forwarded until M3 (ADR 0026). | 20 | 15 |
 

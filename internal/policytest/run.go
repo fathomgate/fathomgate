@@ -5,7 +5,10 @@ package policytest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,6 +22,7 @@ import (
 	"github.com/fathomgate/fathomgate/internal/gate/seam"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 // Runner runs test files against one profile set.
@@ -65,35 +69,41 @@ type Result struct {
 // RunFile loads the test file at path, its policy and its inventory, checks
 // every case, and runs them. The error is non-nil only when the files
 // cannot be read or loaded or a case breaks a load rule; a failing case is
-// reported in its Result.
+// reported in its Result. Every path in an error is quoted when it is not
+// printable ASCII, since the policy and inventory paths come from the test
+// file (security review of PR #197, L1).
 func (r *Runner) RunFile(path string) ([]Result, error) {
-	b, err := os.ReadFile(path)
+	shown := termsafe.Quote(path)
+	b, err := readCapped(path)
 	if err != nil {
-		return nil, fmt.Errorf("read test file: %w", err)
+		return nil, fmt.Errorf("test file %s: %w", shown, err)
 	}
 	f, err := Parse(b)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", shown, err)
 	}
 	dir := filepath.Dir(path)
-	p, err := policy.Load(resolve(dir, f.Policy))
+	pb, err := readCapped(resolve(dir, f.Policy))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: policy %s: %w", shown, termsafe.Quote(f.Policy), err)
+	}
+	p, err := policy.Parse(pb)
+	if err != nil {
+		return nil, fmt.Errorf("%s: policy %s: %w", shown, termsafe.Quote(f.Policy), err)
 	}
 
 	var resolver inventory.Resolver
 	if f.Inventory != nil {
 		chain, err := loadInventory(dir, f.Inventory)
 		if err != nil {
-			// Decode and chain errors already start with "inventory:".
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%s: %w", shown, err)
 		}
 		resolver = chain
 	}
 	for i, c := range f.Cases {
 		if c.IsGate() && r.profiles[c.Request.Server] == nil {
 			return nil, fmt.Errorf("%s: case %d %s: server %s has no profile in the %s profile set; a gate case must name a profiled server (serve would deny every call to it that carries arguments)",
-				path, i+1, quote(c.Name), quote(c.Request.Server), r.source)
+				shown, i+1, termsafe.Quote(c.Name), termsafe.Quote(c.Request.Server), termsafe.Quote(r.source))
 		}
 	}
 	g, err := gate.New(gate.Config{Policy: p, Profiles: r.profiles, Inventory: resolver})
@@ -101,6 +111,29 @@ func (r *Runner) RunFile(path string) ([]Result, error) {
 		return nil, err
 	}
 	return runCases(p, g, f.Cases), nil
+}
+
+// readCapped reads a test file or its policy, at most configset.MaxFile
+// bytes. The error never repeats the path: the caller names the file,
+// quoted.
+func readCapped(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
+		return nil, fmt.Errorf("cannot open it: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, configset.MaxFile+1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read it: %w", err)
+	}
+	if len(b) > configset.MaxFile {
+		return nil, fmt.Errorf("it is larger than %d bytes", configset.MaxFile)
+	}
+	return b, nil
 }
 
 func resolve(dir, p string) string {
@@ -118,7 +151,8 @@ func loadInventory(dir string, inv *Inventory) (inventory.Resolver, error) {
 		var err error
 		b, err = configset.ReadInventory(resolve(dir, inv.Path))
 		if err != nil {
-			return nil, fmt.Errorf("inventory %s: %w", quote(inv.Path), err)
+			// configset names the file, quoted.
+			return nil, fmt.Errorf("inventory: %w", err)
 		}
 	}
 	_, chain, err := configset.ParseInventory(b)
@@ -138,7 +172,7 @@ func runCases(p *policy.Policy, g *gate.Gate, cases []Case) []Result {
 			continue
 		}
 		d := policy.Evaluate(p, c.Request.request())
-		res := Result{Name: c.Name, Effect: d.Effect, RuleID: d.RuleID, Trace: d.Trace, Pass: true}
+		res := Result{Name: c.Name, Effect: d.Effect, RuleID: d.RuleID, Trace: d.Trace}
 		res.Message = mismatch(c.Expect, d.Effect, d.RuleID, d.Obligations)
 		res.Pass = res.Message == ""
 		out = append(out, res)
@@ -150,11 +184,11 @@ func runCases(p *policy.Policy, g *gate.Gate, cases []Case) []Result {
 func mismatch(e Expect, effect policy.Effect, rule string, obligations []string) string {
 	switch {
 	case effect != e.Effect:
-		return fmt.Sprintf("effect %s (rule %s), want %s", effect, quote(rule), e.Effect)
+		return fmt.Sprintf("effect %s (rule %s), want %s", effect, termsafe.Quote(rule), e.Effect)
 	case e.Rule != "" && rule != e.Rule:
-		return fmt.Sprintf("rule %s, want %s", quote(rule), quote(e.Rule))
+		return fmt.Sprintf("rule %s, want %s", termsafe.Quote(rule), termsafe.Quote(e.Rule))
 	case e.Obligations != nil && !sameSet(obligations, e.Obligations):
-		return fmt.Sprintf("obligations %s, want %s", quoteAll(sorted(obligations)), quoteAll(sorted(e.Obligations)))
+		return fmt.Sprintf("obligations %s, want %s", termsafe.List(sorted(obligations)), termsafe.List(sorted(e.Obligations)))
 	}
 	return ""
 }
@@ -193,18 +227,28 @@ func runGate(g *gate.Gate, c Case) Result {
 		msg = fmt.Sprintf("class %s (class_source %s), want %s", v.Class, v.ClassSource, e.Class)
 	case e.ClassSource != "" && v.ClassSource != e.ClassSource:
 		msg = fmt.Sprintf("class_source %s, want %s", v.ClassSource, e.ClassSource)
+	case e.Obligations != nil && !rec.has("obligations", slog.KindAny):
+		msg = absent("obligations")
 	case e.Obligations != nil && !sameSet(rec.strings("obligations"), e.Obligations):
-		msg = fmt.Sprintf("obligations %s, want %s", quoteAll(sorted(rec.strings("obligations"))), quoteAll(sorted(e.Obligations)))
+		msg = fmt.Sprintf("obligations %s, want %s", termsafe.List(sorted(rec.strings("obligations"))), termsafe.List(sorted(e.Obligations)))
 	case e.Targets != nil && !slices.Equal(v.Targets, *e.Targets):
-		msg = fmt.Sprintf("targets %s, want %s", quoteAll(v.Targets), quoteAll(*e.Targets))
+		msg = fmt.Sprintf("targets %s, want %s", termsafe.List(v.Targets), termsafe.List(*e.Targets))
+	case e.UnknownTarget != nil && !rec.has("unknown_target", slog.KindBool):
+		msg = absent("unknown_target")
 	case e.UnknownTarget != nil && rec.bool("unknown_target") != *e.UnknownTarget:
 		msg = fmt.Sprintf("unknown_target %t, want %t", rec.bool("unknown_target"), *e.UnknownTarget)
+	case e.ParseError != "" && !rec.has("parse_error", slog.KindString):
+		msg = absent("parse_error") + ", want " + e.ParseError
 	case e.ParseError != "" && rec.string("parse_error") != e.ParseError:
-		msg = fmt.Sprintf("parse_error %s, want %s", orNone(rec.string("parse_error")), e.ParseError)
+		msg = fmt.Sprintf("parse_error %s, want %s", rec.string("parse_error"), e.ParseError)
+	case e.UnnamedArgs != nil && len(*e.UnnamedArgs) > 0 && !rec.has("unnamed_args", slog.KindAny):
+		msg = absent("unnamed_args") + ", want " + termsafe.List(sorted(*e.UnnamedArgs))
 	case e.UnnamedArgs != nil && !sameSet(rec.strings("unnamed_args"), *e.UnnamedArgs):
-		msg = fmt.Sprintf("unnamed_args %s, want %s", quoteAll(sorted(rec.strings("unnamed_args"))), quoteAll(sorted(*e.UnnamedArgs)))
+		msg = fmt.Sprintf("unnamed_args %s, want %s", termsafe.List(sorted(rec.strings("unnamed_args"))), termsafe.List(sorted(*e.UnnamedArgs)))
+	case e.MalformedArgs != nil && len(*e.MalformedArgs) > 0 && !rec.has("malformed_args", slog.KindAny):
+		msg = absent("malformed_args") + ", want " + termsafe.List(sorted(*e.MalformedArgs))
 	case e.MalformedArgs != nil && !sameSet(rec.strings("malformed_args"), *e.MalformedArgs):
-		msg = fmt.Sprintf("malformed_args %s, want %s", quoteAll(sorted(rec.strings("malformed_args"))), quoteAll(sorted(*e.MalformedArgs)))
+		msg = fmt.Sprintf("malformed_args %s, want %s", termsafe.List(sorted(rec.strings("malformed_args"))), termsafe.List(sorted(*e.MalformedArgs)))
 	case e.Forwarded != nil && v.Forward != *e.Forwarded:
 		msg = fmt.Sprintf("forwarded %t, want %t", v.Forward, *e.Forwarded)
 	case e.ToolError != nil && v.Error != *e.ToolError:
@@ -223,6 +267,29 @@ func record(attrs []slog.Attr) logRecord {
 		out[a.Key] = a.Value.Resolve()
 	}
 	return out
+}
+
+// has reports whether the record carries key with a value of kind. For
+// KindAny the value must also be a []string, as every list field is. An
+// assertion on a field the record does not carry fails rather than
+// comparing against a zero value (security review of PR #197, N3).
+func (r logRecord) has(key string, kind slog.Kind) bool {
+	v, ok := r[key]
+	if !ok || v.Kind() != kind {
+		return false
+	}
+	if kind == slog.KindAny {
+		_, ok = v.Any().([]string)
+	}
+	return ok
+}
+
+// absent is the failure message for an asserted field the record lacks.
+// obligations and unknown_target are on every decision line; parse_error,
+// unnamed_args and malformed_args only when the gate set them, so an empty
+// list asserts that they are absent.
+func absent(key string) string {
+	return key + " (none: the decision record has no " + key + " field)"
 }
 
 func (r logRecord) string(key string) string {
@@ -244,13 +311,6 @@ func (r logRecord) strings(key string) []string {
 		return nil
 	}
 	s, _ := v.Any().([]string)
-	return s
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "(none)"
-	}
 	return s
 }
 
