@@ -75,8 +75,59 @@ func forwardable(obligation string) bool {
 // forward it. It never fails: every problem is a deny with a rule id. ctx
 // is not used yet; it is there for a resolver that takes one (the M2
 // upstream-provider record).
-func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
-	d := decision{in: in}
+func (g *Gate) Decide(ctx context.Context, in seam.CallInfo) seam.Verdict {
+	return g.decide(ctx, in).verdict()
+}
+
+// Explanation is one call as Explain decided it: the Verdict Decide
+// returns, and the detail an operator needs to see why. It is for
+// fathomgate policy test and policy eval (ADR 0035), never for the agent:
+// Decision carries Evaluate's own reasons, which name targets and
+// counters, and Unnamed and Malformed are agent-chosen argument names,
+// uncapped.
+type Explanation struct {
+	// Verdict is exactly what Decide returns for the same call.
+	Verdict seam.Verdict
+	// Decision is Evaluate's decision, or the gate's default:bad_arguments
+	// refusal before Evaluate ran. Its Trace is the rule trace.
+	Decision policy.Decision
+	// Targets are the call's targets as resolved (role, site, tags,
+	// known), empty for a refusal before Evaluate.
+	Targets []policy.Target
+	// ProfileClass is the profile's class for the tool before its
+	// arguments were inspected, and ClassNote the classifier's reason for
+	// any change (it names a command by index and the check, never by its
+	// text).
+	ProfileClass classify.Class
+	ClassNote    string
+	// ParseError is the log line's parse_error code, empty when none.
+	ParseError string
+	// Unnamed and Malformed are the argument names the closed argument
+	// list refused (ADR 0033), sorted.
+	Unnamed, Malformed []string
+}
+
+// Explain decides one call as Decide does, through the same steps, and
+// also returns the operator's detail. fathomgate policy test and policy
+// eval call it so that neither can disagree with serve (ADR 0035).
+func (g *Gate) Explain(ctx context.Context, in seam.CallInfo) Explanation {
+	d := g.decide(ctx, in)
+	return Explanation{
+		Verdict:      d.verdict(),
+		Decision:     d.dec,
+		Targets:      slices.Clone(d.resolved),
+		ProfileClass: d.res.ProfileClass,
+		ClassNote:    d.res.Reason,
+		ParseError:   d.parseError,
+		Unnamed:      slices.Clone(d.unnamed),
+		Malformed:    slices.Clone(d.malformed),
+	}
+}
+
+// decide runs the steps and leaves the outcome in the returned decision;
+// verdict turns it into what the proxy acts on.
+func (g *Gate) decide(_ context.Context, in seam.CallInfo) *decision {
+	d := &decision{in: in}
 	profile := g.profiles[in.Server]
 	var spec classify.ToolSpec
 	inProfile := false
@@ -156,7 +207,7 @@ func (g *Gate) Decide(_ context.Context, in seam.CallInfo) seam.Verdict {
 
 	// 6. Evaluate.
 	d.dec = policy.Evaluate(g.policy, req)
-	return d.verdict()
+	return d
 }
 
 // Arguments reports the argument names server's profile names for tool
@@ -273,7 +324,7 @@ func isReadClass(c classify.Class) bool {
 }
 
 // refuse is a deny with default:bad_arguments, decided before Evaluate.
-func (d *decision) refuse(reason string) seam.Verdict {
+func (d *decision) refuse(reason string) *decision {
 	d.targets, d.resolved = nil, nil
 	d.dec = policy.Decision{
 		Effect: policy.Deny,
@@ -281,7 +332,7 @@ func (d *decision) refuse(reason string) seam.Verdict {
 		Reason: reason,
 		Trace:  []policy.TraceEntry{{RuleID: policy.RuleBadArguments, Matched: true, Note: reason}},
 	}
-	return d.verdict()
+	return d
 }
 
 // verdict turns the decision into what the proxy does and records.

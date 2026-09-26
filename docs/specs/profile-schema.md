@@ -43,7 +43,7 @@ Implemented in `Normalize(profile, tool, args)`:
 - A tool is looked up by its bare name or by `<server>.<name>`.
 - A tool not in the profile yields empty targets, commands and payload; callers treat it as `EXEC_ARBITRARY`.
 
-`Normalize` is what `fathomgate policy eval --arg` and `classify.Result` use. The proxy's decision takes its targets from the stricter rules in 2.2 instead.
+`Normalize` is what `classify.Result` uses. The proxy's decision takes its targets from the stricter rules in 2.2 instead, and so do `fathomgate policy eval --profile` and the gate cases of a `*.test.yaml` file, which decide through the gate ([ADR 0035](../adr/0035-policy-test-cases-run-the-gate-path.md)).
 
 ### 2.2 Targets at the gate
 
