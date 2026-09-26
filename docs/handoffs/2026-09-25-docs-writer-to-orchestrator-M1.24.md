@@ -51,3 +51,4 @@ The M1-08 scanner was a scratch script and is not committed.
 - Test: rows 4 to 6, profile-schema 2.2 and 8.2, M1-24 matrix `[3, 4, 5, 6]`, M1-28 note "reads, config reads and exec". Row statuses and M1-28's matrix unchanged.
 - Row 6: the M1-22 eos-mcp `default:unknown_target` cases in tier 2 are reads; `WRITE_CONFIG` to an unknown host is covered in tier 1 only (`read-only.test.yaml`). A tier 2 write case would be M1-28's to add.
 - Expected merge conflicts: PR #196 (classification.md section 2 step 1 is next to step 2; ADR 0010 header), PR #195 (row 6 and the M1-28 note), PR #193 (classification.md).
+- Threat-model row "Server without a profile under `--policy`" now names `TestFallbackBrief02Gate` (`internal/gate`, PR #193, open when this was written) and ADR 0036.
