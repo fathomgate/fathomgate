@@ -5,6 +5,7 @@ package gate
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -115,41 +116,71 @@ func TestCapabilityArguments(t *testing.T) {
 }
 
 // TestCapabilityRawJSON: the id the gate looks up is the one the upstream
-// receives. A \u escape decodes to the same id in both, a lone surrogate
-// becomes U+FFFD in Go and matches nothing, invalid UTF-8 and a duplicate
-// key are refused before classification (so two parsers cannot pick
-// different ids), and the proxy forwards the re-encoded object it checked.
+// receives. A JSON escape in the key or the value decodes to the same text
+// in both, a lone surrogate becomes U+FFFD in Go and matches nothing,
+// invalid UTF-8 and a duplicate key (also one spelt with an escape, in
+// either order) are refused before classification, so two parsers cannot
+// pick different ids, and the proxy forwards the re-encoded object it
+// checked.
+//
+// The escapes are built from one backslash byte (esc), never written out,
+// and each escaped case must still hold a backslash-u in its bytes: an
+// editor that decodes escape sequences in source once turned these cases
+// into plain text, and they then tested nothing (security review of PR
+// #196, F2).
 func TestCapabilityRawJSON(t *testing.T) {
 	t.Parallel()
 	g := newGate(t, examplePolicy(t, "read-only"), false)
-	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	backslashU := string([]byte{0x5c, 'u'})
+	esc := func(hex string) string { return backslashU + hex }
+	const plain = `{"capability_id":"getOrganizations"}`
+	allowed := want{effect: "allow", rule: "reads-anywhere", class: "INVENTORY_READ", source: "capability_table", forward: true}
+	noExec := want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "capability_table"}
+	badArgs := want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY", source: "capability_table",
+		text: "fathomgate denied cisco-meraki-mcp-official.execute_api: rule default:bad_arguments (class EXEC_ARBITRARY): " + reasonNotObject}
 	for _, tc := range []struct {
-		name string
-		args json.RawMessage
-		w    want
+		name    string
+		args    string
+		escapes int // how many escapes the bytes must hold
+		w       want
 	}{
-		{"escaped letter", raw(`{"capability_id":"getOrganizations"}`),
-			want{effect: "allow", rule: "reads-anywhere", class: "INVENTORY_READ", source: "capability_table", forward: true}},
-		{"escaped key", raw(`{"capability_id":"getOrganizations"}`),
-			want{effect: "allow", rule: "reads-anywhere", class: "INVENTORY_READ", source: "capability_table", forward: true}},
-		{"lone surrogate", raw(`{"capability_id":"getOrganizations\ud800"}`),
-			want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "capability_table"}},
-		{"escaped NUL", raw(`{"capability_id":"getOrganizations\u0000"}`),
-			want{effect: "deny", rule: "no-exec", class: "EXEC_ARBITRARY", source: "capability_table"}},
-		{"duplicate key", raw(`{"capability_id":"getOrganizations","capability_id":"rebootDevice"}`),
-			want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY", source: "capability_table", text: "fathomgate denied cisco-meraki-mcp-official.execute_api: rule default:bad_arguments (class EXEC_ARBITRARY): " + reasonNotObject}},
-		{"duplicate key through an escape", raw(`{"capability_id":"getOrganizations","capability_id":"rebootDevice"}`),
-			want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY", source: "capability_table"}},
-		{"invalid UTF-8", json.RawMessage(append([]byte(`{"capability_id":"getOrganizations`), 0xff, '"', '}')),
-			want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY", source: "capability_table"}},
+		{"escaped letter in the value", `{"capability_id":"` + esc("0067") + `etOrganizations"}`, 1, allowed},
+		{"every letter of the value escaped", `{"capability_id":"` + escapeAll("getOrganizations", esc) + `"}`, len("getOrganizations"), allowed},
+		{"escaped key", `{"capability` + esc("005f") + `id":"getOrganizations"}`, 1, allowed},
+		{"escaped key and value", `{"capability` + esc("005f") + `id":"` + esc("0067") + `etOrganizations"}`, 2, allowed},
+		{"escaped unlisted id", `{"capability_id":"` + esc("0072") + `ebootDevice"}`, 1, noExec},
+		{"escaped upper-case letter", `{"capability_id":"` + esc("0047") + `etOrganizations"}`, 1, noExec},
+		{"lone surrogate", `{"capability_id":"getOrganizations` + esc("d800") + `"}`, 1, noExec},
+		{"escaped NUL", `{"capability_id":"getOrganizations` + esc("0000") + `"}`, 1, noExec},
+		{"duplicate key", `{"capability_id":"getOrganizations","capability_id":"rebootDevice"}`, 0, badArgs},
+		{"duplicate key through an escape, plain first", `{"capability_id":"getOrganizations","capability` + esc("005f") + `id":"rebootDevice"}`, 1, badArgs},
+		{"duplicate key through an escape, escaped first", `{"capability` + esc("005f") + `id":"rebootDevice","capability_id":"getOrganizations"}`, 1, badArgs},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			if n := strings.Count(tc.args, backslashU); n != tc.escapes {
+				t.Fatalf("the case holds %d escapes, want %d: %q", n, tc.escapes, tc.args)
+			}
+			if tc.escapes > 0 && len(tc.args) <= len(plain) {
+				t.Fatalf("an escaped case is no longer than the plain form: %q", tc.args)
+			}
 			in := call(meraki, "execute_api", nil)
-			in.Arguments = tc.args
+			in.Arguments = json.RawMessage(tc.args)
 			check(t, tc.name, g.Decide(context.Background(), in), tc.w)
 		})
 	}
+	in := call(meraki, "execute_api", nil)
+	in.Arguments = json.RawMessage(append([]byte(`{"capability_id":"getOrganizations`), 0xff, '"', '}'))
+	check(t, "invalid UTF-8", g.Decide(context.Background(), in), want{effect: "deny", rule: policy.RuleBadArguments, class: "EXEC_ARBITRARY", source: "capability_table"})
+}
+
+// escapeAll writes every byte of an ASCII string as a JSON escape.
+func escapeAll(s string, esc func(string) string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		b.WriteString(esc(fmt.Sprintf("%04x", s[i])))
+	}
+	return b.String()
 }
 
 // TestCapabilityAnnotations: invariant 3 on the meta-tool. A readOnlyHint
