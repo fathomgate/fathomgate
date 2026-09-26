@@ -154,19 +154,31 @@ cases:
       server: eos-mcp
       tool: get_version
       arguments: {hostname: " lab-sw-01"}
-    expect: {effect: deny, rule: default:bad_arguments}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      targets: []
+      tool_error: "fathomgate denied eos-mcp.get_version: rule default:bad_arguments (class READ_OPERATIONAL): a target is not a hostname or IP address"
   - name: "PR #154: a trailing dot is not a listed name"
     request:
       server: eos-mcp
       tool: get_version
       arguments: {hostname: lab-sw-01.}
-    expect: {effect: deny, rule: default:bad_arguments}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      targets: []
+      tool_error: "fathomgate denied eos-mcp.get_version: rule default:bad_arguments (class READ_OPERATIONAL): a target is not a hostname or IP address"
   - name: "PR #154: a zero-width space after a listed name is not a hostname"
     request:
       server: eos-mcp
       tool: get_version
       arguments: {hostname: "lab-sw-01\u200b"}
-    expect: {effect: deny, rule: default:bad_arguments}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      targets: []
+      tool_error: "fathomgate denied eos-mcp.get_version: rule default:bad_arguments (class READ_OPERATIONAL): a target is not a hostname or IP address"
   - name: "listed device with a role and tags from the patterns is read as usual"
     request:
       server: eos-mcp
@@ -291,6 +303,12 @@ cases:
       server: eos-mcp
       tool: run_command
       arguments: {hostname: lab-sw-01, command: "show running-config | redirect flash:x"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: an append to a file on bootflash"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show run | append bootflash:x"}
     expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
   - name: "PR #152: a double-quoted option on ping"
     request:

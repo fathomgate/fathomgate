@@ -405,7 +405,7 @@ func serveBinding(ctx context.Context, args []string, stderr io.Writer, lookup l
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
-		_, _ = fmt.Fprintf(stderr, "fathomgate: serve: %v\n", err)
+		printError(stderr, "fathomgate: serve: ", err)
 		return exitUsage
 	}
 	// The listener's tokens are scrubbed from stderr too. They are kept out
@@ -422,7 +422,7 @@ func serveBinding(ctx context.Context, args []string, stderr io.Writer, lookup l
 	// is a usage error, and no upstream starts.
 	pl, err := loadPipeline(cfg.pipeline, cfg.server)
 	if err != nil {
-		_, _ = fmt.Fprintf(out, "fathomgate: serve: %v\n", err)
+		printError(out, "fathomgate: serve: ", err)
 		return exitUsage
 	}
 	pl.logWarnings(logger)
@@ -489,7 +489,7 @@ func serveBinding(ctx context.Context, args []string, stderr io.Writer, lookup l
 		logger.Warn("closing upstream", "error", err)
 	}
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
-		_, _ = fmt.Fprintf(out, "fathomgate: serve: %v\n", runErr)
+		printError(out, "fathomgate: serve: ", runErr)
 		return exitFail
 	}
 	return exitOK

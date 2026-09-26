@@ -21,10 +21,13 @@ import (
 	"github.com/fathomgate/fathomgate/internal/classify"
 	"github.com/fathomgate/fathomgate/internal/configfile"
 	"github.com/fathomgate/fathomgate/internal/inventory"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 	"github.com/fathomgate/fathomgate/profiles"
 )
 
-// MaxFile caps the policy, the inventory and each profile file.
+// MaxFile is the size cap, in bytes, on each file configset reads (a
+// profile, an inventory). serve applies the same cap to the policy file, and
+// policy test to a test file and its policy.
 const MaxFile = 16 << 20
 
 // Embedded is the source name of the profiles built into the binary.
@@ -53,20 +56,41 @@ func EmbeddedProfiles() ([]ProfileFile, error) {
 // profile is an error: an empty set would deny every call that carries
 // arguments.
 func ProfileDir(dir string) ([]ProfileFile, error) {
-	if err := configfile.CheckDir(dir, "the profiles directory "+dir); err != nil {
+	if err := configfile.CheckDir(dir, "the profiles directory "+termsafe.Quote(dir)); err != nil {
 		return nil, err
 	}
 	set, err := loadProfiles(os.DirFS(dir), dir, func(name string) ([]byte, error) {
 		p := filepath.Join(dir, name)
-		return configfile.Read(p, "the profile "+p, MaxFile)
+		return configfile.Read(p, "the profile "+termsafe.Quote(p), MaxFile)
 	})
 	if err != nil {
 		return nil, err
 	}
 	if len(set) == 0 {
-		return nil, fmt.Errorf("%s holds no *.yaml profile", dir)
+		return nil, fmt.Errorf("%s holds no *.yaml profile", termsafe.Quote(dir))
 	}
 	return set, nil
+}
+
+// ProfileFileAt reads one profile file as ProfileDir reads each of its
+// files: the configfile checks, the size cap, strict decoding and Validate,
+// and the file named after its server key. fathomgate policy eval --profile
+// uses it, so the profile it decides with is one serve would load.
+func ProfileFileAt(path string) (ProfileFile, error) {
+	shown := termsafe.Quote(path)
+	b, err := configfile.Read(path, "the profile "+shown, MaxFile)
+	if err != nil {
+		return ProfileFile{}, err
+	}
+	p, err := classify.ParseProfile(b)
+	if err != nil {
+		return ProfileFile{}, fmt.Errorf("%s: %w", shown, err)
+	}
+	name := filepath.Base(path)
+	if want := p.Server + ".yaml"; name != want {
+		return ProfileFile{}, fmt.Errorf("%s defines server %q; a profile file is named after its server key, %s", shown, p.Server, want)
+	}
+	return ProfileFile{Name: name, Sum: sha256.Sum256(b), Profile: p}, nil
 }
 
 // Profiles returns the embedded set when dir is empty and the set in dir
@@ -101,9 +125,9 @@ func ByServer(set []ProfileFile) map[string]*classify.Profile {
 func loadProfiles(fsys fs.FS, dir string, read func(name string) ([]byte, error)) ([]ProfileFile, error) {
 	shown := func(name string) string {
 		if dir == "" {
-			return name
+			return termsafe.Quote(name)
 		}
-		return filepath.Join(dir, name)
+		return termsafe.Quote(filepath.Join(dir, name))
 	}
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -151,7 +175,7 @@ func ReadInventory(path string) ([]byte, error) {
 	if strings.EqualFold(filepath.Ext(path), ".csv") {
 		return nil, ErrCSV
 	}
-	return configfile.Read(path, "the inventory file "+path, MaxFile)
+	return configfile.Read(path, "the inventory file "+termsafe.Quote(path), MaxFile)
 }
 
 // ParseInventory decodes an inventory document and builds its chain: the

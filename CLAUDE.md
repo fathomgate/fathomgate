@@ -36,6 +36,8 @@ bin/fathomgate policy eval --policy policies/examples/prod-approval.yaml \
   --class WRITE_CONFIG --target core-rtr-01          # prints decision + trace
 ```
 
+`fathomgate` refuses an inventory others can write; if it does, run the command it prints, or copy the file to a directory only you can write.
+
 Green means all of: `go build ./... && go vet ./... && go test -race ./... && make policy-test && make fixtures-check && make status-check && make licences-check`, plus `make conformance` for any change to `internal/proxy`, `cmd/fathomgate/serve.go` or `go.mod`. Do not open a PR that is not green. `make status` needs PyYAML; without it, pass `PYTHON="uv run --with pyyaml python"`.
 
 ## Toolchain facts
@@ -43,6 +45,7 @@ Green means all of: `go build ./... && go vet ./... && go test -race ./... && ma
 - `go.mod` is `go 1.26.0` (the floor follows the oldest supported Go release, ADR 0015) with three direct dependencies: `github.com/goccy/go-yaml`, `github.com/modelcontextprotocol/go-sdk` (pinned to one minor, currently v1.8) and `golang.org/x/sys` (ADR 0011; imported on Windows only, by `internal/audit` for the key and log DACL on create and log resume, by `internal/secretfile` for the owner and DACL check on reading the audit signing key and `--listen-token-file` files (ADR 0028), by `internal/configfile` for the owner and write-ACE check on the `serve --policy`, `--inventory` and `--profiles` files (ADR 0027), by `internal/proxy` for the upstream's Job Object (ADR 0021) and by `cmd/fathomgate` for Winsock error codes in `listen_windows.go`). Never add `gopkg.in/yaml.v3` (unmaintained).
 - `internal/proxy` imports go-sdk directly (T0.2); the interim `internal/tools/tools.go` pin is gone. A go-sdk bump is its own PR.
 - No new dependency without an ADR. The single-static-binary property (`CGO_ENABLED=0`) is a feature; keep it.
+- CI-only tools (pinned, checksum-verified binaries such as golangci-lint, actionlint, gitleaks) need no ADR; a Go dependency or anything in the binary does (maintainer, 2026-09-25).
 - Python lives only under `tests/` and `tools/`. It never ships in the binary.
 
 ## Vocabulary (use exactly these words everywhere: code, docs, CLI, UI, commits)
@@ -92,13 +95,14 @@ internal/fileacl/    one question: does this open file carry a macOS extended AC
 internal/secretfile/ owner-only read of a secret file (audit signing key, listen token files; redaction key in M2), ADR 0028
 internal/configfile/ integrity check on the policy, inventory and profile files: nobody but the owner and admins may change them (ADR 0027)
 internal/yamlstrict/ the one YAML decode for policy, inventory and profiles: strict, one document, errors that never quote the file
+internal/termsafe/   the one quoting helper for text fathomgate did not write: Quote/List for names and paths, Text for a whole error at the sink
 internal/configset/  the profile set (embedded or --profiles) and the inventory, loaded the one way serve, policy test and inventory lint load them
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
 internal/proxy/      go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState, the gate at Proxy.dispatch (M1)
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
 profiles/            one YAML per upstream server (tool → class, param mapping), pinned by tests
-policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (45 class-given cases) and *.gate.test.yaml (112 gate cases)
+policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (45 class-given cases) and *.gate.test.yaml (114 gate cases)
 tests/               Python: policy_lint, tiered pytest, fixtures/configs (annotated secrets)
 tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview

@@ -3,10 +3,15 @@
 package policytest
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fathomgate/fathomgate/internal/configset"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 // repoPolicy is an absolute path to a shipped example policy, written with
@@ -201,7 +206,7 @@ func TestGateRefusalAssertions(t *testing.T) {
 		"unnamed":                              "",
 		"wrong unnamed":                        `unnamed_args ["config_path"], want ["username"]`,
 		"malformed":                            "",
-		"no parse error where one is expected": "parse_error (none), want invalid_json",
+		"no parse error where one is expected": "parse_error (none: the decision record has no parse_error field), want invalid_json",
 	}
 	for _, r := range results {
 		if r.Message != want[r.Name] || r.Pass != (want[r.Name] == "") {
@@ -239,17 +244,20 @@ func TestLoadErrors(t *testing.T) {
 		{"unknown class_source", gateCase(ok, `{effect: deny, rule: x, class_source: magic}`), "not a class source"},
 		{"gate field on a class-given case", gateCase(`{class: READ_CONFIG}`, `{effect: allow, tool_error: ""}`), "expect.tool_error: for a gate case only"},
 		{"annotations on a class-given case", gateCase(`{class: READ_CONFIG, annotations: {readOnlyHint: true}}`, `{effect: allow}`), "request.annotations is for a gate case"},
-		{"merge key in arguments", head + "base: &b {hostname: lab-sw-01}\ncases:\n  - name: x\n    request: {server: eos-mcp, tool: get_version, arguments: {<<: *b}}\n    expect: {effect: allow, rule: x}\n", "parse test file"},
-		{"alias in arguments", head + "cases:\n  - name: x\n    request:\n      server: eos-mcp\n      tool: get_version\n      arguments: {hostname: &h lab-sw-01, other: *h}\n    expect: {effect: allow, rule: x}\n", "parse test file"},
-		{"tag in arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: {hostname: !!str lab-sw-01}}`, `{effect: allow, rule: x}`), "parse test file"},
-		{"number key in arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: {1: lab-sw-01}}`, `{effect: allow, rule: x}`), "parse test file"},
+		{"merge key in arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: {<<: {hostname: lab-sw-01}}}`, `{effect: allow, rule: x}`), "arguments: a merge key (<<) is not allowed"},
+		{"anchor and merge", head + "base: &b {hostname: lab-sw-01}\ncases:\n  - name: x\n    request: {server: eos-mcp, tool: get_version, arguments: {<<: *b}}\n    expect: {effect: allow, rule: x}\n", "line 2: anchors (&) and aliases (*) are not allowed"},
+		{"alias in arguments", head + "cases:\n  - name: x\n    request:\n      server: eos-mcp\n      tool: get_version\n      arguments: {hostname: &h lab-sw-01, other: *h}\n    expect: {effect: allow, rule: x}\n", "line 7: anchors (&) and aliases (*) are not allowed"},
+		{"anchor on a case name", head + "cases:\n  - name: &n x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n  - name: *n\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "anchors (&) and aliases (*) are not allowed"},
+		{"tag in arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: {hostname: !!str lab-sw-01}}`, `{effect: allow, rule: x}`), "arguments: a YAML tag is not allowed"},
+		{"number key in arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: {1: lab-sw-01}}`, `{effect: allow, rule: x}`), "arguments: every key must be a string; quote it"},
 		{"null arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: null}`, `{effect: allow, rule: x}`), "give request.class"},
-		{"scalar arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: lab-sw-01}`, `{effect: allow, rule: x}`), "parse test file"},
+		{"scalar arguments", gateCase(`{server: eos-mcp, tool: get_version, arguments: lab-sw-01}`, `{effect: allow, rule: x}`), "arguments must be a mapping; use {} for a call with none, or arguments_json for other bytes"},
 		{"CSV inventory", head + "inventory: devices.csv\ncases:\n  - name: x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "takes an inventory.yaml"},
 		{"missing inventory", head + "inventory: nope.yaml\ncases:\n  - name: x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "inventory"},
 		{"bad inline inventory", head + "inventory: {devices: [{name: a, colour: red}]}\ncases:\n  - name: x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "inventory"},
-		{"inventory is a list", head + "inventory: [a]\ncases:\n  - name: x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "parse test file"},
-		{"unknown key", head + "cases:\n  - name: x\n    request: {server: eos-mcp, tool: get_version, arguments: {}, class_hint: x}\n    expect: {effect: allow, rule: x}\n", "parse test file"},
+		{"inventory is a list", head + "inventory: [a]\ncases:\n  - name: x\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "inventory: give a path or the inventory document as a mapping"},
+		{"unknown key", head + "cases:\n  - name: x\n    request: {server: eos-mcp, tool: get_version, arguments: {}, class_hint: x}\n    expect: {effect: allow, rule: x}\n", `unknown field "class_hint"`},
+		{"long case name", head + "cases:\n  - name: " + strings.Repeat("n", MaxCaseName+1) + "\n    request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "the name is 257 bytes; at most 256"},
 		{"no cases", head + "cases: []\n", "cases is empty"},
 		{"no name", gateCase(ok, `{effect: allow, rule: x}`) + "  - request: " + ok + "\n    expect: {effect: allow, rule: x}\n", "has no name"},
 	}
@@ -342,8 +350,31 @@ func TestNoArgumentValueInOutput(t *testing.T) {
 			}
 		}
 	}
-	if got := quote(results[0].Name); got != `"evil\x1b[31m name"` {
+	if got := termsafe.Quote(results[0].Name); got != "\"evil\\x1b[31m name\"" {
 		t.Errorf("quoted name %s", got)
+	}
+
+	// The policy and inventory paths come from the test file too, and reach
+	// the error that policy test prints (security review of PR #197, L1).
+	r := embedded(t)
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"inventory path": "policy: " + repoPolicy(t, "read-only") + "\ninventory: \"nothere\\x1b[31m.yaml\"\ncases:\n  - name: x\n    request: {server: eos-mcp, tool: get_version, arguments: {hostname: lab-sw-01}}\n    expect: {effect: allow, rule: reads-anywhere}\n",
+		"policy path":    "policy: \"p\\x1b[2J\\u202e.yaml\"\ncases:\n  - name: x\n    request: {class: READ_CONFIG}\n    expect: {effect: allow}\n",
+	} {
+		_, err := r.RunFile(writeTest(t, dir, body))
+		if err == nil {
+			t.Fatalf("%s: loaded", name)
+		}
+		msg := err.Error()
+		for _, raw := range []rune{0x1b, 0x202e} {
+			if strings.ContainsRune(msg, raw) {
+				t.Errorf("%s: error carries %U raw: %q", name, raw, msg)
+			}
+		}
+		if !strings.Contains(msg, "\\x1b[") {
+			t.Errorf("%s: error does not show the path quoted: %q", name, msg)
+		}
 	}
 }
 
@@ -372,8 +403,21 @@ cases:
 	if !results[0].Pass {
 		t.Fatal(results[0].Message)
 	}
+	// Relative to the test file's own directory, not the working directory.
+	sub := filepath.Join(dir, "suites")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(sub, "nested.test.yaml")
+	if err := os.WriteFile(nested, []byte(strings.Replace(body, "inventory: inv.yaml", "inventory: ../inv.yaml", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if results, err := r.RunFile(nested); err != nil || !results[0].Pass {
+		t.Fatalf("relative path from a sub-directory: %v %+v", err, results)
+	}
+
 	letOthersWrite(t, inv)
-	if _, err := r.RunFile(path); err == nil || !strings.Contains(err.Error(), "inventory") {
+	if _, err := r.RunFile(path); err == nil || !strings.Contains(err.Error(), "the inventory file") {
 		t.Fatalf("an inventory others can change: %v", err)
 	}
 }
@@ -423,5 +467,136 @@ func TestProfilesDir(t *testing.T) {
 	letOthersWrite(t, filepath.Join(dir, "upa.yaml"))
 	if _, err := NewRunner(dir); err == nil || !strings.Contains(err.Error(), "--profiles") {
 		t.Fatalf("a profile others can change: %v", err)
+	}
+}
+
+// TestPlainScalars: an unquoted value in arguments must reach the gate as
+// written; one that YAML reads as another number, keeps as a string while it
+// looks like a number or a date, or reads as a boolean or null from another
+// spelling, is a load error pointing at arguments_json (security review of
+// PR #197, L4; ADR 0035 section 2). Quoted, every one is accepted as a
+// string.
+func TestPlainScalars(t *testing.T) {
+	refused := []string{
+		"0x1F", "0o17", "017", "0b11", "+5", "1_000", "99999999999999999999",
+		"1e3", "1E3", "1.5e3", "3.", ".5", "1e400",
+		"2026-09-25", "2026-09-25T10:00:00Z", "12:30:00",
+		"True", "TRUE", "False", "~", "Null", "NULL", ".inf", "-.inf", ".nan",
+		// R3: numbers whose JSON is not their text, and strings that only
+		// look like numbers, dates or times.
+		"1.0", "2.50", "-0", "-0.0", "3.14159265358979323846", "100000000000000000000.0", "0.0000001",
+		"65000:100", "00:11:22:33:44:55", "12:30",
+	}
+	accepted := map[string]string{
+		"0": "0", "7": "7", "-1": "-1", "1.5": "1.5", "0.25": "0.25", "9007199254740993": "9007199254740993",
+		"true": "true", "false": "false", "null": "null",
+		"192.0.2.99": `"192.0.2.99"`, "lab-sw-01": `"lab-sw-01"`, "show ip bgp summary": `"show ip bgp summary"`,
+		"2001:db8::1": `"2001:db8::1"`, "yes": `"yes"`, "v1.2.3": `"v1.2.3"`,
+	}
+	parse := func(value string) (*File, error) {
+		return Parse([]byte("policy: p.yaml\ncases:\n  - name: x\n    request: {server: s, tool: t, arguments: {v: " + value + "}}\n    expect: {effect: deny, rule: x}\n"))
+	}
+	for _, v := range refused {
+		if _, err := parse(v); err == nil || !strings.Contains(err.Error(), "; quote it") {
+			t.Errorf("unquoted %s: %v", v, err)
+		}
+		f, err := parse("\"" + v + "\"")
+		if err != nil {
+			t.Errorf("quoted %s: %v", v, err)
+			continue
+		}
+		if got, want := string(f.Cases[0].ArgumentBytes()), `{"v":"`+v+`"}`; got != want {
+			t.Errorf("quoted %s: %s, want %s", v, got, want)
+		}
+	}
+	for v, want := range accepted {
+		f, err := parse(v)
+		if err != nil {
+			t.Errorf("unquoted %s: %v", v, err)
+			continue
+		}
+		if got := string(f.Cases[0].ArgumentBytes()); got != `{"v":`+want+`}` {
+			t.Errorf("unquoted %s: %s, want {\"v\":%s}", v, got, want)
+		}
+	}
+	// Keys are checked as keys, not as values: an unquoted key that looks
+	// like a date is still a string key.
+	if _, err := Parse([]byte("policy: p.yaml\ncases:\n  - name: x\n    request: {server: s, tool: t, arguments: {v1.2: a}}\n    expect: {effect: deny, rule: x}\n")); err != nil {
+		t.Errorf("a key that looks like a number: %v", err)
+	}
+	// The message names the line, not the value, and says why.
+	_, err := parse("0x1F")
+	if err == nil || strings.Contains(err.Error(), "0x1F") || !strings.Contains(err.Error(), "line 4") ||
+		!strings.Contains(err.Error(), "would reach the gate as a different number, not as written; quote it, or give the exact bytes in arguments_json") {
+		t.Errorf("message %v", err)
+	}
+	for _, v := range []string{"65000:100", "2026-09-25", "1e3"} {
+		_, err := parse(v)
+		if err == nil || !strings.Contains(err.Error(), "the unquoted value at line 4 looks like a number, date or time; quote it") {
+			t.Errorf("%s: message %v", v, err)
+		}
+	}
+}
+
+// TestTestFileCaps: a test file over the size cap is refused before it is
+// parsed, and anchors and aliases never expand (security review of PR #197,
+// L3: 3000 aliases of a 200 KB anchored name took 40 s and printed 600 MB).
+func TestTestFileCaps(t *testing.T) {
+	r := embedded(t)
+	dir := t.TempDir()
+	big := filepath.Join(dir, "big.test.yaml")
+	if err := os.WriteFile(big, []byte("policy: p.yaml\n# "+strings.Repeat("x", configset.MaxFile)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunFile(big); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("oversized test file: %v", err)
+	}
+
+	var b strings.Builder
+	b.WriteString("policy: " + repoPolicy(t, "read-only") + "\ncases:\n  - name: &n " + strings.Repeat("n", 200<<10) + "\n    request: {class: READ_CONFIG}\n    expect: {effect: allow}\n")
+	for range 3000 {
+		b.WriteString("  - name: *n\n    request: {class: READ_CONFIG}\n    expect: {effect: allow}\n")
+	}
+	path := writeTest(t, dir, b.String())
+	start := time.Now()
+	_, err := r.RunFile(path)
+	if err == nil || !strings.Contains(err.Error(), "anchors (&) and aliases (*) are not allowed") {
+		t.Fatalf("aliased names: %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("refusing the aliased file took %s", d)
+	}
+	if len(err.Error()) > 1024 {
+		t.Errorf("the error is %d bytes", len(err.Error()))
+	}
+}
+
+// TestRecordFieldAbsent: an assertion on a field the decision record does
+// not carry fails with a message that says so, rather than comparing with a
+// zero value (security review of PR #197, N3).
+func TestRecordFieldAbsent(t *testing.T) {
+	rec := record([]slog.Attr{
+		slog.String("parse_error", "duplicate_key"),
+		slog.Any("unnamed_args", []string{"config_path"}),
+		slog.Any("obligations", "not a list"),
+	})
+	checks := []struct {
+		key  string
+		kind slog.Kind
+		want bool
+	}{
+		{"parse_error", slog.KindString, true},
+		{"unnamed_args", slog.KindAny, true},
+		{"obligations", slog.KindAny, false},
+		{"unknown_target", slog.KindBool, false},
+		{"malformed_args", slog.KindAny, false},
+	}
+	for _, c := range checks {
+		if got := rec.has(c.key, c.kind); got != c.want {
+			t.Errorf("has(%s) = %v, want %v", c.key, got, c.want)
+		}
+	}
+	if got := absent("unknown_target"); got != "unknown_target (none: the decision record has no unknown_target field)" {
+		t.Errorf("absent: %q", got)
 	}
 }

@@ -23,14 +23,17 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
+	"regexp"
 	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
+	"github.com/goccy/go-yaml/token"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
 	"github.com/fathomgate/fathomgate/internal/policy"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 	"github.com/fathomgate/fathomgate/internal/yamlstrict"
 )
 
@@ -39,6 +42,11 @@ import (
 // cap*). The proxy refuses a larger call before the gate runs, so a gate
 // case above it could never show what serve does; it is a load error.
 const MaxArgumentBytes = 64 << 10
+
+// MaxCaseName caps a case name in bytes. A name is printed on every PASS
+// and FAIL line, so a long one multiplies the output (security review of
+// PR #197, L3).
+const MaxCaseName = 256
 
 // ParseErrors are the decision log line's parse_error codes a gate case may
 // assert (ADR 0026, and M1-39 for the two caps).
@@ -77,7 +85,7 @@ func (inv *Inventory) UnmarshalYAML(n ast.Node) error {
 		inv.Path = s
 		return nil
 	case *ast.MappingNode, *ast.MappingValueNode:
-		if err := plainYAML(n); err != nil {
+		if err := plainYAML(n, false); err != nil {
 			return fmt.Errorf("inventory: %w", err)
 		}
 		inv.Inline = []byte(n.String())
@@ -135,15 +143,17 @@ type Arguments struct {
 // UnmarshalYAML accepts a mapping of plain YAML: string keys, values that
 // are strings, numbers, booleans, null, lists and mappings. A merge key, a
 // tag, an anchor or an alias is refused, since each makes the YAML say
-// something other than what the case shows; so is a number JSON cannot
-// hold. For bytes a mapping cannot express, use arguments_json.
+// something other than what the case shows; so is an unquoted value that
+// would reach the gate as something other than what is written (see
+// plainScalar), and a number JSON cannot hold. For bytes a mapping cannot
+// express, use arguments_json.
 func (a *Arguments) UnmarshalYAML(n ast.Node) error {
 	switch n.(type) {
 	case *ast.MappingNode, *ast.MappingValueNode:
 	default:
 		return errors.New("arguments must be a mapping; use {} for a call with none, or arguments_json for other bytes")
 	}
-	if err := plainYAML(n); err != nil {
+	if err := plainYAML(n, true); err != nil {
 		return fmt.Errorf("arguments: %w", err)
 	}
 	var m map[string]any
@@ -166,15 +176,19 @@ func (a *Arguments) UnmarshalYAML(n ast.Node) error {
 
 // plainYAML refuses what makes a YAML mapping say something other than
 // what it shows: a non-string key, a merge key, a tag, an anchor or an
-// alias.
-func plainYAML(n ast.Node) error {
-	v := &plainVisitor{}
+// alias, and, with scalars set, an unquoted value plainScalar refuses.
+func plainYAML(n ast.Node, scalars bool) error {
+	v := &plainVisitor{scalars: scalars}
 	ast.Walk(v, n)
 	return v.err
 }
 
 // plainVisitor walks a mapping and keeps the first thing plainYAML refuses.
-type plainVisitor struct{ err error }
+type plainVisitor struct {
+	scalars bool
+	keys    map[ast.Node]bool
+	err     error
+}
 
 // Visit implements ast.Visitor.
 func (v *plainVisitor) Visit(n ast.Node) ast.Visitor {
@@ -183,6 +197,10 @@ func (v *plainVisitor) Visit(n ast.Node) ast.Visitor {
 	}
 	switch t := n.(type) {
 	case *ast.MappingValueNode:
+		if v.keys == nil {
+			v.keys = map[ast.Node]bool{}
+		}
+		v.keys[t.Key] = true
 		if t.Key.IsMergeKey() {
 			v.err = errors.New("a merge key (<<) is not allowed; write the keys out")
 			return nil
@@ -197,8 +215,101 @@ func (v *plainVisitor) Visit(n ast.Node) ast.Visitor {
 	case *ast.AnchorNode, *ast.AliasNode:
 		v.err = errors.New("an anchor or alias is not allowed; write the value out")
 		return nil
+	case *ast.StringNode, *ast.IntegerNode, *ast.FloatNode, *ast.BoolNode, *ast.NullNode, *ast.InfinityNode, *ast.NanNode:
+		if v.scalars && !v.isKey(n) {
+			if what, lookalike := plainScalar(n); what != "" || lookalike {
+				line := 0
+				if tk := n.GetToken(); tk != nil && tk.Position != nil {
+					line = tk.Position.Line
+				}
+				if lookalike {
+					v.err = fmt.Errorf("the unquoted value at line %d looks like a number, date or time; quote it", line)
+				} else {
+					v.err = fmt.Errorf("the unquoted value at line %d would reach the gate as %s, not as written; quote it, or give the exact bytes in arguments_json", line, what)
+				}
+				return nil
+			}
+		}
 	}
 	return v
+}
+
+// isKey reports whether n is a mapping key. Walk visits keys as well as
+// values; the MappingValueNode case records each key (after checking it is
+// a plain string), so the value rules in plainScalar are not applied to it.
+func (v *plainVisitor) isKey(n ast.Node) bool {
+	_, ok := v.keys[n]
+	return ok
+}
+
+// Numbers, dates and times a YAML author writes unquoted but goccy/go-yaml
+// keeps as strings, or reads as a number other than the one written.
+var (
+	decimalInt   = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+	decimalFloat = regexp.MustCompile(`^-?(0|[1-9][0-9]*)\.[0-9]+$`)
+	numberLike   = regexp.MustCompile(`^[-+]?([0-9][0-9_]*\.?[0-9_]*|\.[0-9][0-9_]*)([eE][-+]?[0-9]+)?$`)
+	dateLike     = regexp.MustCompile(`^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ]|$)`)
+	timeLike     = regexp.MustCompile(`^[-+]?[0-9]+(:[0-9]+)+(\.[0-9]*)?$`)
+)
+
+// plainScalar reports an unquoted scalar that does not reach the gate as
+// written (security reviews of PR #197, L4, and PR #199, R3; ADR 0035
+// section 2). what names what it would become instead; lookalike is true for
+// a plain string that goccy/go-yaml keeps as written but that reads as a
+// number, a date or a time (1e3, 2026-09-25, 12:30, 65000:100, an all-digit
+// MAC address), which the author most likely meant as something else.
+//
+// A number is accepted only when its text is plain decimal (no sign other
+// than -, no leading zero, no _, no 0x, 0o or 0b, digits on both sides of a
+// point, no exponent) and encoding/json writes the decoded value back as
+// exactly that text, so 1.0, 2.50, -0, a value past float64's precision, or
+// one JSON would write with an exponent, is refused. true, false and null
+// are accepted as spelled; quoted strings and block scalars always are.
+func plainScalar(n ast.Node) (what string, lookalike bool) {
+	tk := n.GetToken()
+	if tk == nil {
+		return "", false
+	}
+	text := tk.Value
+	switch n.(type) {
+	case *ast.StringNode:
+		if tk.Type == token.SingleQuoteType || tk.Type == token.DoubleQuoteType {
+			return "", false
+		}
+		if numberLike.MatchString(text) || dateLike.MatchString(text) || timeLike.MatchString(text) {
+			return "", true
+		}
+	case *ast.IntegerNode:
+		if tk.Type != token.IntegerType || !decimalInt.MatchString(text) || !encodesAs(n, text) {
+			return "a different number", false
+		}
+	case *ast.FloatNode:
+		if !decimalFloat.MatchString(text) || !encodesAs(n, text) {
+			return "a different number", false
+		}
+	case *ast.BoolNode:
+		if text != "true" && text != "false" {
+			return "a boolean", false
+		}
+	case *ast.NullNode:
+		if tk.Type != token.ImplicitNullType && text != "null" {
+			return "null", false
+		}
+	case *ast.InfinityNode, *ast.NanNode:
+		return "a number JSON cannot carry", false
+	}
+	return "", false
+}
+
+// encodesAs reports whether the number n decodes to a value encoding/json
+// writes as exactly text: the bytes the gate would receive.
+func encodesAs(n ast.Node, text string) bool {
+	var v any
+	if err := yaml.NodeToValue(n, &v); err != nil {
+		return false
+	}
+	b, err := json.Marshal(v)
+	return err == nil && string(b) == text
 }
 
 // jsonValue checks that a decoded value is one JSON can carry as written.
@@ -274,8 +385,14 @@ func (c Case) IsGate() bool {
 }
 
 // Parse decodes a test file and checks every rule that does not need the
-// profile set: see check.
+// profile set: see check. Anchors and aliases are refused anywhere in the
+// file before it is decoded, since a few kilobytes of aliases expand into
+// hundreds of megabytes of case names and output (security review of PR
+// #197, L3).
 func Parse(b []byte) (*File, error) {
+	if err := noAnchors(b); err != nil {
+		return nil, err
+	}
 	var f File
 	if err := yamlstrict.Unmarshal(b, &f); err != nil {
 		return nil, fmt.Errorf("parse test file: %w", err)
@@ -287,11 +404,52 @@ func Parse(b []byte) (*File, error) {
 		return nil, errors.New("test file: cases is empty")
 	}
 	for i, c := range f.Cases {
+		if len(c.Name) > MaxCaseName {
+			return nil, fmt.Errorf("test file: case %d: the name is %d bytes; at most %d", i+1, len(c.Name), MaxCaseName)
+		}
 		if err := c.check(); err != nil {
-			return nil, fmt.Errorf("test file: case %d %s: %w", i+1, quote(c.Name), err)
+			return nil, fmt.Errorf("test file: case %d %s: %w", i+1, termsafe.Quote(c.Name), err)
 		}
 	}
 	return &f, nil
+}
+
+// noAnchors refuses a YAML anchor (&) or alias (*) anywhere in a test file.
+// A file that does not parse is left to the strict decoder, whose errors
+// never quote the file.
+func noAnchors(b []byte) error {
+	f, perr := parser.ParseBytes(b, 0)
+	if perr != nil || f == nil {
+		// yamlstrict.Unmarshal reports it, without quoting the file.
+		return nil //nolint:nilerr // the parse error is the strict decoder's to report
+	}
+	v := &anchorVisitor{}
+	for _, d := range f.Docs {
+		ast.Walk(v, d)
+		if v.line != 0 {
+			return fmt.Errorf("test file: line %d: anchors (&) and aliases (*) are not allowed; write each value out", v.line)
+		}
+	}
+	return nil
+}
+
+// anchorVisitor keeps the line of the first anchor or alias.
+type anchorVisitor struct{ line int }
+
+// Visit implements ast.Visitor.
+func (v *anchorVisitor) Visit(n ast.Node) ast.Visitor {
+	if v.line != 0 {
+		return nil
+	}
+	switch n.(type) {
+	case *ast.AnchorNode, *ast.AliasNode:
+		v.line = 1
+		if tk := n.GetToken(); tk != nil && tk.Position != nil {
+			v.line = tk.Position.Line
+		}
+		return nil
+	}
+	return v
 }
 
 // check applies ADR 0035's load rules to one case: each is a case that
@@ -387,25 +545,4 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// quote returns s as is when it is printable ASCII, and Go-quoted with
-// every other character escaped otherwise, so no control, escape or bidi
-// character reaches a terminal raw.
-func quote(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] >= 0x7f {
-			return strconv.QuoteToASCII(s)
-		}
-	}
-	return s
-}
-
-// quoteAll quotes every element with strconv.QuoteToASCII.
-func quoteAll(in []string) string {
-	out := make([]string, len(in))
-	for i, s := range in {
-		out[i] = strconv.QuoteToASCII(s)
-	}
-	return "[" + strings.Join(out, " ") + "]"
 }

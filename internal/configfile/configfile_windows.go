@@ -23,12 +23,8 @@ import (
 const writeRights = windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA | 0x40 /* FILE_DELETE_CHILD */ |
 	windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER | windows.GENERIC_WRITE | windows.GENERIC_ALL
 
-// withDir appends dirText to advice: after a sentence, or on its own line
-// after commands printed one per line.
+// withDir appends dirText to advice, as the next sentence.
 func withDir(advice string) string {
-	if strings.HasSuffix(advice, "\n") {
-		return advice + dirText
-	}
 	return advice + ". " + dirText
 }
 
@@ -42,7 +38,7 @@ const dirText = `Users who can write the directory that holds it can still repla
 func open(path, what string, dir bool) (*os.File, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open %s: %w", what, err)
+		return nil, fmt.Errorf("cannot open %s: %w", what, withoutPath(err))
 	}
 	if err := check(f, path, what, dir); err != nil {
 		_ = f.Close()
@@ -54,7 +50,7 @@ func open(path, what string, dir bool) (*os.File, error) {
 func check(f *os.File, path, what string, dir bool) error {
 	fi, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", what, err)
+		return fmt.Errorf("cannot read %s: %w", what, withoutPath(err))
 	}
 	switch {
 	case dir && !fi.IsDir():
@@ -99,7 +95,8 @@ func check(f *os.File, path, what string, dir bool) error {
 		return refuseCause(err, "the access control list of %s cannot be read: %v", what, err)
 	}
 	if dacl == nil {
-		return refuse("%s has no access control list, so everyone can change it; %s", what, withDir(fixAdvice(path, dir, user, nil)))
+		advice, cmds := fixAdvice(path, dir, user, nil)
+		return refuseHint(cmds, "%s has no access control list, so everyone can change it; %s", what, withDir(advice))
 	}
 	// Every account that can write, each named once, so one fix is enough.
 	// explicit are the SIDs of the non-inherited entries among them: those
@@ -132,16 +129,20 @@ func check(f *os.File, path, what string, dir bool) error {
 				explicit = append(explicit, s)
 			}
 		default:
-			return refuse("the access control list of %s has an entry of type %d, which fathomgate does not accept; %s", what, ace.Header.AceType, withDir(fixAdvice(path, dir, user, nil)))
+			advice, cmds := fixAdvice(path, dir, user, nil)
+			return refuseHint(cmds, "the access control list of %s has an entry of type %d, which fathomgate does not accept; %s", what, ace.Header.AceType, withDir(advice))
 		}
 	}
 	if len(writers) > 0 {
-		return refuse("%s can be changed by %s; only its owner, SYSTEM and Administrators may change it; %s", what, strings.Join(writers, ", "), withDir(fixAdvice(path, dir, user, explicit)))
+		advice, cmds := fixAdvice(path, dir, user, explicit)
+		return refuseHint(cmds, "%s can be changed by %s; only its owner, SYSTEM and Administrators may change it; %s", what, strings.Join(writers, ", "), withDir(advice))
 	}
 	return nil
 }
 
-// fixAdvice is the fix to print. Its first command removes inherited
+// fixAdvice is the fix to print: a sentence for the message, and the
+// commands for the hint (see Hint), each on a line of its own indented by
+// two spaces, with no trailing line break. Its first command removes inherited
 // entries and grants the current user, SYSTEM and Administrators full
 // control (for a directory, inherited by what it holds), naming each by
 // SID, so it runs unchanged in Command Prompt and in PowerShell. explicit
@@ -151,10 +152,10 @@ func check(f *os.File, path, what string, dir bool) error {
 // command on its line). The path is cleaned first (a trailing `\` would
 // escape the closing quote), and a path with any character outside
 // safeForCommand's allow-list gets prose instead of a command.
-func fixAdvice(path string, dir bool, user *windows.SID, explicit []string) string {
+func fixAdvice(path string, dir bool, user *windows.SID, explicit []string) (advice, commands string) {
 	path = filepath.Clean(path)
 	if !safeForCommand(path) {
-		return "remove every other account's write access with icacls /inheritance:r and /grant:r (no command is printed, because the path holds a character a command line would change)"
+		return "remove every other account's write access with icacls /inheritance:r and /grant:r (no command is printed, because the path holds a character a command line would change)", ""
 	}
 	inherit := ""
 	if dir {
@@ -162,9 +163,9 @@ func fixAdvice(path string, dir bool, user *windows.SID, explicit []string) stri
 	}
 	grant := fmt.Sprintf(`icacls "%s" /inheritance:r /grant:r "*%s:%sF" "*S-1-5-18:%sF" "*S-1-5-32-544:%sF"`, path, user, inherit, inherit, inherit)
 	if len(explicit) == 0 {
-		return "run:\n  " + grant + "\n"
+		return "run the command printed below", "  " + grant
 	}
-	return fmt.Sprintf("run these two commands:\n  %s\n  icacls \"%s\" /remove:g %s\n", grant, path, strings.Join(explicit, " "))
+	return "run the two commands printed below", fmt.Sprintf("  %s\n  icacls \"%s\" /remove:g %s", grant, path, strings.Join(explicit, " "))
 }
 
 // safeForCommand reports whether path can be put between double quotes on
@@ -202,4 +203,9 @@ func account(sid *windows.SID) string {
 		return name
 	}
 	return domain + `\` + name
+}
+
+// refuseHint is a refusal that carries fix commands (see Hint); only Windows prints commands.
+func refuseHint(hint, format string, args ...any) error {
+	return &refusal{msg: fmt.Sprintf(format, args...), hint: hint}
 }

@@ -93,8 +93,9 @@ func TestEvalPatternsEnrichOnly(t *testing.T) {
 		{"one bad name among good ones", append(write("lab-sw-09"), "--target", "lab-sw-09."), policy.Deny, policy.RuleBadArguments, "fail"},
 	}
 	codes := map[string]int{"ok": exitOK, "fail": exitFail, "hold": exitHold}
+	inv := configCopy(t, patternInventory)
 	for _, tc := range cases {
-		d, code := evalJSON(t, append([]string{"--inventory", patternInventory}, tc.args...)...)
+		d, code := evalJSON(t, append([]string{"--inventory", inv}, tc.args...)...)
 		if d.Effect != tc.effect || d.RuleID != tc.rule || code != codes[tc.code] {
 			t.Errorf("%s: %s %s exit %d, want %s %s exit %d", tc.name, d.Effect, d.RuleID, code, tc.effect, tc.rule, codes[tc.code])
 		}

@@ -8,7 +8,7 @@ Steps:
 
 1. `git diff <base>...HEAD --stat` and list the touched packages. If none are in the trust boundary (`internal/redact`, `internal/policy`, `internal/classify`, `internal/approval`, `internal/audit`, or `internal/proxy` changes to elicitation, TOFU quarantine, decision delivery or upstream spawning) and no fixture under `tests/fixtures/configs/` changed, report "no security review required" with the list checked, and stop.
 2. Read the full diff, then each changed file whole, then the call sites of every changed exported symbol (`grep -rn`).
-3. Run: `go test ./... -race -count=1`; `go test ./internal/redact/... -run Fixture -v`; `gitleaks detect --no-git --source tests/fixtures`; `fathomgate audit verify` against a test log with one edited line, one deleted last line and one reordered pair (build them from `tests/fixtures/audit/`).
+3. Run: `go test ./... -race -count=1`; `go test ./internal/redact/... -run Fixture -v`; `make secrets-control && make secrets-scan` (gitleaks at the Makefile pin with `.gitleaks.toml`: fixture secrets must start with `FAKE`; the CI job `gitleaks` runs the same on every pull request); `fathomgate audit verify` against a test log with one edited line, one deleted last line and one reordered pair (build them from `tests/fixtures/audit/`).
 4. Work the catalogue for the touched area and record tested / not applicable / finding for each item:
    - Tool poisoning and rug-pull (MCP03): quarantine on changed description; instruction-bearing descriptions; TOFU pin storage.
    - Confused deputy and token passthrough: agent-supplied headers, `_meta` or arguments becoming upstream credentials; approver identity server-side on CLI, HMAC webhook and MRTR `inputResponses`.

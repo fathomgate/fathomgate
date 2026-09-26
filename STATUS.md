@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 2 · blocked 2 · in review 9 · merged 24 · dropped 5
+Tasks: open 2 · blocked 2 · in review 10 · merged 24 · dropped 5
 
 ## In flight
 
@@ -46,6 +46,7 @@ Tasks: open 2 · blocked 2 · in review 9 · merged 24 · dropped 5
 | M1-39 | Bring the worst cases at the 64 KiB argument cap under the 5 ms budget (per-call caps, one Decide) | `internal/gate` | policy-engineer | security-reviewer, go-reviewer, mcp-protocol-engineer | merged | M1-23 | — | — |
 | M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | merged | — | — | — |
 | M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | in review | — | — | — |
+| M1-42 | Secret scanner (gitleaks) in CI for the repository and fixtures | `.github/workflows` | release-engineer | security-reviewer, test-engineer | in review | — | — | — |
 | M1-43 | Tier 1 test - a hostile upstream Instructions string never reaches the agent, both eras | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | — | — |
 
 ## Done this milestone

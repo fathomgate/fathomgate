@@ -17,7 +17,7 @@
   ],
   "secrets": [
     "$9$FAKEenableSECRETtype9/AbCdEfGh.1234567890",
-    "0822455D0A16FAKE7",
+    "FAKE0822455D0A16",
     "$1$FAKE$adminSecretType5Hash1234",
     "$8$FAKEsalt$backupType8HashXYZ",
     "FAKEplainPassword123",

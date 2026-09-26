@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 	"github.com/fathomgate/fathomgate/internal/yamlstrict"
 )
 
@@ -136,19 +137,19 @@ func (p *Profile) Validate() error {
 		return fmt.Errorf("classify: profile: server is required")
 	}
 	if len(p.Tools) == 0 {
-		return fmt.Errorf("classify: profile %s: tools is empty", p.Server)
+		return fmt.Errorf("classify: profile %s: tools is empty", termsafe.Quote(p.Server))
 	}
 	used := map[string]bool{}
 	for _, name := range p.ToolNames() {
 		spec := p.Tools[name]
 		if !spec.Class.Valid() {
-			return fmt.Errorf("classify: profile %s: tool %s: invalid class %q", p.Server, name, spec.Class)
+			return fmt.Errorf("classify: profile %s: tool %s: invalid class %q", termsafe.Quote(p.Server), termsafe.Quote(name), spec.Class)
 		}
 		if err := spec.validateArgs(); err != nil {
-			return fmt.Errorf("classify: profile %s: tool %s: %w", p.Server, name, err)
+			return fmt.Errorf("classify: profile %s: tool %s: %w", termsafe.Quote(p.Server), termsafe.Quote(name), err)
 		}
 		if err := spec.validateCapability(p.Capabilities); err != nil {
-			return fmt.Errorf("classify: profile %s: tool %s: %w", p.Server, name, err)
+			return fmt.Errorf("classify: profile %s: tool %s: %w", termsafe.Quote(p.Server), termsafe.Quote(name), err)
 		}
 		if spec.CapabilityTable != "" {
 			used[spec.CapabilityTable] = true
@@ -156,10 +157,10 @@ func (p *Profile) Validate() error {
 	}
 	for _, name := range sortedKeys(p.Capabilities) {
 		if err := validateTable(name, p.Capabilities[name]); err != nil {
-			return fmt.Errorf("classify: profile %s: capabilities: %w", p.Server, err)
+			return fmt.Errorf("classify: profile %s: capabilities: %w", termsafe.Quote(p.Server), err)
 		}
 		if !used[name] {
-			return fmt.Errorf("classify: profile %s: capabilities: table %q is not the capability_table of any tool", p.Server, name)
+			return fmt.Errorf("classify: profile %s: capabilities: table %q is not the capability_table of any tool", termsafe.Quote(p.Server), name)
 		}
 	}
 	return nil

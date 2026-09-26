@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 )
 
 // ErrUnsafe is matched (errors.Is) by every refusal: a file that exists
@@ -52,12 +53,25 @@ func Read(path, what string, limit int64) ([]byte, error) {
 	defer func() { _ = f.Close() }()
 	b, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", what, err)
+		return nil, fmt.Errorf("cannot read %s: %w", what, withoutPath(err))
 	}
 	if int64(len(b)) > limit {
 		return nil, fmt.Errorf("%s is larger than %d bytes", what, limit)
 	}
 	return b, nil
+}
+
+// withoutPath drops the path an *fs.PathError repeats, keeping the
+// operation's own error (so errors.Is still matches fs.ErrNotExist and the
+// like). Every message here names the file through what, which the caller
+// has made safe to print; the raw path in the system error would reach the
+// terminal unquoted (security review of PR #197, L1).
+func withoutPath(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	return err
 }
 
 // CheckDir runs the checks above on the directory at path.
@@ -69,14 +83,32 @@ func CheckDir(path, what string) error {
 	return f.Close()
 }
 
-// refusal is a failed check. Its text is the message alone; it unwraps to
-// ErrUnsafe and, when a system call failed, to that call's error too.
+// refusal is a failed check. Its text is the message alone, on one line;
+// it unwraps to ErrUnsafe and, when a system call failed, to that call's
+// error too. hint holds the commands that fix the file, one per line, each
+// indented by two spaces: they are printed after the message (Hint), so
+// that the message itself can be escaped whole at the sink without losing
+// the line breaks the commands need (security re-review of PR #199, R1).
 type refusal struct {
 	msg   string
+	hint  string
 	cause error
 }
 
 func (r *refusal) Error() string { return r.msg }
+
+// Hint returns the fix commands a refusal in err's chain carries, one per
+// line and indented by two spaces, or "" when there are none. A caller that
+// prints err prints the hint after it, on lines of their own. The commands
+// quote a path only when every character in it is safe on a command line
+// (Windows safeForCommand), so they hold no control character.
+func Hint(err error) string {
+	var r *refusal
+	if errors.As(err, &r) {
+		return r.hint
+	}
+	return ""
+}
 
 func (r *refusal) Unwrap() []error {
 	if r.cause == nil {

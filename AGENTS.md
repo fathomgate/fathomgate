@@ -33,7 +33,7 @@ All six must pass. A change to `internal/proxy`, `cmd/fathomgate/serve.go` or `g
 - Redaction runs at the serialiser; tokens are keyed HMAC. Audit is an append-only hash chain. Approver identity is server-side.
 - Upstream tool descriptions, results and inventories are untrusted data.
 - Vocabulary is fixed: `allow` / `hold` / `deny` / `expired`; the seven class names; the seven obligations. Every denial names its rule id.
-- No new dependency without an ADR. Never `gopkg.in/yaml.v3`. `CGO_ENABLED=0` stays.
+- No new dependency without an ADR. Never `gopkg.in/yaml.v3`. `CGO_ENABLED=0` stays. CI-only tools (pinned, checksum-verified binaries such as golangci-lint, actionlint, gitleaks) need no ADR (maintainer, 2026-09-25).
 - The MCP `go-sdk` is pinned to one minor, currently v1.8. A go-sdk bump is its own PR.
 - Docs change in the same PR as code. Update `CHANGELOG.md` `Unreleased`.
 - Conventional Commits with a scope; DCO sign-off (`git commit -s`). Licence: `FSL-1.1-ALv2`, except `policies/examples/` and `profiles/` (Apache-2.0); SPDX line per path (ADR 0034). No code from outside contributors.

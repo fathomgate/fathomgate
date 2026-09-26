@@ -14,7 +14,7 @@ import (
 // capability id that is not one string.
 func TestEvalCapabilityTable(t *testing.T) {
 	base := []string{"policy", "eval", "--policy", repoPath("policies", "examples", "read-only.yaml"),
-		"--profile", repoPath("profiles", "cisco-meraki-mcp-official.yaml"), "--tool", "execute_api"}
+		"--profile", configCopy(t, repoPath("profiles", "cisco-meraki-mcp-official.yaml")), "--tool", "execute_api"}
 	for _, tc := range []struct {
 		args      []string
 		code      int
@@ -36,13 +36,13 @@ func TestEvalCapabilityTable(t *testing.T) {
 			t.Errorf("%q: exit %d, want %d\n%s", tc.args, code, tc.code, out)
 		}
 		lines := strings.Split(out, "\n")
-		if len(lines) < 4 || lines[0] != "decision:    "+tc.decision ||
-			!strings.HasPrefix(lines[1], "class:       "+tc.class) ||
+		if len(lines) < 4 || lines[0] != "decision:       "+tc.decision ||
+			!strings.HasPrefix(lines[1], "class:          "+tc.class) ||
 			!strings.Contains(lines[1], tc.classNote) ||
-			lines[2] != "targets:     (none)" || lines[3] != "rule:        "+tc.rule {
+			lines[2] != "targets:        (none)" || lines[3] != "rule:           "+tc.rule {
 			t.Errorf("%q:\n%s", tc.args, out)
 		}
-		if !strings.Contains(out, "class_source: capability_table") {
+		if !strings.Contains(out, "class_source:   capability_table") {
 			t.Errorf("%q: no class_source line:\n%s", tc.args, out)
 		}
 	}

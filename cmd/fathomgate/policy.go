@@ -14,11 +14,13 @@ import (
 	"strings"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
+	"github.com/fathomgate/fathomgate/internal/configset"
 	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/gate/seam"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
 	"github.com/fathomgate/fathomgate/internal/policytest"
+	"github.com/fathomgate/fathomgate/internal/termsafe"
 )
 
 func cmdPolicy(args []string) int {
@@ -62,15 +64,15 @@ func cmdPolicyTest(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		fmt.Printf("%s\n", printable(path))
+		fmt.Printf("%s\n", termsafe.Quote(path))
 		for _, r := range results {
 			total++
 			if r.Pass {
-				fmt.Printf("  PASS  %s\n", printable(r.Name))
+				fmt.Printf("  PASS  %s\n", termsafe.Quote(r.Name))
 				continue
 			}
 			failed++
-			fmt.Printf("  FAIL  %s: %s\n", printable(r.Name), r.Message)
+			fmt.Printf("  FAIL  %s: %s\n", termsafe.Quote(r.Name), r.Message)
 			if *verbose {
 				if r.Gate {
 					fmt.Printf("        class %s (class_source %s)\n", r.Class, r.ClassSource)
@@ -121,9 +123,16 @@ func cmdPolicyEval(args []string) int {
 
 	var resolver inventory.Resolver
 	if *invPath != "" {
-		chain, err := inventory.LoadChain(*invPath)
+		// Read as serve --inventory reads it (configset: the configfile
+		// checks, the size cap, no CSV), so eval decides with an inventory
+		// serve would load (security review of PR #197, N4).
+		b, err := configset.ReadInventory(*invPath)
 		if err != nil {
-			return fail(err)
+			return fail(fmt.Errorf("--inventory: %w", err))
+		}
+		_, chain, err := configset.ParseInventory(b)
+		if err != nil {
+			return fail(fmt.Errorf("--inventory: %s: %w", termsafe.Quote(*invPath), err))
 		}
 		resolver = chain
 	}
@@ -138,7 +147,10 @@ func cmdPolicyEval(args []string) int {
 		case *tool == "":
 			return fail(errors.New("--tool is required with --profile"))
 		}
-		return evalGate(p, resolver, *profilePath, *server, *tool, kvArgs, *argsJSON, session, *asJSON)
+		return evalGate(p, resolver, evalCall{
+			profile: *profilePath, server: *server, tool: *tool,
+			kvArgs: kvArgs, argsJSON: *argsJSON, session: session, asJSON: *asJSON,
+		})
 	}
 	if len(kvArgs) > 0 || *argsJSON != "" {
 		return fail(errors.New("--arg and --arguments-json: only with --profile, which classifies the call from them"))
@@ -205,19 +217,32 @@ type gateView struct {
 	MalformedArgs []string `json:"malformed_args,omitempty"`
 }
 
+// evalCall is one policy eval --profile call as the flags give it.
+type evalCall struct {
+	profile, server, tool string
+	kvArgs                []string
+	argsJSON              string
+	session               policy.Session
+	asJSON                bool
+}
+
 // evalGate decides one call through internal/gate Explain, the function
-// policy test runs gate cases with, with the one profile as the set.
-func evalGate(p *policy.Policy, resolver inventory.Resolver, profilePath, server, tool string, kvArgs []string, argsJSON string, session policy.Session, asJSON bool) int {
-	prof, err := classify.LoadProfile(profilePath)
+// policy test runs gate cases with, with the one profile as the set. The
+// profile is read as serve reads each profile (configset: the configfile
+// checks, the size cap, the file named after its server key; security
+// review of PR #197, N4).
+func evalGate(p *policy.Policy, resolver inventory.Resolver, c evalCall) int {
+	pf, err := configset.ProfileFileAt(c.profile)
 	if err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("--profile: %w", err))
 	}
-	if server != "" && server != prof.Server {
-		return fail(fmt.Errorf("--server %s: the profile's server key is %s", printable(server), prof.Server))
+	prof := pf.Profile
+	if c.server != "" && c.server != prof.Server {
+		return fail(fmt.Errorf("--server %s: the profile's server key is %s", termsafe.Quote(c.server), prof.Server))
 	}
-	raw := []byte(argsJSON)
-	if argsJSON == "" {
-		raw, err = json.Marshal(parseArgs(kvArgs))
+	raw := []byte(c.argsJSON)
+	if c.argsJSON == "" {
+		raw, err = json.Marshal(parseArgs(c.kvArgs))
 		if err != nil {
 			return fail(err)
 		}
@@ -227,16 +252,16 @@ func evalGate(p *policy.Policy, resolver inventory.Resolver, profilePath, server
 		return fail(err)
 	}
 	ex := g.Explain(context.Background(), seam.CallInfo{
-		Server: prof.Server, Tool: tool, Arguments: raw,
-		DevicesTouched: session.DevicesTouched, PendingHolds: session.PendingHolds,
+		Server: prof.Server, Tool: c.tool, Arguments: raw,
+		DevicesTouched: c.session.DevicesTouched, PendingHolds: c.session.PendingHolds,
 	})
 	v := ex.Verdict
-	req := policy.Request{Server: prof.Server, Tool: tool, Class: classify.Class(v.Class), Targets: ex.Targets, Session: session}
+	req := policy.Request{Server: prof.Server, Tool: c.tool, Class: classify.Class(v.Class), Targets: ex.Targets, Session: c.session}
 	view := gateView{
 		ClassSource: v.ClassSource, Forwarded: v.Forward, ToolError: v.Error,
 		ParseError: ex.ParseError, UnnamedArgs: ex.Unnamed, MalformedArgs: ex.Malformed,
 	}
-	if asJSON {
+	if c.asJSON {
 		if err := printJSON(struct {
 			Request  policy.Request  `json:"request"`
 			Decision policy.Decision `json:"decision"`
@@ -251,19 +276,19 @@ func evalGate(p *policy.Policy, resolver inventory.Resolver, profilePath, server
 		note = fmt.Sprintf(" (profile %s; %s)", ex.ProfileClass, ex.ClassNote)
 	}
 	printDecision(req, ex.Decision, note, func(w io.Writer) {
-		_, _ = fmt.Fprintf(w, "class_source: %s\n", v.ClassSource)
+		field(w, "class_source", v.ClassSource)
 		if view.ParseError != "" {
-			_, _ = fmt.Fprintf(w, "parse_error: %s\n", view.ParseError)
+			field(w, "parse_error", view.ParseError)
 		}
 		if len(view.UnnamedArgs) > 0 {
-			_, _ = fmt.Fprintf(w, "unnamed_args: %s\n", strings.Join(quoteAll(view.UnnamedArgs), ", "))
+			field(w, "unnamed_args", strings.Join(termsafe.QuoteEach(view.UnnamedArgs), ", "))
 		}
 		if len(view.MalformedArgs) > 0 {
-			_, _ = fmt.Fprintf(w, "malformed_args: %s\n", strings.Join(quoteAll(view.MalformedArgs), ", "))
+			field(w, "malformed_args", strings.Join(termsafe.QuoteEach(view.MalformedArgs), ", "))
 		}
-		_, _ = fmt.Fprintf(w, "forwarded:   %t\n", view.Forwarded)
+		field(w, "forwarded", strconv.FormatBool(view.Forwarded))
 		if view.ToolError != "" {
-			_, _ = fmt.Fprintf(w, "tool error:  %s\n", printable(view.ToolError))
+			field(w, "tool error", termsafe.Quote(view.ToolError))
 		}
 	})
 	return effectExit(ex.Decision.Effect)
@@ -286,33 +311,43 @@ func printJSON(v any) error {
 	return enc.Encode(v)
 }
 
+// labelWidth fits the longest label, "malformed_args:", so every value
+// starts in one column.
+const labelWidth = len("malformed_args:")
+
+// field prints one "label: value" line with the value aligned.
+func field(w io.Writer, label, value string) {
+	_, _ = fmt.Fprintf(w, "%-*s %s\n", labelWidth, label+":", value)
+}
+
 // printDecision prints the decision in the console's order. extra, when
 // given, prints the gate's fields after the obligations and before the
 // trace.
 func printDecision(req policy.Request, d policy.Decision, classNote string, extra ...func(io.Writer)) {
-	fmt.Printf("decision:    %s\n", d.Effect)
-	fmt.Printf("class:       %s%s\n", req.Class, classNote)
+	w := os.Stdout
+	field(w, "decision", string(d.Effect))
+	field(w, "class", string(req.Class)+classNote)
 	if len(req.Targets) == 0 {
-		fmt.Printf("targets:     (none)\n")
+		field(w, "targets", "(none)")
 	}
 	for _, t := range req.Targets {
-		fmt.Printf("target:      %s\n", describeTarget(t))
+		field(w, "target", describeTarget(t))
 	}
-	fmt.Printf("rule:        %s\n", printable(d.RuleID))
+	field(w, "rule", termsafe.Quote(d.RuleID))
 	if d.Reason != "" {
-		fmt.Printf("reason:      %s\n", printable(d.Reason))
+		field(w, "reason", termsafe.Quote(d.Reason))
 	}
 	if len(d.Obligations) > 0 {
-		fmt.Printf("obligations: %s\n", strings.Join(d.Obligations, ", "))
+		field(w, "obligations", strings.Join(d.Obligations, ", "))
 	}
 	if d.Approval != nil {
-		fmt.Printf("approval:    ttl %s, approver must differ: %v\n", d.Approval.TTL, d.Approval.ApproverMustDiffer)
+		field(w, "approval", fmt.Sprintf("ttl %s, approver must differ: %v", d.Approval.TTL, d.Approval.ApproverMustDiffer))
 	}
 	for _, f := range extra {
-		f(os.Stdout)
+		f(w)
 	}
-	fmt.Println("trace:")
-	printTrace(os.Stdout, d.Trace, "  ")
+	_, _ = fmt.Fprintln(w, "trace:")
+	printTrace(w, d.Trace, "  ")
 }
 
 // printTrace prints one line per check. Rule ids and notes are quoted when
@@ -324,37 +359,29 @@ func printTrace(w io.Writer, trace []policy.TraceEntry, indent string) {
 		if e.Matched {
 			mark = "*"
 		}
-		_, _ = fmt.Fprintf(w, "%s%s %-32s %s\n", indent, mark, printable(e.RuleID), printable(e.Note))
+		_, _ = fmt.Fprintf(w, "%s%s %-32s %s\n", indent, mark, termsafe.Quote(e.RuleID), termsafe.Quote(e.Note))
 	}
 }
 
 func describeTarget(t policy.Target) string {
-	name := printable(t.Name)
+	name := termsafe.Quote(t.Name)
 	if !t.Known {
 		return name + " (unknown)"
 	}
 	var parts []string
 	if t.Role != "" {
-		parts = append(parts, "role "+printable(t.Role))
+		parts = append(parts, "role "+termsafe.Quote(t.Role))
 	}
 	if t.Site != "" {
-		parts = append(parts, "site "+printable(t.Site))
+		parts = append(parts, "site "+termsafe.Quote(t.Site))
 	}
 	if len(t.Tags) > 0 {
-		parts = append(parts, "tags "+printable(strings.Join(t.Tags, ",")))
+		parts = append(parts, "tags "+termsafe.Quote(strings.Join(t.Tags, ",")))
 	}
 	if len(parts) == 0 {
 		return name
 	}
 	return name + " (" + strings.Join(parts, ", ") + ")"
-}
-
-func quoteAll(in []string) []string {
-	out := make([]string, len(in))
-	for i, s := range in {
-		out[i] = strconv.QuoteToASCII(s)
-	}
-	return out
 }
 
 // parseArgs turns --arg k=v flags into a tool argument map. Values containing
