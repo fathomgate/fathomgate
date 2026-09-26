@@ -82,21 +82,23 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 ## Repo map
 
 ```
-cmd/fathomgate/      CLI (version, serve --policy | --no-policy, policy test|eval, audit verify|keygen, redact, inventory import|lint|resolve)
+cmd/fathomgate/      CLI (version, serve --policy | --no-policy, policy test [--profiles] | eval [--profile, through the gate], audit verify|keygen, redact, inventory import|lint|resolve)
 internal/classify/   Class enum, server profiles, Normalize, ClassifyCommand, downgrade rule
-internal/policy/     YAML DSL types, Load/Validate, Evaluate, *.test.yaml runner
+internal/policy/     YAML DSL types, Load/Validate, Evaluate
+internal/policytest/ *.test.yaml format and runner: class-given cases (Evaluate) and gate cases (raw tool calls through internal/gate), ADR 0035
 internal/redact/     ordered vendor patterns, keyed HMAC tokens
 internal/audit/      Event, canonical JSON, hash chain Writer, Ed25519 checkpoints, Verify
 internal/fileacl/    one question: does this open file carry a macOS extended ACL (refuse it); no-op elsewhere
 internal/secretfile/ owner-only read of a secret file (audit signing key, listen token files; redaction key in M2), ADR 0028
 internal/configfile/ integrity check on the policy, inventory and profile files: nobody but the owner and admins may change them (ADR 0027)
 internal/yamlstrict/ the one YAML decode for policy, inventory and profiles: strict, one document, errors that never quote the file
+internal/configset/  the profile set (embedded or --profiles) and the inventory, loaded the one way serve, policy test and inventory lint load them
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
 internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
 profiles/            one YAML per upstream server (tool → class, param mapping), pinned by tests
-policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (45 cases)
+policies/examples/   read-only, lab-open, prod-approval + *.test.yaml (45 class-given cases) and *.gate.test.yaml (112 gate cases)
 tests/               Python: policy_lint, tiered pytest, fixtures/configs (annotated secrets)
 tools/policy-lint/   launcher for contributors without Go
 design/              Fathom tokens + Fathomgate policy layer + console preview
