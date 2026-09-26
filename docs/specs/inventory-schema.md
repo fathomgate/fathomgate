@@ -170,7 +170,7 @@ The normaliser (`internal/gate` at the proxy, `classify.Normalize` for `fathomga
 
 After expansion, `targets_count` in `when` conditions is the expanded count, so a fan-out cap sees the real blast radius.
 
-In M1 there is no upstream inventory provider, so only the first two rows apply, and a CSV string is split but not trimmed (`"r1, r2"` is refused). A group token or a tag selector on a tool that reaches devices is refused with `default:bad_arguments`, and so is an empty selection on such a tool ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). The proxy never expands a group or tag from its own inventory for an upstream that expands it itself: the upstream's idea of the group is what reaches devices.
+In M1 there is no upstream inventory provider, so only the first two rows apply, and a CSV string is split but not trimmed (`"r1, r2"` is refused). A group token or a tag selector on a tool that reaches devices is denied by rule `default:bad_arguments`, and so is an empty selection on such a tool ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate)). The proxy never expands a group or tag from its own inventory for an upstream that expands it itself: the upstream's idea of the group is what reaches devices.
 
 ## 9. CLI
 

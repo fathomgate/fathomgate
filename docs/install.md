@@ -415,7 +415,7 @@ which is not shared. Then open Cursor Settings, go to MCP, check that
 
 Instead of letting the client start Fathomgate, you can start Fathomgate
 yourself and have clients connect to it over HTTP. That helps when an app
-cannot start programs, or when several clients should share one Fathomgate.
+cannot start programs, or when several clients should share one Fathomgate process.
 
 This has three limits, on purpose:
 

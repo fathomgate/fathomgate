@@ -124,7 +124,7 @@ pairs:
 `era_pairs.py` drives two cells the suite does not score, against the 2025
 fixture, each twice: over stdio, and over the listener as its own minimal
 HTTP client (token, prefixed name and 2026 routing headers set by itself,
-no shim), each cell in a Fathomgate of its own:
+no shim), each cell in a Fathomgate process of its own:
 
 - **agent 2025-11-25 x upstream 2025-11-25**: the prompt reaches the agent
   as `[from conf] <message>`, its field title labelled too; the agent's
@@ -238,7 +238,7 @@ the 2025-11-25 runs, both deliberate:
   `json-schema-2020-12` pass, and `server-sse-polling` passes but for a
   `server-sse-priming-event` WARNING (a SHOULD: no priming event with an id
   on the POST SSE stream), on both control legs; it is unscored, so no
-  baseline lists it. Run alone on a fresh Fathomgate (T0.57, by hand),
+  baseline lists it. Run alone on a fresh `fathomgate serve` process (T0.57, by hand),
   `server-sse-polling` gives the same warning and a second one,
   `server-sse-retry-field` (a SHOULD: no `retry:` field). The fixture's
   `test_reconnection` tool closes its SSE stream mid-call with a `retry:`
@@ -252,7 +252,7 @@ the 2025-11-25 runs, both deliberate:
 - **Orphan rule.** See the group above.
 
 **Fresh-process step.** After the shared run, `run.sh` runs some scenarios
-again on a 2025-11-25 `fathomgate` leg, each alone against a Fathomgate of its
+again on a 2025-11-25 `fathomgate` leg, each alone against a Fathomgate process of its
 own, as `conformance server --scenario <name> --spec-version 2025-11-25`
 (the suite does not combine `--scenario` with `--requirements`). No
 baseline applies: the scenario must pass outright, scored by the suite's
@@ -264,7 +264,7 @@ exit code, and a failure fails the leg.
 | `tools-call-elicitation` | `fathomgate-up2025` | The upstream's `elicitation/create` relayed to a 2025 agent over the listener and the answer returned (hidden by the orphan rule in the shared run) |
 | `elicitation-sep1034-defaults` | `fathomgate-up2025` | The same path with SEP-1034 default values |
 
-The relay started one Fathomgate per 2025 session, so neither rule could
+The relay started one Fathomgate process per 2025 session, so neither rule could
 show before T0.32.
 
 A baseline entry is not a pass. "The conformance suite passes on the
