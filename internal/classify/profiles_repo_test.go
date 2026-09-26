@@ -53,6 +53,10 @@ func TestRepoProfiles(t *testing.T) {
 			"set_config_commands_and_commit_or_save": WriteConfig,
 			"get_network_device_list":                InventoryRead,
 		},
+		"cisco-meraki-mcp-official": {
+			"semantic_search": InventoryRead,
+			"execute_api":     ExecArbitrary,
+		},
 	}
 	for server, tools := range want {
 		p, ok := profiles[server]
@@ -164,6 +168,12 @@ var upstreamParams = map[string]map[string][]string{
 		"get_pool_status":        {},
 		"test_connection":        {"device"},
 	},
+	// c1d00ea: the upstream's own tools/list, tests/fixtures/meraki/tools-list.json
+	// (TestMerakiToolsListFixture checks that the two agree).
+	"cisco-meraki-mcp-official": {
+		"semantic_search": {"query", "top_k"},
+		"execute_api":     {"capability_id", "parameters"},
+	},
 }
 
 // wantRefused is every argument a shipped profile deliberately refuses. A
@@ -190,6 +200,11 @@ var wantRefused = map[string]map[string][]string{
 	},
 	"junos-mcp-server": {
 		"load_and_commit_config": {"config"},
+	},
+	// parameters is an object whose keys become Meraki SDK keyword
+	// arguments; ADR 0033 section 2 keeps such an argument unnamed (M1-17).
+	"cisco-meraki-mcp-official": {
+		"execute_api": {"parameters"},
 	},
 }
 
@@ -218,10 +233,7 @@ func TestRepoProfileArguments(t *testing.T) {
 				t.Errorf("%s.%s: no upstreamParams row", server, tool)
 				continue
 			}
-			covered := make([]string, 0, len(upstream))
-			for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams, spec.Args, spec.RefusedArgs} {
-				covered = append(covered, l...)
-			}
+			covered := append(spec.NamedArgs(), spec.RefusedArgs...)
 			if got, want := sorted(covered), sorted(upstream); !reflect.DeepEqual(got, want) {
 				t.Errorf("%s.%s: named plus refused %q, upstream accepts %q", server, tool, got, want)
 			}
@@ -231,10 +243,8 @@ func TestRepoProfileArguments(t *testing.T) {
 
 			// Every named argument passes, with a value of the right shape.
 			named := map[string]any{}
-			for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams, spec.Args} {
-				for _, n := range l {
-					named[n] = "x"
-				}
+			for _, n := range spec.NamedArgs() {
+				named[n] = "x"
 			}
 			if r := Classify(p, tool, named); !r.ArgumentsOK() {
 				t.Errorf("%s.%s: named arguments refused: unnamed %q malformed %q", server, tool, r.UnnamedArgs, r.MalformedArgs)
