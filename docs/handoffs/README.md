@@ -10,6 +10,8 @@ Work state lives in the repo, not in anyone's chat window. Three files carry it:
 
 `docs/milestones/CURRENT` names the milestone `STATUS.md` renders.
 
+The task id ends the note's file name and is written as on the board: `2026-09-26-mcp-protocol-engineer-to-go-reviewer-M1-06.md`. A later note on the same task, day and pair adds `-round<n>` after the id (`...-M1-06-round2.md`); no other suffix. Notes named before M1-31 write the id with a dot (`M1.06`, `T0.51`); the renderer reads both forms, and those names stay as written.
+
 Notes written before [ADR 0019](../adr/0019-rename-to-fathomgate.md) use the placeholder name NetGuard and the identifiers in that record's scope table (`netguard`, `NETGUARD_*`, `ng3.`, the slug `netguard-orchestrator`), and are left as written, file names included; the scope table maps each one to its Fathomgate name.
 
 ## Task states

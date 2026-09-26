@@ -3,8 +3,8 @@
 package policy
 
 import (
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -437,89 +437,16 @@ func TestValidateErrors(t *testing.T) {
 	}
 }
 
-func TestRunTestFile(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "p.yaml"), []byte(planPolicy), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	testYAML := `
-policy: p.yaml
-cases:
-  - name: core write held
-    request:
-      class: WRITE_CONFIG
-      targets: [{name: core-rtr-01, role: core}]
-    expect: {effect: hold, rule: prod-core-needs-approval, obligations: [dry_run, diff, timed_rollback]}
-  - name: unknown denied
-    request:
-      class: READ_OPERATIONAL
-      targets: [{name: ghost, known: false}]
-    expect: {effect: deny, rule: default:unknown_target}
-  - name: deliberately wrong
-    request:
-      class: EXEC_ARBITRARY
-    expect: {effect: allow}
-  - name: wrong rule
-    request:
-      class: READ_CONFIG
-    expect: {effect: allow, rule: lab-writes-free}
-`
-	tp := filepath.Join(dir, "p.test.yaml")
-	if err := os.WriteFile(tp, []byte(testYAML), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	results, err := RunTestFile(tp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 4 {
-		t.Fatalf("got %d results", len(results))
-	}
-	if !results[0].Pass || !results[1].Pass {
-		t.Errorf("expected first two cases to pass: %+v %+v", results[0], results[1])
-	}
-	if results[2].Pass || !strings.Contains(results[2].Message, "effect deny") {
-		t.Errorf("case 3 should fail on effect: %+v", results[2])
-	}
-	if results[3].Pass || !strings.Contains(results[3].Message, "rule reads-anywhere") {
-		t.Errorf("case 4 should fail on rule: %+v", results[3])
-	}
-
-	if _, err := RunTestFile(filepath.Join(dir, "missing.test.yaml")); err == nil {
-		t.Error("missing file should error")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "bad.test.yaml"), []byte("policy: p.yaml\ncases: [{name: x, request: {class: READ_CONFIG}, expect: {effect: maybe}}]"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RunTestFile(filepath.Join(dir, "bad.test.yaml")); err == nil {
-		t.Error("bad expected effect should error")
-	}
+// sameSet reports whether a and b hold the same strings, in any order.
+func sameSet(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
-// TestRepoExamplePolicies runs every shipped *.test.yaml so the examples in
-// policies/examples cannot drift from the engine.
-func TestRepoExamplePolicies(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("..", "..", "policies", "examples", "*.test.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) == 0 {
-		t.Skip("no example test files found")
-	}
-	for _, f := range files {
-		t.Run(filepath.Base(f), func(t *testing.T) {
-			results, err := RunTestFile(f)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, r := range results {
-				if !r.Pass {
-					t.Errorf("%s: %s", r.Name, r.Message)
-				}
-			}
-		})
-	}
-}
+// The *.test.yaml runner and TestRepoExamplePolicies live in
+// internal/policytest (ADR 0035), which can call internal/gate.
 
 func TestExamplePoliciesLoad(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "..", "policies", "examples", "*.yaml"))

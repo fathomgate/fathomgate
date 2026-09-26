@@ -1,0 +1,546 @@
+# Gate cases for read-only.yaml (ADR 0035), run with `fathomgate policy test`
+# or `make policy-test`. Each case is a tools/call as an agent sends it: the
+# server, the tool and the raw arguments. It runs through internal/gate, the
+# steps `fathomgate serve --policy` runs (parse, caps, normalise, classify,
+# the closed argument list, targets, resolve, Evaluate), with the profiles
+# built into the binary (or `policy test --profiles <dir>`) and the inventory
+# below. read-only.test.yaml keeps the class-given cases.
+#
+# These are tier 1 evidence. Test-matrix rows 3, 4 and 6 are validated only
+# against the real upstream servers (M1-28).
+#
+# The inventory lists devices by name and carries two hostname patterns, so
+# the PR #154 names below are checked with patterns active: a pattern only
+# adds attributes to a listed device and never makes a name known (ADR 0031).
+policy: read-only.yaml
+inventory:
+  devices:
+    - {name: core-rtr-01, site: dfw1, tags: [prod]}
+    - {name: border-rtr-01, role: border, site: dfw1, tags: [prod]}
+    - {name: lab-sw-01, role: access, site: lab}
+    - {name: lab-sw-02, role: access, site: lab, tags: [lab]}
+  roles:
+    - match: "^(core|border)-rtr-[0-9]{2}$"
+      role: core
+    - match: "^lab-[a-z]+-[0-9]{2}$"
+      tags: [lab]
+cases:
+  # Row 3: show ip bgp summary is a read on every free-form command tool.
+  - name: "row 3: netdev-ssh-mcp run_show_command show ip bgp summary is allowed"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-sw-01, command: show ip bgp summary}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL, obligations: [redact], targets: [lab-sw-01], unknown_target: false, forwarded: true, tool_error: ""}
+  - name: "row 3: upa send_command_and_get_output show ip bgp summary is downgraded"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: show ip bgp summary}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL, class_source: downgrade, forwarded: true}
+  - name: "row 3: eos-mcp run_command show ip bgp summary is downgraded"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: show ip bgp summary}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL, class_source: downgrade, forwarded: true}
+  - name: "row 3: ntunes send_command show ip bgp summary is downgraded"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_command
+      arguments: {device: lab-sw-01, command: show ip bgp summary}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL, class_source: downgrade}
+
+  # Row 4: reload through a free-form command tool is denied by no-exec, and
+  # the tool error names the rule.
+  - name: "row 4: upa send_command_and_get_output reload is denied by no-exec"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: reload}
+    expect:
+      effect: deny
+      rule: no-exec
+      class: EXEC_ARBITRARY
+      forwarded: false
+      tool_error: "fathomgate denied upa.send_command_and_get_output: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+  - name: "row 4: eos-mcp run_command reload is denied by no-exec"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: reload}
+    expect:
+      effect: deny
+      rule: no-exec
+      class: EXEC_ARBITRARY
+      forwarded: false
+      tool_error: "fathomgate denied eos-mcp.run_command: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+  - name: "row 4: netdev-ssh-mcp run_show_command reload is raised to EXEC_ARBITRARY"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-sw-01, command: reload}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "row 4: eos-mcp run_commands with reload among show commands is denied"
+    request:
+      server: eos-mcp
+      tool: run_commands
+      arguments: {hostname: lab-sw-01, commands: [show version, reload, show clock]}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+
+  # Row 6: an unknown host is denied for every class, reads included.
+  - name: "row 6: an unlisted host is denied for a read"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: 192.0.2.99, command: show version}
+    expect:
+      effect: deny
+      rule: default:unknown_target
+      class: READ_OPERATIONAL
+      targets: [192.0.2.99]
+      unknown_target: true
+      tool_error: "fathomgate denied netdev-ssh-mcp.run_show_command: rule default:unknown_target (class READ_OPERATIONAL): target not in inventory"
+  - name: "row 6: an unlisted host is denied for a config read"
+    request:
+      server: netdev-ssh-mcp
+      tool: get_config
+      arguments: {host: 192.0.2.99}
+    expect: {effect: deny, rule: default:unknown_target, class: READ_CONFIG, unknown_target: true}
+  - name: "row 6: an unlisted host is denied for exec before the rules run"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: 192.0.2.99, command: reload}
+    expect: {effect: deny, rule: default:unknown_target, class: EXEC_ARBITRARY, unknown_target: true}
+
+  # PR #154: attacker-chosen names under active hostname patterns.
+  - name: "PR #154: core-x.attacker.example is unknown although it starts like a core name"
+    request:
+      server: netdev-ssh-mcp
+      tool: get_config
+      arguments: {host: core-x.attacker.example}
+    expect: {effect: deny, rule: default:unknown_target, targets: [core-x.attacker.example], unknown_target: true}
+  - name: "PR #154: core-rtr-01.attacker.example is unknown although core-rtr-01 is listed"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: core-rtr-01.attacker.example}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: lab-ghost-99 matches the lab pattern and is still unknown"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-ghost-99}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: a case variant of a listed name is unknown"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: LAB-sw-01}
+    expect: {effect: deny, rule: default:unknown_target, unknown_target: true}
+  - name: "PR #154: user@host is not a hostname"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-x@core-rtr-01, command: show version}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      targets: []
+      tool_error: "fathomgate denied netdev-ssh-mcp.run_show_command: rule default:bad_arguments (class READ_OPERATIONAL): a target is not a hostname or IP address"
+  - name: "PR #154: a leading space is not trimmed into a listed name"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: " lab-sw-01"}
+    expect: {effect: deny, rule: default:bad_arguments}
+  - name: "PR #154: a trailing dot is not a listed name"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-sw-01.}
+    expect: {effect: deny, rule: default:bad_arguments}
+  - name: "PR #154: a zero-width space after a listed name is not a hostname"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: "lab-sw-01\u200b"}
+    expect: {effect: deny, rule: default:bad_arguments}
+  - name: "listed device with a role and tags from the patterns is read as usual"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: core-rtr-01}
+    expect: {effect: allow, rule: reads-anywhere, targets: [core-rtr-01], unknown_target: false}
+
+  # Targets and group selectors (profile-schema 2.2).
+  - name: "hostnames sent as a JSON string is malformed, not one odd target"
+    request:
+      server: eos-mcp
+      tool: get_device_facts_batch
+      arguments: {hostnames: '["lab-sw-01"]'}
+    expect: {effect: deny, rule: default:bad_arguments, malformed_args: [hostnames]}
+  - name: "hostnames \"null\" is malformed (FastMCP would read the whole fleet)"
+    request:
+      server: eos-mcp
+      tool: daily_brief
+      arguments: {hostnames: "null"}
+    expect: {effect: deny, rule: default:bad_arguments, malformed_args: [hostnames]}
+  - name: "a tag selector the upstream expands itself is refused"
+    request:
+      server: eos-mcp
+      tool: daily_brief
+      arguments: {tags: [lab]}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      tool_error: "fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): selecting devices by tag or group is not supported yet; name each target"
+  - name: "a device tool with no target is refused"
+    request:
+      server: eos-mcp
+      tool: daily_brief
+      arguments: {}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      tool_error: "fathomgate denied eos-mcp.daily_brief: rule default:bad_arguments (class READ_OPERATIONAL): this tool needs at least one target named explicitly"
+  - name: "a comma-separated target list with a space is refused, not trimmed"
+    request:
+      server: eos-mcp
+      tool: get_device_facts_batch
+      arguments: {hostnames: "lab-sw-01, lab-sw-02"}
+    expect: {effect: deny, rule: default:bad_arguments}
+  - name: "a comma-separated target list is split exactly"
+    request:
+      server: eos-mcp
+      tool: get_device_facts_batch
+      arguments: {hostnames: "lab-sw-01,lab-sw-02"}
+    expect: {effect: allow, rule: reads-anywhere, targets: [lab-sw-01, lab-sw-02]}
+  - name: "an inventory tool with no target reaches the rules"
+    request:
+      server: upa
+      tool: get_network_device_list
+      arguments: {}
+    expect: {effect: allow, rule: reads-anywhere, class: INVENTORY_READ, targets: []}
+
+  # PR #152: injection through a free-form command. Each one reached the
+  # device while fathomgate saw a read.
+  - name: "PR #152: show clock, a line break, then conf t"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show clock\nconf t"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: show clock, a carriage return, then copy run start"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_command
+      arguments: {device: lab-sw-01, command: "show clock\rcopy run start"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: relo after a line break and a blank line"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: "show clock\nrelo\n\n"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a Unicode line separator"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show clock\u2028reload"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a next-line control character (NEL)"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show clock\u0085reload"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a vertical tab"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show clock\vreload"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a fullwidth look-alike of show"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "\uff53\uff48\uff4f\uff57 version"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a no-break space inside show version"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show\u00a0version"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: tclsh"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: tclsh}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: show clock chained with a semicolon"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: "show clock ; reload"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a pipe to a redirect-like sink"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: "show running-config | redirect flash:x"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a double-quoted option on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: 'ping 192.0.2.1 "-f"'}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a single-quoted option on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1 '-f'"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a backslash-escaped option on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1 \\-f"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a brace expansion on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping {-f,192.0.2.1}"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a bracket glob on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1 [-]f"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: ${IFS} on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping${IFS}-f 192.0.2.1"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: an ANSI-C quoted string on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1 $'\\x2df'"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a plain leading-dash option on ping"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1 -f"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "PR #152: a plain ping is a read"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "ping 192.0.2.1"}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_OPERATIONAL}
+
+  # PR #152: config dumps through short forms are READ_CONFIG, so redaction
+  # is mandatory and a policy that denies READ_CONFIG denies them.
+  - name: "PR #152: show ru is a config read"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: show ru}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: show tec is a config read"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: show tec}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: show running-config through ntunes send_command is a config read"
+    request:
+      server: ntunes-netmiko-mcp-server
+      tool: send_command
+      arguments: {device: lab-sw-01, command: show running-config}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: show ru through run_show_command is raised to a config read"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-sw-01, command: show ru}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: Junos show sys rol 1 is a config read"
+    request:
+      server: junos-mcp-server
+      tool: execute_junos_command
+      arguments: {router_name: lab-sw-01, command: show sys rol 1}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: a saved config on bootflash is a config read"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show file bootflash:backup.cfg"}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+  - name: "PR #152: a bare show is a config read"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: show}
+    expect: {effect: allow, rule: reads-anywhere, class: READ_CONFIG}
+
+  # The closed argument list (ADR 0033).
+  - name: "eos-mcp config_path is refused, and the tool error does not name it"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-sw-01, config_path: /proc/self/environ}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      unnamed_args: [config_path]
+      tool_error: "fathomgate denied eos-mcp.get_version: rule default:bad_arguments (class READ_OPERATIONAL): an argument is not named in the server profile for this tool"
+  - name: "an empty config_path is still sent, so it is refused"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-sw-01, config_path: ""}
+    expect: {effect: deny, rule: default:bad_arguments, unnamed_args: [config_path]}
+  - name: "netdev-ssh-mcp username is refused"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-sw-01, command: show version, username: admin}
+    expect: {effect: deny, rule: default:bad_arguments, unnamed_args: [username]}
+  - name: "a tool the profile does not list is refused when it carries arguments"
+    request:
+      server: eos-mcp
+      tool: reload_devices
+      arguments: {hostname: lab-sw-01}
+    expect: {effect: deny, rule: default:bad_arguments, class: EXEC_ARBITRARY, unnamed_args: [hostname]}
+  - name: "a tool the profile does not list, with no arguments, is EXEC_ARBITRARY for the rules"
+    request:
+      server: eos-mcp
+      tool: reload_devices
+      arguments: {}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "a named command sent as a number is malformed"
+    request:
+      server: eos-mcp
+      tool: run_command
+      arguments: {hostname: lab-sw-01, command: 7}
+    expect: {effect: deny, rule: default:bad_arguments, malformed_args: [command]}
+
+  # Arguments the gate cannot parse (ADR 0026 step 1).
+  # A call the gate cannot parse is classified without its arguments, so a
+  # command tool with no command reads EXEC_ARBITRARY.
+  - name: "a key given twice"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments_json: '{"host": "lab-sw-01", "command": "show version", "host": "192.0.2.99"}'
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      class: EXEC_ARBITRARY
+      parse_error: duplicate_key
+      tool_error: "fathomgate denied netdev-ssh-mcp.run_show_command: rule default:bad_arguments (class EXEC_ARBITRARY): the arguments must be one JSON object, in UTF-8, with no key given twice"
+  - name: "arguments that are a list, not an object"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments_json: '["lab-sw-01", "show version"]'
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: not_object}
+  - name: "a second JSON value after the object"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments_json: '{"host": "lab-sw-01", "command": "show version"} {"command": "reload"}'
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: trailing_data}
+  - name: "JSON cut short"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments_json: '{"host": "lab-sw-01", "command": '
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: invalid_json}
+
+  # Per-call caps (profile-schema 2.4).
+  - name: "65 commands in one call is over the cap"
+    request:
+      server: eos-mcp
+      tool: run_commands
+      arguments: {hostname: lab-sw-01, commands: [show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version, show version]}
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: too_many_commands}
+  - name: "257 targets in one call is over the cap"
+    request:
+      server: eos-mcp
+      tool: get_device_facts_batch
+      arguments: {hostnames: "lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01,lab-sw-01"}
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: too_many_targets}
+
+  # Annotations only ever raise a class (invariant 3).
+  - name: "readOnlyHint false raises a read tool to EXEC_ARBITRARY"
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments: {host: lab-sw-01, command: show version}
+      annotations: {readOnlyHint: false}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY, class_source: annotation_raise}
+  - name: "destructiveHint true raises a read tool to EXEC_ARBITRARY"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-sw-01}
+      annotations: {destructiveHint: true}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY, class_source: annotation_raise}
+  - name: "readOnlyHint true does not lower reload"
+    request:
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: reload}
+      annotations: {readOnlyHint: true, destructiveHint: false}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+
+  # Writes, and config lines that leave the session (M1-36).
+  - name: "an eos-mcp config push is a write, denied by no-writes"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [hostname lab-sw-01-new]}
+    expect: {effect: deny, rule: no-writes, class: WRITE_CONFIG}
+  - name: "config lines that end the session and reload are EXEC_ARBITRARY"
+    request:
+      server: eos-mcp
+      tool: push_config
+      arguments: {hostname: lab-sw-01, config_lines: [end, reload now]}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+  - name: "a Junos set command is a write"
+    request:
+      server: junos-mcp-server
+      tool: load_and_commit_config
+      arguments: {router_name: core-rtr-01, config_text: set system host-name x}
+    expect: {effect: deny, rule: no-writes, class: WRITE_CONFIG}
+  - name: "a Jinja2 template runs code on the upstream host, so it is EXEC_ARBITRARY"
+    request:
+      server: junos-mcp-server
+      tool: render_and_apply_j2_template
+      arguments: {router_name: lab-sw-01, template_content: "set system host-name {{ h }}", vars_content: "h: x"}
+    expect: {effect: deny, rule: no-exec, class: EXEC_ARBITRARY}
+
+  # Local admin and the session cap.
+  - name: "trust_host_key is local admin, denied"
+    request:
+      server: netdev-ssh-mcp
+      tool: trust_host_key
+      arguments: {host: lab-sw-01}
+    expect: {effect: deny, rule: no-lab-or-admin, class: LOCAL_ADMIN}
+  - name: "a read past the session device cap is denied"
+    request:
+      server: eos-mcp
+      tool: get_version
+      arguments: {hostname: lab-sw-01}
+      session: {devices_touched: 20}
+    expect: {effect: deny, rule: default:session.max_devices}

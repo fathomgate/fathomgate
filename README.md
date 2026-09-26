@@ -151,6 +151,7 @@ Step-by-step setup for Claude Code and Cursor, device credentials, and what to d
 
 ```sh
 bin/fathomgate policy test policies/examples/prod-approval.test.yaml
+bin/fathomgate policy test policies/examples/read-only.gate.test.yaml   # raw tool calls through the gate
 ```
 
 **Mask the secrets in a device config.** The sample configs contain only fake secrets:

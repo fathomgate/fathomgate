@@ -12,7 +12,7 @@ Three tiers. Tier 1 runs on every commit with no network and proves the policy, 
 
 ## Tier 1: what it proves
 
-- `Evaluate` returns the expected decision for every `*.test.yaml` case, including unknown-target, session-cap and implicit-deny cases ([policy-schema.md](../specs/policy-schema.md#7-test-file-format)).
+- `Evaluate` returns the expected decision for every class-given `*.test.yaml` case, including unknown-target, session-cap and implicit-deny cases, and `internal/gate` returns it for every gate case, from the arguments an agent sends through the profiles built into the binary and the suite's inventory ([policy-schema.md](../specs/policy-schema.md#7-test-file-format), [ADR 0035](../adr/0035-policy-test-cases-run-the-gate-path.md)). Gate cases are tier 1 evidence for test-matrix rows 3, 4 and 6; a row is validated only against its real upstream.
 - Every row in the [classification worked examples](../specs/classification.md#9-worked-examples) classifies as stated; every allow-list and blocklist entry has a positive and a negative case.
 - Every annotated line in `tests/fixtures/configs/` is redacted by exactly the named pattern and nothing else changes ([redaction-patterns.md](../specs/redaction-patterns.md#6-fixture-corpus)).
 - The audit writer produces a chain that `verify` accepts; editing one character makes `verify` fail naming the line.
@@ -153,7 +153,7 @@ cEOS-lab images are downloaded from arista.com with an Arista account and cannot
 
 ## Adding a test
 
-- A new policy behaviour: add a case to the relevant `*.test.yaml`. No Go needed.
+- A new policy behaviour: add a case to the relevant `*.test.yaml`. No Go needed. A classification or resolution behaviour (a command, an argument, a target spelling): add a gate case, with `request.arguments`, to the relevant `*.gate.test.yaml`.
 - A new classification rule: add a row to the worked examples in the spec and a matching table entry in `internal/classify`.
 - A new redaction pattern: add an annotated line to the fixture for that vendor.
 - A new upstream: add a profile, a tier 2 image build, and one matrix case that names it.
