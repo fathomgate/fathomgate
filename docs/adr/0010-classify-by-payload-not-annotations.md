@@ -49,6 +49,10 @@ The normative rules and worked examples are in [classification.md](../specs/clas
 | Rely on upstream filters | Only three servers have allow-lists; blocklists such as upa's `--secured` are partial. |
 | LLM-based classification (InfrastructureSentinel) | Non-deterministic; not testable with table tests; adds a model call to every tool call. |
 
+## Notes after acceptance
+
+**2026-09-25, M1-17: capability tables implemented.** The shape is profile-schema section 2.5: a meta-tool's `capability_param` names the argument, its `capability_table` names a table in the profile's top-level `capabilities`, and each table maps an exact capability id to a class. Keys are ids, not patterns: an id the table does not list is `EXEC_ARBITRARY`, which is the point of keying on `capability_id`, so no pattern can classify an operation nobody has read. The lookup is byte for byte, `class_source` is `capability_table` for every meta-tool call, and a meta-tool's own class must be `EXEC_ARBITRARY`. The annotation rule above applies to the table's class: `readOnlyHint: false` raises a listed read capability, `readOnlyHint: true` lowers nothing. The first table is `profiles/cisco-meraki-mcp-official.yaml`, read from the upstream at `c1d00ea`.
+
 ## References
 
 - [Research brief 02, section 2](../research/02-network-mcp-servers.md)

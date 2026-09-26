@@ -16,9 +16,13 @@ const (
 	// reasonUnnamed and reasonMalformed are ADR 0033 section 3's texts.
 	reasonUnnamed   = "an argument is not named in the server profile for this tool"
 	reasonMalformed = "a target, command or config argument must be a string that does not parse as JSON, or a list of such strings"
-	reasonBadTarget = "a target is not a hostname or IP address"
-	reasonNoTarget  = "this tool needs at least one target named explicitly"
-	reasonGroup     = "selecting devices by tag or group is not supported yet; name each target"
+	// reasonMalformedCapability is for a meta-tool's capability argument
+	// alone, which takes one string and never a list (ADR 0033 note of
+	// 2026-09-25, security review of PR #196, F4).
+	reasonMalformedCapability = "the capability argument must be one string that does not parse as JSON"
+	reasonBadTarget           = "a target is not a hostname or IP address"
+	reasonNoTarget            = "this tool needs at least one target named explicitly"
+	reasonGroup               = "selecting devices by tag or group is not supported yet; name each target"
 	// reasonTooManyCommands and reasonTooManyTargets name the per-call
 	// caps (maxCommandsPerCall, maxTargetsPerCall), which are fathomgate's
 	// constants, not anything the call sent.
