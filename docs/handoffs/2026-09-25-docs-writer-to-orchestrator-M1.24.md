@@ -52,3 +52,12 @@ The M1-08 scanner was a scratch script and is not committed.
 - Row 6: the M1-22 eos-mcp `default:unknown_target` cases in tier 2 are reads; `WRITE_CONFIG` to an unknown host is covered in tier 1 only (`read-only.test.yaml`). A tier 2 write case would be M1-28's to add.
 - Expected merge conflicts: PR #196 (classification.md section 2 step 1 is next to step 2; ADR 0010 header), PR #195 (row 6 and the M1-28 note), PR #193 (classification.md).
 - Threat-model row "Server without a profile under `--policy`" now names `TestFallbackBrief02Gate` (`internal/gate`, PR #193, open when this was written) and ADR 0036.
+
+## Round 3 (2026-09-25): the security re-check's four lows
+
+- L1: the "Upstream-controlled tool names choose the class" row carries the open residual (a changed implementation behind a profiled name keeps its class; M2 pinning catches it only when the advertised text changes).
+- L2: ADR 0036 *Negative* and the no-profile row name the zero-target residual (a policy that allows `EXEC_ARBITRARY` without roles or tags forwards an unprofiled no-argument call).
+- L3: `TestFallbackBrief02Gate` is cited as "PR #193, pending"; #193 was open at push.
+- L4: CLAUDE.md's mandatory security-review list adds `internal/gate` and `internal/proxy`; the proxy rule in CLAUDE.md and AGENTS.md says proxy changes get a security review.
+- ADR 0036's example is a gate case in `policies/examples/read-only.gate.test.yaml` (`netdev-ssh-mcp` tool `show_command` with `command` gets `default:bad_arguments`, class `EXEC_ARBITRARY`, source `fallback`); policy-schema section 9 counts 76 gate cases.
+- New board task M1-43 (open, mcp-protocol-engineer): tier 1 test that a hostile upstream `Instructions` string never reaches the agent, both eras. The threat-model row points at it.

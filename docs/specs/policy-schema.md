@@ -296,7 +296,7 @@ Planned, not yet implemented: reload without a restart, keeping the previous pol
 
 | File | Purpose | Class-given cases | Gate cases |
 | --- | --- | --- | --- |
-| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 | 75 |
+| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 | 76 |
 | `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices; everything else read-only. Until M3 its `lab-writes-free` rule carries no `dry_run` or `diff`: an `allow` with an obligation Fathomgate cannot meet is not forwarded ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)), so with them every lab write would be refused. They return in M3. Lab devices must be listed statically by name (inventory-schema section 4). | 13 | 22 |
 | `policies/examples/prod-approval.yaml` | The example in section 1. Safe to load before M3: its holds, and its `lab-writes-free` allows (which carry `dry_run` and `diff`), are not forwarded until M3 (ADR 0026). | 20 | 15 |
 

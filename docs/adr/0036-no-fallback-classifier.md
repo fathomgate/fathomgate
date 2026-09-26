@@ -32,6 +32,7 @@ The fix for a tool with no profile entry is a profile entry. If rules on tool na
 
 ### Negative
 
+- A call with no arguments to a tool with no profile entry reaches the rules with zero targets. If a policy allows `EXEC_ARBITRARY` in a rule without `device_roles` or `device_tags`, such a call is forwarded, with unknown and possibly fleet-wide effect, and no device count or unknown-target check applies. Accepted residual (security review of PR #194, L2); the example policies deny `EXEC_ARBITRARY`.
 - A new upstream does not work on day one beyond calls with no arguments: every useful call is denied until a profile maps its tools. Mitigated by the profile library, the `serve` start-up warning that names the servers with a profile, and `--profiles` for an operator's own profile.
 - Board task M1-15 (fallback tests for every other surveyed tool in brief 02) changes meaning: it can pin that each such tool is `EXEC_ARBITRARY`, or its calls with arguments `default:bad_arguments`, not a class from its name. The PRD metric stays as written ("every remaining surveyed tool at least fallback-classified with a test", PRD section 5); a test that such a tool is `EXEC_ARBITRARY` with `class_source: fallback` meets it.
 

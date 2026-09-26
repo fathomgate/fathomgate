@@ -72,9 +72,9 @@ Work state lives in files, not in chat. `docs/milestones/<Mn>.yaml` is the board
 The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release, run by the orchestrator agent. Slash commands: `/milestone Mn`, `/status`, `/handoff <to> <task>`, `/adr <title>`, `/profile <github-url>`, `/policy-check <file>`, `/security-review`, `/release vX.Y.Z`.
 
 - A change to any interface (`policy.Decision`, `Evaluate`, the class or obligation set, `ChangeSafety`, a schema in `docs/specs/`, the CLI surface, `go.mod`) needs an ADR before code.
-- Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
+- Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/gate`, `internal/proxy`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
-- Proxy code (`internal/proxy`, `cmd/fathomgate/serve*.go` and `listen*.go`) changes only under a board task whose package is `internal/proxy` or `cmd/fathomgate`; a change at the agent or upstream boundary needs an ADR first (ADR 0012, ADR 0026).
+- Proxy code (`internal/proxy`, `cmd/fathomgate/serve*.go` and `listen*.go`) changes only under a board task whose package is `internal/proxy` or `cmd/fathomgate`, and every such change gets a security review; a change at the agent or upstream boundary needs an ADR first (ADR 0012, ADR 0026).
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
 - Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). The maintainer's DCO sign-off (`git commit -s`).
 - Licence (ADR 0034): `FSL-1.1-ALv2` everywhere, except `policies/examples/` and `profiles/` (Apache-2.0, own `LICENSE` files). New Go, Python and shell files carry the SPDX line for their path; `tools/licences/spdx.py --fix` adds it. `v0.1.0` and earlier commits stay Apache-2.0. The project accepts no code from outside contributors: close such a pull request with a pointer to issues, and never commit text pasted into an issue.
