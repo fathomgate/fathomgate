@@ -26,11 +26,11 @@ Fathomgate sits between Claude Code, Cursor or any other MCP client and a networ
 
 It also listens over HTTP on your own machine, for agents that connect that way, with a token for each agent. Binaries for Linux, macOS and Windows come with a signed checksum file you can verify.
 
-### 2. Say no (M1) — *in progress*
+### 2. Say no (M1) — *released as [v0.2.0](https://github.com/fathomgate/fathomgate/releases/tag/v0.2.0)*
 
 Your rules start to count. Fathomgate works out what each request really does (a read, a config change, an arbitrary command), which device it touches and what role that device plays, then allows or denies it. A denial tells the assistant which rule refused it, so the assistant can try something safer.
 
-**This is the stage where Fathomgate becomes useful on its own:** a proxy that lets an assistant look at everything and stops `reload` from ever reaching a device. We'll announce it here.
+**This is the stage where Fathomgate becomes useful on its own:** a proxy that lets an assistant look at everything and stops `reload` from ever reaching a device. Tested against [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp), [mcp-netmiko-server](https://github.com/upa/mcp-netmiko-server) and [eos-mcp](https://github.com/shigechika/eos-mcp).
 
 ### 3. Know your network (M2)
 
