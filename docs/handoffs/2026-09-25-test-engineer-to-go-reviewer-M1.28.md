@@ -76,4 +76,31 @@ Local run on Windows 11: tier 2 gave 52 passed, 12 skipped and 1 xfailed, and th
 
 ## Questions for the receiver
 
-- For the maintainer, a product and infra decision: where tier 3 runs. The options are loading cEOS or vJunos on a `clab` runner and enabling `nightly-clab.yaml`, or dropping the device checks from M1. Without that, the cEOS and vMX items stay blocked.
+- (Answered 2026-09-25: the maintainer moved the cEOS and vMX checks to M3, alongside the change-safety drivers. See round 2.)
+
+## Round 2 (security review of PR #195: approve; L1 to L4 and nits)
+
+- Merged `origin/main` (#190, #191, #197) via FETCH_HEAD. The CHANGELOG conflict is resolved with both sides' bullets kept, and `STATUS.md` is re-rendered. #194 is still open, so row 6's wording is unchanged here.
+- **L1** `test_unknown_device_name_denied`: `core-x` is now a stanza in upa's own TOML pointing at the fake device, so a forwarded call would really connect. The test asserts `commands() == []`.
+- **L2** `run.sh`, policy leg at 2026-07-28:
+  - It checks for the refusal log line. That line is throttled per reason (profile-schema 8.2), not per tool, so it cannot tie the entries by itself.
+  - The new `tests/conformance/policy_prompts.py` (standard library) calls each fixture tool behind the seven MRTR entries on a fresh gated fathomgate as a 2026 agent: `test_input_required_result_elicitation`, `_request_state`, `_multi_round` and `_tampered_state`.
+  - For each tool it requires an allow line by `conf-reads` and the exact text `fathomgate refused an input request (input_required) from upstream conf during <tool>: a policy is enforced ...`. The baseline comment and README say so.
+- **L3** `test_row4_control_reload_reaches_device_without_policy`: with `--no-policy`, upa's `reload` lands in `commands()`.
+- **L4** fixes:
+  - The matrix now says M1-33 merged in #197, and `make policy-test` gives 157 of 157.
+  - Rows 3, 4 and 6 cite run 36201347421.
+  - test-strategy says the 2026 baseline adds seven entries and removes one.
+- Nits:
+  - `conftest.slog_fields` is a regex parser for slog text (quoted values, apostrophes). `decision_lines` and eos-mcp's `Serve.decisions` use it.
+  - `LoggedSession.__aenter__` closes its stack when `initialize()` raises. eos-mcp's `_Session` now is a `LoggedSession`.
+  - Added `encoding="utf-8"` to the two `read_text` calls.
+- Threat model:
+  - New N1 row, "Pre-completion text through an interactive-shell upstream". Owner security-reviewer; mitigated by the abbreviation rule, with tier 3 on cEOS in M3.
+  - M1-28 evidence (test names, run 36201347421) added to the multi-line injection row (downgrade), the config-dump row (row 5), the unknown-host credentials row and the upstream-elicitation-under-policy row.
+- Maintainer decision recorded in the matrix run notes, the device README and the board note: the cEOS and vMX checks moved to M3 on 2026-09-25. They stay listed as blocked, and M1-28 no longer waits on them.
+- Local run on Windows:
+  - Every new and changed case passed.
+  - `test_locked_upstream_stops_answering_after_server_discover` failed locally: that direct test of the locked upa, which this PR did not change, got a truncated traceback without `ValidationError` in its 5 s window. It is green in CI on Linux. I did not investigate further.
+  - The policy leg at 2026-07-28 passed, with all four `policy_prompts.py` checks ok.
+

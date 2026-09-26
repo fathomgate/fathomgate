@@ -78,9 +78,9 @@ arista.com with an account and cannot be redistributed, so no public CI job
 can pull it; the repository is public, so only the scheduled
 `nightly-clab.yaml` may use a self-hosted runner, and it stays off until
 `FATHOMGATE_CLAB_ENABLED` is `true`
-(docs/ci-runners.md); and `tests/clab/` does not exist yet. Loading an image
-and enabling that runner is the maintainer's decision (test-matrix.md run
-notes, M1-28 entry). Rows 3, 4 and 6 do not
+(docs/ci-runners.md); and `tests/clab/` does not exist yet. Moved to M3 by the
+maintainer 2026-09-25, alongside the change-safety drivers, which need real
+devices anyway (test-matrix.md run notes, M1-28 entry). Rows 3, 4, 5 and 6 do not
 depend on them: fathomgate denies these calls before they leave.
 
 - Whether config lines after `end` in one `runCmds` call run outside the

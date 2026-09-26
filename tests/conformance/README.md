@@ -94,7 +94,13 @@ After the suite, `run.sh` checks `chain.log`: a decision line denying
 decision `allow` by `conf-reads` (so no call the suite makes falls to
 `default:bad_arguments`), at least one such allow, and exactly one
 `advertising only the arguments the profile names` line, for
-`test_x_mcp_header` with `dropped=[level]`. Any miss fails the leg.
+`test_x_mcp_header` with `dropped=[level]`. At 2026-07-28 it also checks
+for the log line refusing an upstream prompt under the policy, and runs
+`policy_prompts.py`: that script calls each fixture tool behind an MRTR
+baseline entry on a fresh gated fathomgate over stdio, as a 2026-07-28 agent
+declaring every input capability, and requires the exact refusal text for
+each. The log line alone cannot do that, because it is throttled per reason
+rather than per tool. Any miss fails the leg.
 
 What the gate changes in the score is in the two
 `baseline/fathomgate-policy-*.yml` files: nothing on 2025-11-25; on

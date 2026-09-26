@@ -296,7 +296,20 @@ if [ "$gate" = policy ]; then
   grep -q 'msg="advertising only the arguments the profile names" server=conf tool=test_x_mcp_header dropped=\[level\]' "$log" ||
     policy_fail "test_x_mcp_header was not advertised without level"
   [ "$narrowed" = 1 ] || policy_fail "$narrowed tools advertised with dropped arguments; want 1 (test_x_mcp_header)"
-  [ "$gate_ok" = 0 ] || echo "== conformance $leg $rev: gate checks passed (deny by conf-no-exec, allows by conf-reads, test_x_mcp_header narrowed)"
+  if [ "$rev" = 2026-07-28 ]; then
+    # The seven MRTR baseline entries: the upstream asked, and fathomgate
+    # refused because a policy is loaded. The log line is throttled per
+    # reason (profile-schema 8.2), not per tool, so it is checked once here;
+    # policy_prompts.py then calls each tool behind an entry on a fresh
+    # fathomgate and requires the exact refusal text for it.
+    grep -q 'msg="fathomgate refused an upstream input request" server=conf .*kind=input_required reason="a policy is enforced and fathomgate cannot check an answer against the server profile, so upstream prompts are not relayed"' "$log" ||
+      policy_fail "no refusal of an upstream prompt under the policy in the log"
+    "$python" "$here/policy_prompts.py" --fathomgate "$fathomgate" --upstream "$fixture" \
+      --policy "$gate_dir/policy.yaml" --profiles "$gate_dir/profiles" >"$out/policy_prompts.log" 2>&1 ||
+      policy_fail "policy_prompts.py: a tool behind an MRTR baseline entry did not get the policy refusal ($out/policy_prompts.log)"
+    cat "$out/policy_prompts.log"
+  fi
+  [ "$gate_ok" = 0 ] || echo "== conformance $leg $rev: gate checks passed (deny by conf-no-exec, allows by conf-reads, test_x_mcp_header narrowed; at 2026-07-28 each MRTR baseline tool refused under the policy)"
 fi
 
 # Fresh-process scenarios (2025-11-25 fathomgate legs). In the run above one

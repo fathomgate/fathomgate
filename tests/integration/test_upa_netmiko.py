@@ -159,20 +159,16 @@ def _texts(result: dict) -> str:
     return "".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
 
 
-def _inventory(tmp_path: Path, device: FakeDevice) -> Path:
-    """upa's TOML inventory: one device, the fake EOS box. The password is a
-    FAKE fixture; upa has no other way to take it."""
+def _inventory(tmp_path: Path, device: FakeDevice, extra: tuple[str, ...] = ()) -> Path:
+    """upa's TOML inventory: the fake EOS box as DEVICE, plus any `extra`
+    names, each also pointing at the fake device (so a forwarded call to one
+    would really connect). The password is a FAKE fixture; upa has no other
+    way to take it."""
     toml = tmp_path / "devices.toml"
-    toml.write_text(
-        "[default]\n"
-        'username = "admin"\n'
-        f'password = "{DEVICE_PASSWORD}"\n'
-        f"port = {device.port}\n"
-        f"\n[{DEVICE}]\n"
-        'hostname = "127.0.0.1"\n'
-        'device_type = "arista_eos"\n',
-        encoding="utf-8",
-    )
+    body = "[default]\n" 'username = "admin"\n' f'password = "{DEVICE_PASSWORD}"\n' f"port = {device.port}\n"
+    for name in (DEVICE, *extra):
+        body += f"\n[{name}]\n" 'hostname = "127.0.0.1"\n' 'device_type = "arista_eos"\n'
+    toml.write_text(body, encoding="utf-8")
     return toml
 
 
@@ -381,19 +377,35 @@ def test_locked_upstream_initialises_behind_fathomgate(fathomgate_binary: Path, 
 # --- through the gate (M1-28): row 4, the upa half ----------------------------
 
 GATE_INVENTORY = f"devices:\n  - name: {DEVICE}\n    role: lab\n    tags: [lab]\n"
-SHOW_BGP = (REPO / "tests/fixtures/device/transcripts/eos/show_ip_bgp_summary.txt").read_text()
+SHOW_BGP = (REPO / "tests/fixtures/device/transcripts/eos/show_ip_bgp_summary.txt").read_text(encoding="utf-8")
 
 
-def _gated_argv(fathomgate: Path, upa_install: UpaInstall, device: FakeDevice, tmp_path: Path, policy: str) -> list[str]:
+def _gated_argv(
+    fathomgate: Path, upa_install: UpaInstall, device: FakeDevice, tmp_path: Path, policy: str, upa_extra: tuple[str, ...] = ()
+) -> list[str]:
     """fathomgate serve --policy <policy> --inventory <fake-eos only> in
-    front of upa on mcp 1.30.0, with the embedded profile (profiles/upa.yaml)."""
-    argv = _serve(fathomgate, upa_install.python, upa_install.main, _inventory(tmp_path, device))
+    front of upa on mcp 1.30.0, with the embedded profile (profiles/upa.yaml).
+    upa_extra adds names to upa's own TOML (not to fathomgate's inventory)."""
+    argv = _serve(fathomgate, upa_install.python, upa_install.main, _inventory(tmp_path, device, upa_extra))
     i = argv.index("--no-policy")
     return argv[:i] + policy_args(tmp_path, policy, GATE_INVENTORY) + argv[i + 1 :]
 
 
 def _drow(d: dict[str, str]) -> tuple[str, ...]:
     return (d["tool"], d["decision"], d["rule_id"], d["class"], d["class_source"], d["forwarded"])
+
+
+@pytest.mark.asyncio
+async def test_row4_control_reload_reaches_device_without_policy(upa_argv: list[str], fake_device: FakeDevice, tmp_path: Path) -> None:
+    """The control for row 4 on upa: with `--no-policy` and no `--secured`,
+    the same `reload` call is forwarded and the fake device receives it.
+    So when the gated test below sees no `reload`, the gate stopped a
+    command that would have arrived."""
+    stderr = tmp_path / "fathomgate.stderr"
+    async with LoggedSession(upa_argv, stderr) as session:
+        await session.call_tool(f"{UPA_SERVER}.send_command_and_get_output", {"name": DEVICE, "command": "reload"})
+    assert "reload" in fake_device.commands()
+    assert decision_lines(stderr) == []
 
 
 @pytest.mark.asyncio
@@ -442,7 +454,7 @@ async def test_row4_reload_denied_show_downgraded(
 # separated by any run of spaces and tabs, the tier 1 variants of
 # internal/classify (TestConfigReadWhitespace).
 CONFIG_DUMPS = ["show running-config", "show  running-config", "show\trunning-config", "\tshow\t\trunning-config\t"]
-SHOW_RUN = (REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt").read_text()
+SHOW_RUN = (REPO / "tests/fixtures/device/transcripts/eos/show_running_config.txt").read_text(encoding="utf-8")
 # Tells READ_CONFIG from READ_OPERATIONAL in the decision word.
 OPS_ONLY = """version: 1
 defaults:
@@ -559,19 +571,23 @@ async def test_unknown_device_name_denied(fathomgate_binary: Path, upa_install: 
     netdev-ssh-mcp, which has no write tool): a device name fathomgate's
     inventory does not list is deny by `default:unknown_target` for a read,
     a write and exec alike, and the decision line says it was not
-    forwarded."""
+    forwarded. `core-x` is in upa's own TOML and points at the fake device,
+    so a forwarded call would connect and run there; the device logs no
+    session and no command."""
     stderr = tmp_path / "fathomgate.stderr"
     calls = [
         ("send_command_and_get_output", "READ_OPERATIONAL", {"command": "show version"}),
         ("send_command_and_get_output", "EXEC_ARBITRARY", {"command": "reload"}),
         ("set_config_commands_and_commit_or_save", "WRITE_CONFIG", {"commands": ["hostname FAKE-x"]}),
     ]
-    async with LoggedSession(_gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml"), stderr) as session:
+    argv = _gated_argv(fathomgate_binary, upa_install, fake_device, tmp_path, "read-only.yaml", upa_extra=("core-x",))
+    async with LoggedSession(argv, stderr) as session:
         for tool, cls, extra in calls:
             r = await session.call_tool(f"{UPA_SERVER}.{tool}", {"name": "core-x", **extra})
             assert r.is_error
             assert result_text(r) == gate_error("denied", UPA_SERVER, tool, "default:unknown_target", cls, UNKNOWN_TARGET_REASON)
     assert fake_device.sessions() == 0
+    assert fake_device.commands() == []
     assert [(x["tool"], x["decision"], x["rule_id"], x["class"], x["unknown_target"], x["forwarded"]) for x in decision_lines(stderr)] == [
         (tool, "deny", "default:unknown_target", cls, "true", "false") for tool, cls, _ in calls
     ]

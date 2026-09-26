@@ -490,23 +490,30 @@ UNKNOWN_TARGET_REASON = "target not in inventory"
 HELD_REASON = "needs approval, and approvals aren't available yet, so this call was not run."
 
 _DECISION_MSG = re.compile(r"\bmsg=decision\b")
+# One slog text attribute: key=value, the value either Go-quoted ("...", with
+# backslash escapes) or a run of non-space bytes. A regex rather than shlex,
+# which fails on a bare apostrophe in an unquoted value.
+_SLOG_ATTR = re.compile(r'(?:^|\s)([A-Za-z_][\w.]*)=("(?:[^"\\]|\\.)*"|\S*)')
+_SLOG_ESCAPE = re.compile(r"\\(.)")
+
+
+def slog_fields(line: str) -> dict[str, str]:
+    """The key=value attributes of one slog text line. Quoted values are
+    unquoted (\\" and \\\\ undone; other escapes kept as written)."""
+    fields = {}
+    for m in _SLOG_ATTR.finditer(line):
+        v = m.group(2)
+        if v.startswith('"'):
+            v = _SLOG_ESCAPE.sub(lambda e: e.group(1) if e.group(1) in '"\\' else e.group(0), v[1:-1])
+        fields[m.group(1)] = v
+    return fields
 
 
 def decision_lines(stderr: Path) -> list[dict[str, str]]:
     """fathomgate's `decision` lines (slog text) from a stderr file, each as a
-    key=value map. Values stay strings: `forwarded=false`, `targets=[a b]`."""
-    import shlex
-
-    out = []
-    for line in stderr.read_text(encoding="utf-8", errors="replace").splitlines():
-        if _DECISION_MSG.search(line):
-            fields = {}
-            for tok in shlex.split(line, posix=True):
-                k, sep, v = tok.partition("=")
-                if sep:
-                    fields[k] = v
-            out.append(fields)
-    return out
+    key=value map (slog_fields). Values stay strings: `forwarded=false`,
+    `targets=[127.0.0.1]`."""
+    return [slog_fields(line) for line in stderr.read_text(encoding="utf-8", errors="replace").splitlines() if _DECISION_MSG.search(line)]
 
 
 def policy_args(tmp_path: Path, policy: str, inventory: str) -> list[str]:
@@ -547,11 +554,16 @@ class LoggedSession:
         from mcp.client.stdio import stdio_client
 
         self._stack = AsyncExitStack()
-        errlog = self._stack.enter_context(open(self.stderr, "w", encoding="utf-8"))
-        params = StdioServerParameters(command=self.argv[0], args=self.argv[1:], env=self.env)
-        read, write = await self._stack.enter_async_context(stdio_client(params, errlog=errlog))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
+        try:
+            errlog = self._stack.enter_context(open(self.stderr, "w", encoding="utf-8"))
+            params = StdioServerParameters(command=self.argv[0], args=self.argv[1:], env=self.env)
+            read, write = await self._stack.enter_async_context(stdio_client(params, errlog=errlog))
+            session = await self._stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+        except BaseException:
+            # __aexit__ is not called when __aenter__ raises: close fathomgate here.
+            await self._stack.aclose()
+            raise
         return session
 
     async def __aexit__(self, *exc):

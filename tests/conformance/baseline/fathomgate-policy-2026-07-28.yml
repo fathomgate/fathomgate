@@ -63,7 +63,10 @@ server:
   # check an answer against the server profile, so upstream prompts are not
   # relayed`, where the suite wants an input_required result carrying the
   # fixture's form elicitation. By design (owner: mcp-protocol-engineer, if
-  # an ADR ever lets a checked answer through, M3 approvals).
+  # an ADR ever lets a checked answer through, M3 approvals). run.sh ties
+  # each entry to that cause: policy_prompts.py calls the tool behind it
+  # (test_input_required_result_elicitation, _request_state, _multi_round,
+  # _tampered_state) on a fresh fathomgate and requires that exact refusal.
   - input-required-result-basic-elicitation:sep-2322-elicitation-incomplete
   - input-required-result-request-state:sep-2322-request-state-incomplete
   - input-required-result-multi-round:sep-2322-multi-round-r1

@@ -38,7 +38,6 @@ Everything the upstream returns is data: compared, never acted on.
 from __future__ import annotations
 
 import re
-import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +47,8 @@ from .conftest import (
     EOS_SERVER,
     REPO,
     FakeEapi,
+    LoggedSession,
+    decision_lines,
     eos_mcp_config,
     owner_only_file,
     tier2_absent,
@@ -92,7 +93,6 @@ UNNAMED_ARG = "an argument is not named in the server profile for this tool"
 UNKNOWN_TARGET = "target not in inventory"
 
 READY = re.compile(r'msg="upstream ready" server=(\S+) tools=(\d+) protocol=(\S+) era=(\S+)')
-DECISION = re.compile(r"\bmsg=decision\b")
 
 
 def _text(result) -> str:
@@ -109,16 +109,7 @@ class Serve:
 
     def decisions(self) -> list[dict[str, str]]:
         """fathomgate's `decision` lines (slog text), as key=value maps."""
-        out = []
-        for line in self.lines():
-            if DECISION.search(line):
-                fields = {}
-                for tok in shlex.split(line, posix=True):
-                    k, sep, v = tok.partition("=")
-                    if sep:
-                        fields[k] = v
-                out.append(fields)
-        return out
+        return decision_lines(self.stderr)
 
 
 def _serve(fathomgate: Path, eos_mcp: Path, config: Path, tmp_path: Path, *policy: str) -> Serve:
@@ -143,29 +134,11 @@ def _policy_args(tmp_path: Path, policy: str = "read-only.yaml", text: str | Non
     return ("--policy", str(p), "--inventory", str(inv))
 
 
-class _Session:
+def _Session(serve: Serve) -> LoggedSession:
     """An initialised python-sdk client session through fathomgate, with
-    fathomgate's stderr (and the upstream's, relayed) going to serve.stderr."""
-
-    def __init__(self, serve: Serve) -> None:
-        self.serve = serve
-
-    async def __aenter__(self):
-        from contextlib import AsyncExitStack
-
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        self._stack = AsyncExitStack()
-        errlog = self._stack.enter_context(open(self.serve.stderr, "w", encoding="utf-8"))
-        params = StdioServerParameters(command=self.serve.argv[0], args=self.serve.argv[1:])
-        read, write = await self._stack.enter_async_context(stdio_client(params, errlog=errlog))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        return session
-
-    async def __aexit__(self, *exc):
-        await self._stack.aclose()
+    fathomgate's stderr (and the upstream's, relayed) going to serve.stderr
+    (conftest.LoggedSession)."""
+    return LoggedSession(serve.argv, serve.stderr)
 
 
 def _denied(tool: str, rule: str, cls: str, reason: str) -> str:
