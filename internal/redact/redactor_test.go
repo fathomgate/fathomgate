@@ -14,6 +14,13 @@ import (
 
 var testKey = []byte("fathomgate-test-key")
 
+var (
+	// fakeSecret is the fixture convention, the same prefix the gitleaks
+	// allow-list in .gitleaks.toml accepts.
+	fakeSecret = regexp.MustCompile(`^(\$\d+\$|-AQ==|0x)?FAKE`)
+	tokenRE    = regexp.MustCompile(regexp.QuoteMeta(TokenPrefix) + `[0-9a-f]{12}>`)
+)
+
 func TestTokenFormat(t *testing.T) {
 	r := New(testKey)
 	tok := r.Token("secret")
@@ -164,12 +171,33 @@ func TestFixtureCorpus(t *testing.T) {
 			if len(exp.Rules) == 0 || len(exp.Secrets) == 0 {
 				t.Fatal("expect file must list rules and secrets")
 			}
+			// The FAKE convention (tests/fixtures/README.md, M1-42): every
+			// listed secret starts with FAKE, right after the vendor's
+			// fixed marker if it has one.
+			known := map[string]bool{}
 			for _, s := range exp.Secrets {
 				if !strings.Contains(string(raw), s) {
 					t.Errorf("expect file lists secret %q that is not in the fixture", s)
 				}
+				if !fakeSecret.MatchString(s) {
+					t.Errorf("expect file lists secret %q that does not start with FAKE (after an optional $n$, -AQ== or 0x marker)", s)
+				}
+				known[r.Token(s)] = true
 			}
 			out, hits := r.Redact(string(raw))
+			// Every value the redactor replaced is a listed secret, so a
+			// secret in a fixture cannot escape the FAKE check above by
+			// being left out of the expect file. Tokens are the keyed HMAC
+			// of the value, so a token no listed secret produces is an
+			// unlisted value; the fixture line is at the same index.
+			rawLines := strings.Split(string(raw), "\n")
+			for i, line := range strings.Split(out, "\n") {
+				for _, tok := range tokenRE.FindAllString(line, -1) {
+					if !known[tok] {
+						t.Errorf("line %d: redacted a value that is not listed in %s.expect.json secrets: %q", i+1, name, rawLines[i])
+					}
+				}
+			}
 			fired := map[string]bool{}
 			for _, h := range hits {
 				fired[h.RuleID] = true
