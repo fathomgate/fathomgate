@@ -123,7 +123,7 @@ tasks:
     reviewers: [mcp-protocol-engineer]
     state: open
     matrix: []
-    notes: 'Carried from T0.36. From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead. Kickoff 2026-09-25: Owner is the maintainer; .github/labels.yml has no agent label for a human, so no GitHub issue is opened for it.'
+    notes: 'Carry to M2 at kickoff (M1 closed 2026-09-26). Carried from T0.36. From T0.19: go-sdk v1.6.1 to v1.8.0 everything-server titledMulti has items.type string with items.anyOf and no items.enum; go-sdk v1.8.0 client validation rejects it with -32602. A public issue on modelcontextprotocol/go-sdk; filed only with the maintainer''s go-ahead. Kickoff 2026-09-25: Owner is the maintainer; .github/labels.yml has no agent label for a human, so no GitHub issue is opened for it.'
   - id: M1-12
     title: Revisit retiring an agent session on DELETE, so a call delivered but not yet admitted cannot run on it
     package: internal/proxy
@@ -429,7 +429,7 @@ relo
     reviewers: [security-reviewer, policy-engineer]
     state: open
     matrix: []
-    notes: 'Carry to M2 at kickoff. Threat-model row "Target alias drift (upa/mcp-netmiko-server)", open, medium (release gate for v0.2.0, security-reviewer 2026-09-26): upa re-reads its TOML inventory on every call and connects to the hostname it maps a device name to, while Fathomgate authorises the name, so an edited TOML can send a write allowed by device tag or role (lab-open lab-writes-free) to a production device. Cross-check the hostname values from upa get_network_device_list against the inventory before forwarding a WRITE_CONFIG or LAB_LIFECYCLE call, and deny with a named rule on a mismatch. Maintainer decision 2026-09-26 (a): deferred from M1, with the operator caveat in the v0.2.0 release notes (Security).'
+    notes: 'Carry to M2 at kickoff. Issue #205. Threat-model row "Target alias drift (upa/mcp-netmiko-server)", open, medium (release gate for v0.2.0, security-reviewer 2026-09-26): upa re-reads its TOML inventory on every call and connects to the hostname it maps a device name to, while Fathomgate authorises the name, so an edited TOML can send a write allowed by device tag or role (lab-open lab-writes-free) to a production device. Cross-check the hostname values from upa get_network_device_list against the inventory before forwarding a WRITE_CONFIG or LAB_LIFECYCLE call, and deny with a named rule on a mismatch. Maintainer decision 2026-09-26 (a): deferred from M1, with the operator caveat in the v0.2.0 release notes (Security).'
   - id: M1-45
     title: Gate-level test that an unset unknown_target denies every unknown host across every embedded profile
     package: internal/gate
@@ -437,4 +437,4 @@ relo
     reviewers: [security-reviewer, go-reviewer]
     state: open
     matrix: [6]
-    notes: 'Carry to M2. From the release-gate security review of 2026-09-26: every example policy sets unknown_target: deny, so an unset unknown_target (ADR 0032) is covered only at Evaluate (TestUnknownTargetDefaults), not through internal/gate for every tool of every embedded profile. Add a gate test with a policy that leaves unknown_target unset and allows every class, with and without the example inventory, sending unknown hosts through each tool target parameter of each embedded profile. The reviewer wrote an overlay test, TestReviewUnknownTargetEveryTool, at /private/tmp/claude-501/-Users-josh-Code-netguard/8acdfe71-4741-4557-99b6-4bd60ecff666/scratchpad/unknown_overlay_test.go (a session scratch path; copy it before the session ends). Use it as a starting point; it is not in the repository.'
+    notes: 'Carry to M2. Issue #206. From the release-gate security review of 2026-09-26: every example policy sets unknown_target: deny, so an unset unknown_target (ADR 0032) is covered only at Evaluate (TestUnknownTargetDefaults), not through internal/gate for every tool of every embedded profile. Add a gate test with a policy that leaves unknown_target unset and allows every class, with and without the example inventory, sending unknown hosts through each tool target parameter of each embedded profile. The reviewer wrote an overlay test, TestReviewUnknownTargetEveryTool; its code is in the body of issue #206. Use it as a starting point; it is not in the repository.'
