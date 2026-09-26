@@ -68,7 +68,7 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
 1. **Pass-through: `--policy` is required.** `--no-policy` keeps the M0 pass-through explicitly. Existing users add one flag; the v0.2.0 CHANGELOG entry and upgrade note must say so.
 2. **Multiple policy files: one `--policy` file.** "First match in file order" stays literal.
-3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written.
+3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written. *Note, 2026-09-25:* as built, the server gets an empty profile, not the fallback classifier (the review-round row *Server without a profile* below), and there is no fallback classifier ([ADR 0036](0036-no-fallback-classifier.md)).
 4. **`--audit` message: name the milestone.** The refusal says `--audit` arrives in M4.
 
 ## Notes after acceptance

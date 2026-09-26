@@ -1,6 +1,6 @@
 # Classification
 
-Normative specification for how `internal/classify` assigns one class to every `tools/call`. The class comes from the upstream profile when the tool is mapped, and from the fallback classifier when it is not. Free-form commands are then inspected: an `EXEC_ARBITRARY` call is downgraded to `READ_OPERATIONAL` only when every command passes the allow-list, matches no blocklist and uses no forbidden pipe or redirect. Annotations can only make a class stricter.
+Normative specification for how `internal/classify` assigns one class to every `tools/call`. The class comes from the upstream profile when the tool is mapped; a tool the profile does not map is `EXEC_ARBITRARY` (section 3; there is no fallback classifier, [ADR 0036](../adr/0036-no-fallback-classifier.md)). Free-form commands are then inspected: an `EXEC_ARBITRARY` call is downgraded to `READ_OPERATIONAL` only when every command passes the allow-list, matches no blocklist and uses no forbidden pipe or redirect. Annotations can only make a class stricter.
 
 Decision record: [ADR 0010](../adr/0010-classify-by-payload-not-annotations.md). Companion: [profile-schema.md](profile-schema.md).
 
@@ -21,7 +21,7 @@ There is no eighth class. A new kind of operation is mapped to one of these; a n
 ## 2. Order of operations
 
 1. Look up `tool` in the profile. If found, take `class` and `class_source: profile`. If the tool has `capability_param` (a planned profile field, see [profile-schema.md](profile-schema.md#3-planned-fields-not-yet-parsed)), resolve through the capability table (`class_source: capability_table`). If the tool has `config_params` and its class is not `EXEC_ARBITRARY`, run the config payload check (section 11); a failure sets `EXEC_ARBITRARY` with `class_source: reclassify` and ends classification, so no later step can lower it.
-2. If not found, run the fallback classifier (section 3), `class_source: fallback`, and set `profile_gap: true` on the audit event.
+2. If not found, the class is `EXEC_ARBITRARY` with `class_source: fallback`, and the audit event (M4) carries `profile_gap: true`; classification ends and the call is never downgraded (section 3).
 3. Apply annotations (section 4). They can only raise the class.
 4. If the class is `EXEC_ARBITRARY` and `commands[]` is non-empty, run the downgrade rule (section 5).
 5. If the class is `READ_OPERATIONAL` or was downgraded, run config-read redirection (section 6). A match sets `READ_CONFIG`.
@@ -39,31 +39,21 @@ There is no eighth class. A new kind of operation is mapped to one of these; a n
 | `capability_table` | Step 1 through a capability table. | no, M1-17 |
 | `annotation_raise` | Step 3 raised a read class to `EXEC_ARBITRARY`; a raised tool is never downgraded (section 4). | by `internal/gate`, not by `Classify` |
 
-What the code does not do yet: step 2 has no fallback classifier (section 3), so a tool missing from the profile is `EXEC_ARBITRARY` and is never downgraded; step 3 runs in `internal/gate`, not in `Classify` (section 4); step 6 is M3 (section 7). The first and last are stricter than the design. Under `fathomgate serve --policy` step 2 is stricter still: a tool the profile does not list is refused with `default:bad_arguments` when it carries any argument, and a server with no profile gets an empty one, so the same holds for every tool it has ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate), ADR 0027 note of 2026-09-25).
+What the code does not do yet: step 3 runs in `internal/gate`, not in `Classify` (section 4); step 6 is M3 (section 7), which is stricter than the design. Under `fathomgate serve --policy` a call to a tool the profile does not list is denied by rule `default:bad_arguments` when it carries any argument, and a server with no profile gets an empty one, so the same holds for every tool it has ([profile-schema section 2.2](profile-schema.md#22-targets-at-the-gate), ADR 0027 note of 2026-09-25). A call with no arguments is decided by the rules as `EXEC_ARBITRARY` with zero targets, so the unknown-target default and `max_devices` do not apply and no `device_roles` or `device_tags` rule matches it.
 
 The code is looser than the design in one place: it does not know the vendor, so a FortiOS `show` whose second word is not a config keyword (`show vpn ipsec phase1-interface`, `show user local`, both carrying `ENC` secrets) is `READ_OPERATIONAL` where the design's FortiOS allow-list makes it `EXEC_ARBITRARY`. The same holds on every vendor for operational commands that print secrets (IOS and NX-OS `show snmp community`, `show key chain`, `show crypto isakmp key`). This is accepted and open until the vendor reaches `Classify`, which needs a decision record. Until then the mitigation depends on M2: redaction MUST run on every tool result, whatever the class and whether or not a rule carries the `redact` obligation (invariant 4), not only on `READ_CONFIG` calls.
 
 `Result.Reason` never contains agent-supplied text: a failed command is named by its 1-based index and the check (`command 2 failed the read allow-list (blocklist)`), a failed config line by its element and line (`config element 1 line 2 failed the config payload check (escape-word)`), and an unknown tool is "tool not in profile" (the tool name is in the structured request). The `never-downgrade` token (section 8) is matched case-insensitively.
 
-## 3. Fallback classifier
+## 3. Tools with no profile entry
 
-Planned; not implemented. Today a tool with no profile entry is `EXEC_ARBITRARY` with `class_source: fallback`, whatever its arguments, and is not downgraded.
+Decision record: [ADR 0036](../adr/0036-no-fallback-classifier.md) (2026-09-25), which supersedes the fallback classifier of ADR 0010. There is no fallback classifier: nothing guesses a class from a tool's name or its argument names.
 
-For a tool with no profile entry, in order, first match wins:
+- A tool with no profile entry is `EXEC_ARBITRARY`, `class_source: fallback`, and is never downgraded, whatever its arguments. The audit event (M4) carries `profile_gap: true`; the M1 decision log line shows `class_source=fallback`.
+- Under `fathomgate serve --policy`, any call to such a tool that carries an argument is denied by rule `default:bad_arguments` before `Evaluate` (ADR 0033 section 2). A server with no profile gets an empty one (ADR 0027), so this holds for every tool it has.
+- A call with no arguments reaches the rules as `EXEC_ARBITRARY` with zero targets.
 
-| Test | Class |
-| --- | --- |
-| Arguments contain any of `config_commands`, `config_lines`, `config_text`, `template_content`, `commands` paired with a name containing `config` or `set_` | `WRITE_CONFIG` |
-| Tool name matches `^(create|update|delete|set|push|load|commit|apply|configure|rollback|abort|confirm|deploy|destroy)` | `WRITE_CONFIG` (`deploy`, `destroy` give `LAB_LIFECYCLE`) |
-| Arguments contain `command` or `commands` | `EXEC_ARBITRARY` |
-| Tool name matches `(exec|shell|pfe|op_command|xpath|run_linux|dynamic_test)` | `EXEC_ARBITRARY` |
-| Tool name matches `(config|running|startup|backup|compliance|diff)` | `READ_CONFIG` |
-| Tool name matches `^(list|get)_(devices?|routers?|targets?|firewalls?|groups?|tags?|device_types?)` or `_list$` | `INVENTORY_READ` |
-| Tool name matches `(trust_host_key|start_dashboard|start_metrics|telemetry_(un)?subscribe|authenticate|health_check)` | `LOCAL_ADMIN` |
-| Tool name matches `^(show|get|fetch|retrieve|list|search|find|ping|trace|test|gather|daily|collect)` | `READ_OPERATIONAL` |
-| Anything else | `EXEC_ARBITRARY` |
-
-The fallback exists so a new upstream works on day one with deny-by-default behaviour. The fix for a fallback classification is a profile entry, not a smarter fallback.
+Tool names and argument names come from the upstream and are untrusted (invariant 7): rules on them would let a rug-pulled upstream choose its own class by renaming a tool (MCP03). The fix for a tool with no profile entry is a profile entry. Name rules, if ever wanted, belong in an offline aid that proposes a profile entry for review, never in the proxy at run time.
 
 ## 4. Annotations
 
@@ -282,14 +272,13 @@ What the code does today. Rows marked † differ from the vendor-aware design; t
 | meraki `execute_api` | other | `capability_id: getNetworkDevices` | via table | `^get` → READ_OPERATIONAL | | READ_OPERATIONAL | capability_table (M1-17) |
 | meraki `execute_api` | other | `capability_id: rebootDevice` | via table | `^reboot` → WRITE_CONFIG | | WRITE_CONFIG | capability_table (M1-17) |
 | clab `destroyLab` | n/a | any | LAB_LIFECYCLE | | | LAB_LIFECYCLE | profile |
-| unknown server, tool `frobnicate` † | n/a | `{command: "show clock"}` | none | not run | | EXEC_ARBITRARY | fallback |
+| unknown server, tool `frobnicate` | n/a | `{command: "show clock"}` | none | not run | | EXEC_ARBITRARY; under `serve --policy` denied by rule `default:bad_arguments` | fallback |
 
 Design answers for the † rows:
 
 - The four pipe rows: the design allows output filters (section 5.6) and gives `READ_OPERATIONAL` (downgrade) or `READ_CONFIG` (reclassify). The code refuses every pipe, so they stay `EXEC_ARBITRARY`.
 - `push_config` without `dry_run`: the design gives `READ_CONFIG` (source `dry-run`) through section 7, which is M3. junos `render_and_apply_j2_template` is no longer a dry-run candidate: the upstream renders the agent's `template_content` in an unsandboxed Jinja2 environment before it reads `apply_config` (`jmcp.py:1369-1375` at `75fe90a`), so a template runs Python on the MCP host. Its profile class is `EXEC_ARBITRARY` with `never-downgrade` (M1-35, security review of PR #161).
 - FortiOS `show system interface`: the design gives `EXEC_ARBITRARY`, because on FortiOS `show` prints configuration and is not on the FortiOS allow-list; the correct path is `get system interface` or a typed config tool. The code does not know the vendor and lets `show` through. For this command the `system interface` keywords make the call `READ_CONFIG`, but most FortiOS `show` commands (`show vpn ipsec phase1-interface`, `show user local`) come out `READ_OPERATIONAL`. That is looser than the design, which is accepted and open until the vendor reaches `Classify`. Until then, M2 redaction on every result, whatever the class, is the mitigation (section 2). None of these commands is a write.
-- `frobnicate`: the design runs the section 3 fallback classifier and downgrades to `READ_OPERATIONAL` with `profile_gap`. The code has no fallback classifier; a tool missing from the profile is `EXEC_ARBITRARY`. Through `fathomgate serve --policy` this call never reaches the rules: the server has no profile, so it gets an empty one, and a call with an argument to a tool no profile lists is `default:bad_arguments` (section 2).
 
 ## 10. Test expectations
 
@@ -345,7 +334,7 @@ Which list applies, per profile:
 | --- | --- | --- | --- |
 | `eos-mcp` | `push_config` (`config_lines`) | CLI, the union | eAPI switches mode on `end`, `exit`, `abort` and `configure`, and EOS runs exec commands from configuration mode, so every exec word matters even without an exit. |
 | `upa` | `set_config_commands_and_commit_or_save` (`commands`) | CLI, the union | netmiko on whatever platform the upstream's inventory names, NX-OS included; the vendor is not known at classification. |
-| `ntunes-netmiko-mcp-server` | `send_config`, `send_config_parallel` (`config_commands`) | CLI, the union | As upa. `enter_config_mode` is refused (ADR 0033), so the lines are always sent in configuration mode. |
+| `ntunes-netmiko-mcp-server` | `send_config`, `send_config_parallel` (`config_commands`) | CLI, the union | As upa. `enter_config_mode` is denied (ADR 0033, rule `default:bad_arguments`), so the lines are always sent in configuration mode. |
 | `junos-mcp-server` | `load_and_commit_config` (`config_text`) | Junos load (11.3) | PyEZ `Config.load` over NETCONF, not a CLI. |
 | `junos-mcp-server` | `render_and_apply_j2_template` | not checked | Already `EXEC_ARBITRARY` and never downgraded. |
 | `netdev-ssh-mcp` | none | | No config arguments. |

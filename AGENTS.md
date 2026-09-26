@@ -55,5 +55,5 @@ All six must pass. A change to `internal/proxy`, `cmd/fathomgate/serve.go` or `g
 ## Don't
 
 - Don't mark a test-matrix case validated against a mock; it needs the named real upstream server.
-- `fathomgate serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
+- Proxy code (`internal/proxy`, `cmd/fathomgate/serve*.go` and `listen*.go`) changes only under a board task whose package is `internal/proxy` or `cmd/fathomgate`; a change at the agent or upstream boundary needs an ADR first (ADR 0012, ADR 0026).
 - The product is Fathomgate: one word, capital F only, never "FathomGate" and never shortened to "Fathom" (ADR 0019). Records written before ADR 0019 say NetGuard and stay as written.

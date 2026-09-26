@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-09-23
 - Deciders: Josh Scott
+- Fallback classifier superseded by: [ADR 0036](0036-no-fallback-classifier.md) (2026-09-25; a tool with no profile entry is `EXEC_ARBITRARY`, never classified by its name)
 
 ## Context
 

@@ -74,7 +74,7 @@ The pipeline is PM → Architect → [Dev ↔ Reviewer/QA] → Docs → Release,
 - A change to any interface (`policy.Decision`, `Evaluate`, the class or obligation set, `ChangeSafety`, a schema in `docs/specs/`, the CLI surface, `go.mod`) needs an ADR before code.
 - Every PR touching `internal/redact`, `internal/policy`, `internal/classify`, `internal/approval` or `internal/audit` gets a security review (`.claude/agents/security-reviewer.md`).
 - Every test-matrix case is marked validated only against the named real upstream server, never against a mock alone.
-- `fathomgate serve` lands across T0.2–T0.4 on the M0 board; don't add proxy code outside those tasks.
+- Proxy code (`internal/proxy`, `cmd/fathomgate/serve*.go` and `listen*.go`) changes only under a board task whose package is `internal/proxy` or `cmd/fathomgate`; a change at the agent or upstream boundary needs an ADR first (ADR 0012, ADR 0026).
 - Docs change in the same PR as the code. CHANGELOG.md `Unreleased` is updated at merge.
 - Conventional Commits with scopes (`policy`, `classify`, `redact`, `audit`, `inventory`, `proxy`, `safety`, `approval`, `cli`, `docs`, `design`, `ci`, `tests`). The maintainer's DCO sign-off (`git commit -s`).
 - Licence (ADR 0034): `FSL-1.1-ALv2` everywhere, except `policies/examples/` and `profiles/` (Apache-2.0, own `LICENSE` files). New Go, Python and shell files carry the SPDX line for their path; `tools/licences/spdx.py --fix` adds it. `v0.1.0` and earlier commits stay Apache-2.0. The project accepts no code from outside contributors: close such a pull request with a pointer to issues, and never commit text pasted into an issue.
@@ -92,7 +92,7 @@ internal/secretfile/ owner-only read of a secret file (audit signing key, listen
 internal/configfile/ integrity check on the policy, inventory and profile files: nobody but the owner and admins may change them (ADR 0027)
 internal/yamlstrict/ the one YAML decode for policy, inventory and profiles: strict, one document, errors that never quote the file
 internal/inventory/  Resolver chain: static file, hostname patterns, CSV import, NetBox stub (live connector: paid edition)
-internal/proxy/      M0: go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState
+internal/proxy/      go-sdk transport, <server>.<tool> prefixing, dual-era (ADR 0008/0014), sealed requestState, the gate at Proxy.dispatch (M1)
 internal/approval/   M3: pending store, TTL, CLI/webhook/MRTR channels     (not yet present)
 internal/safety/     M3–M5: ChangeSafety drivers + rollback watchdog       (not yet present)
 profiles/            one YAML per upstream server (tool → class, param mapping), pinned by tests
@@ -110,7 +110,7 @@ tools/status/        render.py: docs/milestones/<CURRENT>.yaml -> STATUS.md (`ma
 
 - `fathomgate serve` refuses to start without `--policy <file>` or `--no-policy` (exit 2, ADR 0027), and `--no-policy` forwards every call unchecked on purpose: it is v0.1.0's pass-through, kept for conformance and client testing, and the tier 2 transport jobs and `make conformance` use it. `--audit` is still refused until M4. A `hold`, and an `allow` carrying `dry_run`, `diff` or `timed_rollback`, is not run in M1 (ADR 0026); the agent gets a tool error naming the rule.
 - `profiles/embed.go` is a Go file among the YAML profiles: `go:embed` cannot reach a parent directory, so the package that embeds `profiles/*.yaml` lives there (ADR 0027). It carries the directory's Apache-2.0 SPDX line. Every profile file is named after its server key (`upa.yaml` for key `upa`); `serve` refuses one that is not.
-- Under `serve --policy`, a `--server` with no profile does not fall back to the classifier: it is an empty profile, so every call that carries arguments is `default:bad_arguments` (ADR 0027 note of 2026-09-25). Use the profile keys `fathomgate version` lists.
+- Under `serve --policy`, a `--server` with no profile gets an empty profile, so every call that carries arguments is denied by rule `default:bad_arguments` (ADR 0027 note of 2026-09-25); there is no fallback classifier (ADR 0036). Use the profile keys `fathomgate version` lists.
 - `internal/inventory/netbox.go` is a stub that satisfies `Resolver` and resolves nothing. NetBox is optional (ADR 0007), and the live NetBox and Nautobot connectors are in the paid edition (ADR 0034, *Amendments*): the stub stays until the paid resolver exists, then leaves the core. The free path is CSV import and snapshots.
 - Fixture secrets are all prefixed `FAKE`; a real-looking secret in a fixture is a bug.
 - ADRs 0001 to 0018, handoff notes, research briefs and the notes of merged board tasks say NetGuard, `netguard`, `NETGUARD_` and `ng3.`. That was the placeholder name; ADR 0019 renamed the product to Fathomgate and its scope table maps every old identifier to the new one. Those records stay as written.

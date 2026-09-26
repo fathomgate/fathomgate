@@ -24,8 +24,8 @@ For every `tools/call`, first calls and MRTR retries alike:
 | Step | Stage | Input | Output | Fails closed as |
 | --- | --- | --- | --- | --- |
 | 1 | Parse | `call.arguments` (raw JSON) | `map[string]any` | `deny`, rule `default:bad_arguments` (not JSON, or not an object) |
-| 2 | Normalise | profile for `call.up.Server`, tool, arguments | `targets[]` (expanded per inventory-schema 8, CSV only in M1), `commands[]`, `config_payload` | a missing profile means the fallback classifier (step 3), not an error |
-| 3 | Classify | profile, tool, normalised arguments, the tool's annotations from the upstream `tools/list` | class, `class_source` (`profile`, `capability_table`, `fallback`, `annotation_raise`, `downgrade`, `reclassify`) | unknown means `EXEC_ARBITRARY` (classification spec section 3) |
+| 2 | Normalise | profile for `call.up.Server`, tool, arguments | `targets[]` (expanded per inventory-schema 8, CSV only in M1), `commands[]`, `config_payload` | a missing profile means an empty one under `serve --policy` (ADR 0027 note of 2026-09-25): a call with any argument is denied by rule `default:bad_arguments`, one with none is `EXEC_ARBITRARY` ([ADR 0036](0036-no-fallback-classifier.md)) |
+| 3 | Classify | profile, tool, normalised arguments, the tool's annotations from the upstream `tools/list` | class, `class_source` (`profile`, `capability_table`, `fallback`, `annotation_raise`, `downgrade`, `reclassify`) | a tool with no profile entry is `EXEC_ARBITRARY`, `class_source: fallback`, never downgraded; there is no fallback classifier ([ADR 0036](0036-no-fallback-classifier.md), classification spec section 3) |
 | 4 | Resolve | each target name | `policy.Target{name, role, tags, site, known}` through the inventory `Chain` | a name no resolver knows is `known: false` |
 | 5 | Session counters | the call's counter key | `policy.Session{devices_touched, pending_holds}` | not a failure; the counters are proxy state, read before and updated after |
 | 6 | Evaluate | `*policy.Policy`, `policy.Request` | `policy.Decision` | nil policy denies with `default:no-match` (policy-schema 4) |
@@ -59,7 +59,7 @@ fathomgate denied netdev-ssh-mcp.run_show_command: rule no-exec (class EXEC_ARBI
 There is one shape: `fathomgate <denied|cannot run|held> <server>.<tool>: rule <rule_id> (class <CLASS>): <reason>`. The verb is `denied` for `deny`, `cannot run` for an `allow` whose obligations cannot be met, and `held` for `hold`. A `hold` carries the maintainer's fixed reason (decision 3):
 
 ```text
-fathomgate held junos.load_and_commit_config: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run.
+fathomgate held junos-mcp-server.load_and_commit_config: rule prod-core-needs-approval (class WRITE_CONFIG): needs approval, and approvals aren't available yet, so this call was not run.
 ```
 
 One parser reads the verb and the rule id from every refusal. design-guardian reviews the exact copy in M1-18 and M1-19. For a `deny`, the reason is the policy author's `reason`, or Fathomgate's fixed text for a `default:` rule. Nothing from the upstream and no argument value is quoted: the agent already has its arguments, and a target name, command or payload echoed back is a place for injected text to ride. For an unknown target the text adds `; target not in inventory` without naming it. The trace is **not** sent to the agent (it describes the whole policy); it goes to the decision log line, and to the audit event in M4.
