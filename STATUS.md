@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 7 · blocked 2 · in review 3 · merged 24 · dropped 5
+Tasks: open 6 · blocked 2 · in review 4 · merged 24 · dropped 5
 
 ## In flight
 
@@ -45,7 +45,7 @@ Tasks: open 7 · blocked 2 · in review 3 · merged 24 · dropped 5
 | M1-38 | Issue hygiene - GitHub issues follow the board automatically | `tools/status` | release-engineer | security-reviewer, docs-writer | merged | — | — | — |
 | M1-39 | Bring the worst cases at the 64 KiB argument cap under the 5 ms budget (per-call caps, one Decide) | `internal/gate` | policy-engineer | security-reviewer, go-reviewer, mcp-protocol-engineer | merged | M1-23 | — | — |
 | M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | merged | — | — | — |
-| M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | open | — | — | — |
+| M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | in review | — | — | — |
 
 ## Done this milestone
 
