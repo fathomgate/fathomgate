@@ -68,7 +68,7 @@ Things an `allow` or `hold` decision requires before or during execution.
 | Downgrade | `EXEC_ARBITRARY` becoming `READ_OPERATIONAL` because every command passed the allow-list, blocklist and pipe rules. |
 | Reclassify | A `READ_OPERATIONAL` free-form command becoming `READ_CONFIG` because it reads configuration. |
 | Meta-tool | A tool whose name carries no semantics and whose operation is chosen by a parameter, such as Meraki `execute_api(capability_id)`. |
-| Capability table | Profile section mapping meta-tool capability ids to classes. |
+| Capability table | A table in a profile's top-level `capabilities` that maps each capability id of a meta-tool, exactly as the upstream receives it, to a class. The tool names it with `capability_table` and the argument with `capability_param`; an id the table does not list is `EXEC_ARBITRARY`, and `class_source` is `capability_table` (profile-schema section 2.5). |
 | Class-given case | A `*.test.yaml` case that states the class and resolved targets and runs `Evaluate` on them. It proves what the rules do with a class. |
 | Gate case | A `*.test.yaml` case that gives a `tools/call` as an agent sends it (server, tool, raw arguments) and runs it through `internal/gate`, as `serve --policy` does, with the profiles built into the binary and the suite's inventory. It proves classification and resolution as well as the rules. ADR 0035. |
 | Closed argument list | Every tool's profile entry names each argument it accepts (`target_params` and the other mapped lists, plus `args`). A call carrying any other argument is denied with `default:bad_arguments`, never forwarded with the argument stripped. `refused_args` records the arguments a profile deliberately leaves out. ADR 0033. |

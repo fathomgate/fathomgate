@@ -82,21 +82,22 @@ func Normalize(profile *Profile, tool string, args map[string]any) (targets []st
 // spellings (docs/specs/audit-event-schema.md).
 type Source string
 
-// The class sources. Classify emits SourceProfile, SourceFallback,
-// SourceDowngrade and SourceReclassify today; SourceCapabilityTable (meta-tool
-// capability tables) and SourceAnnotationRaise (tool annotations raising a
-// read class) are reserved for the tasks that add those inputs.
+// The class sources. Classify emits every one but SourceAnnotationRaise,
+// which internal/gate sets when a tool annotation raises a read class
+// (Classify has no annotation input).
 const (
 	// SourceProfile means the profile's class for the tool stands.
 	SourceProfile Source = "profile"
-	// SourceCapabilityTable means the class came from a meta-tool's
-	// capability table. Reserved for M1-17.
+	// SourceCapabilityTable means the tool is a meta-tool (its profile entry
+	// has capability_param) and its capability table decided the class: the
+	// table's class for a capability it lists, EXEC_ARBITRARY for any other
+	// value, a missing one or one that is not a string.
 	SourceCapabilityTable Source = "capability_table"
 	// SourceFallback means there is no profile, or the tool is not in it,
 	// and the class is EXEC_ARBITRARY.
 	SourceFallback Source = "fallback"
 	// SourceAnnotationRaise means a tool annotation raised a read class to
-	// EXEC_ARBITRARY. Reserved for M1-18.
+	// EXEC_ARBITRARY. Set by internal/gate, never by Classify.
 	SourceAnnotationRaise Source = "annotation_raise"
 	// SourceDowngrade means an EXEC_ARBITRARY call whose every command
 	// passed the read allow-list is now READ_OPERATIONAL.
@@ -181,8 +182,9 @@ func (r Result) ArgumentsOK() bool {
 // whose value is neither a string nor an array of strings (a number, a
 // boolean, an object, or an array holding anything but strings); null counts
 // as absent. A string the upstream could itself parse as JSON is malformed
-// too (upstreamMayParseJSON). Arguments in args are not inspected: any JSON
-// value passes.
+// too (upstreamMayParseJSON). A meta-tool's capability_param must be one
+// string: an array is malformed there as well. Arguments in args are not
+// inspected: any JSON value passes.
 //
 // With no profile (the fallback classifier, ADR 0027) nothing is checked
 // and both are nil. Both results are sorted, so the output does not depend
@@ -216,6 +218,13 @@ func CheckArguments(profile *Profile, tool string, args map[string]any) (unnamed
 					continue
 				}
 				if s, isString := v.(string); isString && upstreamMayParseJSON(s, l.config) {
+					malformed = append(malformed, name)
+				}
+			}
+		}
+		if name := spec.CapabilityParam; name != "" {
+			if v, ok := args[name]; ok && v != nil {
+				if s, isString := v.(string); !isString || upstreamMayParseJSON(s, false) {
 					malformed = append(malformed, name)
 				}
 			}
@@ -289,6 +298,11 @@ func stringOrStrings(v any) bool {
 //   - Tools with config arguments, unless already EXEC_ARBITRARY, are
 //     escalated to EXEC_ARBITRARY when a config line leaves configuration
 //     mode or runs an exec command (checkConfigPayload). This runs first.
+//   - Meta-tools (capability_param in the profile) take the class their
+//     capability table gives the capability the call selects, looked up
+//     byte for byte; an id the table does not list, a missing id or one
+//     that is not a string is EXEC_ARBITRARY. ClassSource is
+//     capability_table either way (classifyCapability).
 //   - Tools missing from the profile are EXEC_ARBITRARY.
 //
 // Classify also runs CheckArguments and reports its findings in
@@ -316,6 +330,15 @@ func Classify(profile *Profile, tool string, args map[string]any) Result {
 	res.Class = spec.Class
 	res.ClassSource = SourceProfile
 	res.Targets, res.Commands, res.ConfigPayload = Normalize(profile, tool, args)
+
+	// A meta-tool's class is its capability table's answer. The loader
+	// guarantees such a tool has class EXEC_ARBITRARY and no command or
+	// config arguments, so no later rule applies.
+	if spec.CapabilityParam != "" {
+		res.Class, res.Reason = classifyCapability(profile, spec, args)
+		res.ClassSource = SourceCapabilityTable
+		return res
+	}
 
 	// A config payload that leaves configuration mode or runs an exec
 	// command makes the call EXEC_ARBITRARY before any command rule runs,
@@ -366,6 +389,32 @@ func Classify(profile *Profile, tool string, args map[string]any) Result {
 		}
 	}
 	return res
+}
+
+// classifyCapability looks the call's capability id up in the tool's
+// capability table (profile-schema section 3). The id is the argument's
+// value exactly as the upstream receives it: no trimming, no case folding,
+// no Unicode normalisation, so a case variant, a padded id or a look-alike
+// is not in the table. Anything but a listed id is EXEC_ARBITRARY: a
+// missing or null argument, a value that is not a string (which
+// CheckArguments also reports as malformed), and an id the table does not
+// list, which covers every operation the upstream adds after the profile
+// was written. The reason names the table, never the id, which is
+// agent-supplied text.
+func classifyCapability(profile *Profile, spec ToolSpec, args map[string]any) (Class, string) {
+	v := args[spec.CapabilityParam]
+	if v == nil {
+		return ExecArbitrary, "no capability id"
+	}
+	id, ok := v.(string)
+	if !ok {
+		return ExecArbitrary, "capability id is not a string"
+	}
+	c, ok := profile.Capabilities[spec.CapabilityTable][id]
+	if !ok {
+		return ExecArbitrary, fmt.Sprintf("capability not in capability table %s", spec.CapabilityTable)
+	}
+	return c, fmt.Sprintf("capability listed in capability table %s", spec.CapabilityTable)
 }
 
 // failReason names the first command that failed, by its 1-based index,

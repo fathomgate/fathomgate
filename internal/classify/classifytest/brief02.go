@@ -11,9 +11,10 @@
 // dependencies).
 //
 // The servers with a shipped profile (netdev-ssh-mcp, upa, eos-mcp,
-// junos-mcp-server, ntunes-netmiko-mcp-server) are covered tool by tool in
-// classify's TestRepoProfiles and are not here. Meraki execute_api is left
-// to M1-17 (capability tables); Meraki semantic_search is here.
+// junos-mcp-server, ntunes-netmiko-mcp-server, cisco-meraki-mcp-official)
+// are covered tool by tool in classify's TestRepoProfiles and are not here.
+// Meraki's semantic_search and execute_api moved out when its profile
+// shipped (M1-17, capability tables).
 //
 // A tool with no profile entry is always EXEC_ARBITRARY with class_source
 // fallback and is never downgraded, whatever its arguments (maintainer
@@ -55,7 +56,7 @@ func (r Brief02Tool) Key() string { return r.Server + "." + r.Tool }
 // profile: when one lands, its rows move to TestRepoProfiles.
 var Brief02Servers = []string{
 	"scrapli-mcp", "mcp-telecom", "pan-os-mcp", "palo-mcp", "mcfortigate",
-	"fortigate-mcp", "cisco-meraki-mcp", "catalyst-center-mcp",
+	"fortigate-mcp", "catalyst-center-mcp",
 	"catalyst-sdwan-mcp", "pyats-mcp", "netbox-mcp-server", "netbox-mcp-rw",
 	"network-discovery-mcp", "clab-mcp-server",
 }
@@ -194,10 +195,6 @@ var brief02 = []Brief02Tool{
 	{"fortigate-mcp", "create_firewall_policy", map[string]any{"vdom": "root", "name": "allow-web"}, classify.WriteConfig},
 	{"fortigate-mcp", "update_static_route", map[string]any{"vdom": "root", "seq_num": float64(1), "gateway": "192.0.2.1"}, classify.WriteConfig},
 	{"fortigate-mcp", "delete_address", map[string]any{"vdom": "root", "name": "FAKE-host"}, classify.WriteConfig},
-
-	// 1.10 Cisco Meraki official: semantic_search only; execute_api is
-	// M1-17's (capability tables).
-	{"cisco-meraki-mcp", "semantic_search", map[string]any{"query": "list switches", "top_k": float64(5)}, classify.InventoryRead},
 
 	// 1.10 richbibby/catalyst-center-mcp. get_api_compatible_time_range is
 	// named in Part 1 only, which gives no class.
