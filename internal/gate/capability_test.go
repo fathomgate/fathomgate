@@ -86,12 +86,12 @@ func TestCapabilityArguments(t *testing.T) {
 		{"parameters null", map[string]any{"capability_id": "getOrganizations", "parameters": nil}, "INVENTORY_READ", reasonUnnamed},
 		{"parameters with an unlisted id", map[string]any{"capability_id": "rebootDevice", "parameters": map[string]any{"serial": "Q2XX-FAKE"}}, "EXEC_ARBITRARY", reasonUnnamed},
 		{"case variant of the argument name", map[string]any{"Capability_id": "getOrganizations"}, "EXEC_ARBITRARY", reasonUnnamed},
-		{"number", map[string]any{"capability_id": 7}, "EXEC_ARBITRARY", reasonMalformed},
-		{"boolean", map[string]any{"capability_id": true}, "EXEC_ARBITRARY", reasonMalformed},
-		{"list", map[string]any{"capability_id": []any{"getOrganizations"}}, "EXEC_ARBITRARY", reasonMalformed},
-		{"object", map[string]any{"capability_id": map[string]any{"id": "getOrganizations"}}, "EXEC_ARBITRARY", reasonMalformed},
-		{"JSON list string", map[string]any{"capability_id": `["getOrganizations"]`}, "EXEC_ARBITRARY", reasonMalformed},
-		{"JSON null string", map[string]any{"capability_id": "null"}, "EXEC_ARBITRARY", reasonMalformed},
+		{"number", map[string]any{"capability_id": 7}, "EXEC_ARBITRARY", reasonMalformedCapability},
+		{"boolean", map[string]any{"capability_id": true}, "EXEC_ARBITRARY", reasonMalformedCapability},
+		{"list", map[string]any{"capability_id": []any{"getOrganizations"}}, "EXEC_ARBITRARY", reasonMalformedCapability},
+		{"object", map[string]any{"capability_id": map[string]any{"id": "getOrganizations"}}, "EXEC_ARBITRARY", reasonMalformedCapability},
+		{"JSON list string", map[string]any{"capability_id": `["getOrganizations"]`}, "EXEC_ARBITRARY", reasonMalformedCapability},
+		{"JSON null string", map[string]any{"capability_id": "null"}, "EXEC_ARBITRARY", reasonMalformedCapability},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

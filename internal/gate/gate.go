@@ -171,6 +171,11 @@ func (g *Gate) decide(_ context.Context, in seam.CallInfo) *decision {
 		if len(unnamed) > 0 {
 			return d.refuse(reasonUnnamed)
 		}
+		// A meta-tool's capability argument must be one string, never a
+		// list, so it gets its own text (ADR 0033 note of 2026-09-25, F4).
+		if spec.CapabilityParam != "" && len(malformed) == 1 && malformed[0] == spec.CapabilityParam {
+			return d.refuse(reasonMalformedCapability)
+		}
 		return d.refuse(reasonMalformed)
 	}
 	if inProfile {
