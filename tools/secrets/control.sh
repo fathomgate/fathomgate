@@ -18,8 +18,9 @@
 #      every non-FAKE secret (including one that contains FAKE but does not
 #      start with it), the FAKE secret in a file the allow-list does not name,
 #      the inline-allowed secret (--ignore-gitleaks-allow), both merge
-#      secrets, and not the ignored main finding, which the merges repeat in
-#      their first-parent diffs;
+#      secrets, a second PEM block a merge adds to a file main already has a
+#      (different) block in, and not the ignored main findings (a line and a
+#      PEM block), which the merges repeat in their first-parent diffs;
 #    - scan.py with a base that is not a commit must exit 2;
 #    - scan.py with a stub gitleaks that scans 0 commits and exits 0 must
 #      exit 2.
@@ -52,6 +53,8 @@ bad() {
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
 	n=$((n + 1))
+	# A file checked out with CRLF line ends must not fail (or pass) on the \r.
+	line=$(printf '%s' "$line" | tr -d '\r')
 	case $line in '' | '#'*) continue ;; esac
 	if ! printf '%s\n' "$line" | grep -Eq '^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:[0-9]+$'; then
 		bad "$3 line $n is not <40-hex commit>:<file>:<rule-id>:<line>: $line"
@@ -126,12 +129,24 @@ else
 	compare "gitleaks dir" "$first" "$tmp/dir.got"
 fi
 
-# A finding on main, judged and listed by fingerprint in the repo's ignore file.
+# Findings on main, judged and listed by fingerprint in the repo's ignore
+# file: one line, and one multi-line PEM block. Key bodies are random bytes
+# made here, never committed; they are not keys. Each block is 4 lines.
+pem() {
+	printf '%s\n' '-----BEGIN PRIVATE KEY-----'
+	head -c 96 /dev/urandom | base64 | tr -d '\n' | fold -w 64
+	printf '\n%s\n' '-----END PRIVATE KEY-----'
+}
+mkdir -p "$repo/keys"
 printf 'snmp-server community ignoredOnMain ro\n' > "$repo/tests/fixtures/configs/ignored.txt"
+pem > "$repo/keys/control.pem"
 g add -A
 g commit -q -m c2
 c2=$(git -C "$repo" rev-parse HEAD)
-printf '%s:tests/fixtures/configs/ignored.txt:netdev-snmp-community:1\n' "$c2" > "$tmp/ignore"
+{
+	printf '%s:tests/fixtures/configs/ignored.txt:netdev-snmp-community:1\n' "$c2"
+	printf '%s:keys/control.pem:private-key:1\n' "$c2"
+} > "$tmp/ignore"
 
 # The PR branch starts before c2, then merges main with a line added in the
 # merge commit (a clean merge git would not have made on its own).
@@ -141,8 +156,11 @@ g add -A
 g commit -q -m p1
 g merge -q --no-commit main
 printf 'snmp-server community evilCleanMerge ro\n' > "$repo/tests/fixtures/configs/evil.txt"
+# A different key appended in the merge to the file main added: its BEGIN
+# line equals main's, so only a whole-block comparison tells them apart.
+pem >> "$repo/keys/control.pem"
 g add -A
-g commit -q -m "merge main, plus a line"
+g commit -q -m "merge main, plus a line and a key"
 # Main and the PR change the same line; the resolution adds a secret.
 g checkout -q main
 printf 'hostname main-side\n' > "$repo/tests/fixtures/configs/a.txt"
@@ -159,6 +177,7 @@ merges=$tmp/merges.expected
 cat > "$merges" <<'EOF'
 netdev-snmp-community tests/fixtures/configs/a.txt 2
 netdev-snmp-community tests/fixtures/configs/evil.txt 1
+private-key keys/control.pem 5
 EOF
 cat "$first" "$merges" > "$tmp/full.expected"
 

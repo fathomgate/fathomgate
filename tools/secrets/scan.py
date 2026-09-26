@@ -23,8 +23,10 @@ What it adds to a bare `gitleaks git`:
   other parents, which was scanned in the commits that introduced it (in
   this range, or on main when they landed) and may be listed there by
   fingerprint in .gitleaksignore. So a finding in a merge commit is dropped
-  when its whole line is already present in the same file of one of the
-  merge's other parents. A line that no parent has is kept.
+  when its whole matched block (StartLine..EndLine, every line of a
+  multi-line finding such as a PEM key) is already present, as consecutive
+  lines, in the same file of one of the merge's other parents. Anything no
+  parent has is kept.
 - Inline `gitleaks:allow` comments are ignored (--ignore-gitleaks-allow).
 - The value is never printed: gitleaks runs with --redact, and a finding is
   reported as rule, file, line, commit and fingerprint.
@@ -73,22 +75,39 @@ def parents(commit: str) -> list[str]:
     return git("rev-list", "--parents", "-n", "1", commit).stdout.split()[1:]
 
 
+def contains_block(haystack: list[str], block: list[str]) -> bool:
+    """True if block appears in haystack as consecutive lines."""
+    n = len(block)
+    if n == 0 or n > len(haystack):
+        return False
+    first = block[0]
+    for i in range(len(haystack) - n + 1):
+        if haystack[i] == first and haystack[i:i + n] == block:
+            return True
+    return False
+
+
 def inherited(finding: dict) -> bool:
-    """True if the finding sits in a merge on a line one of the merge's
-    non-first parents already has in the same file."""
-    commit, path, line_no = finding.get("Commit", ""), finding["File"], finding["StartLine"]
-    if not commit:
+    """True if the finding sits in a merge and its whole matched block, lines
+    StartLine..EndLine of the merge's file, appears as consecutive lines in
+    the same file of one of the merge's non-first parents. Comparing the
+    whole block matters for multi-line findings: every PEM private key starts
+    with the same BEGIN line, so a new key must not pass as an old one."""
+    commit, path = finding.get("Commit", ""), finding["File"]
+    start = int(finding["StartLine"])
+    end = int(finding.get("EndLine") or start)
+    if not commit or end < start:
         return False
     ps = parents(commit)
     if len(ps) < 2:
         return False
     lines = file_lines(commit, path)
-    if lines is None or not 0 < line_no <= len(lines):
+    if lines is None or not 0 < start <= end <= len(lines):
         return False
-    line = lines[line_no - 1]
+    block = lines[start - 1:end]
     for p in ps[1:]:
         other = file_lines(p, path)
-        if other is not None and line in other:
+        if other is not None and contains_block(other, block):
             return True
     return False
 

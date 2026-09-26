@@ -86,3 +86,20 @@ make secrets-control && make secrets-scan                 # full history
 make secrets-scan GITLEAKS_BASE=origin/main               # the pull request range
 make actionlint && make status-check && make licences-check
 ```
+
+## Round 3 (re-review of PR #198: R2-M1 and lows)
+
+- **R2-M1, multi-line findings in merges.** `inherited()` in `tools/secrets/scan.py` now drops a merge finding only when the whole matched block, lines `StartLine..EndLine` of the merge's file, appears as consecutive lines in the same file of a non-first parent. No value is compared or kept outside git.
+  - New `control.sh` case: `main` adds a PEM block to `keys/control.pem`, ignored by fingerprint. A merge appends a different block to the same file, and it must be found at line 5 in both the full-history and PR-range scans. The key bodies are 96 random bytes made at run time, never committed.
+  - Mutation check: going back to StartLine-only comparison fails the control (`private-key keys/control.pem 5` missing).
+- **Low, values in test logs.** `TestFixtureCorpus` messages now name `<fixture>.expect.json secrets[i]` or `<fixture>.txt line n`, never the value or the line text.
+- **Low, device transcripts.** The new `TestTranscriptSecretsAreFake` runs the redactor over every file under `tests/fixtures/device/transcripts/`. Every replaced value must be a word of the transcript that starts with `FAKE` (after an optional marker), or `<removed>`, the placeholder EOS prints for secrets in `show tech-support`. Mutation check: a non-FAKE SNMP community in `show_running_config.txt` fails it, at line 14 only.
+- **Note, CRLF.** The `.gitleaksignore` format check strips `\r` first. Checked with a CRLF copy of the file.
+- **Docs.** `docs/maintainers.md` now says the fallback applies to any base without `.gitleaks.toml`, and that the pull request's control of the scan files is accepted, with the reasons. `test-strategy.md`, the fixture README and `CHANGELOG.md` are updated.
+
+### Threat-model rows, round 3 (replace the round 2 wording of these three rows; the others stand)
+
+- **"Secret scanner not in CI"**, status: `Mitigated for the five rule shapes in tests/fixtures/, backed by the redactor-based fixture checks (TestFixtureCorpus; TestTranscriptSecretsAreFake for the device transcripts), including multi-line findings in merge commits (M1-42, PR #198): CI job gitleaks scans each pull request's commits, merge diffs included, and the full history on main. Open, owner test-engineer: a value with FAKE in front of a real secret passes both by construction (review only); a secret in a shape the redactor does not know is outside both; sampled tier 2 output lands with M2 redaction (ADR 0006; PRD section 5)`.
+- **"Secret-scan self-modification by PR"** (L1), status: `Config route closed by the base-config scan (M1-42): a second scan uses the base branch's .gitleaks.toml and .gitleaksignore; the fallback to the pull request's own config applies to any base without .gitleaks.toml. The pull request still controls scan.py, the Makefile, control.sh and ci.yaml. Accepted: no outside code is accepted and push protection is on; a change to those files needs the maintainer's eye` | evidence `docs/maintainers.md, "The secret scan and its config"`.
+- **"gitleaks not a required status check"**, status: `Open, owner maintainer, until gitleaks is added to the main ruleset's required checks after PR #198 merges`.
+- **MCP04 summary line:** `secret scanner not in CI (fixture shapes mitigated, multi-line merge findings included, M1-42; sampled tier 2 output open, M2), secret-scan self-modification (config route closed; scan files accepted, maintainer review), GitHub secret scanning and push protection (mitigated 2026-09-25; non-provider patterns open, maintainer), gitleaks not required (open, maintainer, after merge)`.
