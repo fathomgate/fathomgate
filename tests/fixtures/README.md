@@ -1,5 +1,9 @@
 # Redaction fixture corpus
 
+(Other fixtures here: `device/` holds the fake devices tier 2 talks to, and
+`meraki/` the Meraki `execute_api` classification fixture of test-matrix
+row 18, with its own README.)
+
 `configs/` holds one sanitised running-config excerpt per platform. Each is
 run through `internal/redact` by `TestFixtureCorpus` (Go) and by
 `make fixtures-check`.

@@ -171,6 +171,11 @@ func (g *Gate) decide(_ context.Context, in seam.CallInfo) *decision {
 		if len(unnamed) > 0 {
 			return d.refuse(reasonUnnamed)
 		}
+		// A meta-tool's capability argument must be one string, never a
+		// list, so it gets its own text (ADR 0033 note of 2026-09-25, F4).
+		if spec.CapabilityParam != "" && len(malformed) == 1 && malformed[0] == spec.CapabilityParam {
+			return d.refuse(reasonMalformedCapability)
+		}
 		return d.refuse(reasonMalformed)
 	}
 	if inProfile {
@@ -226,9 +231,7 @@ func (g *Gate) Arguments(server, tool string) (named []string, closed bool) {
 	if !ok {
 		return nil, true
 	}
-	for _, l := range [][]string{spec.TargetParams, spec.TargetsParams, spec.GroupParams, spec.CommandParams, spec.ConfigParams, spec.Args} {
-		named = append(named, l...)
-	}
+	named = spec.NamedArgs()
 	sort.Strings(named)
 	return slices.Compact(named), true
 }
@@ -287,10 +290,14 @@ type decision struct {
 // tool the profile does not list exactly gets the fallback too. Then the
 // annotations: readOnlyHint false or destructiveHint true on a tool whose
 // profile class is a read class makes the call EXEC_ARBITRARY, whatever its
-// commands say. The upstream is saying the tool's execution context is not
-// read-only, so a raised tool is never downgraded (classification.md
-// section 4), and the raise can only make the class stricter: a call that
-// is already EXEC_ARBITRARY keeps its own source.
+// commands say. For a meta-tool (capability_param in the profile) the class
+// tested is the one its capability table gives the call's capability, not
+// the tool's own EXEC_ARBITRARY, so a listed read is raised too, and an
+// unlisted capability stays EXEC_ARBITRARY whatever the hints say. The
+// upstream is saying the tool's execution context is not read-only, so a
+// raised tool is never downgraded (classification.md section 4), and the
+// raise can only make the class stricter: a call that is already
+// EXEC_ARBITRARY keeps its own source.
 func (d *decision) classify(profile *classify.Profile, spec classify.ToolSpec, inProfile bool, args map[string]any) {
 	switch {
 	case profile == nil:
@@ -301,7 +308,16 @@ func (d *decision) classify(profile *classify.Profile, spec classify.ToolSpec, i
 		d.res = classify.Classify(profile, d.in.Tool, args)
 	}
 	d.class, d.source = d.res.Class, d.res.ClassSource
-	if inProfile && isReadClass(spec.Class) && raises(d.in) && d.class != classify.ExecArbitrary {
+	// The raise tests what the profile says the call is: the tool's class,
+	// or for a meta-tool the class its capability table gives the
+	// capability the call selects (the tool's own class there is only the
+	// EXEC_ARBITRARY of an unlisted capability). A readOnlyHint false on
+	// execute_api therefore raises a listed read capability too.
+	base := spec.Class
+	if d.res.ClassSource == classify.SourceCapabilityTable {
+		base = d.res.Class
+	}
+	if inProfile && isReadClass(base) && raises(d.in) && d.class != classify.ExecArbitrary {
 		d.class, d.source = classify.ExecArbitrary, classify.SourceAnnotationRaise
 	}
 }
