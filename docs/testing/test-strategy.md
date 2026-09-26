@@ -24,6 +24,27 @@ Three tiers. Tier 1 runs on every commit with no network and proves the policy, 
 
 Run: `make test` (equals `go test ./... && fathomgate policy test policies/ && pytest tests/unit`).
 
+## Secret scanner (M1-42)
+
+Fixture secrets are checked twice.
+
+- **First line: `TestFixtureCorpus` (`internal/redact`, tier 1, every `go test`).** Every secret listed in a fixture's `.expect.json` must start with `FAKE` (after an optional `$n$`, `-AQ==` or `0x` marker), and every value the redactor replaces in the fixture must be one of the listed secrets. The check matches the HMAC token of each listed secret. So any value in the redactor's grammar, all the vendor shapes in `internal/redact/rules.go`, is either a listed FAKE secret or a failure. `TestTranscriptSecretsAreFake` does the same for every file under `tests/fixtures/device/transcripts/`, which have no expect file. Every value the redactor replaces there must be a word of the transcript that starts with `FAKE`, or the `<removed>` placeholder EOS prints in `show tech-support`. Failure messages give the file and line, never the value. A secret the redactor does not recognise is outside both checks, and the redactor fixture tests exist to close such gaps.
+- **Second line: CI job `gitleaks`** (`.github/workflows/ci.yaml`, GitHub-hosted, read-only token, no secrets). It runs gitleaks, the upstream release binary at the version and sha256 pinned in the `Makefile`, which re-hashes the cached archive before each use. `tools/secrets/scan.py` drives it:
+  - On a pull request it scans `merge-base(base, head)..head` twice, once with the pull request's `.gitleaks.toml` and `.gitleaksignore` and once with the base branch's. On a push to `main` and weekly, it scans every commit reachable from `HEAD`.
+  - Merge commits are scanned by their first-parent diff, so a line added in a merge or a conflict resolution is found. A finding in a merge is dropped only when its whole matched block (every line of a multi-line finding, such as a PEM key) is already present, as consecutive lines, in the same file of one of the merge's other parents; it was scanned in the commit that added it. Every PEM key starts with the same line, so comparing one line would pass a new key as an old one.
+  - Inline `gitleaks:allow` is ignored.
+  - Both ends of the range must be commits, and a range with commits that scans 0 exits 2.
+  - A finding prints rule, file, line, commit and fingerprint, never the value.
+- **Rules.** gitleaks' built-in set (cloud and API credentials, private keys) runs over the whole repository. Five network-config rules in `.gitleaks.toml` run on `tests/fixtures/` only: crypt, Cisco type 4, 8, 9 and `$14$`, and `$9$` hashes; type 0, 3 and 7 values; SNMP communities; FortiOS `ENC`; PAN-OS `-AQ==`. They know those five shapes, not the redactor's whole grammar: untyped `radius-server key`, `crypto isakmp key`, `pre-shared-key`, SNMP users and hosts, Junos communities and PAN-OS `snmp-community-string` are left to the first line.
+- **Allow-list.** There is one, bound to those five rules. It passes a finding only when the file is a named redaction fixture or device transcript and the secret starts with `FAKE`, optionally after the vendor's fixed marker. A value that only contains `FAKE` is a finding.
+- **False positives.** `.gitleaksignore` holds one full fingerprint (commit, file, rule, line) per finding, with the reason above it. Five today: a sha256 pin in `tests/integration/conftest.py`, a deliberately corrupted PEM block in `internal/audit/key_load_test.go`, keyword arguments in `tests/integration/test_http_listener.py`, the IOS-XE fixture's type 7 value as first committed (`0822455D0A16FAKE7`, renamed `FAKE0822455D0A16`), and `tools/secrets/control.sh` in one commit (`a10ced9`), whose key helper wrote the PEM armour lines literally (it now builds them at run time).
+- **Negative control.** `make secrets-control` (`tools/secrets/control.sh`) runs first. It checks the `.gitleaksignore` format. Then, on a throwaway repository, it requires exactly the expected findings from `gitleaks dir` and from `scan.py` over a full history and a pull request range. The expected findings are the non-FAKE secrets, a FAKE value in an unnamed file, an inline-allowed secret, and a line added in a clean merge and in a conflict resolution. A second PEM block that a merge adds to a file `main` already has a different block in must be found. The ignored findings on `main` (a line and a PEM block) that the merges repeat must not be reported. The key bodies are random bytes made at run time and never committed. It also requires exit 2 for a base that is not a commit and for a gitleaks that scans 0 commits.
+- **Open** (owner test-engineer):
+  - A secret with `FAKE` in front of a real value (`FAKE` + the real value) passes both lines by construction; only review catches it.
+  - The sampled tier 2 output canary (PRD section 5, [ADR 0006](../adr/0006-keyed-hmac-redaction.md)) lands with M2 redaction.
+
+Run: `make secrets-control && make secrets-scan` (Linux or macOS, needs `python3`). `make secrets-scan GITLEAKS_BASE=origin/main` scans what a pull request would.
+
 ## Overhead budget (M1-23)
 
 Two tier 1 tests hold the PRD's M1 metric, *under 5 ms at p99 for classify plus evaluate*. Both use the repo profiles, `prod-approval.yaml` and `inventory.example.yaml`, and time every call on its own after a warm-up. The corpus is in `internal/gate/gatetest`, and each case must first get its expected decision word and rule id, so a change that turns a costly path into a cheap early refusal fails instead of making the numbers look better.
@@ -155,6 +176,6 @@ cEOS-lab images are downloaded from arista.com with an Arista account and cannot
 
 - A new policy behaviour: add a case to the relevant `*.test.yaml`. No Go needed. A classification or resolution behaviour (a command, an argument, a target spelling): add a gate case, with `request.arguments`, to the relevant `*.gate.test.yaml`.
 - A new classification rule: add a row to the worked examples in the spec and a matching table entry in `internal/classify`.
-- A new redaction pattern: add an annotated line to the fixture for that vendor.
+- A new redaction pattern: add an annotated line to the fixture for that vendor, with a value that starts with `FAKE` (after the vendor's marker, if it has one); the `gitleaks` CI job fails on any other value there.
 - A new upstream: add a profile, a tier 2 image build, and one matrix case that names it.
 - A new driver: tier 1 command-sequence test, tier 2 against the fake device, and a tier 3 case if an image is available.

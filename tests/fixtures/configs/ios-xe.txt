@@ -5,7 +5,7 @@ service password-encryption
 hostname core-rtr-01
 !
 enable secret 9 $9$FAKEenableSECRETtype9/AbCdEfGh.1234567890            ! cisco-password-type
-enable password 7 0822455D0A16FAKE7                                     ! cisco-password-type
+enable password 7 FAKE0822455D0A16                                      ! cisco-password-type
 !
 username admin privilege 15 secret 5 $1$FAKE$adminSecretType5Hash1234   ! cisco-password-type
 username backup privilege 15 secret 8 $8$FAKEsalt$backupType8HashXYZ    ! cisco-password-type
