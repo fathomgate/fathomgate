@@ -2,7 +2,7 @@
 
 Normative specification for the Fathomgate policy file and its test format. A policy is one YAML document evaluated by a pure function `Evaluate(policy, request) -> Decision`. Rules evaluate in order and the first match wins; there is no ranking by specificity. A request that matches no rule is denied. The words MUST, SHOULD and MAY are used as in RFC 2119.
 
-This document describes what `internal/policy` (`types.go`, `load.go`, `evaluate.go`, `testfile.go`) implements. Where a feature is planned but not parsed, it is marked as such. Decision record: [ADR 0003](../adr/0003-yaml-policy-dsl-with-obligations.md).
+This document describes what `internal/policy` (`types.go`, `load.go`, `evaluate.go`) and, for the test file format, `internal/policytest` implement. Where a feature is planned but not parsed, it is marked as such. Decision record: [ADR 0003](../adr/0003-yaml-policy-dsl-with-obligations.md).
 
 ## 1. Example
 
@@ -150,7 +150,7 @@ type Decision struct {
 }
 ```
 
-Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`, and `default:bad_arguments` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)). `Evaluate` never returns `default:bad_arguments`: `internal/gate` produces it before `Evaluate` runs, for arguments that are not one JSON object (or give a key twice, or are not UTF-8), a target that is not a hostname or IP literal, a tool with a target source called with no target or with a tag or group selector ([profile-schema section 2.1](profile-schema.md#21-normalisation-rules)), and arguments that fail the profile's closed argument list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md), [profile-schema 2.3](profile-schema.md#23-closed-argument-list)). `fathomgate policy eval --profile` shows the last case the same way (`policy.RuleBadArguments`). The proxy also produces `default:bad_arguments` itself for arguments over 64 KiB, before the gate runs, and `default:internal_error` for a call it could not decide (the gate failed); both carry class `EXEC_ARBITRARY` with `class_source` `proxy`, since the classifier never ran; `Evaluate` and `policy eval` never produce `default:internal_error` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md), *Notes after acceptance*, M1-19). A policy rule may not use the `default:` prefix.
+Reserved rule ids: `default:unknown_target`, `default:session.max_devices`, `default:session.max_pending`, `default:no-match`, and `default:bad_arguments` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)). `Evaluate` never returns `default:bad_arguments`: `internal/gate` produces it before `Evaluate` runs, for arguments that are not one JSON object (or give a key twice, or are not UTF-8), a target that is not a hostname or IP literal, a tool with a target source called with no target or with a tag or group selector ([profile-schema section 2.1](profile-schema.md#21-normalisation-rules)), and arguments that fail the profile's closed argument list ([ADR 0033](../adr/0033-closed-argument-list-per-tool.md), [profile-schema 2.3](profile-schema.md#23-closed-argument-list)). `fathomgate policy eval --profile` decides through the gate ([ADR 0035](../adr/0035-policy-test-cases-run-the-gate-path.md)), so it shows every one of these refusals as the proxy makes it, and a gate case in a `*.test.yaml` file asserts them (section 7.2). The proxy also produces `default:bad_arguments` itself for arguments over 64 KiB, before the gate runs, and `default:internal_error` for a call it could not decide (the gate failed); both carry class `EXEC_ARBITRARY` with `class_source` `proxy`, since the classifier never ran; `Evaluate` and `policy eval` never produce `default:internal_error` ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md), *Notes after acceptance*, M1-19). A policy rule may not use the `default:` prefix.
 
 The agent never sees `Evaluate`'s own reasons for the `default:` ids, which name targets and counts. `internal/gate` gives each a fixed text: `default:unknown_target` is "target not in inventory", `default:session.max_devices` "this session would touch more devices than its cap allows", `default:session.max_pending` "this session already has as many held calls as its cap allows", `default:no-match` "no rule matched" (or "no policy loaded"). A rule with no `reason` is shown as "the policy does not allow this call". The one-line tool error shape is in [ADR 0026, "The deny tool error"](../adr/0026-m1-policy-pipeline-at-dispatch.md#the-deny-tool-error) and [profile-schema section 8.2](profile-schema.md#82-errors-toward-the-agent).
 
@@ -173,10 +173,17 @@ The request `Evaluate` receives, after normalisation, classification and role re
 
 ## 7. Test file format
 
-Files named `*.test.yaml` are read by `fathomgate policy test <file>...`. The Python `policy_lint` checks shape only; behaviour is asserted here.
+Files named `*.test.yaml` are read by `fathomgate policy test [--profiles <dir>] [-v] <file>...`. The Python `policy_lint` skips them; behaviour is asserted here. A file holds two kinds of case ([ADR 0035](../adr/0035-policy-test-cases-run-the-gate-path.md)):
+
+- A **class-given case** (`request.class`) gives the class and the resolved targets directly and runs `Evaluate` on them. It proves what the rules do with a class.
+- A **gate case** (`request.arguments` or `request.arguments_json`) gives a `tools/call` as an agent sends it: the server, the tool and the raw arguments. It runs `internal/gate`, the steps `fathomgate serve --policy` runs on every call: parse, the per-call caps, normalise, classify (with the annotation raise), the closed argument list, targets, resolve, `Evaluate`. It proves the classification and the resolution as well as the rules. Its profile comes from the run's profile set, and its targets resolve through the file's `inventory`.
 
 ```yaml
 policy: prod-approval.yaml        # relative to this file's directory, or absolute
+inventory:                        # gate cases only: a path, or the document inline
+  devices:
+    - {name: core-rtr-01, role: core, tags: [prod]}
+    - {name: lab-sw-01, role: access, tags: [lab]}
 cases:
   - name: core write is held for approval
     request:
@@ -194,14 +201,23 @@ cases:
       targets: [{name: 10.99.99.99, known: false}]
     expect: {effect: deny, rule: default:unknown_target}
 
-  - name: a third pending hold is refused
+  - name: reload after a line break is not a read (gate case)
     request:
-      server: junos-mcp-server
-      tool: load_and_commit_config
-      class: WRITE_CONFIG
-      targets: [{name: core-rtr-02, role: core}]
-      session: {pending_holds: 2}
-    expect: {effect: deny, rule: default:session.max_pending}
+      server: upa
+      tool: send_command_and_get_output
+      arguments: {name: lab-sw-01, command: "show clock\nreload"}
+    expect:
+      effect: deny
+      rule: no-exec
+      class: EXEC_ARBITRARY
+      tool_error: "fathomgate denied upa.send_command_and_get_output: rule no-exec (class EXEC_ARBITRARY): EXEC_ARBITRARY is denied: the call runs commands outside the read allow-list or outside configuration mode"
+
+  - name: a key given twice (gate case)
+    request:
+      server: netdev-ssh-mcp
+      tool: run_show_command
+      arguments_json: '{"host": "lab-sw-01", "command": "show version", "host": "192.0.2.99"}'
+    expect: {effect: deny, rule: default:bad_arguments, parse_error: duplicate_key}
 ```
 
 ### 7.1 File fields
@@ -209,18 +225,54 @@ cases:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `policy` | string | yes | Path to the policy under test. Relative paths resolve against the test file's directory. |
+| `inventory` | string or mapping | no | For gate cases. A path (relative to the test file) to an inventory in the [inventory-schema section 3](inventory-schema.md#3-static-file) format, read exactly as `serve --inventory` reads it (`internal/configset`: the `internal/configfile` owner and write-permission checks, a `.csv` refused, strict decoding), or the same document inline, decoded by the same strict decoder. It builds the same chain: a hostname pattern only enriches a listed device ([ADR 0031](../adr/0031-hostname-patterns-never-make-a-target-known.md)). Without it every name a gate case sends is unknown, as under `serve` without `--inventory`. Class-given cases ignore it. |
 | `cases[]` | list | yes, non-empty | |
 | `cases[].name` | string | yes, non-empty | |
-| `cases[].request.server` | string | no | |
-| `cases[].request.tool` | string | no | |
-| `cases[].request.class` | class | yes | Tests supply the class directly; classification has its own tests. |
-| `cases[].request.targets[]` | list of target | no | `name`, `role`, `tags`, `site`, `known`. `known` defaults to `true`; set `known: false` to model an unresolved device. |
-| `cases[].request.session` | object | no | `devices_touched`, `pending_holds`. Default 0. |
-| `cases[].expect.effect` | effect | yes | |
-| `cases[].expect.rule` | string | no | When present, the decision's rule id MUST equal it. |
+| `cases[].request.server` | string | class-given: no; gate: yes | For a gate case, the profile's server key. It must name a profile in the run's set (7.3). |
+| `cases[].request.tool` | string | class-given: no; gate: yes | For a gate case, the upstream's own tool name without the prefix, looked up exactly as the gate looks it up. |
+| `cases[].request.class` | class | class-given: yes; gate: not allowed | |
+| `cases[].request.targets[]` | list of target | class-given: no; gate: not allowed | `name`, `role`, `tags`, `site`, `known`. `known` defaults to `true`; set `known: false` to model an unresolved device. |
+| `cases[].request.arguments` | mapping | gate: one of the two | The arguments object, encoded with `encoding/json` into the bytes the gate receives. Keys are strings; values are strings, numbers, booleans, null, lists and mappings. A non-string key, a merge key (`<<`), a tag, an anchor or an alias is a load error. YAML double-quoted escapes (`\n`, `\r`, `\v`, `\u2028`, `\u200b`) carry control and look-alike characters. `{}` is a call with no arguments. |
+| `cases[].request.arguments_json` | string | gate: one of the two | The arguments exactly as the agent's bytes: for a key given twice, trailing data, a top-level array or JSON cut short. Invalid UTF-8 cannot be written in a YAML file; the `internal/gate` tests cover it. |
+| `cases[].request.annotations` | mapping | gate: no | `readOnlyHint` and `destructiveHint`, booleans; absent is none. They can only raise a class (invariant 3). |
+| `cases[].request.session` | object | no | `devices_touched`, `pending_holds`. Default 0. A gate case's targets all count as new devices. |
+| `cases[].expect.effect` | effect | yes | For a gate case, what `Evaluate` returned, or `deny` for a refusal before it: a `hold` stays `hold`, as the decision log line records it. |
+| `cases[].expect.rule` | string | class-given: no; gate: yes | When present, the decision's rule id MUST equal it. Required on a gate case: the gate fails closed, so `effect: deny` alone would pass for any refusal. |
 | `cases[].expect.obligations` | list | no | When present, MUST equal the decision's obligations as a set (order-insensitive). |
+| `cases[].expect.class` | class | gate only | The final class, after the downgrade, reclassify and the annotation raise. |
+| `cases[].expect.class_source` | string | gate only | `profile`, `capability_table`, `fallback`, `annotation_raise`, `downgrade` or `reclassify`. |
+| `cases[].expect.targets` | list | gate only | The target names after validation, exactly as the upstream receives them, in order, repeats removed. `[]` asserts none. |
+| `cases[].expect.unknown_target` | boolean | gate only | The decision log line's `unknown_target`. |
+| `cases[].expect.parse_error` | string | gate only | The log line's code: `invalid_utf8`, `invalid_json`, `not_object`, `duplicate_key`, `trailing_data`, `too_many_commands`, `too_many_targets`. Only with `rule: default:bad_arguments`. |
+| `cases[].expect.unnamed_args`, `malformed_args` | list | gate only | The log line's lists, compared as sets (the log line keeps at most 8 names of at most 64 bytes). Only with `rule: default:bad_arguments`. `[]` asserts none. |
+| `cases[].expect.forwarded` | boolean | gate only | Whether `serve` in this milestone sends the call upstream: `false` for a `hold`, and for an `allow` carrying `dry_run`, `diff` or `timed_rollback`, in M1. |
+| `cases[].expect.tool_error` | string | gate only | The one line the agent sees ([ADR 0026, "The deny tool error"](../adr/0026-m1-policy-pipeline-at-dispatch.md#the-deny-tool-error)), compared exactly. `""` asserts that there is none. Use it where the text is the point; `rule` everywhere else. |
 
-Unknown keys are errors. A case fails on the first mismatch in the order effect, rule, obligations, and the message names what was got and what was wanted.
+Unknown keys are errors. A case fails on the first mismatch in the order effect, rule, class, class_source, obligations, targets, unknown_target, parse_error, unnamed_args, malformed_args, forwarded, tool_error, and the message names what was got and what was wanted.
+
+### 7.2 Load errors
+
+A file that breaks one of these rules does not run; `policy test` exits 2 and names the case. Each is a case that could never pass, or could pass for the wrong reason:
+
+- a case with both `class` and an arguments field, or neither; both `arguments` and `arguments_json`;
+- `targets` or `annotations` on the wrong kind of case; a gate-only `expect` field on a class-given case;
+- a gate case with no `server`, `tool` or `expect.rule`;
+- a gate case whose `server` has no profile in the run's set: `serve` would give that server an empty profile, which denies every call carrying arguments with `default:bad_arguments`, so a deny case would pass for any reason;
+- a gate case whose arguments are over 64 KiB: the proxy refuses such a call before the gate runs, so the gate path cannot say what `serve` does;
+- `parse_error`, `unnamed_args` or `malformed_args` with a rule other than `default:bad_arguments`; a `parse_error` or `class_source` outside its vocabulary;
+- an `inventory` that `serve --inventory` would refuse.
+
+`default:internal_error` and the proxy's 64 KiB refusal happen outside the gate and are pinned by the `internal/proxy` tests.
+
+### 7.3 Profiles
+
+A gate case never names a profile file. `policy test` uses the profiles built into the binary, the set `serve` uses without `--profiles`; `policy test --profiles <dir>` replaces that set for the whole run, never merging with it, loaded by the same function `serve --profiles` uses (`internal/configset`: every top-level `*.yaml`, strict, validated, each file named after its server key, the `configfile` checks). So the shipped suites prove the shipped binary's profiles, and an operator can prove a patched profile set against them before `serve --profiles`.
+
+### 7.4 Output
+
+`policy test` prints one `PASS` or `FAIL` line per case and a count. It prints no argument value, and it quotes a case name, argument name, target name, rule id or trace note that is not printable ASCII (`strconv.QuoteToASCII`): a suite that carries injection inputs is itself injection text. `-v` adds, for a failing case, the class and `class_source` of a gate case and the rule trace. Exit 0 when every case passes, 1 when any fails, 2 when a file cannot be loaded.
+
+`fathomgate policy eval --profile <file> --tool <tool> (--arg k=v ... | --arguments-json '<json>')` decides one call through the same function (`gate.Explain`), with the profile as a set of one, so an operator can reproduce a gate case with one command. `--class` and `--target` are usage errors with `--profile`. Its output adds `class_source`, `parse_error`, `unnamed_args` and `malformed_args` when set, `forwarded`, and the tool error line; `--json` adds a `gate` object with the same fields.
 
 ## 8. Loader requirements
 
@@ -242,12 +294,12 @@ Planned, not yet implemented: reload without a restart, keeping the previous pol
 
 ## 9. Example policies shipped
 
-| File | Purpose | Test cases |
-| --- | --- | --- |
-| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 |
-| `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices; everything else read-only. Until M3 its `lab-writes-free` rule carries no `dry_run` or `diff`: an `allow` with an obligation Fathomgate cannot meet is not forwarded ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)), so with them every lab write would be refused. They return in M3. Lab devices must be listed statically by name (inventory-schema section 4). | 13 |
-| `policies/examples/prod-approval.yaml` | The example in section 1. Safe to load before M3: its holds, and its `lab-writes-free` allows (which carry `dry_run` and `diff`), are not forwarded until M3 (ADR 0026). | 20 |
+| File | Purpose | Class-given cases | Gate cases |
+| --- | --- | --- | --- |
+| `policies/examples/read-only.yaml` | Allow the three read classes, deny everything else. The M1 announcement policy. | 12 | 75 |
+| `policies/examples/lab-open.yaml` | Writes allowed on `lab`-tagged devices; everything else read-only. Until M3 its `lab-writes-free` rule carries no `dry_run` or `diff`: an `allow` with an obligation Fathomgate cannot meet is not forwarded ([ADR 0026](../adr/0026-m1-policy-pipeline-at-dispatch.md)), so with them every lab write would be refused. They return in M3. Lab devices must be listed statically by name (inventory-schema section 4). | 13 | 22 |
+| `policies/examples/prod-approval.yaml` | The example in section 1. Safe to load before M3: its holds, and its `lab-writes-free` allows (which carry `dry_run` and `diff`), are not forwarded until M3 (ADR 0026). | 20 | 15 |
 
-Run them all with `make policy-test` or `fathomgate policy test policies/examples/*.test.yaml`.
+Each policy has two suites beside it: `<name>.test.yaml` (class-given) and `<name>.gate.test.yaml` (gate cases, with the inventory inline). Run them all with `make policy-test` or `fathomgate policy test policies/examples/*.test.yaml`; `go test ./internal/policytest` runs them too (`TestRepoExamplePolicies`), and `cmd/fathomgate` `TestPolicyEvalMatchesGateCases` checks that `policy eval --profile` gives every gate case's decision, rule and class.
 
-Each suite carries cases for the M1 rows of the [test matrix](../testing/test-matrix.md): row 3 (`show ip bgp summary`, `READ_OPERATIONAL`, `reads-anywhere`), row 4 (`reload`, `EXEC_ARBITRARY`, `no-exec`, through netdev-ssh-mcp, upa and eos-mcp) and row 6 (unknown host, `default:unknown_target`, for writes and exec). A test case takes its class as given: `server` and `tool` name the call but are not classified, and a case cannot carry arguments or commands. The classification half of each row is pinned by the tier 1 tests in `internal/classify`, and `fathomgate policy eval --profile … --arg command=…` shows it for one call.
+Each gate suite carries cases for the M1 rows of the [test matrix](../testing/test-matrix.md), from the command the agent sends: row 3 (`show ip bgp summary`, `READ_OPERATIONAL`, `reads-anywhere`, through netdev-ssh-mcp `run_show_command` and downgraded through upa `send_command_and_get_output`, eos-mcp `run_command` and ntunes `send_command`), row 4 (`reload`, `EXEC_ARBITRARY`, `no-exec`, with the tool error that names the rule) and row 6 (an unlisted host, `default:unknown_target`, for reads, writes and exec). `read-only.gate.test.yaml` also carries the PR #152 injection inputs (line breaks, Unicode separators and look-alikes, shell-quoted options, config dumps through short forms) and the PR #154 attacker-chosen names under an inventory with active hostname patterns; the three suites together carry the closed argument list, the parse and cap refusals, the annotation raise, config lines that leave the session, and the M1 fail-closed rows (`hold` and `cannot run`). These are tier 1 evidence: a row is validated only against the named real upstream server (M1-28).

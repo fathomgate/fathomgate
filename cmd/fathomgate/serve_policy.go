@@ -3,27 +3,23 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/fathomgate/fathomgate/internal/classify"
 	"github.com/fathomgate/fathomgate/internal/configfile"
+	"github.com/fathomgate/fathomgate/internal/configset"
 	"github.com/fathomgate/fathomgate/internal/gate"
 	"github.com/fathomgate/fathomgate/internal/inventory"
 	"github.com/fathomgate/fathomgate/internal/policy"
-	"github.com/fathomgate/fathomgate/profiles"
 )
 
 // maxConfigFile caps the policy, the inventory and each profile file.
-const maxConfigFile = 16 << 20
+const maxConfigFile = configset.MaxFile
 
 // pipelineFlags are the serve flags that configure the M1 pipeline (ADR
 // 0027): exactly one of policy and noPolicy; inventory and profiles only
@@ -159,18 +155,14 @@ func loadPipeline(pf pipelineFlags, server string) (*pipeline, error) {
 			pl.warns = append(pl.warns, warnLine{msg: noInventoryWarning, attrs: []any{"policy", pf.policy}})
 		}
 	} else {
-		if strings.EqualFold(filepath.Ext(pf.inventory), ".csv") {
-			return nil, errors.New("--inventory takes an inventory.yaml; convert a CSV first with fathomgate inventory import --csv <file> --out inventory.yaml")
+		b, err := configset.ReadInventory(pf.inventory)
+		if errors.Is(err, configset.ErrCSV) {
+			return nil, errors.New("--inventory " + err.Error())
 		}
-		b, err := configfile.Read(pf.inventory, "the inventory file "+pf.inventory, maxConfigFile)
 		if err != nil {
 			return nil, fmt.Errorf("--inventory: %w", err)
 		}
-		f, err := inventory.ParseFile(b)
-		if err != nil {
-			return nil, fmt.Errorf("--inventory: %s: %w", pf.inventory, err)
-		}
-		chain, err := f.Chain()
+		f, chain, err := configset.ParseInventory(b)
 		if err != nil {
 			return nil, fmt.Errorf("--inventory: %s: %w", pf.inventory, err)
 		}
@@ -181,25 +173,17 @@ func loadPipeline(pf pipelineFlags, server string) (*pipeline, error) {
 		}
 	}
 
-	var set []profileFile
-	source := "embedded"
-	if pf.profiles == "" {
-		set, err = embeddedProfiles()
-		if err != nil {
-			return nil, fmt.Errorf("embedded profiles: %w", err)
+	set, source, err := configset.Profiles(pf.profiles)
+	if err != nil {
+		if pf.profiles == "" {
+			return nil, err
 		}
-	} else {
-		source = pf.profiles
-		set, err = loadProfileDir(pf.profiles)
-		if err != nil {
-			return nil, fmt.Errorf("--profiles: %w", err)
-		}
+		return nil, fmt.Errorf("--profiles: %w", err)
 	}
-	byServer := make(map[string]*classify.Profile, len(set)+1)
+	byServer := configset.ByServer(set)
 	keys := make([]string, 0, len(set))
 	for _, p := range set {
-		byServer[p.profile.Server] = p.profile
-		keys = append(keys, p.profile.Server)
+		keys = append(keys, p.Profile.Server)
 	}
 	if _, ok := byServer[server]; ok {
 		pl.attrs = append(pl.attrs, "profiles", source, "profile", server+".yaml")
@@ -282,109 +266,26 @@ func (pl *pipeline) logWarnings(logger *slog.Logger) {
 	}
 }
 
-// profileFile is one parsed profile and where it came from.
-type profileFile struct {
-	name    string // file name, without a directory: <server>.yaml
-	sum     [sha256.Size]byte
-	profile *classify.Profile
-}
-
-// embeddedProfiles parses the profiles built into the binary.
-func embeddedProfiles() ([]profileFile, error) {
-	fsys := profiles.FS()
-	return loadProfiles(fsys, "", func(name string) ([]byte, error) { return fs.ReadFile(fsys, name) })
-}
-
-// loadProfileDir parses the --profiles set: every *.yaml file at the top
-// of dir. The directory and every profile file pass the configfile
-// integrity checks. A subdirectory or a *.yml file is refused rather than
-// skipped (it would look loaded), and a directory with no profile is an
-// error: an empty set would deny every call that carries arguments.
-func loadProfileDir(dir string) ([]profileFile, error) {
-	if err := configfile.CheckDir(dir, "the profiles directory "+dir); err != nil {
-		return nil, err
-	}
-	set, err := loadProfiles(os.DirFS(dir), dir, func(name string) ([]byte, error) {
-		p := filepath.Join(dir, name)
-		return configfile.Read(p, "the profile "+p, maxConfigFile)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(set) == 0 {
-		return nil, fmt.Errorf("%s holds no *.yaml profile", dir)
-	}
-	return set, nil
-}
-
-// loadProfiles parses every *.yaml file at the top of fsys, in name order:
-// strict decoding and Validate (classify.ParseProfile). Each file must be
-// named after its server key (<server>.yaml), so the file that classified
-// a tool is never in doubt. dir prefixes file names in errors; read reads
-// one file by name.
-func loadProfiles(fsys fs.FS, dir string, read func(name string) ([]byte, error)) ([]profileFile, error) {
-	shown := func(name string) string {
-		if dir == "" {
-			return name
-		}
-		return filepath.Join(dir, name)
-	}
-	entries, err := fs.ReadDir(fsys, ".")
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", shown("."), err)
-	}
-	out := make([]profileFile, 0, len(entries))
-	seen := map[string]string{}
-	for _, e := range entries { // ReadDir sorts by name
-		name := e.Name()
-		switch {
-		case e.IsDir():
-			return nil, fmt.Errorf("%s is a directory; profiles are read from the top level only, so move it out", shown(name))
-		case strings.HasSuffix(name, ".yml"):
-			return nil, fmt.Errorf("%s: profiles are named <server>.yaml; rename it", shown(name))
-		case !strings.HasSuffix(name, ".yaml"):
-			continue // LICENSE, README and the like
-		}
-		b, err := read(name)
-		if err != nil {
-			return nil, err
-		}
-		p, err := classify.ParseProfile(b)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", shown(name), err)
-		}
-		if want := p.Server + ".yaml"; name != want {
-			return nil, fmt.Errorf("%s defines server %q; a profile file is named after its server key, %s", shown(name), p.Server, want)
-		}
-		if first, dup := seen[p.Server]; dup {
-			return nil, fmt.Errorf("%s and %s both define server %q", shown(first), shown(name), p.Server)
-		}
-		seen[p.Server] = name
-		out = append(out, profileFile{name: name, sum: sha256.Sum256(b), profile: p})
-	}
-	return out, nil
-}
-
 // embeddedProfileLines is what `fathomgate version` prints about the
 // embedded profile set (ADR 0027): one line per file with its server key,
 // its tool count and the first 12 hex digits of its SHA-256, so an operator
 // can tell which profile text a binary classifies with.
 func embeddedProfileLines() ([]string, error) {
-	set, err := embeddedProfiles()
+	set, err := configset.EmbeddedProfiles()
 	if err != nil {
 		return nil, err
 	}
 	width := 0
 	for _, p := range set {
-		width = max(width, len(p.profile.Server))
+		width = max(width, len(p.Profile.Server))
 	}
 	lines := make([]string, 0, len(set))
 	for _, p := range set {
 		tools := "tools"
-		if len(p.profile.Tools) == 1 {
+		if len(p.Profile.Tools) == 1 {
 			tools = "tool "
 		}
-		lines = append(lines, fmt.Sprintf("  %-*s  %2d %s  sha256:%s  %s", width, p.profile.Server, len(p.profile.Tools), tools, hex.EncodeToString(p.sum[:6]), p.name))
+		lines = append(lines, fmt.Sprintf("  %-*s  %2d %s  sha256:%s  %s", width, p.Profile.Server, len(p.Profile.Tools), tools, hex.EncodeToString(p.Sum[:6]), p.Name))
 	}
 	return lines, nil
 }
