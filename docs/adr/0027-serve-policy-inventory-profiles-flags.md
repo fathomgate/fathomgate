@@ -44,7 +44,7 @@ The flag table in [profile-schema 8.3](../specs/profile-schema.md#83-fathomgate-
 
 ### Negative
 
-- A profile fix for a new upstream release needs a fathomgate release, or `--profiles` with a copy of the whole set. Mitigated by `--profiles` and by shipping `profiles/` in the release archive as well.
+- A profile fix for a new upstream release needs a Fathomgate release, or `--profiles` with a copy of the whole set. Mitigated by `--profiles` and by shipping `profiles/` in the release archive as well.
 - Every v0.1.0 config without `--policy` exits 2 on upgrade to v0.2.0. The fix is one flag: `--policy <file>` for a policy, or `--no-policy` to keep the pass-through. The v0.2.0 CHANGELOG entry and upgrade note say so.
 - `--profiles` replacing rather than merging means an operator who adds one profile must copy the rest. Deliberate: a merge makes it unclear which file won.
 
@@ -68,7 +68,7 @@ Accepted by the maintainer, Josh Scott, on 2026-09-25, with these answers:
 
 1. **Pass-through: `--policy` is required.** `--no-policy` keeps the M0 pass-through explicitly. Existing users add one flag; the v0.2.0 CHANGELOG entry and upgrade note must say so.
 2. **Multiple policy files: one `--policy` file.** "First match in file order" stays literal.
-3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written.
+3. **Missing profile for `--server`: start** with the fallback classifier and one Warn line, as written. *Note, 2026-09-25:* as built, the server gets an empty profile, not the fallback classifier (the review-round row *Server without a profile* below), and there is no fallback classifier ([ADR 0036](0036-no-fallback-classifier.md)).
 4. **`--audit` message: name the milestone.** The refusal says `--audit` arrives in M4.
 
 ## Notes after acceptance

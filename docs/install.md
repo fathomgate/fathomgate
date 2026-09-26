@@ -1,7 +1,7 @@
 # Install and connect a client
 
 This page gets an AI client (Claude Code or Cursor) talking to your network
-devices through fathomgate. It assumes you know SSH and your devices, and have
+devices through Fathomgate. It assumes you know SSH and your devices, and have
 not set up MCP before.
 
 ## How the pieces fit
@@ -11,7 +11,7 @@ is a small program that offers tools, for example "run a show command on a
 device". The client starts the server as a child process and talks to it
 over its stdin and stdout.
 
-fathomgate sits in the middle. The client starts fathomgate, and fathomgate starts
+Fathomgate sits in the middle. The client starts Fathomgate, and Fathomgate starts
 the real MCP server (the *upstream*):
 
 ```
@@ -35,7 +35,7 @@ start without `--policy` or `--no-policy`. See
 
 ## What you need
 
-1. **fathomgate.** Download it from a
+1. **Fathomgate.** Download it from a
    [release](https://github.com/fathomgate/fathomgate/releases), or build it
    with `make build` (the binary is `bin/fathomgate`). Either way, copy it
    somewhere permanent, such as `/usr/local/bin/fathomgate`.
@@ -71,7 +71,7 @@ start without `--policy` or `--no-policy`. See
    compare with the zip's line in `checksums.txt`.
 2. **An upstream MCP server.** This guide uses
    [netdev-ssh-mcp](https://github.com/krisiasty/netdev-ssh-mcp) v1.7.1, the
-   version fathomgate is tested against. Download
+   version Fathomgate is tested against. Download
    `netdev-ssh-mcp_1.7.1_<os>_<arch>` from its
    [v1.7.1 release](https://github.com/krisiasty/netdev-ssh-mcp/releases/tag/v1.7.1),
    check it against that release's `checksums.txt`, and make it executable.
@@ -176,16 +176,16 @@ start without `--policy` or `--no-policy`. See
 
 ### Device credentials
 
-fathomgate does not pass its own environment on to the upstream, apart from a
+Fathomgate does not pass its own environment on to the upstream, apart from a
 short list (`PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, the `LC_*` locale
 settings). So anything netdev-ssh-mcp needs must be handed over by name.
 There are two flags, one for each kind of setting:
 
 - **Not secret:** `--upstream-env NAME=value`. The value is written in
-  fathomgate's arguments.
+  Fathomgate's arguments.
 - **Secret:** `--upstream-env-pass NAME`. The value is not in the arguments.
-  You set `NAME` in fathomgate's own environment, normally through the
-  client's `env` block (shown below), and fathomgate copies it to the
+  You set `NAME` in Fathomgate's own environment, normally through the
+  client's `env` block (shown below), and Fathomgate copies it to the
   upstream.
 
 | netdev-ssh-mcp setting | What it is | Pass with |
@@ -197,7 +197,7 @@ There are two flags, one for each kind of setting:
 | `OBFUSCATION_KEY_FILE` | Optional. Path to a key file, only if netdev-ssh-mcp's secret tokens must match across runs; keep the file where the agent's tools cannot read it (see [below](#leave-netdev-ssh-mcps-obfuscation-on)) | `--upstream-env OBFUSCATION_KEY_FILE=/Users/you/.config/netdev-ssh-mcp.key` |
 | `OBFUSCATION_KEY` | Optional. The same key as a value. Never put it in a client's `env` block; set it from a wrapper script that reads your keychain | `--upstream-env-pass OBFUSCATION_KEY` |
 
-Why two flags: a value in fathomgate's arguments can be seen by other users
+Why two flags: a value in Fathomgate's arguments can be seen by other users
 on the machine (`ps`) and is recorded by process-auditing tools (Linux
 `auditd`, Windows event 4688, Sysmon, most EDR agents). A value in the
 environment is not. Arguments are fine for a user name or a path, not for a
@@ -206,15 +206,15 @@ password.
 What `--upstream-env-pass` checks before it starts anything (each failure
 exits with status 2 and names the variable, never its value):
 
-- `NAME` must be set in fathomgate's environment and not empty. If the client
-  did not pass it, fathomgate says
+- `NAME` must be set in Fathomgate's environment and not empty. If the client
+  did not pass it, Fathomgate says
   `--upstream-env-pass DEVICE_PASSWORD: not set in fathomgate's environment`.
 - The same name cannot be given to both `--upstream-env` and
   `--upstream-env-pass`.
-- Names starting with `FATHOMGATE_` are refused by both flags: fathomgate's own
+- Names starting with `FATHOMGATE_` are refused by both flags: Fathomgate's own
   settings are never passed to an upstream.
 
-fathomgate also removes the value from what the upstream prints on stderr:
+Fathomgate also removes the value from what the upstream prints on stderr:
 if the upstream logs the password, the line shows
 `[redacted:DEVICE_PASSWORD]` instead. The same goes for an error message
 the upstream sends back to the client. This covers the exact value and the
@@ -229,8 +229,8 @@ instead of the arguments. So:
 - Keep that file out of git. A project `.mcp.json` gets committed; use
   `${DEVICE_PASSWORD}` there so it holds no value (Claude Code expands it
   from its own environment; see the Claude Code section).
-- Or start fathomgate from a small wrapper script that reads the password from
-  your keychain and then runs fathomgate, for example
+- Or start Fathomgate from a small wrapper script that reads the password from
+  your keychain and then runs Fathomgate, for example
   `DEVICE_PASSWORD="$(security find-generic-password -s netdev -w)" exec /usr/local/bin/fathomgate "$@"`
   on macOS (or `pass`, `op read`, `secret-tool lookup` elsewhere), and
   point the client's `command` at the script.
@@ -239,18 +239,18 @@ instead of the arguments. So:
 
 `SSH_AUTH_SOCK` with `--upstream-env-pass` follows your real agent socket,
 so no path is written into the config. It works only if the client itself
-has `SSH_AUTH_SOCK` and passes it on to fathomgate. From a terminal it does.
+has `SSH_AUTH_SOCK` and passes it on to Fathomgate. From a terminal it does.
 From an app started from the Dock or a desktop menu it depends on the
 platform. On macOS, launchd gives every app the system ssh-agent socket
 (`launchctl getenv SSH_AUTH_SOCK` shows it), but an agent started from your
 shell profile (1Password, Secretive, a plain `ssh-agent`) is not seen. On
-Linux it depends on the desktop session. If it is missing, fathomgate stops at
+Linux it depends on the desktop session. If it is missing, Fathomgate stops at
 once with the "not set" message above; nothing hangs.
 
 ### Leave netdev-ssh-mcp's obfuscation on
 
 Fathomgate does not redact anything yet. Device output reaches the agent
-exactly as the upstream sends it, and fathomgate's own redaction arrives in
+exactly as the upstream sends it, and Fathomgate's own redaction arrives in
 M2. Until then, do not start netdev-ssh-mcp with `--no-obfuscate`. Its
 default obfuscation replaces secrets in `get_config` and `run_show_command`
 output with tokens like `[h:3c91e0a47b2d]`. Since v1.7.0 each token is a
@@ -272,7 +272,7 @@ GHSA-8g43-jrf3-q9vq fixed. If you need one anyway:
 
 - Keep it where the agent's tools cannot read it: outside every project and
   workspace the agent works in, covered by your client's deny rules for file
-  reads, and ideally owned by a separate OS user that fathomgate runs as.
+  reads, and ideally owned by a separate OS user that Fathomgate runs as.
 - Pass its path with `--upstream-env OBFUSCATION_KEY_FILE=<full path>`
   (clients do not expand `~`). The path is not secret; the file is.
 - Never put the key itself in a client config's `env` block. If you pass it
@@ -291,10 +291,10 @@ mkdir -p ~/.config
 ```
 
 The examples below use the default per-run key. If you need stable tokens,
-add `--upstream-env OBFUSCATION_KEY_FILE=<full path>` to fathomgate's
+add `--upstream-env OBFUSCATION_KEY_FILE=<full path>` to Fathomgate's
 arguments in them.
 
-Obfuscation is still not fathomgate's redaction. Treat everything the agent
+Obfuscation is still not Fathomgate's redaction. Treat everything the agent
 sees as if it contained your secrets:
 
 - It replaces only the secrets on lines its patterns know. A secret on any
@@ -306,14 +306,14 @@ sees as if it contained your secrets:
   left your control.
 
 The v1.6.6 findings and what v1.7.1 changed, checked against the source and
-run against fathomgate's redaction fixtures, are in
+run against Fathomgate's redaction fixtures, are in
 [profiles/netdev-ssh-mcp.yaml](../profiles/netdev-ssh-mcp.yaml) and
 [docs/research/02-network-mcp-servers.md](research/02-network-mcp-servers.md#update-2026-09-25-v171-keys-the-hash-and-closes-the-gaps-t051).
 Use lab devices and lab credentials only.
 
 ## Claude Code
 
-Add fathomgate with `claude mcp add`. Everything after `--` is the command
+Add Fathomgate with `claude mcp add`. Everything after `--` is the command
 Claude Code runs. With ssh-agent, nothing secret is written anywhere:
 
 ```sh
@@ -339,7 +339,7 @@ claude mcp add netdev -e DEVICE_PASSWORD=your-lab-password -- /usr/local/bin/fat
   --upstream-env-pass DEVICE_PASSWORD
 ```
 
-`-e` keeps the password out of fathomgate's arguments, but this command line
+`-e` keeps the password out of Fathomgate's arguments, but this command line
 goes into your shell history, and Claude Code saves the value in its config
 file. To avoid the history, edit the config file instead (below).
 
@@ -374,7 +374,7 @@ it starts. The same entry as JSON:
 In a file that is not shared (`~/.claude.json`, or Cursor's
 `~/.cursor/mcp.json`), `"DEVICE_PASSWORD"` may hold the password itself.
 For ssh-agent, replace `DEVICE_PASSWORD` with `SSH_AUTH_SOCK` in `args` and
-drop the `env` block: the client passes its own `SSH_AUTH_SOCK` to fathomgate.
+drop the `env` block: the client passes its own `SSH_AUTH_SOCK` to Fathomgate.
 
 Run `claude mcp list` (or `/mcp` inside Claude Code) and check that `netdev`
 shows as connected. Claude Code shows the tools as
@@ -406,20 +406,20 @@ Cursor reads the same `mcpServers` format from `~/.cursor/mcp.json` (all
 projects) or `.cursor/mcp.json` (one project). Use the JSON block from the
 Claude Code section, `env` block included. Cursor's MCP documentation
 writes environment references as `${env:DEVICE_PASSWORD}` rather than
-`${DEVICE_PASSWORD}`; fathomgate's tests do not run Cursor, so check what
+`${DEVICE_PASSWORD}`; Fathomgate's tests do not run Cursor, so check what
 your Cursor version expands, or put the value in `~/.cursor/mcp.json`,
 which is not shared. Then open Cursor Settings, go to MCP, check that
 `netdev` has a green dot, and confirm it lists five tools.
 
 ## Remote agents over HTTP
 
-Instead of letting the client start fathomgate, you can start fathomgate
+Instead of letting the client start Fathomgate, you can start Fathomgate
 yourself and have clients connect to it over HTTP. That helps when an app
-cannot start programs, or when several clients should share one fathomgate.
+cannot start programs, or when several clients should share one Fathomgate process.
 
 This has three limits, on purpose:
 
-- fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
+- Fathomgate listens on this computer only (`127.0.0.1`, `localhost` or
   `[::1]`, and no other address, not even another `127.x.x.x`). Other
   machines cannot connect, and it refuses any other address. Listening on a network waits for M2, when
   Fathomgate gains built-in TLS. Whichever of the three you give, Fathomgate
@@ -427,7 +427,7 @@ This has three limits, on purpose:
   computer can take the other one and collect tokens from clients that try
   it first.
 - Every request must carry a token, a long random password that you make.
-  Anyone who has the token can use your devices through fathomgate, so
+  Anyone who has the token can use your devices through Fathomgate, so
   treat it like a device password.
 - It needs `--policy` (or `--no-policy`) like every `serve`. Use it
   against lab devices until redaction arrives (M2).
@@ -443,7 +443,7 @@ mkdir -p ~/.config/fathomgate
 
 On Windows, in PowerShell (not as administrator, because a file an
 administrator shell creates can belong to the Administrators group, and
-fathomgate refuses a token file that does not belong to you):
+Fathomgate refuses a token file that does not belong to you):
 
 ```powershell
 $bytes = New-Object byte[] 32
@@ -453,11 +453,11 @@ Set-Content -NoNewline -Path "$HOME\fathomgate-claude-code.token" -Value $token
 icacls "$HOME\fathomgate-claude-code.token" /inheritance:r /grant:r "${env:USERNAME}:F"
 ```
 
-fathomgate refuses to start if other users could read or change the file,
+Fathomgate refuses to start if other users could read or change the file,
 and tells you which command fixes it (`chmod 600`, `chmod -N` for a macOS
 access control list, or `icacls`).
 
-**2. Start fathomgate with `--listen`.** Use the same `serve` flags as in
+**2. Start Fathomgate with `--listen`.** Use the same `serve` flags as in
 the sections above, plus `--listen` and the token file:
 
 ```sh
@@ -509,7 +509,7 @@ all of this.
 If your system hands secrets to programs in environment variables instead
 of files, put the token in `FATHOMGATE_LISTEN_TOKEN` and leave out
 `--listen-token-file`. Its name in the log is `env`. Never put the token on
-the command line: fathomgate has no flag for it.
+the command line: Fathomgate has no flag for it.
 
 **3. Point the client at the URL.** Paste the exact URL from a `listening`
 line into the client config, for example `http://127.0.0.1:8931/mcp`,
@@ -626,10 +626,10 @@ have not tested a macOS or Linux terminal, approving a project's
 `.mcp.json`, or Cursor or any other client over HTTP. Any client that can
 send a header with each request should work the same way.
 
-**4. Stop it** with Ctrl+C (or SIGTERM). fathomgate gives calls in progress
+**4. Stop it** with Ctrl+C (or SIGTERM). Fathomgate gives calls in progress
 up to 5 seconds to finish, then stops. Press Ctrl+C a second time to stop
 it at once; the upstream server may then be left running. If the upstream
-server exits, fathomgate stops too and exits with status 1, so run it under
+server exits, Fathomgate stops too and exits with status 1, so run it under
 something that restarts it (systemd, launchd, a Windows service wrapper) if
 clients depend on it.
 
@@ -641,7 +641,7 @@ refuses to start if it finds its port taken, so the log shows it when this
 happens. M2 closes the gap with TLS and a pinned certificate, or a socket
 file that only you can open.
 
-## If the client can't find fathomgate or the upstream
+## If the client can't find Fathomgate or the upstream
 
 When you start Cursor or Claude Desktop from the Dock or Finder, it does not
 read your shell profile. The programs it starts get a very short `PATH`
@@ -653,12 +653,12 @@ What goes wrong, and how it looks:
 
 | You wrote | What happens | Message (in the client's MCP log) |
 | --- | --- | --- |
-| `"command": "fathomgate"` | The client cannot start fathomgate | Depends on the client, often `spawn fathomgate ENOENT` |
-| `--upstream netdev-ssh-mcp` (no path) | fathomgate stops at once, exit 1 | `fathomgate: proxy: upstream netdev-ssh-mcp: connect: exec: "netdev-ssh-mcp": executable file not found in $PATH` |
-| `--upstream /path/to/a-wrapper` that runs another program by name (as `npx` and `uvx` do) | fathomgate stops at once, exit 1 | a line starting `upstream netdev-ssh-mcp:` that says `not found`, then `fathomgate: proxy: upstream netdev-ssh-mcp: connect: connection closed: calling "initialize": client is closing: EOF` |
+| `"command": "fathomgate"` | The client cannot start Fathomgate | Depends on the client, often `spawn fathomgate ENOENT` |
+| `--upstream netdev-ssh-mcp` (no path) | Fathomgate stops at once, exit 1 | `fathomgate: proxy: upstream netdev-ssh-mcp: connect: exec: "netdev-ssh-mcp": executable file not found in $PATH` |
+| `--upstream /path/to/a-wrapper` that runs another program by name (as `npx` and `uvx` do) | Fathomgate stops at once, exit 1 | a line starting `upstream netdev-ssh-mcp:` that says `not found`, then `fathomgate: proxy: upstream netdev-ssh-mcp: connect: connection closed: calling "initialize": client is closing: EOF` |
 | Client started with no `HOME` | netdev-ssh-mcp cannot find `~/.ssh/known_hosts` and stops, exit 1 | `upstream netdev-ssh-mcp: configure ssh client: resolve home directory for known_hosts: $HOME is not defined` |
 
-None of these hang. fathomgate gives up within a second and prints the reason
+None of these hang. Fathomgate gives up within a second and prints the reason
 on stderr.
 
 The fixes:
@@ -668,14 +668,14 @@ The fixes:
 - If the upstream is a wrapper that needs `PATH` (anything started through
   `npx`, `uvx` or a shell script), give it one:
   `--upstream-env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`. This
-  replaces the `PATH` the upstream would otherwise inherit from fathomgate.
+  replaces the `PATH` the upstream would otherwise inherit from Fathomgate.
 - If the client runs without `HOME`, add
   `--upstream-env SSH_KNOWN_HOSTS=/Users/you/.ssh/known_hosts`.
 
 These cases run as automated tests with an empty `PATH` and with a fully
 empty environment (`env -i`): `tests/integration/test_launcher_path.py`.
 
-When the upstream process exits by itself during startup, fathomgate's error
+When the upstream process exits by itself during startup, Fathomgate's error
 ends with its exit status, for example `; upstream process ended: exit
 status 1`. The upstream's own last stderr line, just above, usually says why.
 
@@ -688,15 +688,15 @@ macOS and Linux, `C:\path\to\venv\Scripts\python.exe` on Windows. Avoid
 launchers that start the server as a child of their own: `uvx`, `npx`,
 `uv run`, a shell script, `docker run -i`. Two reasons:
 
-- **A slow first start costs you the newer protocol.** fathomgate gives an
+- **A slow first start costs you the newer protocol.** Fathomgate gives an
   upstream 5 seconds to answer its first `server/discover` probe. An
   upstream that has not answered by then is stopped, started again and
   connected with the older `initialize` handshake (2025-11-25), and it stays
-  on that protocol until fathomgate restarts (ADR 0018). A launcher that is
+  on that protocol until Fathomgate restarts (ADR 0018). A launcher that is
   still downloading or resolving packages on its first run, as `uvx` and
   `npx` do, can take longer than 5 seconds. If you must use one, run it once
   by hand first so its cache is warm.
-- **A stopped launcher can leave the server running.** fathomgate starts the
+- **A stopped launcher can leave the server running.** Fathomgate starts the
   upstream in a process group of its own (Linux, macOS) or a Job Object of
   its own (Windows), and stops that whole tree on a restart, a failed start
   and shutdown ([ADR 0021](adr/0021-kill-the-upstream-process-tree.md)). A
@@ -706,8 +706,8 @@ launchers that start the server as a child of their own: `uvx`, `npx`,
   `docker` command) or a launcher that detaches its server (`setsid`, a
   daemon). A server that escapes can keep running, holding the same
   credentials you passed with `--upstream-env-pass`, next to the copy
-  fathomgate starts for the restart. On Linux and macOS, if fathomgate
-  itself is killed, the tree is left running; run fathomgate under systemd,
+  Fathomgate starts for the restart. On Linux and macOS, if Fathomgate
+  itself is killed, the tree is left running; run Fathomgate under systemd,
   which stops everything the service started. Pointing `--upstream` at the
   server itself avoids all of this.
 
@@ -715,7 +715,7 @@ On Windows a virtual environment's `Scripts\python.exe` is itself a small
 redirector: it starts the base interpreter as a child process. That child
 does not outlive it. Checked on 2026-09-24 with Python 3.13.15, for a venv
 made by `python -m venv` and one made by `uv venv`: when the redirector was
-terminated with `TerminateProcess` on the parent only (how fathomgate
+terminated with `TerminateProcess` on the parent only (how Fathomgate
 killed an upstream before ADR 0021), the child ended with it. Since ADR
 0021 the child is also in the upstream's job. So on Windows the venv's
 `Scripts\python.exe` is safe to use as `--upstream`.
@@ -741,7 +741,7 @@ users (see step 3 of [What you need](#what-you-need)).
 `--inventory` and `--profiles` work only with `--policy`, and `--policy`
 with `--no-policy` is an error. `--audit` is still refused: the signed
 audit log arrives in M4, and until then every decision is one
-`msg=decision` line on fathomgate's stderr. Nothing else in the command line
+`msg=decision` line on Fathomgate's stderr. Nothing else in the command line
 changes.
 
 At start, Fathomgate logs a warning for anything in your files that will not
@@ -756,13 +756,13 @@ name known ([ADR 0031](adr/0031-hostname-patterns-never-make-a-target-known.md))
 no listed device, and `fathomgate inventory resolve <name>` shows where
 each of a device's fields came from.
 
-## Running fathomgate in a container
+## Running Fathomgate in a container
 
-If you run fathomgate itself in a container (the distroless image), start
+If you run Fathomgate itself in a container (the distroless image), start
 it with an init process: `docker run --init`, or `init: true` in Compose.
-Without one, fathomgate is PID 1 and nothing reaps the processes its
+Without one, Fathomgate is PID 1 and nothing reaps the processes its
 upstream's tree leaves behind when they exit. They stay as zombies, and
-while they are there fathomgate cannot tell that the tree has emptied, so
+while they are there Fathomgate cannot tell that the tree has emptied, so
 stopping an upstream takes up to 2 seconds longer
 ([ADR 0021](adr/0021-kill-the-upstream-process-tree.md)).
 
@@ -772,7 +772,7 @@ Ask the client, in plain words: "Using the netdev tools, run `show version`
 on `<a lab device>`, port 22, device type `eos`." The client should call
 `netdev-ssh-mcp.run_show_command` (shown as
 `mcp__netdev__netdev-ssh-mcp_run_show_command` in Claude Code) and print the
-device's output. If you get an error, the client's MCP log shows fathomgate's
+device's output. If you get an error, the client's MCP log shows Fathomgate's
 stderr, and every line from the upstream starts with
 `upstream netdev-ssh-mcp:`.
 

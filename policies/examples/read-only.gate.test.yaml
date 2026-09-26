@@ -562,3 +562,20 @@ cases:
       arguments: {hostname: lab-sw-01}
       session: {devices_touched: 20}
     expect: {effect: deny, rule: default:session.max_devices}
+
+  # ADR 0036: no fallback classifier. An unlisted tool whose name reads like
+  # a read gets no class from its name; with an argument it never reaches the
+  # rules.
+  - name: "ADR 0036: an unlisted tool named show_command with a command is denied, not read by its name"
+    request:
+      server: netdev-ssh-mcp
+      tool: show_command
+      arguments: {command: show version}
+    expect:
+      effect: deny
+      rule: default:bad_arguments
+      class: EXEC_ARBITRARY
+      class_source: fallback
+      unnamed_args: [command]
+      forwarded: false
+      tool_error: "fathomgate denied netdev-ssh-mcp.show_command: rule default:bad_arguments (class EXEC_ARBITRARY): an argument is not named in the server profile for this tool"

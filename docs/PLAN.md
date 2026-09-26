@@ -94,7 +94,7 @@ A denied call returns a JSON-RPC tool error with the rule id and reason so the a
 
 ### Tool classification
 
-Each upstream tool is mapped to one class, from a per-server profile shipped with the proxy plus a fallback classifier that inspects the arguments. Tool annotations are one input, never trusted alone.
+Each upstream tool is mapped to one class, from a per-server profile shipped with the proxy. A tool with no profile entry is `EXEC_ARBITRARY` and is never downgraded; there is no fallback classifier that guesses a class from the tool's name or arguments ([ADR 0036](adr/0036-no-fallback-classifier.md), 2026-09-25). Tool annotations are one input, never trusted alone.
 
 | Class | Meaning | Default policy |
 | --- | --- | --- |
@@ -201,7 +201,7 @@ Six milestones, each shippable and each validated against at least one real upst
 | Milestone | Scope | Exit criteria | Validated against | Effort |
 | --- | --- | --- | --- | --- |
 | M0 Pass-through | Go proxy that spawns one stdio upstream, forwards `tools/list` and `tools/call`, prefixes tool names, speaks both protocol eras; GoReleaser binary | Official conformance suite passes on the client-facing side, every remaining failure baselined against an ADR or a board task; Claude Code and one other client list and call tools through it | netdev-ssh-mcp | 2 weeks |
-| M1 Classify + allow/deny | Normaliser, per-server profiles, fallback classifier, static inventory and hostname-pattern roles, YAML policy loader, `Evaluate`, `fathomgate policy test`, structured deny errors | 100 percent of surveyed tools mapped; policy test suite green; `EXEC_ARBITRARY` downgrade works on show commands | netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp `run_command` | 3 weeks |
+| M1 Classify + allow/deny | Normaliser, per-server profiles (a tool with no profile entry is `EXEC_ARBITRARY`; no fallback classifier, [ADR 0036](adr/0036-no-fallback-classifier.md)), static inventory and hostname-pattern roles, YAML policy loader, `Evaluate`, `fathomgate policy test`, structured deny errors | 100 percent of surveyed tools mapped; policy test suite green; `EXEC_ARBITRARY` downgrade works on show commands | netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp `run_command` | 3 weeks |
 | M2 Role-aware policy + redaction | the source-of-truth seam in the core: the `Resolver` interface, the snapshot format and `sot: stale` marking, with CSV import of a NetBox or Nautobot export as the free path (the live connectors are in the paid edition, [ADR 0034](adr/0034-source-available-under-fsl.md) *Amendments*); upstream-inventory provider; redactor with vendor grammar and keyed HMAC; TOFU description pinning | Redaction catches every pattern in the vendor fixture corpus; same policy resolves roles from a static file, from a CSV import of a NetBox or Nautobot export, and from a stale snapshot, with identical decisions (validation against a live NetBox or Nautobot is in the paid edition); changed tool description quarantines the server | netdev-ssh-mcp `get_config`, junos-mcp-server `get_junos_config`, netbox-mcp-server | 3 weeks |
 | M3 Dry-run, diff, approval hold | `ChangeSafety` drivers for Junos and EOS; pending queue in SQLite with TTL; CLI approve/deny, with the diff, rule trace and rule shown for every pending record; HMAC webhook; MRTR elicitation for 2026-era clients; drift guard | A `WRITE_CONFIG` call is held, the CLI shows its diff, rule trace and rule, it executes once on approval, expires on TTL, refuses on drift | junos-mcp-server `load_and_commit_config`, eos-mcp `push_config`, ntunes `send_config` | 4 weeks |
 | M4 Audit chain + blast radius | Hash-chained JSONL, signed checkpoints, `fathomgate audit verify`; session counters, fan-out caps, canary-first rule, maintenance windows. The OCSF and CEF exporters (R27) are in the paid edition ([ADR 0025](adr/0025-split-the-console.md)) | Tampered log fails verify; fleet call above cap denied; canary rule enforces ordering. No exit criterion depends on the exporters | ntunes `send_config_parallel`, eos-mcp `run_command_batch`, junos `execute_junos_command_batch` | 3 weeks |
@@ -211,15 +211,17 @@ After M1 the project is already useful and publishable: a read-only proxy that s
 
 ## Test matrix
 
-Three tiers. Tier 1 runs on every commit with no network. Tier 2 runs on every pull request against the real open-source MCP servers in containers. Tier 3 runs nightly on a self-hosted runner with containerlab, because cEOS images need an Arista account.
+Three tiers. Tier 1 runs on every commit with no network. Tier 2 runs on every pull request against the real open-source MCP servers. Tier 3 runs nightly on a self-hosted runner with containerlab, because cEOS images need an Arista account.
 
 | Tier | What is real | How it runs | Speed |
 | --- | --- | --- | --- |
 | 1 Policy unit | Nothing; synthetic `tools/call` requests | `go test` table tests plus `fathomgate policy test` over `*.test.yaml`; go-sdk in-memory transport for the proxy's own MCP surface with a recording fake upstream | Seconds |
-| 2 Real server, fake device | The upstream MCP server (its tool schemas, transport, error shapes) | testcontainers-go starts each server image over Streamable HTTP; a fake SSH server (Python asyncssh, in `tests/`) returns canned show output and echoes config lines | Minutes |
+| 2 Real server, fake device | The upstream MCP server (its tool schemas, transport, error shapes) | pytest (`tests/integration/`) starts `fathomgate serve` with each real server, pinned by release checksum or hash-checked install, as its upstream over stdio; a fake SSH device (Python asyncssh) and a fake eAPI device (`tests/fixtures/device/`) return canned output and log every command | Minutes |
 | 3 Real server, real device | Everything | containerlab topology with cEOS (and freely pullable Nokia SR Linux as a second target); Python assertion helpers over scrapli confirm device state | Nightly |
 
 Every case names the real server it is validated against, so nothing in the plan is tested only against a mock.
+
+Note, 2026-09-25: tier 2 was built as pytest over stdio against the real servers, not as testcontainers-go over Streamable HTTP as first planned. The M0 and M1 servers (netdev-ssh-mcp, upa/mcp-netmiko-server, eos-mcp) run over stdio, and the agent-side HTTP listener is covered by its own tier 2 cases (test-matrix row 23) and `make conformance`.
 
 | Case | Tier | Upstream server | Expected |
 | --- | --- | --- | --- |

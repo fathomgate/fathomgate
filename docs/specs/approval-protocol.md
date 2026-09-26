@@ -118,7 +118,7 @@ When the client advertised `elicitation.form` in `_meta.io.modelcontextprotocol/
   "requestState": "<signed: pending id + expires_at>",
   "inputRequests": {
     "approval": {
-      "message": "Fathomgate is holding junos.load_and_commit_config on core-rtr-01 (rule prod-core-needs-approval). Diff sha256:4c1e…b90a, 3 lines. Approve?",
+      "message": "Fathomgate is holding junos-mcp-server.load_and_commit_config on core-rtr-01 (rule prod-core-needs-approval). Diff sha256:4c1e…b90a, 3 lines. Approve?",
       "requestedSchema": {
         "type": "object",
         "properties": {
@@ -142,7 +142,7 @@ When the client advertised `elicitation.form` in `_meta.io.modelcontextprotocol/
 The hold returns a tool error (`isError: true`) whose text is:
 
 ```
-Holding: junos.load_and_commit_config on core-rtr-01 needs approval (rule prod-core-needs-approval, pending 01J8Q4V7X2, expires in 15m). A human runs `fathomgate approve 01J8Q4V7X2`; then call `fathomgate.check_approval` with the id.
+Holding: junos-mcp-server.load_and_commit_config on core-rtr-01 needs approval (rule prod-core-needs-approval, pending 01J8Q4V7X2, expires in 15m). A human runs `fathomgate approve 01J8Q4V7X2`; then call `fathomgate.check_approval` with the id.
 ```
 
 The proxy exposes a `fathomgate.check_approval(id)` tool returning `{state, expires_at, executed, result?}`. When the state is EXECUTED the original tool result is returned once, then the record is marked delivered.

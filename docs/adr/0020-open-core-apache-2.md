@@ -47,13 +47,13 @@ Milestones and requirement ids are from [ROADMAP.md](../../ROADMAP.md), [PLAN.md
 | M0 | Proxy for both protocol eras, tool-name prefixing, sealed `requestState`, the Streamable HTTP listener with named tokens (R1, R2, ADR 0008, 0016) | Core | Everything passes through it |
 | M0 | GoReleaser binary and distroless image (R4) | Core | The core must build and run on its own |
 | M0 | Official conformance suite, tier 1 and tier 2 tests, fixtures | Core | Proves the core behaves as specified |
-| M1 | Normaliser, classification, fallback classifier, downgrade rule (R5 to R8, R13) | Core | Decides |
-| M1 | Policy DSL, `Evaluate`, `netguard policy test`, structured deny errors that name the rule (R9 to R11, R33) | Core | Decides |
+| M1 | Normaliser, classification, downgrade rule (R5 to R8, R13); no fallback classifier ([ADR 0036](0036-no-fallback-classifier.md)) | Core | Decides |
+| M1 | Policy DSL, `Evaluate`, `fathomgate policy test`, structured deny errors that name the rule (R9 to R11, R33) | Core | Decides |
 | M1 | Static inventory, CSV import, hostname patterns, unknown-target default (R12) | Core | Decides |
 | M1 | Profile format, loader and the profiles in `profiles/` for the surveyed upstreams | Core | Decides (a profile sets the class) |
 | M1 | `tools/policy-lint` (R34) | Core | Tooling for the policy that decides |
 | M2 | Upstream `INVENTORY_READ` provider (R14) | Core | Reads the upstream the core already talks to; no integration |
-| M2 | `Resolver` chain, snapshot file format, `netguard inventory sync` output format, `sot: stale` marking | Core | Decides, and proves which decisions used stale data |
+| M2 | `Resolver` chain, snapshot file format, `fathomgate inventory sync` output format, `sot: stale` marking | Core | Decides, and proves which decisions used stale data |
 | M2 | NetBox and Nautobot resolvers with TTL cache and sync (R15) | Commercial candidate, **contested** | Integration |
 | M2 | Redaction, keyed HMAC tokens, vendor fixture corpus (R16) | Core | Decides what the agent may see |
 | M2 | TOFU description pinning and quarantine (R17); sampling refused and audited (R32) | Core | Decides |
@@ -65,7 +65,7 @@ Milestones and requirement ids are from [ROADMAP.md](../../ROADMAP.md), [PLAN.md
 | M3 | MRTR in-band approval (R21) | **Contested** | Protocol feature of the core proxy; identity model unresolved |
 | M3 | Slack and Teams apps built on the webhook | Commercial candidate | Integration |
 | M3 | Origin labels on upstream prompts (R25) | Core | Decides what a human is shown |
-| M4 | Audit hash chain, Ed25519 checkpoints, `netguard audit verify` (R26) | Core | Proves |
+| M4 | Audit hash chain, Ed25519 checkpoints, `fathomgate audit verify` (R26) | Core | Proves |
 | M4 | Session counters, fan-out caps, `canary_first`, maintenance windows (R28) | Core | Decides |
 | M4 | OCSF and CEF exporters (R27) | Commercial candidate | Integration; reads the chain, never writes it |
 | M5 | Approval console and audit viewer (R29) | Commercial candidate, **contested** | Convenience |
@@ -89,7 +89,7 @@ Milestones and requirement ids are from [ROADMAP.md](../../ROADMAP.md), [PLAN.md
 | **Approval console** (R29, P0 in M5) | Convenience, but "every held response is explainable from its trace" must hold without it | Commercial candidate, provided the core CLI shows the diff, the trace and the rule for every pending record. No one should approve blind because the console is absent |
 | **`require_ticket` and `notify`** | They are obligations in the DSL (core), but each talks to an outside system | Core enforces both on its own: `require_ticket` by a ticket-reference pattern, `notify` by the generic webhook and the audit log. Lookups in ServiceNow or Jira, and delivery to chat, are commercial candidates. A policy that uses either obligation must never be allowed through unenforced because an integration is absent |
 | **SSO, RBAC, multi-approver** | Scale features, but the core's two-person rule must stay meaningful | `approver_must_differ` stays core (row above). N-of-M approval and approver groups may be commercial. SSO supplies identities to the core's rule; the rule does not move |
-| **Maintained profile library** | A profile sets the class, so profiles decide | The profile format, the loader and profiles for every server in research brief 02 stay core and are tested there. The commercial offer is the maintenance service: faster updates, profiles for commercial or vendor-private servers, drift alerts. An unmapped tool goes to the fallback classifier, which is deny-by-default, so a missing profile never loosens policy |
+| **Maintained profile library** | A profile sets the class, so profiles decide | The profile format, the loader and profiles for every server in research brief 02 stay core and are tested there. The commercial offer is the maintenance service: faster updates, profiles for commercial or vendor-private servers, drift alerts. An unmapped tool is `EXEC_ARBITRARY`, and under `--policy` any call to it with arguments is denied by rule `default:bad_arguments` ([ADR 0036](0036-no-fallback-classifier.md)), so a missing profile never loosens policy |
 | **`design/`** | The Fathom tokens are the maintainer's design system, shared across products. Publishing them in an Apache-2.0 repository licenses them to everyone | Maintainer decision. Keep `design/` in the core for the CLI voice and docs, or move the Fathom files to their own repository under their own licence before the core becomes public. The policy layer (`policy.css`) may follow either way |
 
 ### 3. The extension seam
@@ -124,7 +124,7 @@ An extension may add an obligation or turn `allow` into `hold` or `deny`. It may
 These land in their own pull request once this record is accepted, before any outside contribution.
 
 - **LICENSE.** Replace MIT with the unmodified Apache-2.0 text. `GOVERNANCE.md` *Licence*, the README's *Licence* section, `CONTRIBUTING.md` and `license:` in `.goreleaser.yaml` change with it.
-- **NOTICE.** A `NOTICE` file with the project's copyright line and the third-party attributions the binary carries. On 2026-09-24, `go list -deps ./cmd/netguard` across linux, darwin and windows links these modules. The licence is read from each module's `LICENSE` file:
+- **NOTICE.** A `NOTICE` file with the project's copyright line and the third-party attributions the binary carries. On 2026-09-24, `go list -deps ./cmd/fathomgate` across linux, darwin and windows links these modules. The licence is read from each module's `LICENSE` file:
 
   | Module | Licence |
   | --- | --- |
@@ -201,7 +201,7 @@ This section records factual corrections and pointers (GOVERNANCE.md). It does n
 - [ADR 0007, role resolver chain with the source of truth optional](0007-role-resolver-chain-sot-optional.md)
 - [ADR 0012, `netguard serve` flags and the `internal/proxy` API for M0](0012-serve-cli-and-proxy-api-for-m0.md) (`Proxy.dispatch` as the M1 seam)
 - [ADR 0016, Streamable HTTP listener](0016-streamable-http-listener.md) (a principal is never an approver identity)
-- [audit-event-schema 8, exporters](../specs/audit-event-schema.md); [classification 3, fallback classifier](../specs/classification.md); [policy-schema, obligations](../specs/policy-schema.md)
+- [audit-event-schema 8, exporters](../specs/audit-event-schema.md); [classification 3, tools with no profile entry](../specs/classification.md#3-tools-with-no-profile-entry); [policy-schema, obligations](../specs/policy-schema.md)
 - [ROADMAP.md](../../ROADMAP.md), [PLAN.md milestones](../PLAN.md#milestones), [PRD.md requirements](../PRD.md#6-requirements)
 - [ci-runners.md](../ci-runners.md), section *Security*
 - [CONTRIBUTING.md, Sending a pull request](../../CONTRIBUTING.md#sending-a-pull-request); [GOVERNANCE.md, Licence](../../GOVERNANCE.md#licence)

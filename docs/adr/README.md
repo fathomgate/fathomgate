@@ -36,12 +36,13 @@ Records before [ADR 0019](0019-rename-to-fathomgate.md) use the placeholder name
 | [0026](0026-m1-policy-pipeline-at-dispatch.md) | The M1 policy pipeline at `Proxy.dispatch` | accepted | 2026-09-25 |
 | [0027](0027-serve-policy-inventory-profiles-flags.md) | `fathomgate serve --policy`, `--inventory` and `--profiles` in M1; `--audit` stays refused until M4 | accepted | 2026-09-25 |
 | [0028](0028-audit-key-custody.md) | Audit signing key custody: an owner-only file checked on every open, and a verifier that trusts only a public key | accepted | 2026-09-25 |
-| [0029](0029-remote-listener-tls-and-loopback-authentication.md) | Remote listening with built-in TLS, and letting an agent authenticate fathomgate on loopback | accepted in part (M1: Windows exclusive bind); remainder deferred to M2 | 2026-09-25 |
+| [0029](0029-remote-listener-tls-and-loopback-authentication.md) | Remote listening with built-in TLS, and letting an agent authenticate Fathomgate on loopback | accepted in part (M1: Windows exclusive bind); remainder deferred to M2 | 2026-09-25 |
 | [0030](0030-reload-policy-and-inventory.md) | Reloading the policy and inventory without a restart | proposed, deferred to M2 | 2026-09-25 |
 | [0031](0031-hostname-patterns-never-make-a-target-known.md) | A hostname pattern never makes a target known; it only adds attributes to a device listed elsewhere | accepted | 2026-09-25 |
 | [0032](0032-unset-unknown-target-denies-every-class.md) | An unset `defaults.unknown_target` denies every class | accepted | 2026-09-25 |
 | [0033](0033-closed-argument-list-per-tool.md) | A closed argument list per tool: an argument the profile does not name is denied | accepted | 2026-09-25 |
 | [0034](0034-source-available-under-fsl.md) | Future versions under the Functional Source License (`FSL-1.1-ALv2`); everything already published stays Apache-2.0 | accepted | 2026-09-25 |
 | [0035](0035-policy-test-cases-run-the-gate-path.md) | Policy test cases that carry arguments run the gate path | accepted | 2026-09-25 |
+| [0036](0036-no-fallback-classifier.md) | No fallback classifier; a tool with no profile entry is `EXEC_ARBITRARY` (supersedes ADR 0010's fallback classifier) | accepted | 2026-09-25 |
 
 Decisions still open are listed in [PLAN.md](../PLAN.md#open-questions-and-risks) and [PRD.md](../PRD.md#7-open-questions). Each will become a record when resolved.

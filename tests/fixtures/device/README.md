@@ -81,13 +81,13 @@ can pull it; the repository is public, so only the scheduled
 (docs/ci-runners.md); and `tests/clab/` does not exist yet. Moved to M3 by the
 maintainer 2026-09-25, alongside the change-safety drivers, which need real
 devices anyway (test-matrix.md run notes, M1-28 entry). Rows 3, 4, 5 and 6 do not
-depend on them: fathomgate denies these calls before they leave.
+depend on them: Fathomgate denies these calls before they leave.
 
 - Whether config lines after `end` in one `runCmds` call run outside the
   session, so that push_config's `["end", "reload now"]` would reload the
   switch even with `dry_run=True`. The tier 2 case shows only that eos-mcp
   sends those lines in one call with `configure session mcp-push` before
-  `abort`, and that fathomgate denies the call before it leaves. That
+  `abort`, and that Fathomgate denies the call before it leaves. That
   `reload now` is refused by the fake is not EOS behaviour.
 - `clock set`, `watch` and `terminal` from configuration mode, and an
   alias (`alias hn reload now`, then `hn`) inside a session.

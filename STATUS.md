@@ -4,7 +4,7 @@
 
 **Current milestone:** M1 — Classify + allow/deny · **state:** open; ADRs 0026 to 0028 accepted, 0029 accepted in part, 0030 deferred to M2 · opened 2026-09-25
 
-Tasks: open 4 · blocked 2 · in review 7 · merged 24 · dropped 5
+Tasks: open 2 · blocked 2 · in review 10 · merged 24 · dropped 5
 
 ## In flight
 
@@ -15,8 +15,8 @@ Tasks: open 4 · blocked 2 · in review 7 · merged 24 · dropped 5
 | M1-03 | Accept ADR 0028, audit signing key custody | `docs/adr` | joshscott13 | policy-engineer, security-reviewer | merged | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-04 | Accept ADR 0029, remote listening with built-in TLS and loopback authentication | `docs/adr` | joshscott13 | mcp-protocol-engineer, security-reviewer, release-engineer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
 | M1-06 | Label the upstream era from the negotiated protocol version, not from how fathomgate connected (N6) | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 2 | — |
-| M1-07 | Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2 | `docs/security` | security-reviewer | docs-writer | open | — | 15, 16 | — |
-| M1-08 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | open | — | — | — |
+| M1-07 | Record the PR #108 review's upstream-content findings in the threat model and route them to M1 and M2 | `docs/security` | security-reviewer | docs-writer | in review | — | 15, 16 | — |
+| M1-08 | Write the product name as Fathomgate in prose across docs (ADR 0019 voice rule) | `docs` | docs-writer | design-guardian | in review | — | — | — |
 | M1-09 | Check the audit signing key like every other secret file, and stop audit verify trusting a private key | `internal/audit` | policy-engineer | security-reviewer, go-reviewer | merged | — | — | [0028](docs/adr/0028-audit-key-custody.md) |
 | M1-11 | Report upstream that go-sdk's conformance everything-server sends a titled multi-select its own client rejects | `docs` | joshscott13 | mcp-protocol-engineer | open | — | — | — |
 | M1-13 | Profile for upa/mcp-netmiko-server, every surveyed tool mapped | `profiles` | upstream-server-scout | policy-engineer, security-reviewer | merged | — | 4 | — |
@@ -30,7 +30,7 @@ Tasks: open 4 · blocked 2 · in review 7 · merged 24 · dropped 5
 | M1-21 | Example policy cases for the M1 matrix rows, and the M1 behaviour of lab-open and prod-approval | `policies` | policy-engineer | security-reviewer | merged | — | 3, 4, 6 | — |
 | M1-22 | Tier 2 harness for eos-mcp run_command behind fathomgate, with a fake eAPI device | `tests/integration` | test-engineer | upstream-server-scout, release-engineer | merged | — | 4 | — |
 | M1-23 | Classify plus evaluate overhead under 5 ms at p99, measured in tier 1 | `internal/gate` | test-engineer | go-reviewer | merged | M1-18 | — | — |
-| M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | open | — | 5, 6 | — |
+| M1-24 | Reconcile the M1 test-matrix rows and specs with the code and PLAN | `docs` | docs-writer | policy-engineer, test-engineer | in review | — | 3, 4, 5, 6 | — |
 | M1-27 | Bind listener sockets with SO_EXCLUSIVEADDRUSE on Windows; update the port-squatting threat-model row | `cmd/fathomgate` | mcp-protocol-engineer | security-reviewer, go-reviewer | merged | — | 23 | [0029](docs/adr/0029-remote-listener-tls-and-loopback-authentication.md) |
 | M1-28 | Validate rows 3, 4 and 6 through serve --policy against netdev-ssh-mcp, upa/mcp-netmiko-server and eos-mcp run_command | `tests/integration` | test-engineer | go-reviewer, security-reviewer | in review | M1-13, M1-14, M1-20, M1-21, M1-22 | 3, 4, 5, 6 | — |
 | M1-29 | Release v0.2.0 from the M1 CHANGELOG section | `.goreleaser.yaml` | release-engineer | go-reviewer, docs-writer | blocked | M1-28 | — | — |
@@ -47,6 +47,7 @@ Tasks: open 4 · blocked 2 · in review 7 · merged 24 · dropped 5
 | M1-40 | Deflake the loopback bind tests (other family taken, release after refusal) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer, test-engineer | merged | — | — | — |
 | M1-41 | Retry the serve listener tests only on address in use (typed error from run) | `cmd/fathomgate` | mcp-protocol-engineer | go-reviewer | in review | — | — | — |
 | M1-42 | Secret scanner (gitleaks) in CI for the repository and fixtures | `.github/workflows` | release-engineer | security-reviewer, test-engineer | in review | — | — | — |
+| M1-43 | Tier 1 test - a hostile upstream Instructions string never reaches the agent, both eras | `internal/proxy` | mcp-protocol-engineer | security-reviewer, go-reviewer | open | — | — | — |
 
 ## Done this milestone
 
